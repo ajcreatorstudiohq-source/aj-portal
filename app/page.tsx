@@ -107,9 +107,9 @@ export default function AJSuperPortal() {
             <div className="h-1 w-0 group-hover:w-full bg-pink-500 transition-all duration-300 mt-1"></div>
           </div>
 
-          {/* AJ Coin Module (Using coin.jpg) */}
+          {/* AJ Coin Module (Using gold.jpg) */}
           <div className="group bg-white/5 border-2 border-yellow-500/30 rounded-2xl p-6 h-44 flex flex-col items-center justify-center hover:border-yellow-400 transition-all cursor-pointer backdrop-blur-md hover:-translate-y-1">
-            <img src="/coin.jpg" alt="AJ Coin" className="w-16 h-16 object-contain mb-2 drop-shadow-[0_0_10px_rgba(234,179,8,0.4)]" />
+            <img src="/gold.jpg" alt="AJ Coin" className="w-16 h-16 object-contain mb-2 drop-shadow-[0_0_10px_rgba(234,179,8,0.4)]" />
             <h2 className="font-black text-sm md:text-lg uppercase text-yellow-500">AJ Coin</h2>
             <div className="h-1 w-0 group-hover:w-full bg-yellow-500 transition-all duration-300 mt-1"></div>
           </div>
@@ -135,13 +135,13 @@ export default function AJSuperPortal() {
         </div>
       </section>
 
-      {/* 4. MEET THE FOUNDER SECTION (Using founder.jpg) */}
+      {/* 4. MEET THE FOUNDER SECTION (Using ali.jpg) */}
       <section className="py-24 bg-black/40 backdrop-blur-xl relative">
         <div className="max-w-5xl mx-auto px-6 flex flex-col md:flex-row items-center gap-16">
           <div className="relative group">
              <div className="absolute -inset-2 bg-gradient-to-r from-cyan-500 to-pink-500 rounded-3xl blur opacity-20 group-hover:opacity-40 transition duration-1000"></div>
              <div className="relative bg-[#050505] rounded-3xl p-2 border border-white/10 shadow-2xl">
-                <img src="/founder.jpg" alt="Ali Asim" className="w-72 h-96 object-cover rounded-2xl" />
+                <img src="/ali.jpg" alt="Ali Asim" className="w-72 h-96 object-cover rounded-2xl" />
              </div>
           </div>
           <div className="flex-1 text-center md:text-left">
