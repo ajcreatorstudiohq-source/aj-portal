@@ -87,32 +87,17 @@ await setPersistence(auth, browserLocalPersistence);
 await signInWithPopup(auth, googleProvider);
 };
 
-// --- FIX 1: NEW PAYMENT LINK GENERATOR ---
+// --- PAYMENT FIX ---
 const handlePurchase = async () => {
   try {
     const res = await fetch('https://api.nowpayments.io/v1/invoice', {
       method: 'POST',
-      headers: {
-        'x-api-key': '3THXNSZ-AYVMTP6-HQ9KGKK-9J6CQD7',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        price_amount: purchaseAmount,
-        price_currency: "usd",
-        pay_currency: "usdttrc20",
-        order_id: `AJ_${Date.now()}`,
-        order_description: `Deposit for ${user?.email}`
-      })
+      headers: { 'x-api-key': '3THXNSZ-AYVMTP6-HQ9KGKK-9J6CQD7', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ price_amount: purchaseAmount, price_currency: "usd", pay_currency: "usdttrc20", order_id: `AJ_${Date.now()}` })
     });
     const data = await res.json();
-    if (data.invoice_url) {
-      window.open(data.invoice_url, '_blank');
-    } else {
-      alert("Error: Minimum $20 required for TRC-20");
-    }
-  } catch (e) {
-    alert("Payment Service Error!");
-  }
+    if (data.invoice_url) window.open(data.invoice_url, '_blank');
+  } catch (e) { alert("Payment API Error"); }
 };
 
 const handleTransfer = async () => {
@@ -205,7 +190,7 @@ return (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-6 max-w-5xl mx-auto pb-20">
             {['Rider King', 'Pulse Racer', 'Subsea Surge', 'Neon Strike', 'Volcano Escape', 'Ludo', 'Air Hockey'].map((game) => (
               <div key={game} onClick={() => setSelectedGame(game)} className="bg-white/5 border border-white/10 p-6 rounded-3xl text-center hover:border-cyan-400 cursor-pointer transition-all">
-                {/* FIX 2: POSTER SHOWING LOGO.PNG */}
+                {/* POSTER FIX: USING LOGO.PNG */}
                 <img src="/logo.png" className="w-full aspect-video rounded-xl mb-4 object-cover" alt="Poster" />
                 <h3 className="font-black text-sm uppercase">{game}</h3>
                 <button className="mt-4 bg-cyan-500 text-black text-[10px] font-black px-4 py-2 rounded-full">PLAY NOW</button>
