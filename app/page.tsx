@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { auth, db, googleProvider } from '../firebaseConfig';
 import { signInWithPopup, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, updateDoc, increment, collection, addDoc, getDoc } from 'firebase/firestore';
-import { MessageCircle, Trophy, Zap, Wallet, Bot, LogOut, Globe, ChevronRight, Send, CreditCard, ArrowUpRight, ShieldCheck, Crown, Activity, TrendingUp, X } from 'lucide-react';
+import { MessageCircle, Trophy, Zap, Wallet, Bot, LogOut, Globe, ChevronRight, Send, CreditCard, ArrowUpRight, ShieldCheck, Crown, Activity, TrendingUp, X, CheckCircle2 } from 'lucide-react';
 
 export default function AJSuperPortal() {
 const [screen, setScreen] = useState('splash');
@@ -29,7 +29,7 @@ const [cardName, setCardName] = useState('');
 const [cardNumber, setCardNumber] = useState('');
 const usdtValue = (balance / 100).toFixed(2);
 
-// --- SDK MESSAGE LISTENER (The Profit Engine) ---
+// --- SDK MESSAGE LISTENER ---
 useEffect(() => {
 const handleSDKMessages = async (event) => {
 if (!user) return;
@@ -57,10 +57,9 @@ return () => {
 };
 }, [user]);
 
-// --- AI REAL-TIME TRADING LOGIC (Visual + 15m DB Sync) ---
+// --- AI REAL-TIME TRADING LOGIC (15m DB Sync) ---
 useEffect(() => {
   if (user && botTier !== 'none' && invested > 0) {
-    // 1. Logs Generator (UI feel ke liye)
     const logInt = setInterval(() => {
       const pairs = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT"];
       const actions = ["Analysing", "Scalping", "Hedging", "Executing"];
@@ -68,22 +67,19 @@ useEffect(() => {
       setTradeLogs(prev => [newLog, ...prev.slice(0, 4)]);
     }, 5000);
 
-    // 2. Visual Profit Counter (Per Second)
     const visualInt = setInterval(() => {
       const dailyRate = botTier === 'vvip' ? 0.05 : 0.02;
       const profitPerSec = (invested * dailyRate) / 86400;
       setVisualProfit(prev => prev + profitPerSec);
     }, 1000);
 
-    // 3. Database Sync (Every 15 Minutes)
     const dbSyncInt = setInterval(async () => {
       if (visualProfit >= 1) {
         const amountToSync = Math.floor(visualProfit);
-        const userRef = doc(db, "users", user.uid);
-        await updateDoc(userRef, { balance: increment(amountToSync) });
-        setVisualProfit(prev => prev - amountToSync); // Sirf utna minus karo jo DB mein gaya
+        await updateDoc(doc(db, "users", user.uid), { balance: increment(amountToSync) });
+        setVisualProfit(prev => prev - amountToSync);
       }
-    }, 900000); // 15 Minutes = 900,000ms
+    }, 900000);
 
     return () => { clearInterval(logInt); clearInterval(visualInt); clearInterval(dbSyncInt); };
   }
@@ -128,13 +124,7 @@ const handlePurchase = async () => {
     const res = await fetch('https://api.nowpayments.io/v1/invoice', {
       method: 'POST',
       headers: { 'x-api-key': '3THXNSZ-AYVMTP6-HQ9KGKK-9J6CQD7', 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        price_amount: purchaseAmount,
-        price_currency: "usd",
-        pay_currency: "usdttrc20",
-        order_id: `AJ_${Date.now()}`,
-        order_description: `Deposit for ${user?.email}`
-      })
+      body: JSON.stringify({ price_amount: purchaseAmount, price_currency: "usd", pay_currency: "usdttrc20", order_id: `AJ_${Date.now()}` })
     });
     const data = await res.json();
     if (data.invoice_url) { window.open(data.invoice_url, '_blank'); }
@@ -163,7 +153,8 @@ alert("✅ Request Sent!"); setWalletTab('main');
 const activateBot = async (tier, cost) => {
 if (balance < cost) return alert(`⚠️ Need ${cost} Coins!`);
 await updateDoc(doc(db, "users", user.uid), { balance: increment(-cost), botTier: tier, invested: cost });
-alert("🚀 BOT ACTIVE!");
+setVisualProfit(0); // Reset for new tier
+alert(`🚀 ${tier.toUpperCase()} BOT ACTIVE!`);
 };
 
 if (screen === 'splash') return (
@@ -283,37 +274,62 @@ return (
   )}
 
   {screen === 'ai' && (
-    <div className="fixed inset-0 z-[200] bg-black flex flex-col items-center p-8 overflow-y-auto animate-in slide-in-from-right">
+    <div className="fixed inset-0 z-[200] bg-black flex flex-col items-center p-8 overflow-y-auto animate-in slide-in-from-right pb-20">
        <button onClick={() => setScreen('hub')} className="self-start text-green-400 font-bold text-sm mb-12 uppercase">← Back</button>
        <h2 className="text-5xl font-black mb-12 text-center uppercase text-white italic">AJ AI BOT</h2>
-       {botTier === 'none' ? (
-         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-4xl px-2">
-            <div onClick={() => activateBot('basic', 2500)} className="bg-white/5 border border-white/10 p-10 rounded-3xl text-center hover:border-cyan-500 cursor-pointer"><h3 className="text-xl font-black text-cyan-400 uppercase">Basic (+2% Daily)</h3><p className="text-3xl font-black text-white my-6">2,500 Coins</p><button className="w-full py-4 bg-cyan-600 rounded-xl font-black uppercase">Activate</button></div>
-            <div onClick={() => activateBot('vvip', 7500)} className="bg-white/5 border-2 border-yellow-500/30 p-10 rounded-3xl text-center shadow-2xl hover:border-yellow-500 cursor-pointer"><h3 className="text-xl font-black text-yellow-500 uppercase">VVIP (+5% Daily)</h3><p className="text-3xl font-black text-white my-6">7,500 Coins</p><button className="w-full py-4 bg-yellow-600 rounded-xl font-black text-black uppercase">Activate</button></div>
-         </div>
-       ) : (
-         <div className="w-full max-w-2xl bg-white/5 border-2 border-green-500/40 p-16 rounded-[4rem] text-center">
-            <Activity size={80} className="mx-auto mb-10 text-green-500 animate-pulse" />
-            <h2 className="text-5xl font-black uppercase text-white mb-4">{botTier.toUpperCase()} BOT ACTIVE</h2>
-            
-            {/* NEW REAL-TIME TRADING TERMINAL */}
+       
+       {/* 1. STATUS TERMINAL (Hamesha dikhayega agar koi bhi bot active hai) */}
+       {botTier !== 'none' && (
+         <div className="w-full max-w-2xl bg-white/5 border-2 border-green-500/40 p-8 rounded-[3rem] text-center mb-16">
+            <Activity size={60} className="mx-auto mb-6 text-green-500 animate-pulse" />
+            <h2 className="text-4xl font-black uppercase text-white mb-2">{botTier.toUpperCase()} BOT ACTIVE</h2>
             <div className="w-full bg-black/50 border border-green-500/30 p-6 rounded-2xl font-mono text-[10px] text-left">
                <div className="flex justify-between mb-4 border-b border-green-500/20 pb-2">
-                  <span className="text-green-400">UNSYNCED PROFIT:</span>
+                  <span className="text-green-400 uppercase">Neural Profit:</span>
                   <span className="text-white font-black text-lg">+{visualProfit.toFixed(4)} 🪙</span>
                </div>
-               <div className="h-24 overflow-hidden text-green-500/70">
+               <div className="h-20 overflow-hidden text-green-500/70">
                   {tradeLogs.map((log, i) => ( <div key={i} className="mb-1">{log}</div> ))}
                </div>
-               <p className="mt-4 text-gray-500 italic text-[8px] text-center">Auto-syncing to Database every 15 minutes...</p>
-            </div>
-
-            <div className="mt-8 bg-green-500/20 py-5 rounded-2xl border border-green-500/50 flex items-center justify-center gap-2">
-               <TrendingUp size={24} className="text-green-400" />
-               <span className="font-black text-xl text-green-400 uppercase tracking-tighter">AI TRADING LIVE...</span>
             </div>
          </div>
        )}
+
+       {/* 2. BOT STORE (Dono bots hamesha dikhenge) */}
+       <div className="w-full max-w-4xl">
+          <h3 className="text-xl font-black text-gray-500 uppercase text-center mb-8 tracking-widest">Bot Marketplace</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 px-2">
+            
+            {/* BASIC CARD */}
+            <div className={`p-10 rounded-3xl text-center border-2 transition-all ${botTier === 'basic' ? 'border-green-500 bg-green-500/5' : 'border-white/10 bg-white/5 hover:border-cyan-500'}`}>
+                <h3 className="text-xl font-black text-cyan-400 uppercase">Basic (+2% Daily)</h3>
+                <p className="text-3xl font-black text-white my-6">2,500 Coins</p>
+                {botTier === 'basic' ? (
+                   <div className="flex items-center justify-center gap-2 text-green-400 font-black uppercase bg-green-500/20 py-4 rounded-xl border border-green-500/50">
+                      <CheckCircle2 size={18}/> Running
+                   </div>
+                ) : (
+                   <button onClick={() => activateBot('basic', 2500)} className="w-full py-4 bg-cyan-600 rounded-xl font-black uppercase active:scale-95">Activate</button>
+                )}
+            </div>
+
+            {/* VVIP CARD */}
+            <div className={`p-10 rounded-3xl text-center border-2 transition-all ${botTier === 'vvip' ? 'border-yellow-500 bg-yellow-500/5' : 'border-yellow-500/20 bg-white/5 hover:border-yellow-500'}`}>
+                <h3 className="text-xl font-black text-yellow-500 uppercase">VVIP (+5% Daily)</h3>
+                <p className="text-3xl font-black text-white my-6">7,500 Coins</p>
+                {botTier === 'vvip' ? (
+                   <div className="flex items-center justify-center gap-2 text-yellow-500 font-black uppercase bg-yellow-500/20 py-4 rounded-xl border border-yellow-500/50">
+                      <CheckCircle2 size={18}/> Running
+                   </div>
+                ) : (
+                   <button onClick={() => activateBot('vvip', 7500)} className="w-full py-4 bg-yellow-600 rounded-xl font-black text-black uppercase active:scale-95">
+                      {botTier === 'basic' ? "Upgrade Now" : "Activate"}
+                   </button>
+                )}
+            </div>
+
+          </div>
+       </div>
     </div>
   )}
 
@@ -328,7 +344,6 @@ return (
                </div>
             ))}
         </div>
-    </div>
   )}
 
   <section className="py-20 bg-black flex justify-center px-4 border-y border-white/5"><img src="/founder_card.jpg" className="w-full max-w-4xl rounded-3xl shadow-2xl" /></section>
