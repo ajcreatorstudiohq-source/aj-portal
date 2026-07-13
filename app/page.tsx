@@ -29,8 +29,9 @@ const [cardName, setCardName] = useState('');
 const [cardNumber, setCardNumber] = useState('');
 
 // Header Visual Balance (Real DB Balance + Current Live Profit)
-const displayBalance = Math.floor(balance + visualProfit);
-const displayUsdt = (displayBalance / 100).toFixed(2);
+// FIX: floor hata kar toFixed(2) kiya taake barhta hua dikhe
+const displayBalance = (balance + visualProfit).toFixed(2);
+const displayUsdt = ((balance + visualProfit) / 100).toFixed(2);
 
 // --- SDK MESSAGE LISTENER ---
 useEffect(() => {
@@ -60,36 +61,39 @@ return () => {
 };
 }, [user]);
 
-// --- AI REAL-TIME LOGIC (15m DB Sync + Header Sync) ---
+// --- AI REAL-TIME LOGIC (FIXED SYNC) ---
 useEffect(() => {
+  let logInt, visualInt, dbSyncInt;
+  
   if (user && botTier !== 'none' && invested > 0) {
-    // 1. Live Trading Logs
-    const logInt = setInterval(() => {
+    logInt = setInterval(() => {
       const pairs = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT"];
       const actions = ["Analysing", "Scalping", "Hedging", "Executing"];
       const newLog = `[${new Date().toLocaleTimeString()}] ${actions[Math.floor(Math.random()*actions.length)]} ${pairs[Math.floor(Math.random()*pairs.length)]}...`;
       setTradeLogs(prev => [newLog, ...prev.slice(0, 4)]);
     }, 5000);
 
-    // 2. Visual Profit Counter (Per Second)
-    const visualInt = setInterval(() => {
-      const dailyRate = botTier === 'vvip' ? 0.05 : 0.02;
-      const profitPerSec = (invested * dailyRate) / 86400;
+    const dailyRate = botTier === 'vvip' ? 0.05 : 0.02;
+    const profitPerSec = (invested * dailyRate) / 86400;
+
+    visualInt = setInterval(() => {
       setVisualProfit(prev => prev + profitPerSec);
     }, 1000);
 
-    // 3. Database Sync (Every 15 Minutes)
-    const dbSyncInt = setInterval(async () => {
-      if (visualProfit >= 1) {
-        const amountToSync = Math.floor(visualProfit);
-        await updateDoc(doc(db, "users", user.uid), { balance: increment(amountToSync) });
-        setVisualProfit(prev => prev - amountToSync);
-      }
-    }, 900000);
-
-    return () => { clearInterval(logInt); clearInterval(visualInt); clearInterval(dbSyncInt); };
+    dbSyncInt = setInterval(async () => {
+      setVisualProfit(currentProfit => {
+        if (currentProfit >= 1) {
+          const amountToSync = Math.floor(currentProfit);
+          updateDoc(doc(db, "users", user.uid), { balance: increment(amountToSync) });
+          return currentProfit - amountToSync;
+        }
+        return currentProfit;
+      });
+    }, 900000); // 15 Minutes
   }
-}, [user, botTier, invested, visualProfit]);
+
+  return () => { clearInterval(logInt); clearInterval(visualInt); clearInterval(dbSyncInt); };
+}, [user, botTier, invested]);
 
 useEffect(() => {
 if (screen === 'splash') {
@@ -187,7 +191,7 @@ return (
 <header className="fixed top-0 w-full p-4 flex justify-between items-center z-[100] bg-black/80 backdrop-blur-xl border-b border-white/5">
 <div className="text-xl font-black italic text-cyan-400">AJ STUDIO</div>
 <div className="flex items-center gap-3">
-{/* HEADER SYNC: DB Balance + Visual Profit */}
+{/* HEADER SYNC FIX */}
 <div onClick={() => {setScreen('wallet'); setWalletTab('main')}} className="flex items-center gap-3 bg-white/5 px-4 py-2 rounded-full border border-white/10 shadow-lg cursor-pointer">
 <span className="text-xs font-black text-yellow-500">{displayBalance} 🪙</span>
 <span className="text-[10px] text-green-400 font-bold">${displayUsdt}</span>
@@ -230,7 +234,6 @@ return (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-6 max-w-5xl mx-auto pb-20">
             {['Rider King', 'Pulse Racer', 'Subsea Surge', 'Neon Strike', 'Volcano Escape', 'Ludo', 'Air Hockey'].map((game) => (
               <div key={game} onClick={() => setSelectedGame(game)} className="bg-white/5 border border-white/10 p-6 rounded-3xl text-center hover:border-cyan-400 cursor-pointer transition-all">
-                {/* DYNAMIC POSTER FALLBACK */}
                 <img src={`/games/${game.toLowerCase().replace(/ /g, '-')}/logo.png`} className="w-full aspect-video rounded-xl mb-4 object-cover" alt={game} onError={(e) => { e.target.src = "/logo.jpg"; }} />
                 <h3 className="font-black text-sm uppercase">{game}</h3>
                 <button className="mt-4 bg-cyan-500 text-black text-[10px] font-black px-4 py-2 rounded-full">PLAY NOW</button>
@@ -263,7 +266,7 @@ return (
                 <p className="text-cyan-400 text-xs font-black uppercase tracking-widest">Method: Binance Pay (USDT)</p>
               </div>
               <div className="bg-black border-2 border-white/10 p-6 rounded-3xl text-center">
-                <p className="text-yellow-500 text-4xl font-black mb-1">{purchaseAmount * 100} 🪙</p>
+                <p className="text-yellow-500 text-4xl font-black mb-1">{(purchaseAmount * 100)} 🪙</p>
                 <input type="number" value={purchaseAmount} onChange={(e)=>setPurchaseAmount(Number(e.target.value))} className="w-full bg-transparent text-white text-2xl text-center outline-none font-bold" />
                 <p className="text-gray-500 text-[10px] mt-2 font-black uppercase">Enter USD (Min $20)</p>
               </div>
