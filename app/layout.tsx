@@ -28,7 +28,7 @@ export default function RootLayout({
         {/* 1. MONETAG VERIFICATION TAG */}
         <meta name="monetag" content="9aaedb10af8b3eddc9af804041bc39dd" />
 
-        {/* 2. MONETAG MULTITAG (ADS ENGINE) */}
+        {/* 2. MONETAG MULTITAG (ADS ENGINE - ZONE 259219) */}
         <script 
           src="https://quge5.com/88/tag.min.js" 
           data-zone="259219" 

@@ -16,7 +16,8 @@ export default function AJSuperPortal() {
   const [selectedGame, setSelectedGame] = useState<string | null>(null);
 
   // Input States
-  const [purchaseAmount, setPurchaseAmount] = useState(5);
+  const [purchaseAmount, setPurchaseAmount] = useState(20); // CEO: Set to $20 to avoid fee issues
+  const [purchaseMethod, setPurchaseMethod] = useState('Binance Pay (USDT)');
   const [transferId, setTransferId] = useState('');
   const [transferAmount, setTransferAmount] = useState(0);
   const [payoutMethod, setPayoutMethod] = useState('Binance Pay (USDT)');
@@ -29,23 +30,39 @@ export default function AJSuperPortal() {
   // --- SDK MESSAGE LISTENER (The Profit Engine) ---
   useEffect(() => {
     const handleSDKMessages = async (event: any) => {
-      if (!user || !event.data) return;
-      const { type, coins, profit } = event.data;
+      // Listen for both message events and custom sync events
+      if (!user) return;
+      
+      const data = event.detail || event.data;
+      if (!data) return;
 
-      if (type === "ADD_AD_REVENUE" || type === "SYNC_GAME_COINS") {
+      const { type, amount, coins, profit } = data;
+
+      // Handle Sync from Games (updateFirebaseBalance event from SDK)
+      if (type === 'EARNED' || type === "ADD_AD_REVENUE" || type === "SYNC_GAME_COINS") {
+        const reward = amount || coins;
+        if(!reward) return;
+
         const userRef = doc(db, "users", user.uid);
         const adminRef = doc(db, "admin_ledger", "platform_stats");
 
-        // 1. Update User (30% Share)
-        await updateDoc(userRef, { balance: increment(coins) });
+        // 1. Update User (30% Share logic via SDK)
+        await updateDoc(userRef, { balance: increment(reward) });
+        
         // 2. Update Ali's Secret Vault (70% Share)
         if (profit) {
           await updateDoc(adminRef, { total_locked_profit: increment(profit) });
         }
       }
     };
+    
     window.addEventListener("message", handleSDKMessages);
-    return () => window.removeEventListener("message", handleSDKMessages);
+    window.addEventListener('updateFirebaseBalance', handleSDKMessages as any);
+    
+    return () => {
+        window.removeEventListener("message", handleSDKMessages);
+        window.removeEventListener('updateFirebaseBalance', handleSDKMessages as any);
+    };
   }, [user]);
 
   useEffect(() => {
@@ -82,7 +99,23 @@ export default function AJSuperPortal() {
     await signInWithPopup(auth, googleProvider);
   };
 
-  const handlePurchase = () => window.open("https://nowpayments.io/payment/?iid=6119249758&paymentId=4656497174", '_blank');
+  const handlePurchase = async () => {
+    if (purchaseMethod === 'Binance Pay (USDT)') {
+      window.open("https://nowpayments.io/payment/?iid=6119249758&paymentId=4656497174", '_blank');
+    } else {
+      // Manual methods (EasyPaisa/JazzCash/Visa)
+      await addDoc(collection(db, "purchase_requests"), { 
+        uid: user.uid, 
+        email: user.email,
+        amount: purchaseAmount, 
+        method: purchaseMethod, 
+        status: "pending", 
+        date: new Date() 
+      });
+      alert("✅ Order Placed! Please send proof to CEO Ali via WhatsApp.");
+      setWalletTab('main');
+    }
+  };
 
   const handleTransfer = async () => {
     if (transferAmount <= 0 || transferAmount > balance) return alert("Invalid Amount!");
@@ -170,7 +203,7 @@ export default function AJSuperPortal() {
         </div>
       </section>
 
-      {/* ARCADE SECTION (NEW) */}
+      {/* ARCADE SECTION */}
       {screen === 'arcade' && (
         <div className="fixed inset-0 z-[300] bg-black p-8 overflow-y-auto">
             <button onClick={() => {setScreen('hub'); setSelectedGame(null)}} className="text-cyan-400 font-bold mb-10">← BACK TO HUB</button>
@@ -186,13 +219,13 @@ export default function AJSuperPortal() {
               </div>
             ) : (
               <div className="w-full h-[80vh] bg-black rounded-3xl border-2 border-cyan-500 overflow-hidden relative shadow-[0_0_50px_rgba(6,182,212,0.3)]">
-                 <iframe src={`/arcade/${selectedGame.toLowerCase().replace(' ', '-')}/index.html`} className="w-full h-full border-none" title="Game" />
+                 <iframe src={`/games/${selectedGame.toLowerCase().replace(' ', '-')}/index.html`} className="w-full h-full border-none" title="Game" />
               </div>
             )}
         </div>
       )}
 
-      {/* OTHER MODALS (WALLET, AI, SOCIAL) - PRESERVED EXACTLY */}
+      {/* WALLET MODAL */}
       {screen === 'wallet' && (
         <div className="fixed inset-0 z-[300] bg-black/98 flex flex-col items-center p-8 overflow-y-auto">
            <button onClick={() => {setScreen('hub'); setWalletTab('main')}} className="self-start text-cyan-400 mb-8 font-bold">← BACK</button>
@@ -206,7 +239,20 @@ export default function AJSuperPortal() {
                 </div>
               )}
               {walletTab === 'purchase' && (
-                <div className="flex flex-col gap-5"><input type="number" value={purchaseAmount} onChange={(e)=>setPurchaseAmount(Number(e.target.value))} className="bg-black border-2 border-white/10 p-5 rounded-2xl text-4xl text-center text-white" /><button onClick={handlePurchase} className="bg-cyan-500 py-4 rounded-xl font-black">PAY NOW</button><button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center">CANCEL</button></div>
+                <div className="flex flex-col gap-5 text-left">
+                  <select value={purchaseMethod} onChange={(e)=>setPurchaseMethod(e.target.value)} className="w-full bg-gray-900 border border-white/20 p-4 rounded-xl text-white font-bold mb-2">
+                    <option>Binance Pay (USDT)</option>
+                    <option>EasyPaisa (PKR)</option>
+                    <option>JazzCash (PKR)</option>
+                    <option>Visa Card (Global)</option>
+                  </select>
+                  <div className="relative">
+                    <input type="number" value={purchaseAmount} onChange={(e)=>setPurchaseAmount(Number(e.target.value))} className="w-full bg-black border-2 border-white/10 p-5 rounded-2xl text-4xl text-center text-white" />
+                    <p className="text-center text-[10px] text-gray-500 mt-2 uppercase font-black">Min Purchase: $20</p>
+                  </div>
+                  <button onClick={handlePurchase} className="bg-cyan-500 py-4 rounded-xl font-black uppercase mt-2">Continue to Payment</button>
+                  <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase">Cancel</button>
+                </div>
               )}
               {walletTab === 'transfer' && (
                 <div className="flex flex-col gap-4 text-left"><div className="mb-4 p-4 bg-black border border-dashed border-white/20 rounded-xl text-center"><p className="text-[10px] text-gray-500 uppercase font-black mb-1">Your ID:</p><p className="text-cyan-400 font-mono text-xs break-all font-bold">{user?.uid}</p></div><input type="text" placeholder="Recipient ID" onChange={(e)=>setTransferId(e.target.value)} className="bg-black border p-4 rounded-xl text-center text-white outline-none" /><input type="number" placeholder="Amount" onChange={(e)=>setTransferAmount(Number(e.target.value))} className="bg-black border p-4 rounded-xl text-center text-white outline-none" /><button onClick={handleTransfer} className="bg-cyan-600 py-4 rounded-xl font-black uppercase">Send Now</button><button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center">BACK</button></div>

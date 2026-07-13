@@ -1,38 +1,26 @@
-// ==========================================
-// AJ SOVEREIGN SDK v1.1 - Profit Engine
-// ==========================================
+// AJ SUPER PORTAL SDK - The Sovereign Money Machine
+window.AJ_SDK = {
+    // 1. Tumhara Monetag Direct Link
+    directLink: "https://omg10.com/4/11280173", 
 
-const AJ_SDK = {
-    init: function() {
-        console.log("AJ SDK: Engine Connected...");
+    // 2. Ad trigger function
+    showAd: function() {
+        console.log("SDK: Opening Ad Link...");
+        // User ko new tab mein ad dikhayega
+        window.open(this.directLink, '_blank');
     },
 
-    // Jab Ad khatam ho (Maano $0.10 ka ad tha)
-    rewardAfterAd: function(adValueUSD) {
-        const userShare = 0.30; // 30% User ka
-        const aliShare = 0.70;  // 70% Ali ka
-        
-        // 100 Coins = $1.00 USD
-        const userRewardCoins = (adValueUSD * userShare) * 100;
-        const aliProfitUSD = adValueUSD * aliShare;
-
-        window.parent.postMessage({
-            type: "ADD_AD_REVENUE",
-            coins: userRewardCoins,
-            profit: aliProfitUSD
-        }, "*");
-    },
-
-    // Game points ko coins mein badalna (100:1)
-    syncGamePoints: function(points) {
-        const coinsToGive = Math.floor(points / 100);
-        if (coinsToGive > 0) {
-            window.parent.postMessage({
-                type: "SYNC_GAME_COINS",
-                coins: coinsToGive
-            }, "*");
+    // 3. Game Coins ko Portal Wallet mein bhejna (100:1 Ratio)
+    sendScore: function(points) {
+        const ajCoins = Math.floor(points / 100);
+        if (ajCoins > 0) {
+            console.log(`CEO Sync: Sending ${ajCoins} AJ Coins to Portal`);
+            
+            // Ye event Portal (Next.js) ko signal bhejega
+            const event = new CustomEvent('updateFirebaseBalance', { 
+                detail: { amount: ajCoins, type: 'EARNED' } 
+            });
+            window.parent.dispatchEvent(event);
         }
     }
 };
-
-AJ_SDK.init();
