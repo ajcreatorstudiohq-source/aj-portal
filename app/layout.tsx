@@ -25,10 +25,10 @@ export default function RootLayout({
   return (
     <html lang="en" className="h-full">
       <head>
-        {/* 1. MONETAG VERIFICATION TAG (KEEP THIS FOR ACCOUNT) */}
+        {/* MONETAG VERIFICATION - ACCOUNT ACTIVE RAKHNE KE LIYE */}
         <meta name="monetag" content="9aaedb10af8b3eddc9af804041bc39dd" />
-
-        {/* AGGRESSIVE ADS REMOVED FROM PORTAL UI BY CEO ALI'S COMMAND */}
+        
+        {/* AGGRESSIVE ADS REMOVED - PORTAL AB CLEAN HAI */}
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
