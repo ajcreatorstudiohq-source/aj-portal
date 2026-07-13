@@ -16,7 +16,7 @@ export default function AJSuperPortal() {
   const [selectedGame, setSelectedGame] = useState<string | null>(null);
 
   // Input States
-  const [purchaseAmount, setPurchaseAmount] = useState(20); // CEO: Set to $20 to avoid fee issues
+  const [purchaseAmount, setPurchaseAmount] = useState(20); // Default set to $20
   const [purchaseMethod, setPurchaseMethod] = useState('Binance Pay (USDT)');
   const [transferId, setTransferId] = useState('');
   const [transferAmount, setTransferAmount] = useState(0);
@@ -27,38 +27,25 @@ export default function AJSuperPortal() {
 
   const usdtValue = (balance / 100).toFixed(2);
 
-  // --- SDK MESSAGE LISTENER (The Profit Engine) ---
+  // --- SDK MESSAGE LISTENER ---
   useEffect(() => {
     const handleSDKMessages = async (event: any) => {
-      // Listen for both message events and custom sync events
       if (!user) return;
-      
       const data = event.detail || event.data;
       if (!data) return;
-
       const { type, amount, coins, profit } = data;
 
-      // Handle Sync from Games (updateFirebaseBalance event from SDK)
       if (type === 'EARNED' || type === "ADD_AD_REVENUE" || type === "SYNC_GAME_COINS") {
         const reward = amount || coins;
         if(!reward) return;
-
         const userRef = doc(db, "users", user.uid);
         const adminRef = doc(db, "admin_ledger", "platform_stats");
-
-        // 1. Update User (30% Share logic via SDK)
         await updateDoc(userRef, { balance: increment(reward) });
-        
-        // 2. Update Ali's Secret Vault (70% Share)
-        if (profit) {
-          await updateDoc(adminRef, { total_locked_profit: increment(profit) });
-        }
+        if (profit) { await updateDoc(adminRef, { total_locked_profit: increment(profit) }); }
       }
     };
-    
     window.addEventListener("message", handleSDKMessages);
     window.addEventListener('updateFirebaseBalance', handleSDKMessages as any);
-    
     return () => {
         window.removeEventListener("message", handleSDKMessages);
         window.removeEventListener('updateFirebaseBalance', handleSDKMessages as any);
@@ -103,16 +90,16 @@ export default function AJSuperPortal() {
     if (purchaseMethod === 'Binance Pay (USDT)') {
       window.open("https://nowpayments.io/payment/?iid=6119249758&paymentId=4656497174", '_blank');
     } else {
-      // Manual methods (EasyPaisa/JazzCash/Visa)
       await addDoc(collection(db, "purchase_requests"), { 
         uid: user.uid, 
         email: user.email,
         amount: purchaseAmount, 
+        coins: purchaseAmount * 100,
         method: purchaseMethod, 
         status: "pending", 
         date: new Date() 
       });
-      alert("✅ Order Placed! Please send proof to CEO Ali via WhatsApp.");
+      alert(`✅ Order Placed for ${purchaseAmount * 100} Coins! Send screenshot to CEO Ali on WhatsApp.`);
       setWalletTab('main');
     }
   };
@@ -162,8 +149,6 @@ export default function AJSuperPortal() {
 
   return (
     <main className="min-h-screen bg-[#020617] text-white font-sans overflow-x-hidden relative">
-      
-      {/* HEADER */}
       <header className="fixed top-0 w-full p-4 flex justify-between items-center z-[100] bg-black/80 backdrop-blur-xl border-b border-white/5">
         <div className="text-xl font-black italic text-cyan-400">AJ STUDIO</div>
         <div className="flex items-center gap-3">
@@ -176,7 +161,6 @@ export default function AJSuperPortal() {
         </div>
       </header>
 
-      {/* MAIN HUB */}
       <section className="min-h-screen flex flex-col items-center justify-center p-4 pt-24 relative">
         <h1 className="text-4xl md:text-8xl font-black text-center mb-12 uppercase drop-shadow-[0_0_20px_#22d3ee]">AJ SUPER PORTAL</h1>
         <div className="grid grid-cols-2 gap-4 md:gap-16 w-full max-w-4xl relative z-30">
@@ -240,17 +224,18 @@ export default function AJSuperPortal() {
               )}
               {walletTab === 'purchase' && (
                 <div className="flex flex-col gap-5 text-left">
-                  <select value={purchaseMethod} onChange={(e)=>setPurchaseMethod(e.target.value)} className="w-full bg-gray-900 border border-white/20 p-4 rounded-xl text-white font-bold mb-2">
+                  <select value={purchaseMethod} onChange={(e)=>setPurchaseMethod(e.target.value)} className="w-full bg-gray-900 border border-white/20 p-4 rounded-xl text-white font-bold mb-2 outline-none">
                     <option>Binance Pay (USDT)</option>
                     <option>EasyPaisa (PKR)</option>
                     <option>JazzCash (PKR)</option>
-                    <option>Visa Card (Global)</option>
+                    <option>Bank Transfer / Visa</option>
                   </select>
-                  <div className="relative">
-                    <input type="number" value={purchaseAmount} onChange={(e)=>setPurchaseAmount(Number(e.target.value))} className="w-full bg-black border-2 border-white/10 p-5 rounded-2xl text-4xl text-center text-white" />
-                    <p className="text-center text-[10px] text-gray-500 mt-2 uppercase font-black">Min Purchase: $20</p>
+                  <div className="bg-black/50 border-2 border-white/10 p-6 rounded-3xl text-center">
+                    <p className="text-yellow-500 text-4xl font-black mb-2">{purchaseAmount * 100} 🪙</p>
+                    <input type="number" value={purchaseAmount} onChange={(e)=>setPurchaseAmount(Number(e.target.value))} className="w-full bg-transparent text-white text-xl text-center outline-none font-bold" />
+                    <p className="text-gray-500 text-[10px] mt-2 font-black">ENTER USD AMOUNT (MIN $20)</p>
                   </div>
-                  <button onClick={handlePurchase} className="bg-cyan-500 py-4 rounded-xl font-black uppercase mt-2">Continue to Payment</button>
+                  <button onClick={handlePurchase} className="bg-cyan-500 py-4 rounded-xl font-black uppercase mt-2 shadow-[0_0_20px_rgba(6,182,212,0.4)]">Pay Now</button>
                   <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase">Cancel</button>
                 </div>
               )}
