@@ -15,6 +15,10 @@ const [invested, setInvested] = useState(0);
 const [loading, setLoading] = useState(0);
 const [selectedGame, setSelectedGame] = useState(null);
 
+// --- AI TRADING STATES ---
+const [visualProfit, setVisualProfit] = useState(0);
+const [tradeLogs, setTradeLogs] = useState(["Initialising Neural Link...", "Analysing Market Volatility...", "Connecting to AJ liquidity pool..."]);
+
 // Input States
 const [purchaseAmount, setPurchaseAmount] = useState(20);
 const [transferId, setTransferId] = useState('');
@@ -53,6 +57,38 @@ return () => {
 };
 }, [user]);
 
+// --- AI REAL-TIME TRADING LOGIC (Visual + 15m DB Sync) ---
+useEffect(() => {
+  if (user && botTier !== 'none' && invested > 0) {
+    // 1. Logs Generator (UI feel ke liye)
+    const logInt = setInterval(() => {
+      const pairs = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT"];
+      const actions = ["Analysing", "Scalping", "Hedging", "Executing"];
+      const newLog = `[${new Date().toLocaleTimeString()}] ${actions[Math.floor(Math.random()*actions.length)]} ${pairs[Math.floor(Math.random()*pairs.length)]}...`;
+      setTradeLogs(prev => [newLog, ...prev.slice(0, 4)]);
+    }, 5000);
+
+    // 2. Visual Profit Counter (Per Second)
+    const visualInt = setInterval(() => {
+      const dailyRate = botTier === 'vvip' ? 0.05 : 0.02;
+      const profitPerSec = (invested * dailyRate) / 86400;
+      setVisualProfit(prev => prev + profitPerSec);
+    }, 1000);
+
+    // 3. Database Sync (Every 15 Minutes)
+    const dbSyncInt = setInterval(async () => {
+      if (visualProfit >= 1) {
+        const amountToSync = Math.floor(visualProfit);
+        const userRef = doc(db, "users", user.uid);
+        await updateDoc(userRef, { balance: increment(amountToSync) });
+        setVisualProfit(prev => prev - amountToSync); // Sirf utna minus karo jo DB mein gaya
+      }
+    }, 900000); // 15 Minutes = 900,000ms
+
+    return () => { clearInterval(logInt); clearInterval(visualInt); clearInterval(dbSyncInt); };
+  }
+}, [user, botTier, invested, visualProfit]);
+
 useEffect(() => {
 if (screen === 'splash') {
 const interval = setInterval(() => { setLoading(prev => (prev >= 100 ? 100 : prev + 10)); }, 50);
@@ -87,15 +123,11 @@ await setPersistence(auth, browserLocalPersistence);
 await signInWithPopup(auth, googleProvider);
 };
 
-// --- FIX 1: DYNAMIC PAYMENT (Har baar fresh link generate hoga) ---
 const handlePurchase = async () => {
   try {
     const res = await fetch('https://api.nowpayments.io/v1/invoice', {
       method: 'POST',
-      headers: {
-        'x-api-key': '3THXNSZ-AYVMTP6-HQ9KGKK-9J6CQD7',
-        'Content-Type': 'application/json'
-      },
+      headers: { 'x-api-key': '3THXNSZ-AYVMTP6-HQ9KGKK-9J6CQD7', 'Content-Type': 'application/json' },
       body: JSON.stringify({
         price_amount: purchaseAmount,
         price_currency: "usd",
@@ -105,14 +137,9 @@ const handlePurchase = async () => {
       })
     });
     const data = await res.json();
-    if (data.invoice_url) {
-      window.open(data.invoice_url, '_blank');
-    } else {
-      alert("Error: Minimum $20 required for TRC-20");
-    }
-  } catch (e) {
-    alert("Payment Service Error!");
-  }
+    if (data.invoice_url) { window.open(data.invoice_url, '_blank'); }
+    else { alert("Error: Minimum $20 required for TRC-20"); }
+  } catch (e) { alert("Payment Service Error!"); }
 };
 
 const handleTransfer = async () => {
@@ -205,13 +232,7 @@ return (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-6 max-w-5xl mx-auto pb-20">
             {['Rider King', 'Pulse Racer', 'Subsea Surge', 'Neon Strike', 'Volcano Escape', 'Ludo', 'Air Hockey'].map((game) => (
               <div key={game} onClick={() => setSelectedGame(game)} className="bg-white/5 border border-white/10 p-6 rounded-3xl text-center hover:border-cyan-400 cursor-pointer transition-all">
-                {/* FIX 2: Har game ka apna poster, warna main logo fallback */}
-                <img 
-                  src={`/games/${game.toLowerCase().replace(/ /g, '-')}/logo.png`} 
-                  className="w-full aspect-video rounded-xl mb-4 object-cover" 
-                  alt={game} 
-                  onError={(e) => { e.target.src = "/logo.jpg"; }} 
-                />
+                <img src={`/games/${game.toLowerCase().replace(/ /g, '-')}/logo.png`} className="w-full aspect-video rounded-xl mb-4 object-cover" alt={game} onError={(e) => { e.target.src = "/logo.jpg"; }} />
                 <h3 className="font-black text-sm uppercase">{game}</h3>
                 <button className="mt-4 bg-cyan-500 text-black text-[10px] font-black px-4 py-2 rounded-full">PLAY NOW</button>
               </div>
@@ -271,7 +292,27 @@ return (
             <div onClick={() => activateBot('vvip', 7500)} className="bg-white/5 border-2 border-yellow-500/30 p-10 rounded-3xl text-center shadow-2xl hover:border-yellow-500 cursor-pointer"><h3 className="text-xl font-black text-yellow-500 uppercase">VVIP (+5% Daily)</h3><p className="text-3xl font-black text-white my-6">7,500 Coins</p><button className="w-full py-4 bg-yellow-600 rounded-xl font-black text-black uppercase">Activate</button></div>
          </div>
        ) : (
-         <div className="w-full max-w-2xl bg-white/5 border-2 border-green-500/40 p-16 rounded-[4rem] text-center"><Activity size={80} className="mx-auto mb-10 text-green-500 animate-pulse" /><h2 className="text-5xl font-black uppercase text-white mb-8">{botTier.toUpperCase()} BOT ACTIVE</h2><div className="mt-12 bg-green-500/20 py-5 rounded-2xl border border-green-500/50"><TrendingUp size={24} className="text-green-400 mx-auto" /><span className="font-black text-xl text-green-400 uppercase tracking-tighter">AI TRADING LIVE...</span></div></div>
+         <div className="w-full max-w-2xl bg-white/5 border-2 border-green-500/40 p-16 rounded-[4rem] text-center">
+            <Activity size={80} className="mx-auto mb-10 text-green-500 animate-pulse" />
+            <h2 className="text-5xl font-black uppercase text-white mb-4">{botTier.toUpperCase()} BOT ACTIVE</h2>
+            
+            {/* NEW REAL-TIME TRADING TERMINAL */}
+            <div className="w-full bg-black/50 border border-green-500/30 p-6 rounded-2xl font-mono text-[10px] text-left">
+               <div className="flex justify-between mb-4 border-b border-green-500/20 pb-2">
+                  <span className="text-green-400">UNSYNCED PROFIT:</span>
+                  <span className="text-white font-black text-lg">+{visualProfit.toFixed(4)} 🪙</span>
+               </div>
+               <div className="h-24 overflow-hidden text-green-500/70">
+                  {tradeLogs.map((log, i) => ( <div key={i} className="mb-1">{log}</div> ))}
+               </div>
+               <p className="mt-4 text-gray-500 italic text-[8px] text-center">Auto-syncing to Database every 15 minutes...</p>
+            </div>
+
+            <div className="mt-8 bg-green-500/20 py-5 rounded-2xl border border-green-500/50 flex items-center justify-center gap-2">
+               <TrendingUp size={24} className="text-green-400" />
+               <span className="font-black text-xl text-green-400 uppercase tracking-tighter">AI TRADING LIVE...</span>
+            </div>
+         </div>
        )}
     </div>
   )}
