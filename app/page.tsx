@@ -2,38 +2,28 @@
 import React, { useState, useEffect } from 'react';
 import { auth, db, googleProvider } from '../firebaseConfig'; 
 import { signInWithPopup, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence } from 'firebase/auth';
-import { doc, setDoc, onSnapshot, updateDoc, increment, collection, addDoc, getDoc } from 'firebase/firestore';
-import { MessageCircle, Trophy, Zap, Wallet, Bot, LogOut, Globe, ChevronRight, Send, CreditCard, ArrowUpRight, ShieldCheck, Crown, Activity, TrendingUp, X } from 'lucide-react';
+import { doc, setDoc, onSnapshot, updateDoc, increment, getDoc } from 'firebase/firestore';
+import { Trophy, Wallet } from 'lucide-react';
 
 export default function AJSuperPortal() {
   const [screen, setScreen] = useState('splash');
   const [walletTab, setWalletTab] = useState('main'); 
   const [user, setUser] = useState<any>(null);
   const [balance, setBalance] = useState(0);
-  const [botTier, setBotTier] = useState('none');
-  const [invested, setInvested] = useState(0);
   const [loading, setLoading] = useState(0);
   const [selectedGame, setSelectedGame] = useState<string | null>(null);
 
   // Input States
   const [purchaseAmount, setPurchaseAmount] = useState(20); 
-  const [transferId, setTransferId] = useState('');
-  const [transferAmount, setTransferAmount] = useState(0);
-  const [payoutMethod, setPayoutMethod] = useState('Binance Pay (USDT)');
-  const [payoutId, setPayoutId] = useState('');
-  const [cardName, setCardName] = useState('');
-  const [cardNumber, setCardNumber] = useState('');
-
   const usdtValue = (balance / 100).toFixed(2);
 
-  // --- SDK COIN SYNC ---
+  // SDK Coin Sync
   useEffect(() => {
     const handleBalanceUpdate = async (e: any) => {
       if(!user) return;
       const { amount } = e.detail;
-      const userRef = doc(db, "users", user.uid);
-      await updateDoc(userRef, { balance: increment(amount) });
-      alert(`✅ CEO Alert: ${amount} AJ Coins Wallet mein add ho gaye!`);
+      await updateDoc(doc(db, "users", user.uid), { balance: increment(amount) });
+      alert(`Coins added: ${amount}`);
     };
     window.addEventListener('updateFirebaseBalance', handleBalanceUpdate as any);
     return () => window.removeEventListener('updateFirebaseBalance', handleBalanceUpdate as any);
@@ -55,9 +45,8 @@ export default function AJSuperPortal() {
         onSnapshot(userRef, (docSnap) => {
           if (docSnap.exists()) {
             setBalance(docSnap.data().balance || 0);
-            setBotTier(docSnap.data().botTier || 'none');
           } else {
-            setDoc(userRef, { name: currentUser.displayName, email: currentUser.email, balance: 500, botTier: 'none', uid: currentUser.uid });
+            setDoc(userRef, { name: currentUser.displayName, email: currentUser.email, balance: 500, uid: currentUser.uid });
           }
         });
         setScreen('hub');
@@ -72,25 +61,7 @@ export default function AJSuperPortal() {
   };
 
   const handlePurchase = () => {
-    // Only Binance Pay via NOWPayments
     window.open("https://nowpayments.io/payment/?iid=6119249758&paymentId=4656497174", '_blank');
-  };
-
-  const handleTransfer = async () => {
-    if (transferAmount <= 0 || transferAmount > balance) return alert("Invalid Amount!");
-    const recipientRef = doc(db, "users", transferId);
-    const recipientSnap = await getDoc(recipientRef);
-    if (recipientSnap.exists()) {
-      await updateDoc(doc(db, "users", user.uid), { balance: increment(-transferAmount) });
-      await updateDoc(recipientRef, { balance: increment(transferAmount) });
-      alert("✅ Success!"); setWalletTab('main');
-    } else { alert("ID Not Found!"); }
-  };
-
-  const handleWithdraw = async () => {
-    if (balance < 2500) return alert("Min 2,500 Coins!");
-    await addDoc(collection(db, "withdraw_requests"), { uid: user.uid, amount: balance, method: payoutMethod, details: payoutId, status: "pending", date: new Date() });
-    alert("✅ Request Sent!"); setWalletTab('main');
   };
 
   if (screen === 'splash') return (
@@ -105,7 +76,7 @@ export default function AJSuperPortal() {
   if (screen === 'auth' && !user) return (
     <main className="min-h-screen bg-black flex flex-col items-center justify-center p-6 text-white text-center">
       <div className="w-full max-w-sm bg-white/[0.03] border border-white/10 p-12 rounded-[3rem] shadow-2xl">
-        <h2 className="text-6xl font-black mb-10 italic text-cyan-400 uppercase">AJ <span className="text-white">ID</span></h2>
+        <h2 className="text-6xl font-black mb-10 italic text-cyan-400 uppercase">AJ ID</h2>
         <button onClick={handleLogin} className="w-full py-5 bg-white text-black font-black text-xl rounded-2xl active:scale-95">CONTINUE WITH GOOGLE</button>
         <p className="mt-8 text-yellow-500 font-bold">+500 COINS BONUS</p>
       </div>
@@ -124,13 +95,13 @@ export default function AJSuperPortal() {
 
       {screen === 'hub' && (
         <section className="min-h-screen flex flex-col items-center justify-center p-4 pt-24 relative">
-          <h1 className="text-4xl md:text-8xl font-black text-center mb-12 uppercase drop-shadow-[0_0_20px_#22d3ee]">AJ SUPER PORTAL</h1>
+          <h1 className="text-4xl md:text-8xl font-black text-center mb-12 uppercase">AJ SUPER PORTAL</h1>
           <div className="grid grid-cols-2 gap-4 w-full max-w-4xl z-30">
             <div onClick={() => setScreen('arcade')} className="bg-white/5 border border-white/10 rounded-3xl h-48 flex flex-col items-center justify-center active:scale-95 cursor-pointer">
                <Trophy className="text-cyan-400 w-10 h-10 mb-2" />
                <span className="font-black text-xs uppercase">Gaming</span>
             </div>
-            <div onClick={() => setScreen('wallet')} className="bg-white/5 border-2 border-yellow-500/30 rounded-3xl h-48 flex flex-col items-center justify-center cursor-pointer shadow-xl">
+            <div onClick={() => setScreen('wallet')} className="bg-white/5 border-2 border-yellow-500/30 rounded-3xl h-48 flex flex-col items-center justify-center cursor-pointer">
                <Wallet className="text-yellow-500 w-10 h-10 mb-2" />
                <span className="font-black text-xs uppercase text-yellow-500">Wallet</span>
             </div>
@@ -140,7 +111,7 @@ export default function AJSuperPortal() {
 
       {screen === 'arcade' && (
         <div className="fixed inset-0 z-[300] bg-black p-8 overflow-y-auto">
-            <button onClick={() => {setScreen('hub'); setSelectedGame(null)}} className="text-cyan-400 font-bold mb-10 uppercase tracking-widest">← BACK</button>
+            <button onClick={() => {setScreen('hub'); setSelectedGame(null)}} className="text-cyan-400 font-bold mb-10 uppercase">← BACK</button>
             {!selectedGame ? (
               <div className="grid grid-cols-2 md:grid-cols-3 gap-6 max-w-5xl mx-auto pb-20">
                 {['Rider King', 'Pulse Racer', 'Subsea Surge', 'Neon Strike'].map((game) => (
@@ -161,12 +132,11 @@ export default function AJSuperPortal() {
       {screen === 'wallet' && (
         <div className="fixed inset-0 z-[300] bg-black/98 flex flex-col items-center p-8 overflow-y-auto">
            <button onClick={() => {setScreen('hub'); setWalletTab('main')}} className="self-start text-cyan-400 mb-8 font-bold">← BACK</button>
-           <div className="w-full max-w-md bg-[#111] border border-white/10 p-10 rounded-3xl text-center shadow-2xl">
+           <div className="w-full max-w-md bg-[#111] border border-white/10 p-10 rounded-3xl text-center">
               <h2 className="text-5xl font-black text-yellow-500 mb-8">{balance} 🪙</h2>
               {walletTab === 'main' && (
                 <div className="flex flex-col gap-4">
                    <button onClick={()=>setWalletTab('purchase')} className="bg-white text-black py-4 rounded-xl font-black uppercase">Buy Coins</button>
-                   <button onClick={()=>setWalletTab('withdraw')} className="bg-white/10 text-pink-500 py-4 rounded-xl font-black border border-pink-500/30">Withdraw</button>
                 </div>
               )}
               {walletTab === 'purchase' && (
@@ -177,7 +147,7 @@ export default function AJSuperPortal() {
                   <div className="bg-black border-2 border-white/10 p-6 rounded-3xl text-center">
                     <p className="text-yellow-500 text-4xl font-black mb-1">{purchaseAmount * 100} 🪙</p>
                     <input type="number" value={purchaseAmount} onChange={(e)=>setPurchaseAmount(Number(e.target.value))} className="w-full bg-transparent text-white text-2xl text-center outline-none font-bold" />
-                    <p className="text-gray-500 text-[10px] mt-2 font-black uppercase">Enter USD (Min $20)</p>
+                    <p className="text-gray-500 text-[10px] mt-2 font-black uppercase">USD Amount (Min $20)</p>
                   </div>
                   <button onClick={handlePurchase} className="bg-cyan-500 py-4 rounded-xl font-black uppercase">Pay with Binance</button>
                   <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase">Cancel</button>
