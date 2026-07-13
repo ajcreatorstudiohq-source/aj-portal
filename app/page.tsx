@@ -26,32 +26,17 @@ export default function AJSuperPortal() {
 
   const usdtValue = (balance / 100).toFixed(2);
 
-  // --- SDK MESSAGE LISTENER (The Profit Engine) ---
+  // --- SDK COIN SYNC ---
   useEffect(() => {
-    const handleSDKMessages = async (event: any) => {
-      if (!user) return;
-      const data = event.detail || event.data;
-      if (!data) return;
-      const { type, amount, coins, profit } = data;
-
-      if (type === 'EARNED' || type === "ADD_AD_REVENUE" || type === "SYNC_GAME_COINS") {
-        const reward = amount || coins;
-        if(!reward) return;
-        const userRef = doc(db, "users", user.uid);
-        const adminRef = doc(db, "admin_ledger", "platform_stats");
-
-        await updateDoc(userRef, { balance: increment(reward) });
-        if (profit) {
-          await updateDoc(adminRef, { total_locked_profit: increment(profit) });
-        }
-      }
+    const handleBalanceUpdate = async (e: any) => {
+      if(!user) return;
+      const { amount } = e.detail;
+      const userRef = doc(db, "users", user.uid);
+      await updateDoc(userRef, { balance: increment(amount) });
+      alert(`✅ CEO Alert: ${amount} AJ Coins Wallet mein add ho gaye!`);
     };
-    window.addEventListener("message", handleSDKMessages);
-    window.addEventListener('updateFirebaseBalance', handleSDKMessages as any);
-    return () => {
-        window.removeEventListener("message", handleSDKMessages);
-        window.removeEventListener('updateFirebaseBalance', handleSDKMessages as any);
-    };
+    window.addEventListener('updateFirebaseBalance', handleBalanceUpdate as any);
+    return () => window.removeEventListener('updateFirebaseBalance', handleBalanceUpdate as any);
   }, [user]);
 
   useEffect(() => {
@@ -88,7 +73,10 @@ export default function AJSuperPortal() {
     await signInWithPopup(auth, googleProvider);
   };
 
-  const handlePurchase = () => window.open("https://nowpayments.io/payment/?iid=6119249758&paymentId=4656497174", '_blank');
+  const handlePurchase = () => {
+    // NEW UPDATED INVOICE LINK ($20)
+    window.open("https://nowpayments.io/payment/?iid=4475797394&paymentId=4882419787", '_blank');
+  };
 
   const handleTransfer = async () => {
     if (transferAmount <= 0 || transferAmount > balance) return alert("Invalid Amount!");
@@ -173,6 +161,7 @@ export default function AJSuperPortal() {
         </div>
       </section>
 
+      {/* ARCADE SECTION */}
       {screen === 'arcade' && (
         <div className="fixed inset-0 z-[300] bg-black p-8 overflow-y-auto">
             <button onClick={() => {setScreen('hub'); setSelectedGame(null)}} className="text-cyan-400 font-bold mb-10 tracking-widest uppercase">← BACK TO HUB</button>
@@ -194,6 +183,7 @@ export default function AJSuperPortal() {
         </div>
       )}
 
+      {/* WALLET MODAL */}
       {screen === 'wallet' && (
         <div className="fixed inset-0 z-[300] bg-black/98 flex flex-col items-center p-8 overflow-y-auto">
            <button onClick={() => {setScreen('hub'); setWalletTab('main')}} className="self-start text-cyan-400 mb-8 font-bold">← BACK</button>
@@ -201,7 +191,7 @@ export default function AJSuperPortal() {
               <h2 className="text-5xl font-black text-yellow-500 mb-8">{balance} 🪙</h2>
               {walletTab === 'main' && (
                 <div className="flex flex-col gap-4">
-                   <button onClick={()=>setWalletTab('purchase')} className="bg-white text-black py-4 rounded-xl font-black uppercase">Purchase</button>
+                   <button onClick={()=>setWalletTab('purchase')} className="bg-white text-black py-4 rounded-xl font-black uppercase">Buy Coins</button>
                    <button onClick={()=>setWalletTab('transfer')} className="bg-white/10 text-cyan-400 py-4 rounded-xl font-black border border-cyan-500/30 uppercase">Transfer</button>
                    <button onClick={()=>setWalletTab('withdraw')} className="bg-white/10 text-pink-500 py-4 rounded-xl font-black border border-pink-500/30 uppercase">Withdraw</button>
                 </div>
@@ -214,9 +204,9 @@ export default function AJSuperPortal() {
                   <div className="bg-black border-2 border-white/10 p-6 rounded-3xl text-center">
                     <p className="text-yellow-500 text-4xl font-black mb-1">{purchaseAmount * 100} 🪙</p>
                     <input type="number" value={purchaseAmount} onChange={(e)=>setPurchaseAmount(Number(e.target.value))} className="w-full bg-transparent text-white text-2xl text-center outline-none font-bold" />
-                    <p className="text-gray-500 text-[10px] mt-2 font-black uppercase">Enter USD (Min $20)</p>
+                    <p className="text-gray-500 text-[10px] mt-2 font-black uppercase">USD Amount (Min $20)</p>
                   </div>
-                  <button onClick={handlePurchase} className="bg-cyan-500 py-4 rounded-xl font-black uppercase shadow-[0_0_20px_rgba(6,182,212,0.4)]">Pay Now</button>
+                  <button onClick={handlePurchase} className="bg-cyan-500 py-4 rounded-xl font-black uppercase shadow-[0_0_20px_rgba(6,182,212,0.4)]">Pay with Binance</button>
                   <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase">Cancel</button>
                 </div>
               )}
