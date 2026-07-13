@@ -176,7 +176,7 @@ export default function AJSuperPortal() {
             <button onClick={() => {setScreen('hub'); setSelectedGame(null)}} className="text-cyan-400 font-bold mb-10">← BACK TO HUB</button>
             {!selectedGame ? (
               <div className="grid grid-cols-2 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
-                {['Rider King', 'Pulse Racer', 'Subsea Surge', 'Neon Strike', 'Volcano Escape', 'Ludo AI', 'Air Hockey'].map((game) => (
+                {['Rider King', 'Pulse Racer', 'Subsea Surge', 'Neon Strike', 'Volcano Escape', 'Ludo', 'Air Hockey'].map((game) => (
                   <div key={game} onClick={() => setSelectedGame(game)} className="bg-white/5 border border-white/10 p-6 rounded-3xl text-center hover:border-cyan-400 cursor-pointer transition-all">
                     <div className="w-full aspect-video bg-gray-900 rounded-xl mb-4 flex items-center justify-center text-xs opacity-40 italic">Poster</div>
                     <h3 className="font-black text-sm uppercase">{game}</h3>
