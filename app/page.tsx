@@ -57,7 +57,7 @@ return () => {
 };
 }, [user]);
 
-// --- AI REAL-TIME TRADING LOGIC (15m DB Sync) ---
+// --- AI REAL-TIME TRADING LOGIC ---
 useEffect(() => {
   if (user && botTier !== 'none' && invested > 0) {
     const logInt = setInterval(() => {
@@ -153,7 +153,7 @@ alert("✅ Request Sent!"); setWalletTab('main');
 const activateBot = async (tier, cost) => {
 if (balance < cost) return alert(`⚠️ Need ${cost} Coins!`);
 await updateDoc(doc(db, "users", user.uid), { balance: increment(-cost), botTier: tier, invested: cost });
-setVisualProfit(0); // Reset for new tier
+setVisualProfit(0);
 alert(`🚀 ${tier.toUpperCase()} BOT ACTIVE!`);
 };
 
@@ -278,7 +278,6 @@ return (
        <button onClick={() => setScreen('hub')} className="self-start text-green-400 font-bold text-sm mb-12 uppercase">← Back</button>
        <h2 className="text-5xl font-black mb-12 text-center uppercase text-white italic">AJ AI BOT</h2>
        
-       {/* 1. STATUS TERMINAL (Hamesha dikhayega agar koi bhi bot active hai) */}
        {botTier !== 'none' && (
          <div className="w-full max-w-2xl bg-white/5 border-2 border-green-500/40 p-8 rounded-[3rem] text-center mb-16">
             <Activity size={60} className="mx-auto mb-6 text-green-500 animate-pulse" />
@@ -295,12 +294,9 @@ return (
          </div>
        )}
 
-       {/* 2. BOT STORE (Dono bots hamesha dikhenge) */}
        <div className="w-full max-w-4xl">
           <h3 className="text-xl font-black text-gray-500 uppercase text-center mb-8 tracking-widest">Bot Marketplace</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 px-2">
-            
-            {/* BASIC CARD */}
             <div className={`p-10 rounded-3xl text-center border-2 transition-all ${botTier === 'basic' ? 'border-green-500 bg-green-500/5' : 'border-white/10 bg-white/5 hover:border-cyan-500'}`}>
                 <h3 className="text-xl font-black text-cyan-400 uppercase">Basic (+2% Daily)</h3>
                 <p className="text-3xl font-black text-white my-6">2,500 Coins</p>
@@ -312,8 +308,6 @@ return (
                    <button onClick={() => activateBot('basic', 2500)} className="w-full py-4 bg-cyan-600 rounded-xl font-black uppercase active:scale-95">Activate</button>
                 )}
             </div>
-
-            {/* VVIP CARD */}
             <div className={`p-10 rounded-3xl text-center border-2 transition-all ${botTier === 'vvip' ? 'border-yellow-500 bg-yellow-500/5' : 'border-yellow-500/20 bg-white/5 hover:border-yellow-500'}`}>
                 <h3 className="text-xl font-black text-yellow-500 uppercase">VVIP (+5% Daily)</h3>
                 <p className="text-3xl font-black text-white my-6">7,500 Coins</p>
@@ -327,7 +321,6 @@ return (
                    </button>
                 )}
             </div>
-
           </div>
        </div>
     </div>
@@ -344,6 +337,7 @@ return (
                </div>
             ))}
         </div>
+    </div>
   )}
 
   <section className="py-20 bg-black flex justify-center px-4 border-y border-white/5"><img src="/founder_card.jpg" className="w-full max-w-4xl rounded-3xl shadow-2xl" /></section>
