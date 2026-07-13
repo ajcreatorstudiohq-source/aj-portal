@@ -27,7 +27,10 @@ const [payoutMethod, setPayoutMethod] = useState('Binance Pay (USDT)');
 const [payoutId, setPayoutId] = useState('');
 const [cardName, setCardName] = useState('');
 const [cardNumber, setCardNumber] = useState('');
-const usdtValue = (balance / 100).toFixed(2);
+
+// Header Visual Balance (Real DB Balance + Current Live Profit)
+const displayBalance = Math.floor(balance + visualProfit);
+const displayUsdt = (displayBalance / 100).toFixed(2);
 
 // --- SDK MESSAGE LISTENER ---
 useEffect(() => {
@@ -57,9 +60,10 @@ return () => {
 };
 }, [user]);
 
-// --- AI REAL-TIME TRADING LOGIC ---
+// --- AI REAL-TIME LOGIC (15m DB Sync + Header Sync) ---
 useEffect(() => {
   if (user && botTier !== 'none' && invested > 0) {
+    // 1. Live Trading Logs
     const logInt = setInterval(() => {
       const pairs = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT"];
       const actions = ["Analysing", "Scalping", "Hedging", "Executing"];
@@ -67,12 +71,14 @@ useEffect(() => {
       setTradeLogs(prev => [newLog, ...prev.slice(0, 4)]);
     }, 5000);
 
+    // 2. Visual Profit Counter (Per Second)
     const visualInt = setInterval(() => {
       const dailyRate = botTier === 'vvip' ? 0.05 : 0.02;
       const profitPerSec = (invested * dailyRate) / 86400;
       setVisualProfit(prev => prev + profitPerSec);
     }, 1000);
 
+    // 3. Database Sync (Every 15 Minutes)
     const dbSyncInt = setInterval(async () => {
       if (visualProfit >= 1) {
         const amountToSync = Math.floor(visualProfit);
@@ -154,7 +160,7 @@ const activateBot = async (tier, cost) => {
 if (balance < cost) return alert(`⚠️ Need ${cost} Coins!`);
 await updateDoc(doc(db, "users", user.uid), { balance: increment(-cost), botTier: tier, invested: cost });
 setVisualProfit(0);
-alert(`🚀 ${tier.toUpperCase()} BOT ACTIVE!`);
+alert(`🚀 ${tier.toUpperCase()} BOT ACTIVATED!`);
 };
 
 if (screen === 'splash') return (
@@ -181,9 +187,10 @@ return (
 <header className="fixed top-0 w-full p-4 flex justify-between items-center z-[100] bg-black/80 backdrop-blur-xl border-b border-white/5">
 <div className="text-xl font-black italic text-cyan-400">AJ STUDIO</div>
 <div className="flex items-center gap-3">
+{/* HEADER SYNC: DB Balance + Visual Profit */}
 <div onClick={() => {setScreen('wallet'); setWalletTab('main')}} className="flex items-center gap-3 bg-white/5 px-4 py-2 rounded-full border border-white/10 shadow-lg cursor-pointer">
-<span className="text-xs font-black text-yellow-500">{balance} 🪙</span>
-<span className="text-[10px] text-green-400 font-bold">${usdtValue}</span>
+<span className="text-xs font-black text-yellow-500">{displayBalance} 🪙</span>
+<span className="text-[10px] text-green-400 font-bold">${displayUsdt}</span>
 {user && <img src={user.photoURL} className="w-8 h-8 rounded-full border border-cyan-500" />}
 </div>
 <button onClick={() => signOut(auth)} className="p-2 bg-red-500/20 rounded-full text-red-500 font-bold text-[8px] px-2">EXIT</button>
@@ -223,6 +230,7 @@ return (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-6 max-w-5xl mx-auto pb-20">
             {['Rider King', 'Pulse Racer', 'Subsea Surge', 'Neon Strike', 'Volcano Escape', 'Ludo', 'Air Hockey'].map((game) => (
               <div key={game} onClick={() => setSelectedGame(game)} className="bg-white/5 border border-white/10 p-6 rounded-3xl text-center hover:border-cyan-400 cursor-pointer transition-all">
+                {/* DYNAMIC POSTER FALLBACK */}
                 <img src={`/games/${game.toLowerCase().replace(/ /g, '-')}/logo.png`} className="w-full aspect-video rounded-xl mb-4 object-cover" alt={game} onError={(e) => { e.target.src = "/logo.jpg"; }} />
                 <h3 className="font-black text-sm uppercase">{game}</h3>
                 <button className="mt-4 bg-cyan-500 text-black text-[10px] font-black px-4 py-2 rounded-full">PLAY NOW</button>
@@ -241,7 +249,7 @@ return (
     <div className="fixed inset-0 z-[300] bg-black/98 flex flex-col items-center p-8 overflow-y-auto">
        <button onClick={() => {setScreen('hub'); setWalletTab('main')}} className="self-start text-cyan-400 mb-8 font-bold">← BACK</button>
        <div className="w-full max-w-md bg-[#111] border border-white/10 p-10 rounded-3xl text-center shadow-2xl">
-          <h2 className="text-5xl font-black text-yellow-500 mb-8">{balance} 🪙</h2>
+          <h2 className="text-5xl font-black text-yellow-500 mb-8">{displayBalance} 🪙</h2>
           {walletTab === 'main' && (
             <div className="flex flex-col gap-4">
                <button onClick={()=>setWalletTab('purchase')} className="bg-white text-black py-4 rounded-xl font-black uppercase">Purchase</button>
@@ -281,7 +289,7 @@ return (
        {botTier !== 'none' && (
          <div className="w-full max-w-2xl bg-white/5 border-2 border-green-500/40 p-8 rounded-[3rem] text-center mb-16">
             <Activity size={60} className="mx-auto mb-6 text-green-500 animate-pulse" />
-            <h2 className="text-4xl font-black uppercase text-white mb-2">{botTier.toUpperCase()} BOT ACTIVE</h2>
+            <h2 className="text-4xl font-black uppercase text-white mb-2">{botTier.toUpperCase()} BOT RUNNING</h2>
             <div className="w-full bg-black/50 border border-green-500/30 p-6 rounded-2xl font-mono text-[10px] text-left">
                <div className="flex justify-between mb-4 border-b border-green-500/20 pb-2">
                   <span className="text-green-400 uppercase">Neural Profit:</span>
@@ -297,29 +305,19 @@ return (
        <div className="w-full max-w-4xl">
           <h3 className="text-xl font-black text-gray-500 uppercase text-center mb-8 tracking-widest">Bot Marketplace</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 px-2">
-            <div className={`p-10 rounded-3xl text-center border-2 transition-all ${botTier === 'basic' ? 'border-green-500 bg-green-500/5' : 'border-white/10 bg-white/5 hover:border-cyan-500'}`}>
+            <div className={`p-10 rounded-3xl text-center border-2 transition-all ${botTier === 'basic' ? 'border-green-500 bg-green-500/10' : 'border-white/10 bg-white/5 hover:border-cyan-500'}`}>
                 <h3 className="text-xl font-black text-cyan-400 uppercase">Basic (+2% Daily)</h3>
                 <p className="text-3xl font-black text-white my-6">2,500 Coins</p>
-                {botTier === 'basic' ? (
-                   <div className="flex items-center justify-center gap-2 text-green-400 font-black uppercase bg-green-500/20 py-4 rounded-xl border border-green-500/50">
-                      <CheckCircle2 size={18}/> Running
-                   </div>
-                ) : (
-                   <button onClick={() => activateBot('basic', 2500)} className="w-full py-4 bg-cyan-600 rounded-xl font-black uppercase active:scale-95">Activate</button>
-                )}
+                <button onClick={() => activateBot('basic', 2500)} className={`w-full py-4 rounded-xl font-black uppercase active:scale-95 ${botTier === 'basic' ? 'bg-green-500 text-black cursor-default' : 'bg-cyan-600'}`}>
+                  {botTier === 'basic' ? "Currently Running" : "Activate"}
+                </button>
             </div>
-            <div className={`p-10 rounded-3xl text-center border-2 transition-all ${botTier === 'vvip' ? 'border-yellow-500 bg-yellow-500/5' : 'border-yellow-500/20 bg-white/5 hover:border-yellow-500'}`}>
+            <div className={`p-10 rounded-3xl text-center border-2 transition-all ${botTier === 'vvip' ? 'border-yellow-500 bg-yellow-500/10' : 'border-yellow-500/20 bg-white/5 hover:border-yellow-500'}`}>
                 <h3 className="text-xl font-black text-yellow-500 uppercase">VVIP (+5% Daily)</h3>
                 <p className="text-3xl font-black text-white my-6">7,500 Coins</p>
-                {botTier === 'vvip' ? (
-                   <div className="flex items-center justify-center gap-2 text-yellow-500 font-black uppercase bg-yellow-500/20 py-4 rounded-xl border border-yellow-500/50">
-                      <CheckCircle2 size={18}/> Running
-                   </div>
-                ) : (
-                   <button onClick={() => activateBot('vvip', 7500)} className="w-full py-4 bg-yellow-600 rounded-xl font-black text-black uppercase active:scale-95">
-                      {botTier === 'basic' ? "Upgrade Now" : "Activate"}
-                   </button>
-                )}
+                <button onClick={() => activateBot('vvip', 7500)} className={`w-full py-4 rounded-xl font-black text-black uppercase active:scale-95 ${botTier === 'vvip' ? 'bg-yellow-500 cursor-default' : 'bg-yellow-600'}`}>
+                  {botTier === 'vvip' ? "Currently Running" : "Activate"}
+                </button>
             </div>
           </div>
        </div>
