@@ -302,12 +302,24 @@
         <div id="cycle-grid" style="display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; padding:0 20px 30px 20px; width: 90%;"></div>
     </div>
 
-    <div id="game-over-screen" class="screen" style="justify-content:flex-start; align-items:center; overflow-y: hidden; padding-bottom: 20px;"><div class="crash-emoji">💥😵</div><div id="crash-container"><div id="crash-tree-static"></div><div class="crash-hero" id="crashHeroImg"></div></div><h1 id="crash-main-text" style="color:#ff4d4d; font-size:40px; margin: 0; margin-bottom: 5px; font-weight:900;">CRASHED!</h1><div id="final-stats" style="font-size:24px; margin-bottom:15px; color:var(--gold); font-weight:bold;"></div>
-        <button class="btn" id="revive-unlimited-btn" style="background: #2ecc71 !important; margin:5px; font-size:18px;">REVIVE 🎬</button>
-        <button class="btn" id="restart-btn" style="margin:5px;">RETRY</button>
-        <button class="btn btn-share" id="share-btn" style="background: #3498db !important; margin:5px;">SHARE COINS 📱</button>
-        <button class="btn" id="home-btn" style="background:white !important; margin:5px;">MENU</button>
+    <!-- CRASH SCREEN WITH SCROLL FIX -->
+    <div id="game-over-screen" class="screen" style="justify-content:flex-start; align-items:center; overflow-y: auto; padding-bottom: 40px; background: rgba(0,0,0,0.9); backdrop-filter: blur(10px);">
+        <div class="crash-emoji" style="margin-top: 40px;">💥😵</div>
+        <div id="crash-container">
+            <div id="crash-tree-static"></div>
+            <div class="crash-hero" id="crashHeroImg"></div>
+        </div>
+        <h1 id="crash-main-text" style="color:#ff4d4d; font-size:40px; margin: 10px 0; font-weight:900;">CRASHED!</h1>
+        <div id="final-stats" style="font-size:24px; margin-bottom:20px; color:var(--gold); font-weight:bold; text-align:center;"></div>
+        
+        <div style="display: flex; flex-direction: column; align-items: center; width: 100%;">
+            <button class="btn" id="revive-unlimited-btn" style="background: #2ecc71 !important; margin:8px; font-size:18px;">REVIVE 🎬</button>
+            <button class="btn" id="restart-btn" style="margin:8px;">RETRY</button>
+            <button class="btn btn-share" id="share-btn" style="background: #3498db !important; margin:8px;">SHARE COINS 📱</button>
+            <button class="btn" id="home-btn" style="background:white !important; margin:8px;">MENU</button>
+        </div>
     </div>
+
     <div id="ui"><div style="display: flex; align-items: center; justify-content: flex-start; margin-bottom: 5px;"><button id="pause-btn" class="game-ctrl-btn">⏸️</button><button id="ingame-back-btn" class="game-ctrl-btn">🏠</button><div style="color:var(--gold); font-size:26px; font-weight:bold; margin-left: 10px;">💰 <span id="coinCount">0</span> | AJ: <span id="ajCount">0.000</span></div></div><div style="color:#00ff88; font-size:20px; font-weight:bold; margin-left: 5px;">Level: <span id="levelDisplay">1</span></div><div id="fever-bar-container"><div id="fever-fill"></div></div></div>
     <canvas id="gameCanvas"></canvas>
 </div>
@@ -436,7 +448,7 @@
     function goBackDirectly() { menuClick(); engineSound.pause(); const errorPopup = document.getElementById('coin-error-popup'); if(errorPopup) errorPopup.style.display = 'none'; showScreen('start-screen'); gameState = 'MENU'; document.getElementById('brake-pedal').style.display = 'none'; if(activeLevelTrack) activeLevelTrack.pause(); if(musicEnabled) menuMusic.play(); updateGlobalCoins(); }
     function showCoinError() { const p = document.getElementById('coin-error-popup'); p.style.display = 'block'; setTimeout(() => p.style.display = 'none', 1500); }
     let isPaused = false;
-    document.getElementById('pause-btn').onclick = (e) => { e.stopPropagation(); menuClick(); isPaused = !isPaused; document.getElementById('pause-btn').innerText = iPaused ? "▶️" : "⏸️"; if(isPaused) { if(activeLevelTrack) activeLevelTrack.pause(); engineSound.pause(); } else { if(musicEnabled && activeLevelTrack) activeLevelTrack.play(); if(soundEnabled) engineSound.play().catch(()=>{}); } };
+    document.getElementById('pause-btn').onclick = (e) => { e.stopPropagation(); menuClick(); isPaused = !isPaused; document.getElementById('pause-btn').innerText = isPaused ? "▶️" : "⏸️"; if(isPaused) { if(activeLevelTrack) activeLevelTrack.pause(); engineSound.pause(); } else { if(musicEnabled && activeLevelTrack) activeLevelTrack.play(); if(soundEnabled) engineSound.play().catch(()=>{}); } };
     document.getElementById('ingame-back-btn').onclick = (e) => { e.stopPropagation(); isPaused = false; document.getElementById('pause-btn').innerText = "⏸️"; document.getElementById('ui').style.display = 'none'; goBackDirectly(); };
     let adStoreProgress = parseInt(localStorage.getItem('rk_ad_store_progress')) || 0;
     let adDailyViewCount = parseInt(localStorage.getItem('rk_ad_daily_view_count')) || 0;
