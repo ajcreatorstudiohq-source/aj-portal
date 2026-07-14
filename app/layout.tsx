@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "AJ Super Portal",
   description: "AJ Studio Official App",
-  manifest: "/manifest.json", // Metadata way
+  manifest: "/manifest.json", // Next.js khud link tag bana dega
 };
 
 export default function RootLayout({
@@ -15,10 +15,11 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
-        {/* Yeh line sab se zaroori hai manifest detect karwane ke liye */}
-        <link rel="manifest" href="/manifest.json" />
-        <meta name="theme-color" content="#06b6d4" />
+        {/* Apple/iOS ke liye extra support */}
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <link rel="apple-touch-icon" href="/logo.jpg" />
+        <meta name="theme-color" content="#06b6d4" />
       </head>
       <body>{children}</body>
     </html>

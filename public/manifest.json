@@ -1,7 +1,7 @@
 {
   "name": "AJ Super Portal",
-  "short_name": "AJ App",
-  "description": "Official AJ Studio Portal",
+  "short_name": "AJ Portal",
+  "description": "Sovereign Digital Empire",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#000000",
