@@ -361,7 +361,7 @@ canvas.height = window.innerHeight;
 
 let score, level, bestScore = 0, bestRings = 0, playerX, targetX, speed, obstacles, stars, frame, gameActive = false;
 let isPaused = false, shake = 0, levelFlash = 0, roadOffset = 0, gemFlash = 0, totalRings = 0; 
-let sessionRings = 0; // SETTING: Start from 0 each session
+let sessionRings = 0; 
 let playerTilt = 0, floatingScores = [], particles = [], nextLevelAt = 300, pointsForThisLevel = 300;
 let lastTouchX = 0, isTouching = false, fovStretch = 0, shieldActive = false, ghostTimer = 0;
 let comboStreak = 0, comboMultiplier = 1, trails = [];
@@ -374,7 +374,7 @@ for(let i=0; i<50; i++) {
 }
 let currentSkin = 'skin_0', ownedSkins = ['skin_0'];
 
-// SETTING: Fixed Symmetrical Ship Drawing for Laptop
+// SETTING: Fixed SYMMETRICAL Ship Drawing for Laptop & Positioned more forward (Agay)
 function drawLogoShip(x, y, scale, color, alpha = 1) {
     ctx.save();
     ctx.translate(x, y); ctx.scale(scale, scale);
@@ -384,7 +384,7 @@ function drawLogoShip(x, y, scale, color, alpha = 1) {
     ctx.shadowBlur = 10; 
     ctx.shadowColor = color;
     
-    // Main Body (SYMMETRICAL)
+    // Main Body (SYMMETRICAL PATH)
     ctx.fillStyle = color;
     ctx.beginPath(); 
     ctx.moveTo(0, -45); 
@@ -394,7 +394,7 @@ function drawLogoShip(x, y, scale, color, alpha = 1) {
     ctx.closePath(); 
     ctx.fill();
     
-    // SYMMETRICAL STROKE (Dono taraf white glow boundary)
+    // SYMMETRICAL STROKE (Dono taraf boundary)
     ctx.strokeStyle = "rgba(255,255,255,0.8)";
     ctx.lineWidth = 2;
     ctx.stroke();
@@ -622,7 +622,8 @@ function draw() {
     particles.forEach((pa, i) => { ctx.globalAlpha = pa.life; ctx.fillStyle = pa.color; ctx.fillRect(pa.x, pa.y, 2, 2); if(!isPaused) { pa.x += pa.vx; pa.y += pa.vy; pa.life -= 0.05; } if(pa.life <= 0) particles.splice(i, 1); });
     
     if(!isPaused && gameActive) { playerX += (targetX - playerX) * 0.15; }
-    drawPlayer(project(playerX, 0.5, 1.8));
+    // SETTING: Ship Position (Moved more forward/agay)
+    drawPlayer(project(playerX, 0.5, 3.5));
     
     floatingScores.forEach((fs, i) => { ctx.globalAlpha = fs.opacity; ctx.fillStyle = fs.color || "#f0f"; ctx.font = "bold 20px Orbitron"; ctx.fillText(fs.text, fs.x, fs.y - fs.yOffset); if(!isPaused && gameActive) { fs.yOffset += 2; fs.opacity -= 0.02; } if(fs.opacity <= 0) floatingScores.splice(i, 1); });
     
@@ -647,7 +648,8 @@ function update() {
                 if(score >= nextLevelAt) { playSfx('levelup'); level++; pointsForThisLevel += 100; nextLevelAt += pointsForThisLevel; speed += 0.005; document.getElementById('levelVal').innerText = level; } 
                 document.getElementById('scoreVal').innerText = score + " / " + nextLevelAt;
             }
-            if(o.z < 2.1 && o.z > 1.4) { 
+            // SETTING: Collision Window adjusted for forward ship position (3.5)
+            if(o.z < 3.8 && o.z > 3.1) { 
                 let d = Math.abs(o.x - playerX);
                 if(d < 0.6) {
                     if(o.type === 'gem') { 
