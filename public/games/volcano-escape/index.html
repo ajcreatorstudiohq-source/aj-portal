@@ -167,7 +167,7 @@
 
     const langData = {
         en: { start: "START MISSION", garage: "GARAGE", help: "HOW TO PLAY", best: "BEST RECORD", height: "HEIGHT", help_txt: "1. <b>TAP</b> rocks to jump up.<br>2. Row can have 1-3 rocks. Only <b>ONE</b> is safe!<br>3. <b>TRAPS:</b> Break in 0.1s! Watch for subtle cracks.<br>4. <span style='color:cyan'>Collect Crystals</span> to buy 50+ Survivors in Garage!<br>5. Escape the lava!" },
-        ru: { start: "ИГРАТЬ", garage: "ГАРАЖ", help: "ПОМОЩЬ", best: "РЕКОРД", height: "ВЫСОТА", help_txt: "1. Прыгайте по скалам.<br>2. Только ОДНА скала безопасна.<br>3. ЛОВУШКИ ломаются быстро!<br>4. Собирайте кристаллы!<br>5. Бегите от лавы!" }
+        ru: { start: "ИГРАТЬ", garage: "ГАРАЖ", help: "ПОМОЩЬ", best: "РЕКОРД", height: "ВЫСОТА", help_txt: "1. Прыгайте по скалам.<br>2. Только ОДНА скала безопасna.<br>3. ЛОВУШКИ ломаются быстро!<br>4. Собирайте кристаллы!<br>5. Бегите от лавы!" }
     };
 
     function setLang(code) {
@@ -200,7 +200,6 @@
         });
     }
 
-    // --- PURCHASE WITH AD & INSTANT SYNC ---
     function selectChar(id) {
         const char = characters[id];
         if (unlockedChars.includes(id)) {
@@ -217,8 +216,8 @@
                 localStorage.setItem('volcano_unlocked', JSON.stringify(unlockedChars)); 
                 localStorage.setItem('volcano_char', currentChar);
                 syncWithPortal();
-                updateUIDisplays(); // Instant update Main Menu/HUD
-                renderGarage();    // Instant update shop status
+                updateUIDisplays();
+                renderGarage();
             }, 1500);
         } else { alert("Need more crystals!"); }
     }
@@ -237,18 +236,10 @@
     setInterval(() => {
         const btn = document.getElementById('adBtn');
         const diff = Date.now() - lastAdTime;
-        if(diff < 86400000) { 
-            btn.disabled = true; 
-            let rem = 86400000 - diff; 
-            let h = Math.floor(rem/3600000), m = Math.floor((rem%3600000)/60000), s = Math.floor((rem%60000)/1000); 
-            btn.innerText = `LOCKED (${h}h ${m}m ${s}s)`; 
-        } else { 
-            btn.disabled = false; 
-            btn.innerText = "GET FREE CRYSTALS (+20 💎 🎬)"; 
-        }
+        if(diff < 86400000) { btn.disabled = true; let rem = 86400000 - diff; let h = Math.floor(rem/3600000), m = Math.floor((rem%3600000)/60000), s = Math.floor((rem%60000)/1000); btn.innerText = `LOCKED (${h}h ${m}m ${s}s)`; }
+        else { btn.disabled = false; btn.innerText = "GET FREE CRYSTALS (+20 💎 🎬)"; }
     }, 1000);
 
-    // --- INSTANT CRYSTAL REWARD LOGIC ---
     function watchRewardAdWithSDK() {
         if(window.AJ_SDK) {
             window.AJ_SDK.showAd();
@@ -258,8 +249,8 @@
                 localStorage.setItem('volcano_crystals', totalCrystals); 
                 localStorage.setItem('volcano_ad_time', lastAdTime); 
                 syncWithPortal(); 
-                updateUIDisplays(); // Instant update Main Menu/HUD
-                renderGarage();    // Instant update Garage view
+                updateUIDisplays();
+                renderGarage();
                 alert("Success! 20 Free Crystals Added.");
             }, 2000);
         } else { alert("Ad not available."); }
@@ -277,7 +268,6 @@
         initGame();
     }
 
-    // --- CONSOLIDATED INSTANT UI UPDATE ---
     function updateUIDisplays() {
         const ajVal = (totalCrystals * 0.003).toFixed(3);
         if(document.getElementById('bestRecord')) document.getElementById('bestRecord').innerText = bestScore;
@@ -298,10 +288,33 @@
         }
     }
 
+    // --- FIXED REVIVE PLAYER ---
     function revivePlayer() { 
-        canRevive = false; player.isDead = false; player.opacity = 1; player.scale = 1; player.grounded = true; lavaY += 600; gameActive = true; document.getElementById('gameOver').classList.remove('active-screen'); document.getElementById('hud').style.display = 'flex'; 
+        canRevive = false; 
+        player.isDead = false; 
+        player.opacity = 1; 
+        player.scale = 1; // RESET SCALE TO 1 (Normal size)
+        player.grounded = false; // DON'T SNAP TO BOTTOM ROCK
+        player.isJumping = false;
+
+        // Reset the current rock player is on so it doesn't fall again
+        if(player.currentRock) {
+            player.currentRock.timer = 0;
+            player.currentRock.falling = false;
+            player.currentRock.active = false;
+            player.currentRock.fallY = 0;
+            player.currentRock.opacity = 1;
+        }
+
+        // Push lava way back from player
+        lavaY = player.y + 600; 
+
+        gameActive = true; 
+        document.getElementById('gameOver').classList.remove('active-screen'); 
+        document.getElementById('hud').style.display = 'flex'; 
         if(audioState.musOn){ sounds.bg.play().catch(()=>{}); sounds.lavaBg.play().catch(()=>{}); } 
         loop(); 
+        updateUIDisplays();
     }
 
     let gameActive = false, score = 0, cameraY = 0, lavaY = 0, frame = 0, rocks = [];
