@@ -210,14 +210,30 @@
     document.getElementById('musVol').oninput = (e) => { audioPool.bgmusic.volume = e.target.value; audioPool.jetenginesound.volume = e.target.value * 0.5; };
     document.getElementById('sfxVol').oninput = (e) => { const v = e.target.value; ['bullet','click','enemycrash','enoughbalance','gemcollect','jetcrash','levelup','blastsound','collectreward','coincash'].forEach(k => { if(Array.isArray(audioPool[k])) audioPool[k].forEach(s => s.volume = v); }); };
 
+    // --- FREE POINTS WITH AD ---
     function showRewardAd() { 
-        if(window.AJ_SDK) window.AJ_SDK.showAd(); // AD FOR FREE POINTS
-        totalPoints += 500; playFromPool('collectreward'); localStorage.setItem('ns_points', totalPoints); syncWithPortal(); updateGarageUI(); updateUIDisplays(); 
+        if(window.AJ_SDK) {
+            window.AJ_SDK.showAd();
+            setTimeout(() => {
+                totalPoints += 500; 
+                playFromPool('collectreward'); 
+                localStorage.setItem('ns_points', totalPoints); 
+                syncWithPortal(); 
+                updateGarageUI(); 
+                updateUIDisplays();
+                alert("Success! 500 Data Points added.");
+            }, 2000);
+        } else { alert("Ads not available."); }
     }
+
+    // --- REVIVE WITH AD ---
     function showReviveAd() { 
-        if(window.AJ_SDK) window.AJ_SDK.showAd(); // AD FOR REVIVE
-        revivePlayer(); 
+        if(window.AJ_SDK) {
+            window.AJ_SDK.showAd();
+            setTimeout(() => { revivePlayer(); }, 1000);
+        } else { alert("Ads not available."); }
     }
+
     function revivePlayer() { document.getElementById('gameOver').classList.remove('active-screen'); isCrashing = false; gameActive = true; enemies = []; bullets = []; spawnLockTimer = 120; player.hasShield = true; document.getElementById('hud').style.display = 'flex'; document.getElementById('abilityBtn').style.display = 'flex'; document.getElementById('joyContainer').style.display = 'block'; homeBg.style.display = 'none'; if(audioSettings.mus) { audioPool.bgmusic.play(); audioPool.jetenginesound.play(); } loop(); }
     function showAlert(msg) { document.getElementById('alertMsg').innerText = msg; document.getElementById('customAlert').style.display = 'flex'; }
     function closeAlert() { document.getElementById('customAlert').style.display = 'none'; }
@@ -233,11 +249,23 @@
         units.forEach((u, i) => { const isUnlocked = unlockedUnits.includes(i); const isSelected = selectedUnitIndex === i; const div = document.createElement('div'); div.className = `item ${isSelected ? 'selected' : ''}`; div.innerHTML = `<div class="item-color" style="background:${u.color};"></div><div style="font-size:10px">JET-${i+1}</div><div style="font-size:9px; color:var(--neon-gold)">${isUnlocked ? (isSelected ? 'ACTIVE' : 'SELECT') : u.price}</div>`; div.onclick = () => selectUnit(i); grid.appendChild(div); }); 
     }
     
+    // --- JET PURCHASE WITH AD ---
     function selectUnit(i) { 
         if (unlockedUnits.includes(i)) { playFromPool('click'); selectedUnitIndex = i; localStorage.setItem('ns_selected', i); } 
         else if (totalPoints >= units[i].price) { 
-            if(window.AJ_SDK) window.AJ_SDK.showAd(); // AD ON PURCHASE
-            playFromPool('coincash'); totalPoints -= units[i].price; unlockedUnits.push(i); selectedUnitIndex = i; localStorage.setItem('ns_points', totalPoints); localStorage.setItem('ns_unlocked', JSON.stringify(unlockedUnits)); localStorage.setItem('ns_selected', i); syncWithPortal();
+            if(window.AJ_SDK) window.AJ_SDK.showAd(); 
+            setTimeout(() => {
+                totalPoints -= units[i].price; 
+                unlockedUnits.push(i); 
+                selectedUnitIndex = i; 
+                playFromPool('coincash');
+                localStorage.setItem('ns_points', totalPoints); 
+                localStorage.setItem('ns_unlocked', JSON.stringify(unlockedUnits)); 
+                localStorage.setItem('ns_selected', i); 
+                syncWithPortal();
+                updateGarageUI(); 
+                updateUIDisplays();
+            }, 1500);
         } else { playFromPool('enoughbalance'); let diff = units[i].price - totalPoints; showAlert("NEED " + diff + " DATA POINTS"); } updateGarageUI(); updateUIDisplays();
     }
 
