@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { auth, db, googleProvider } from '../firebaseConfig';
 import { signInWithPopup, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, updateDoc, increment, collection, addDoc, getDoc, serverTimestamp } from 'firebase/firestore';
-import { Trophy, Zap, Bot, Download, Activity, Send, CreditCard, Smartphone, MessageCircle, Copy } from 'lucide-react';
+import { Trophy, Zap, Bot, Download, Activity, Send, CreditCard, Smartphone, MessageCircle, Copy, X } from 'lucide-react';
 import emailjs from 'emailjs-com';
 
 // --- CONFIGURATIONS ---
@@ -24,6 +24,7 @@ export default function AJSuperPortal() {
   const [invested, setInvested] = useState(0);
   const [selectedGame, setSelectedGame] = useState(null);
   const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [showIosModal, setShowIosModal] = useState(false); // iOS Modal State
 
   // AI BOT STATES
   const [visualProfit, setVisualProfit] = useState(0);
@@ -57,6 +58,25 @@ export default function AJSuperPortal() {
   useEffect(() => {
     window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); setDeferredPrompt(e); });
   }, []);
+
+  // INSTALL HANDLER (FOR BOTH ANDROID & iOS)
+  const handleInstallApp = () => {
+    if (deferredPrompt) {
+      // Android / PC Logic
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.then((choiceResult) => {
+        if (choiceResult.outcome === 'accepted') setDeferredPrompt(null);
+      });
+    } else {
+      // iOS / Manual Install Check
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+      if (isIOS) {
+        setShowIosModal(true);
+      } else {
+        alert("Installation is only available via Chrome (Android) or Safari (iOS). If you're on PC, use Chrome.");
+      }
+    }
+  };
 
   // REVENUE SPLITS (70/30 & 60/40)
   useEffect(() => {
@@ -304,7 +324,6 @@ export default function AJSuperPortal() {
             )}
             {walletTab === 'transfer' && (
               <div className="flex flex-col gap-4 text-left">
-                {/* UPGRADED ID DISPLAY SECTION */}
                 <div className="bg-cyan-500/5 border border-cyan-500/20 p-4 rounded-2xl mb-4 text-center">
                   <p className="text-[10px] text-gray-500 uppercase font-black tracking-widest mb-1">My Referral ID</p>
                   <p className="text-sm md:text-lg font-mono text-cyan-400 break-all drop-shadow-[0_0_10px_rgba(6,182,212,0.8)] font-black">
@@ -376,7 +395,7 @@ export default function AJSuperPortal() {
         </div>
       )}
 
-      {/* SOCIAL HUB MODAL (FIXED) */}
+      {/* SOCIAL HUB MODAL */}
       {screen === 'social' && (
         <div className="fixed inset-0 z-[400] bg-[#020617] p-8 overflow-y-auto flex flex-col items-center">
             <button onClick={() => setScreen('hub')} className="self-start text-pink-500 font-bold mb-10 tracking-widest uppercase">← BACK TO HUB</button>
@@ -393,6 +412,40 @@ export default function AJSuperPortal() {
         </div>
       )}
 
+      {/* iOS INSTALL INSTRUCTION MODAL */}
+      {showIosModal && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="bg-[#020617] border-2 border-cyan-400 p-8 rounded-3xl max-w-sm w-full text-center shadow-[0_0_50px_rgba(34,211,238,0.3)]">
+            <div className="flex justify-between items-center mb-6">
+               <h2 className="text-2xl font-black text-cyan-400 uppercase italic">Install AJ App</h2>
+               <X className="cursor-pointer text-gray-500 hover:text-white" onClick={() => setShowIosModal(false)} />
+            </div>
+            
+            <div className="space-y-6 text-left text-gray-300 font-medium">
+              <div className="flex items-start gap-4">
+                <span className="bg-cyan-400 text-black w-6 h-6 rounded-full flex items-center justify-center font-bold text-sm shrink-0">1</span>
+                <p>Safari browser mein sabse neechay <span className="text-white font-bold inline-flex items-center gap-1 underline underline-offset-4">Share Icon <Send size={14} className="-rotate-45" /></span> dabanayein.</p>
+              </div>
+              <div className="flex items-start gap-4">
+                <span className="bg-cyan-400 text-black w-6 h-6 rounded-full flex items-center justify-center font-bold text-sm shrink-0">2</span>
+                <p>Menu ko thoda upar scroll karein aur <span className="text-white font-bold underline underline-offset-4 text-cyan-400">"Add to Home Screen"</span> par click karein.</p>
+              </div>
+              <div className="flex items-start gap-4">
+                <span className="bg-cyan-400 text-black w-6 h-6 rounded-full flex items-center justify-center font-bold text-sm shrink-0">3</span>
+                <p>Upar right corner mein <span className="text-white font-black uppercase text-cyan-400">Add</span> button dabanayein.</p>
+              </div>
+            </div>
+
+            <button 
+              onClick={() => setShowIosModal(false)}
+              className="mt-8 w-full py-4 bg-cyan-500 text-black font-black rounded-xl uppercase hover:scale-105 transition-all shadow-lg"
+            >
+              GOT IT
+            </button>
+          </div>
+        </div>
+      )}
+
       <section className="py-20 bg-black flex justify-center px-4 border-y border-white/5">
         <img src="/founder_card.jpg" className="w-full max-w-4xl rounded-3xl shadow-2xl" />
       </section>
@@ -403,7 +456,9 @@ export default function AJSuperPortal() {
           <a href="https://wa.me/96878994093" target="_blank" className="text-green-500 border border-green-500 px-6 py-2 rounded-full font-bold uppercase tracking-widest hover:bg-green-500 hover:text-black transition-all">Whatsapp</a>
           <a href="https://x.com/Ali20352061" target="_blank" className="text-white border border-white px-6 py-2 rounded-full font-bold uppercase tracking-widest hover:bg-white hover:text-black transition-all">X (Twitter)</a>
         </div>
-        <button onClick={() => { if (deferredPrompt) deferredPrompt.prompt(); }} className="group relative px-12 py-4 bg-cyan-500 text-black font-black uppercase rounded-full overflow-hidden transition-all hover:scale-105 shadow-[0_0_40px_#06b6d4] animate-pulse">
+        
+        {/* UPDATED INSTALL BUTTON */}
+        <button onClick={handleInstallApp} className="group relative px-12 py-4 bg-cyan-500 text-black font-black uppercase rounded-full overflow-hidden transition-all hover:scale-105 shadow-[0_0_40px_#06b6d4] animate-pulse">
           <span className="relative z-10 flex items-center gap-2"><Download size={22} /> Install AJ App</span>
           <div className="absolute inset-0 bg-white/20 group-hover:translate-x-full transition-transform duration-500 -skew-x-12"></div>
         </button>
