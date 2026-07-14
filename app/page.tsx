@@ -23,8 +23,8 @@ export default function AJSuperPortal() {
   const [botTier, setBotTier] = useState('none');
   const [invested, setInvested] = useState(0);
   const [selectedGame, setSelectedGame] = useState(null);
-  const [deferredPrompt, setDeferredPrompt] = useState(null);
-  const [showIosModal, setShowIosModal] = useState(false); // iOS Modal State
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showIosModal, setShowIosModal] = useState(false);
 
   // AI BOT STATES
   const [visualProfit, setVisualProfit] = useState(0);
@@ -54,26 +54,29 @@ export default function AJSuperPortal() {
     emailjs.send(EMAILJS_CONFIG.Service_ID, EMAILJS_CONFIG.Template_ID, params, EMAILJS_CONFIG.Public_Key);
   };
 
-  // PWA Prompt
+  // PWA Prompt logic updated for reliability
   useEffect(() => {
-    window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); setDeferredPrompt(e); });
+    const handler = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
-  // INSTALL HANDLER (FOR BOTH ANDROID & iOS)
+  // Combined Install Action (Android & iOS)
   const handleInstallApp = () => {
     if (deferredPrompt) {
-      // Android / PC Logic
       deferredPrompt.prompt();
-      deferredPrompt.userChoice.then((choiceResult) => {
+      deferredPrompt.userChoice.then((choiceResult: any) => {
         if (choiceResult.outcome === 'accepted') setDeferredPrompt(null);
       });
     } else {
-      // iOS / Manual Install Check
-      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
       if (isIOS) {
         setShowIosModal(true);
       } else {
-        alert("Installation is only available via Chrome (Android) or Safari (iOS). If you're on PC, use Chrome.");
+        alert("To install: Use Chrome on Android/PC or Safari on iOS. If already installed, check your app drawer.");
       }
     }
   };
@@ -282,7 +285,7 @@ export default function AJSuperPortal() {
                 const folderName = game.replace(' Elite Royal', '').replace(' Elite', '').toLowerCase().replace(/ /g, '-');
                 return (
                   <div key={game} onClick={() => !isComingSoon && setSelectedGame(game)} className="bg-white/5 border border-white/10 p-4 rounded-3xl text-center transition-all hover:border-cyan-400 cursor-pointer">
-                    <img src={`/games/${folderName}/logo.png`} className="w-full aspect-square rounded-2xl mb-4 object-cover" onError={(e) => { e.target.src = "/logo.jpg"; }} />
+                    <img src={`/games/${folderName}/logo.png`} className="w-full aspect-square rounded-2xl mb-4 object-cover" onError={(e:any) => { e.target.src = "/logo.jpg"; }} />
                     <h3 className="font-black text-[10px] uppercase mb-3">{game}</h3>
                     <button className={`w-full py-2 rounded-full font-black text-[9px] uppercase transition-all ${isComingSoon ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 'bg-cyan-500 text-black shadow-[0_0_10px_#06b6d4]'}`}>
                       {isComingSoon ? 'Coming Soon' : 'Play Now'}
@@ -412,36 +415,29 @@ export default function AJSuperPortal() {
         </div>
       )}
 
-      {/* iOS INSTALL INSTRUCTION MODAL */}
+      {/* iOS Modal Updated with wahi Logo */}
       {showIosModal && (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className="bg-[#020617] border-2 border-cyan-400 p-8 rounded-3xl max-w-sm w-full text-center shadow-[0_0_50px_rgba(34,211,238,0.3)]">
-            <div className="flex justify-between items-center mb-6">
-               <h2 className="text-2xl font-black text-cyan-400 uppercase italic">Install AJ App</h2>
-               <X className="cursor-pointer text-gray-500 hover:text-white" onClick={() => setShowIosModal(false)} />
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl">
+          <div className="bg-slate-900 border-2 border-cyan-400 p-8 rounded-[2.5rem] max-w-sm w-full text-center shadow-[0_0_80px_rgba(34,211,238,0.3)]">
+            <div className="w-20 h-20 bg-black rounded-3xl mx-auto mb-6 border-2 border-cyan-500 overflow-hidden shadow-lg">
+                <img src="/logo.jpg" className="w-full h-full object-cover" />
             </div>
-            
-            <div className="space-y-6 text-left text-gray-300 font-medium">
-              <div className="flex items-start gap-4">
-                <span className="bg-cyan-400 text-black w-6 h-6 rounded-full flex items-center justify-center font-bold text-sm shrink-0">1</span>
-                <p>Safari browser mein sabse neechay <span className="text-white font-bold inline-flex items-center gap-1 underline underline-offset-4">Share Icon <Send size={14} className="-rotate-45" /></span> dabanayein.</p>
+            <h2 className="text-2xl font-black text-cyan-400 mb-6 uppercase italic">Install AJ Portal</h2>
+            <div className="space-y-6 text-left text-gray-300">
+              <div className="flex items-center gap-4 bg-white/5 p-3 rounded-2xl">
+                <span className="bg-cyan-400 text-black w-7 h-7 rounded-full flex items-center justify-center font-black">1</span>
+                <p className="text-sm">Safari mein neechay <span className="text-white font-bold inline-flex items-center gap-1 underline underline-offset-4">Share Icon <Send size={14} className="-rotate-45" /></span> dabanayein.</p>
               </div>
-              <div className="flex items-start gap-4">
-                <span className="bg-cyan-400 text-black w-6 h-6 rounded-full flex items-center justify-center font-bold text-sm shrink-0">2</span>
-                <p>Menu ko thoda upar scroll karein aur <span className="text-white font-bold underline underline-offset-4 text-cyan-400">"Add to Home Screen"</span> par click karein.</p>
+              <div className="flex items-center gap-4 bg-white/5 p-3 rounded-2xl">
+                <span className="bg-cyan-400 text-black w-7 h-7 rounded-full flex items-center justify-center font-black">2</span>
+                <p className="text-sm"><span className="text-white font-bold italic text-cyan-400">"Add to Home Screen"</span> par click karein.</p>
               </div>
-              <div className="flex items-start gap-4">
-                <span className="bg-cyan-400 text-black w-6 h-6 rounded-full flex items-center justify-center font-bold text-sm shrink-0">3</span>
-                <p>Upar right corner mein <span className="text-white font-black uppercase text-cyan-400">Add</span> button dabanayein.</p>
+              <div className="flex items-center gap-4 bg-white/5 p-3 rounded-2xl">
+                <span className="bg-cyan-400 text-black w-7 h-7 rounded-full flex items-center justify-center font-black">3</span>
+                <p className="text-sm">Upar <span className="text-cyan-400 font-black">"Add"</span> button dabanayein.</p>
               </div>
             </div>
-
-            <button 
-              onClick={() => setShowIosModal(false)}
-              className="mt-8 w-full py-4 bg-cyan-500 text-black font-black rounded-xl uppercase hover:scale-105 transition-all shadow-lg"
-            >
-              GOT IT
-            </button>
+            <button onClick={() => setShowIosModal(false)} className="mt-8 w-full py-4 bg-cyan-500 text-black font-black rounded-2xl uppercase shadow-lg hover:scale-105 transition-all">DONE</button>
           </div>
         </div>
       )}
@@ -457,7 +453,7 @@ export default function AJSuperPortal() {
           <a href="https://x.com/Ali20352061" target="_blank" className="text-white border border-white px-6 py-2 rounded-full font-bold uppercase tracking-widest hover:bg-white hover:text-black transition-all">X (Twitter)</a>
         </div>
         
-        {/* UPDATED INSTALL BUTTON */}
+        {/* ONE INSTALL BUTTON FOR ALL */}
         <button onClick={handleInstallApp} className="group relative px-12 py-4 bg-cyan-500 text-black font-black uppercase rounded-full overflow-hidden transition-all hover:scale-105 shadow-[0_0_40px_#06b6d4] animate-pulse">
           <span className="relative z-10 flex items-center gap-2"><Download size={22} /> Install AJ App</span>
           <div className="absolute inset-0 bg-white/20 group-hover:translate-x-full transition-transform duration-500 -skew-x-12"></div>
