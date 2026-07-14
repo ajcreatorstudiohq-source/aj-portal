@@ -200,15 +200,15 @@
         });
     }
 
-    // --- PURCHASE WITH AD ---
+    // --- PURCHASE WITH AD & INSTANT SYNC ---
     function selectChar(id) {
         const char = characters[id];
         if (unlockedChars.includes(id)) {
             currentChar = id;
             localStorage.setItem('volcano_char', currentChar);
+            renderGarage();
         } else if (totalCrystals >= char.price) { 
             if(window.AJ_SDK) window.AJ_SDK.showAd(); 
-            // Deduct and unlock after short delay
             setTimeout(() => {
                 totalCrystals -= char.price; 
                 unlockedChars.push(id); 
@@ -217,11 +217,10 @@
                 localStorage.setItem('volcano_unlocked', JSON.stringify(unlockedChars)); 
                 localStorage.setItem('volcano_char', currentChar);
                 syncWithPortal();
-                renderGarage();
-                updateUIDisplays();
+                updateUIDisplays(); // Instant update Main Menu/HUD
+                renderGarage();    // Instant update shop status
             }, 1500);
         } else { alert("Need more crystals!"); }
-        renderGarage(); updateUIDisplays();
     }
 
     function toggleAudio(type) { if(type === 'music') audioState.musOn = !audioState.musOn; else audioState.sfxOn = !audioState.sfxOn; localStorage.setItem('v_audio', JSON.stringify(audioState)); updateAudioUI(); if(!audioState.musOn){ sounds.bg.pause(); sounds.lavaBg.pause(); } }
@@ -231,35 +230,41 @@
     function closeSettings() { document.getElementById('settingsScreen').classList.remove('active-screen'); document.getElementById('mainMenu').classList.add('active-screen'); }
     function openHowTo() { document.getElementById('mainMenu').classList.remove('active-screen'); document.getElementById('howToScreen').classList.add('active-screen'); }
     function closeHowTo() { document.getElementById('howToScreen').classList.remove('active-screen'); document.getElementById('mainMenu').classList.add('active-screen'); }
-    function openGarage() { document.getElementById('mainMenu').classList.remove('active-screen'); document.getElementById('garageScreen').classList.add('active-screen'); renderGarage(); }
+    function openGarage() { document.getElementById('mainMenu').classList.remove('active-screen'); document.getElementById('garageScreen').classList.add('active-screen'); renderGarage(); updateUIDisplays(); }
     function closeGarage() { document.getElementById('garageScreen').classList.remove('active-screen'); document.getElementById('mainMenu').classList.add('active-screen'); }
     function goToMainMenu() { document.getElementById('gameOver').classList.remove('active-screen'); document.getElementById('mainMenu').classList.add('active-screen'); document.getElementById('hud').style.display = 'none'; gameActive = false; sounds.bg.pause(); sounds.lavaBg.pause(); updateUIDisplays(); }
 
     setInterval(() => {
         const btn = document.getElementById('adBtn');
         const diff = Date.now() - lastAdTime;
-        if(diff < 86400000) { btn.disabled = true; let rem = 86400000 - diff; let h = Math.floor(rem/3600000), m = Math.floor((rem%3600000)/60000), s = Math.floor((rem%60000)/1000); btn.innerText = `LOCKED (${h}h ${m}m ${s}s)`; }
-        else { btn.disabled = false; btn.innerText = "GET FREE CRYSTALS (+20 💎 🎬)"; }
+        if(diff < 86400000) { 
+            btn.disabled = true; 
+            let rem = 86400000 - diff; 
+            let h = Math.floor(rem/3600000), m = Math.floor((rem%3600000)/60000), s = Math.floor((rem%60000)/1000); 
+            btn.innerText = `LOCKED (${h}h ${m}m ${s}s)`; 
+        } else { 
+            btn.disabled = false; 
+            btn.innerText = "GET FREE CRYSTALS (+20 💎 🎬)"; 
+        }
     }, 1000);
 
-    // --- FREE CRYSTALS WITH AD ---
+    // --- INSTANT CRYSTAL REWARD LOGIC ---
     function watchRewardAdWithSDK() {
         if(window.AJ_SDK) {
             window.AJ_SDK.showAd();
             setTimeout(() => {
-                totalCrystals += 20; 
+                totalCrystals = parseInt(totalCrystals) + 20; 
                 lastAdTime = Date.now(); 
                 localStorage.setItem('volcano_crystals', totalCrystals); 
                 localStorage.setItem('volcano_ad_time', lastAdTime); 
                 syncWithPortal(); 
-                renderGarage(); 
-                updateUIDisplays();
+                updateUIDisplays(); // Instant update Main Menu/HUD
+                renderGarage();    // Instant update Garage view
                 alert("Success! 20 Free Crystals Added.");
             }, 2000);
         } else { alert("Ad not available."); }
     }
 
-    // --- REVIVE WITH AD ---
     function watchAdToReviveWithSDK() {
         if(window.AJ_SDK) {
             window.AJ_SDK.showAd(); 
@@ -272,11 +277,14 @@
         initGame();
     }
 
+    // --- CONSOLIDATED INSTANT UI UPDATE ---
     function updateUIDisplays() {
         const ajVal = (totalCrystals * 0.003).toFixed(3);
-        document.getElementById('bestRecord').innerText = bestScore;
-        document.getElementById('mainAJDisplay').innerText = ajVal;
+        if(document.getElementById('bestRecord')) document.getElementById('bestRecord').innerText = bestScore;
+        if(document.getElementById('mainAJDisplay')) document.getElementById('mainAJDisplay').innerText = ajVal;
         if(document.getElementById('shopCrystals')) document.getElementById('shopCrystals').innerText = totalCrystals;
+        if(document.getElementById('garageAJ')) document.getElementById('garageAJ').innerText = ajVal;
+        if(document.getElementById('crystalVal')) document.getElementById('crystalVal').innerText = totalCrystals;
         if(document.getElementById('liveAJ')) document.getElementById('liveAJ').innerText = ajVal;
     }
 
@@ -348,6 +356,7 @@
         document.getElementById('hud').style.display = 'flex'; 
         if(audioState.musOn){ sounds.bg.play().catch(()=>{}); sounds.lavaBg.play().catch(()=>{}); } 
         loop();
+        updateUIDisplays();
     }
 
     function spawnRow(y) {
@@ -368,7 +377,13 @@
         rocks.forEach(r => { let d = Math.sqrt(Math.pow(tx - r.x, 2) + Math.pow(ty - r.y, 2)); if(d < minDist && !r.falling) { minDist = d; closest = r; } });
         if(closest) {
             if (Math.sqrt(Math.pow(closest.x - player.x, 2) + Math.pow(closest.y - player.y, 2)) < 550) {
-                if (closest.hasCrystal) { closest.hasCrystal = false; totalCrystals++; playSfx('crystal'); syncWithPortal(); updateUIDisplays(); }
+                if (closest.hasCrystal) { 
+                    closest.hasCrystal = false; 
+                    totalCrystals = parseInt(totalCrystals) + 1; 
+                    playSfx('crystal'); 
+                    syncWithPortal(); 
+                    updateUIDisplays(); 
+                }
                 player.grounded = false; player.isJumping = true; player.targetX = closest.x; player.targetY = closest.y - 50;
                 if(player.currentRock) player.currentRock.active = false;
                 player.currentRock = closest; closest.active = true; playSfx('jump');
@@ -394,8 +409,7 @@
         score = Math.max(score, Math.floor(Math.abs(player.y - (canvas.height-150))/15));
         if (score > bestScore) { bestScore = score; localStorage.setItem('volcano_best', bestScore); updateUIDisplays(); }
         document.getElementById('heightVal').innerText = score; 
-        document.getElementById('crystalVal').innerText = totalCrystals;
-        document.getElementById('liveAJ').innerText = (totalCrystals * 0.003).toFixed(3);
+        updateUIDisplays();
         rocks.forEach(r => r.update());
         if(rocks[rocks.length-1].y > player.y - canvas.height) spawnRow(rocks[rocks.length-1].y - 250);
         if(player.y + cameraY > canvas.height + 400) endGame();
