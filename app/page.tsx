@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { auth, db, googleProvider } from '../firebaseConfig';
 import { signInWithPopup, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, updateDoc, increment, collection, addDoc, getDoc, serverTimestamp } from 'firebase/firestore';
-import { Trophy, Zap, Bot, Download, Activity, Send, CreditCard, Smartphone, MessageCircle } from 'lucide-react';
+import { Trophy, Zap, Bot, Download, Activity, Send, CreditCard, Smartphone, MessageCircle, Copy } from 'lucide-react';
 import emailjs from 'emailjs-com';
 
 // --- CONFIGURATIONS ---
@@ -162,7 +162,7 @@ export default function AJSuperPortal() {
       });
       const data = await res.json();
       if (data.invoice_url) window.open(data.invoice_url, '_blank');
-      else alert("Error: Min $20 for Invoice.");
+      else alert("Error: Min $20 for TRC20 Invoice.");
     } catch (e) { alert("Payment Gateway Error."); }
   };
 
@@ -304,11 +304,18 @@ export default function AJSuperPortal() {
             )}
             {walletTab === 'transfer' && (
               <div className="flex flex-col gap-4 text-left">
-                <p className="text-[10px] text-gray-500 text-center">MY ID: {user?.uid}</p>
-                <input type="text" placeholder="RECIPIENT ID" value={transferId} onChange={(e)=>setTransferId(e.target.value)} className="bg-black border p-4 rounded-xl text-white text-center font-bold outline-none" />
-                <input type="number" placeholder="AMOUNT" value={transferAmount} onChange={(e)=>setTransferAmount(Number(e.target.value))} className="bg-black border p-4 rounded-xl text-white text-center font-bold outline-none" />
-                <button onClick={handleTransfer} className="bg-cyan-600 py-4 rounded-xl font-black uppercase">SEND COINS</button>
-                <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase">Back</button>
+                {/* UPGRADED ID DISPLAY SECTION */}
+                <div className="bg-cyan-500/5 border border-cyan-500/20 p-4 rounded-2xl mb-4 text-center">
+                  <p className="text-[10px] text-gray-500 uppercase font-black tracking-widest mb-1">My Referral ID</p>
+                  <p className="text-sm md:text-lg font-mono text-cyan-400 break-all drop-shadow-[0_0_10px_rgba(6,182,212,0.8)] font-black">
+                    {user?.uid}
+                  </p>
+                </div>
+                
+                <input type="text" placeholder="RECIPIENT ID" value={transferId} onChange={(e)=>setTransferId(e.target.value)} className="bg-black border p-4 rounded-xl text-white text-center font-bold outline-none border-white/10 focus:border-cyan-500" />
+                <input type="number" placeholder="AMOUNT" value={transferAmount} onChange={(e)=>setTransferAmount(Number(e.target.value))} className="bg-black border p-4 rounded-xl text-white text-center font-bold outline-none border-white/10 focus:border-cyan-500" />
+                <button onClick={handleTransfer} className="bg-cyan-600 py-4 rounded-xl font-black uppercase shadow-lg active:scale-95 transition-all">SEND COINS</button>
+                <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase mt-2">Back</button>
               </div>
             )}
             {walletTab === 'withdraw' && (
@@ -369,7 +376,7 @@ export default function AJSuperPortal() {
         </div>
       )}
 
-      {/* SOCIAL SCREEN */}
+      {/* SOCIAL HUB MODAL (FIXED) */}
       {screen === 'social' && (
         <div className="fixed inset-0 z-[400] bg-[#020617] p-8 overflow-y-auto flex flex-col items-center">
             <button onClick={() => setScreen('hub')} className="self-start text-pink-500 font-bold mb-10 tracking-widest uppercase">← BACK TO HUB</button>
