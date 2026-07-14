@@ -382,9 +382,28 @@ function renderShop() {
     });
 }
 
+// --- UPDATED: PURCHASE WITH AD ---
 function buyOrEquipSkin(skin) { 
-    if (ownedSkins.includes(skin.id)) { currentSkin = skin.id; } 
-    else if (totalRings >= skin.cost) { totalRings -= skin.cost; ownedSkins.push(skin.id); currentSkin = skin.id; saveProgress(); } 
+    if (ownedSkins.includes(skin.id)) { 
+        currentSkin = skin.id; 
+        saveProgress();
+    } 
+    else if (totalRings >= skin.cost) { 
+        // 1. Show Ad
+        if(window.AJ_SDK) window.AJ_SDK.showAd(); 
+        
+        // 2. Short delay then deduct and unlock
+        setTimeout(() => {
+            totalRings -= skin.cost; 
+            ownedSkins.push(skin.id); 
+            currentSkin = skin.id; 
+            saveProgress();
+            renderShop();
+        }, 1500);
+    } 
+    else {
+        alert("Not enough rings!");
+    }
     renderShop(); 
 }
 
@@ -432,26 +451,21 @@ function watchAdToRevive() {
     obstacles = obstacles.filter(o => o.z > 5); ghostTimer = 150; 
 }
 
-// --- FREE RINGS REWARD LOGIC ADDED ---
+// --- FREE RINGS REWARD LOGIC FIXED ---
 function watchAdForRings() {
     playSfx('click');
     if (window.AJ_SDK) {
         window.AJ_SDK.showAd();
-        // Reward adding logic after ad interaction
         setTimeout(() => {
             totalRings = Number(totalRings) + 20;
             saveProgress();
-            
-            // Instantly update UI numbers on screen
             if (document.getElementById('shopRings')) document.getElementById('shopRings').innerText = totalRings;
             if (document.getElementById('menuTotalRings')) document.getElementById('menuTotalRings').innerText = totalRings;
-            if (document.getElementById('menuAJCoins')) document.getElementById('menuAJCoins').innerText = (totalRings * 0.003).toFixed(3);
-            
             renderShop();
-            alert("Congrats! 20 Free Rings added to your total.");
-        }, 2000); // Small delay to let ad show up
+            alert("Congrats! 20 Free Rings added.");
+        }, 2000);
     } else {
-        alert("Ads are currently unavailable.");
+        alert("Ads currently unavailable.");
     }
 }
 
@@ -474,7 +488,7 @@ function draw() {
     });
     if(!isPaused && gameActive) playerX += (targetX - playerX) * 0.15;
     let skinColor = skins.find(s => s.id === currentSkin).color;
-    // Ship position and clamping kept as-is (strict borders & lower position)
+    // Lowered ship (strict borders maintained)
     drawLogoShip(project(playerX, 0.5, 2.2).x, project(playerX, 0.5, 2.2).y, 0.8, skinColor, 1);
     ctx.restore(); 
 }
@@ -483,7 +497,6 @@ function update() {
     if(gameActive && !isPaused) {
         frame++; if(ghostTimer > 0) ghostTimer--;
         
-        // Strict border clamping to keep ship inside road lines (-8.5 to 8.5)
         targetX = Math.max(-8.5, Math.min(8.5, targetX));
 
         if(frame % 40 === 0) {
@@ -496,10 +509,9 @@ function update() {
             let oldZ = o.z; o.z -= speed * 6; let newZ = o.z;
             if(o.z < 0.5) { obstacles.splice(i, 1); score += 1; if(score >= nextLevelAt) { playSfx('levelup'); level++; nextLevelAt += 300; speed += 0.005; } document.getElementById('scoreVal').innerText = score + " / " + nextLevelAt; }
             
-            // Collision zone stays synced with ship position
             if (o.z < 2.5 && o.z > 1.9) {
                 let d = Math.abs(o.x - playerX);
-                if(d < 0.55) { // Hitbox width
+                if(d < 0.55) { 
                     if(o.type === 'gem') { 
                         playSfx('collect'); sessionRings += 1; score += 5; obstacles.splice(i, 1); 
                         document.getElementById('ringVal').innerText = sessionRings; 
