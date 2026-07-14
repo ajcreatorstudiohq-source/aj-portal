@@ -254,12 +254,22 @@
         if(window.AJ_SDK) window.AJ_SDK.showAd();
         reviveGame(); 
     }
+    
+    // --- FREE COINS REWARD LOGIC FIXED ---
     function watchRewardAd() { 
-        if(window.AJ_SDK) window.AJ_SDK.showAd();
-        totalCoins += 50; 
-        localStorage.setItem('aj_sub_coins', totalCoins); 
-        syncWithPortal();
-        renderShop(); 
+        if(window.AJ_SDK) {
+            window.AJ_SDK.showAd();
+            // Simulating ad finish delay for reward
+            setTimeout(() => {
+                totalCoins += 50; 
+                localStorage.setItem('aj_sub_coins', totalCoins); 
+                syncWithPortal();
+                renderShop(); 
+                alert("Success! 50 Free Coins Added.");
+            }, 2000);
+        } else {
+            alert("Ads not available.");
+        }
     }
 
     function startGame() { document.getElementById('mainMenu').classList.remove('active-screen'); document.getElementById('ui').style.display = 'block'; document.getElementById('pauseBtn').style.display = 'flex'; resetGame(); }
@@ -305,23 +315,29 @@
         }
     }
 
+    // --- SKIN PURCHASE LOGIC WITH AD ---
     function selectSub(id) {
         const prices = [0, 5000, 10000];
         if(unlockedSkins.includes(id)) { currentSubSkin = id; localStorage.setItem('aj_active_skin', id); }
         else { 
             if(totalCoins >= prices[id]) { 
                 if(window.AJ_SDK) window.AJ_SDK.showAd(); 
-                totalCoins -= prices[id]; 
-                unlockedSkins.push(id); 
-                currentSubSkin = id; 
-                localStorage.setItem('aj_sub_coins', totalCoins); 
-                localStorage.setItem('aj_unlocked', JSON.stringify(unlockedSkins)); 
-                localStorage.setItem('aj_active_skin', id); 
-                syncWithPortal();
+                // Delay deduction to feel like purchase after ad
+                setTimeout(() => {
+                    totalCoins -= prices[id]; 
+                    unlockedSkins.push(id); 
+                    currentSubSkin = id; 
+                    localStorage.setItem('aj_sub_coins', totalCoins); 
+                    localStorage.setItem('aj_unlocked', JSON.stringify(unlockedSkins)); 
+                    localStorage.setItem('aj_active_skin', id); 
+                    syncWithPortal();
+                    renderShop();
+                }, 1500);
             } else { alert("Need more coins!"); } 
         }
         renderShop();
     }
+
     function renderShop() {
         const prices = [0, 5000, 10000];
         for(let i=0; i<3; i++) {
