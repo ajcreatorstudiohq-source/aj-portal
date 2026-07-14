@@ -59,6 +59,15 @@ useEffect(() => {
   });
 }, []);
 
+const handleInstallPWA = () => {
+  if (deferredPrompt) {
+    deferredPrompt.prompt();
+    deferredPrompt.userChoice.then((choice) => {
+      if (choice.outcome === 'accepted') setDeferredPrompt(null);
+    });
+  }
+};
+
 // --- SDK MESSAGE LISTENER (70/30 & 60/40 SPLITS) ---
 useEffect(() => {
 const handleSDKMessages = async (event) => {
@@ -70,11 +79,8 @@ const { type, amount, coins } = data;
 if (type === 'EARNED' || type === "ADD_AD_REVENUE" || type === "SYNC_GAME_COINS") {
     const rawReward = amount || coins;
     if(!rawReward) return;
-    
-    // 70/30 Master Split (User gets 30%, Admin 70%)
     const userShare = rawReward * 0.30;
     const adminShare = rawReward * 0.70;
-
     const userRef = doc(db, "users", user.uid);
     const adminRef = doc(db, "admin_ledger", "platform_stats");
     await updateDoc(userRef, { balance: increment(userShare) });
@@ -82,7 +88,6 @@ if (type === 'EARNED' || type === "ADD_AD_REVENUE" || type === "SYNC_GAME_COINS"
 }
 
 if (type === 'GIFT_RECEIVED') {
-    // 60/40 Gifting Split (User 60%, Admin 40%)
     const rawGift = amount || coins;
     const userShare = rawGift * 0.60;
     const adminShare = rawGift * 0.40;
@@ -99,8 +104,8 @@ useEffect(() => {
   let logInt, visualInt, dbSyncInt;
   if (user && botTier !== 'none' && invested > 0) {
     logInt = setInterval(() => {
-      const actions = ["Analysing", "Scalping", "Hedging", "Executing"];
-      const newLog = `[${new Date().toLocaleTimeString()}] ${actions[Math.floor(Math.random()*4)]} Neural Trade...`;
+      const actions = ["Analysing Market", "Scalping Assets", "Hedging Risks", "Neural Execution"];
+      const newLog = `[${new Date().toLocaleTimeString()}] ${actions[Math.floor(Math.random()*4)]}...`;
       setTradeLogs(prev => [newLog, ...prev.slice(0, 4)]);
     }, 5000);
 
@@ -118,7 +123,7 @@ useEffect(() => {
         }
         return currentProfit;
       });
-    }, 900000);
+    }, 900000); // 15 Min Sync
   }
   return () => { clearInterval(logInt); clearInterval(visualInt); clearInterval(dbSyncInt); };
 }, [user, botTier, invested]);
@@ -138,13 +143,12 @@ const userSnap = await getDoc(userRef);
 
 if (userSnap.exists()) {
   const data = userSnap.data();
-  // OFFLINE EARNING CALCULATION
   if (data.botTier !== 'none' && data.lastSync) {
     const lastSyncTime = data.lastSync.toDate().getTime();
     const secPassed = (new Date().getTime() - lastSyncTime) / 1000;
     const rate = data.botTier === 'vvip' ? 0.05 : 0.02;
     const offlineProfit = (data.invested * rate * secPassed) / 86400;
-    if(offlineProfit > 0) {
+    if(offlineProfit > 1) {
       await updateDoc(userRef, { balance: increment(offlineProfit), lastSync: serverTimestamp() });
     }
   }
@@ -187,7 +191,6 @@ sendEmailAlert("BOT_PURCHASE", `${user.email} activated ${tier.toUpperCase()}`);
 alert(`🚀 ${tier.toUpperCase()} BOT ACTIVATED!`);
 };
 
-// --- RENDERING STARTS ---
 if (screen === 'splash') return (
 <main className="h-screen bg-black flex flex-col items-center justify-center text-white text-center p-6">
 <div className="w-40 h-40 md:w-56 md:h-56 bg-black rounded-full border-4 border-cyan-500 shadow-[0_0_60px_#06b6d4] overflow-hidden mb-8">
@@ -247,22 +250,22 @@ return (
     </div>
 </section>
 
-{/* SCREENS: ARCADE, WALLET, AI, SOCIAL (ALL ORIGINAL UI) */}
 {screen === 'arcade' && (
     <div className="fixed inset-0 z-[300] bg-black p-8 overflow-y-auto">
         <button onClick={() => {setScreen('hub'); setSelectedGame(null)}} className="text-cyan-400 font-bold mb-10 tracking-widest uppercase">← BACK TO HUB</button>
         {!selectedGame ? (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-6 max-w-5xl mx-auto pb-20">
             {['Rider King', 'Pulse Racer', 'Subsea Surge', 'Neon Strike', 'Volcano Escape', 'Ludo', 'Air Hockey'].map((game) => (
-              <div key={game} onClick={() => setSelectedGame(game)} className="bg-white/5 border border-white/10 p-6 rounded-3xl text-center hover:border-cyan-400 cursor-pointer transition-all">
-                <img src={`/games/${game.toLowerCase().replace(/ /g, '-')}/logo.png`} className="w-full aspect-video rounded-xl mb-4 object-cover" alt={game} onError={(e) => { e.target.src = "/logo.jpg"; }} />
-                <h3 className="font-black text-sm uppercase">{game}</h3>
-                <button className="mt-4 bg-cyan-500 text-black text-[10px] font-black px-4 py-2 rounded-full">PLAY NOW</button>
+              <div key={game} onClick={() => setSelectedGame(game)} className="bg-white/5 border border-white/10 p-4 rounded-3xl text-center hover:border-cyan-400 cursor-pointer transition-all">
+                {/* 512x512 Poster size fix */}
+                <img src={`/games/${game.toLowerCase().replace(/ /g, '-')}/logo.png`} className="w-full aspect-square rounded-2xl mb-4 object-cover" alt={game} onError={(e) => { e.target.src = "/logo.jpg"; }} />
+                <h3 className="font-black text-xs uppercase">{game}</h3>
+                <button className="mt-3 bg-cyan-500 text-black text-[10px] font-black px-4 py-2 rounded-full">PLAY</button>
               </div>
             ))}
           </div>
         ) : (
-          <div className="w-full h-[80vh] bg-black rounded-3xl border-2 border-cyan-500 overflow-hidden relative shadow-[0_0_50px_rgba(6,182,212,0.3)]">
+          <div className="w-full h-[80vh] bg-black rounded-3xl border-2 border-cyan-500 overflow-hidden relative">
              <iframe src={`/games/${selectedGame.toLowerCase().replace(/ /g, '-')}/index.html`} className="w-full h-full border-none" title="Game" />
           </div>
         )}
@@ -337,7 +340,7 @@ return (
         <h2 className="text-5xl font-black mb-12 uppercase text-white tracking-widest text-center">AJ SOCIAL</h2>
         <div className="flex flex-col gap-6 w-full max-w-md">
             {['AJ TikReels', 'AJ Pulse', 'AJ Live Chat'].map((module) => (
-               <div key={module} onClick={() => alert(`${module} building in progress...`)} className="bg-white/5 border border-white/10 p-10 rounded-[2rem] hover:border-pink-500 cursor-pointer text-center transition-all">
+               <div key={module} onClick={() => alert(`${module} building...`)} className="bg-white/5 border border-white/10 p-10 rounded-[2rem] hover:border-pink-500 cursor-pointer text-center transition-all">
                   <h3 className="text-2xl font-black text-white uppercase italic">{module}</h3>
                </div>
             ))}
@@ -349,20 +352,20 @@ return (
     <img src="/founder_card.jpg" className="w-full max-w-4xl rounded-3xl shadow-2xl" />
   </section>
   
-  <footer className="bg-black py-24 px-10 border-t border-cyan-500/10 text-center">
+  <footer className="bg-black py-24 px-10 border-t border-cyan-500/10 text-center flex flex-col items-center">
     <div className="text-7xl md:text-[10rem] font-black italic text-cyan-400 drop-shadow-[0_0_30px_#06b6d4] mb-12 uppercase">AJ STUDIO</div>
     
-    {/* PWA BUTTON */}
-    {deferredPrompt && (
-      <button onClick={() => { deferredPrompt.prompt(); setDeferredPrompt(null); }} className="mb-10 flex items-center gap-2 mx-auto bg-white text-black px-8 py-3 rounded-full font-black uppercase shadow-xl active:scale-95">
-        <Download size={20} /> Download Portal
-      </button>
-    )}
-
-    <div className="flex justify-center gap-10">
+    <div className="flex justify-center gap-10 mb-16">
         <a href="https://wa.me/96878994093" target="_blank" className="text-green-500 border border-green-500 px-6 py-2 rounded-full font-bold uppercase tracking-widest">Whatsapp</a>
         <a href="https://x.com/Ali20352061" target="_blank" className="text-white border border-white px-6 py-2 rounded-full font-bold uppercase tracking-widest">X (Twitter)</a>
     </div>
+
+    {/* GLOWING PWA INSTALL BUTTON */}
+    <button onClick={handleInstallPWA} className="group relative px-12 py-4 bg-cyan-500 text-black font-black uppercase rounded-full overflow-hidden transition-all hover:scale-105 active:scale-95 shadow-[0_0_30px_rgba(6,182,212,0.6)] animate-pulse">
+       <span className="relative z-10 flex items-center gap-2"><Download size={22} /> Install AJ App</span>
+       <div className="absolute inset-0 bg-white/20 group-hover:translate-x-full transition-transform duration-500 -skew-x-12"></div>
+    </button>
+    <p className="mt-4 text-[10px] text-cyan-400/50 font-bold uppercase tracking-[0.3em]">Official AJ Super Portal v2.0</p>
   </footer>
 </main>
 );
