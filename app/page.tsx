@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { auth, db, googleProvider } from '../firebaseConfig';
 import { signInWithPopup, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, updateDoc, increment, collection, addDoc, getDoc, serverTimestamp } from 'firebase/firestore';
-import { MessageCircle, Trophy, Zap, Wallet, Bot, LogOut, Globe, ChevronRight, Send, CreditCard, ArrowUpRight, ShieldCheck, Crown, Activity, TrendingUp, X, CheckCircle2, Download, Share2, Heart } from 'lucide-react';
+import { MessageCircle, Trophy, Zap, Wallet, Bot, LogOut, Activity, TrendingUp, CheckCircle2, Download, Share2, Heart } from 'lucide-react';
 import emailjs from '@emailjs/browser';
 
 export default function AJSuperPortal() {
@@ -27,8 +27,6 @@ const [transferId, setTransferId] = useState('');
 const [transferAmount, setTransferAmount] = useState(0);
 const [payoutMethod, setPayoutMethod] = useState('Binance Pay (USDT)');
 const [payoutId, setPayoutId] = useState('');
-const [cardName, setCardName] = useState('');
-const [cardNumber, setCardNumber] = useState('');
 
 // Header Visual Balance: Real DB Balance + Live AI Counter (2 Decimal Places)
 const displayBalance = (balance + visualProfit).toFixed(2);
@@ -43,13 +41,9 @@ const notifyAdmin = (type, amount, details) => {
     amount: amount,
     details: details,
   };
-
-  emailjs.send(
-    'service_6w1sols', 
-    'template_o1c40nv', 
-    templateParams, 
-    '6JCPm9fo38ovnA5LG'
-  ).then(() => console.log("CEO Notified!"));
+  emailjs.send('service_6w1sols', 'template_o1c40nv', templateParams, '6JCPm9fo38ovnA5LG')
+    .then(() => console.log("CEO Notified!"))
+    .catch((err) => console.error("Email Error:", err));
 };
 
 // --- PWA INSTALLATION LOGIC ---
@@ -68,7 +62,7 @@ const handleInstallClick = async () => {
   }
 };
 
-// --- OFFLINE EARNING SYNC ---
+// --- OFFLINE EARNING SYNC (Puri Raat Ka Profit) ---
 const syncOfflineProfit = async (u) => {
   const userRef = doc(db, "users", u.uid);
   const snap = await getDoc(userRef);
@@ -80,8 +74,8 @@ const syncOfflineProfit = async (u) => {
     const rate = d.botTier === 'vvip' ? 0.05 : 0.02;
     const totalEarned = ((d.invested * rate) / 86400) * secondsPassed;
     
-    const userHissa = totalEarned * 0.30; 
-    const adminHissa = totalEarned * 0.70;
+    const userHissa = totalEarned * 0.30; // 30% User (Aapka Hukm)
+    const adminHissa = totalEarned * 0.70; // 70% Admin (Aapka Hukm)
 
     if (userHissa > 0.01) {
       await updateDoc(userRef, { balance: increment(userHissa), lastSyncTime: serverTimestamp() });
@@ -92,39 +86,22 @@ const syncOfflineProfit = async (u) => {
 
 // --- SDK MESSAGE LISTENER (100:1 & 70/30 Split) ---
 useEffect(() => {
-const handleSDKMessages = async (event) => {
-if (!user) return;
-const data = event.detail || event.data;
-if (!data) return;
-const { type, amount, coins, profit } = data;
-
-if (type === 'EARNED' || type === "ADD_AD_REVENUE" || type === "SYNC_GAME_COINS" || type === "SHOW_AD") {
-    if (type === "SHOW_AD") {
-        if (typeof window !== 'undefined' && (window as any).show_8924758) {
-            (window as any).show_8924758();
-        }
-        return;
-    }
-    
-    const rawValue = amount || coins;
-    if(!rawValue) return;
-
-    const totalAJ = rawValue / 100;
-    const userHissa = totalAJ * 0.30;
-    const adminHissa = totalAJ * 0.70;
-
-    const userRef = doc(db, "users", user.uid);
-    const adminRef = doc(db, "admin_ledger", "platform_stats");
-
-    await updateDoc(userRef, { balance: increment(userHissa) });
-    await updateDoc(adminRef, { total_locked_profit: increment(adminHissa + (profit || 0)) });
+const handleMsg = async (e) => {
+if (!user || !e.data) return;
+if (e.data.type === 'SHOW_AD') { if (window.show_8924758) window.show_8924758(); }
+if (e.data.type === 'SYNC_GAME_COINS') {
+    const totalAJ = e.data.coins / 100; // 100 Game Coins = 1 AJ Coin
+    const userHissa = totalAJ * 0.30;   // 30% User
+    const adminHissa = totalAJ * 0.70;  // 70% Admin
+    await updateDoc(doc(db, "users", user.uid), { balance: increment(userHissa) });
+    await updateDoc(doc(db, "admin_ledger", "platform_stats"), { total_locked_profit: increment(adminHissa) });
   }
 };
-window.addEventListener("message", handleSDKMessages);
-return () => window.removeEventListener("message", handleSDKMessages);
+window.addEventListener("message", handleMsg);
+return () => window.removeEventListener("message", handleMsg);
 }, [user]);
 
-// --- AI REAL-TIME ENGINE ---
+// --- REAL-TIME AI ENGINE (15m Sync) ---
 useEffect(() => {
   let logInt, visualInt, dbSyncInt;
   if (user && botTier !== 'none' && invested > 0) {
@@ -152,18 +129,21 @@ useEffect(() => {
 }, [user, botTier, invested, visualProfit]);
 
 useEffect(() => {
+if (screen === 'splash') {
+const interval = setInterval(() => { setLoading(prev => (prev >= 100 ? 100 : prev + 10)); }, 50);
+setTimeout(() => setScreen('auth'), 2000);
+return () => clearInterval(interval);
+}
+}, [screen]);
+
+useEffect(() => {
 const unsub = onAuthStateChanged(auth, async (u) => {
 if (u) {
 setUser(u); await syncOfflineProfit(u);
 const userRef = doc(db, "users", u.uid);
-onSnapshot(userRef, (docSnap) => {
-if (docSnap.exists()) {
-setBalance(docSnap.data().balance || 0);
-setBotTier(docSnap.data().botTier || 'none');
-setInvested(docSnap.data().invested || 0);
-} else {
-setDoc(userRef, { name: u.displayName, email: u.email, balance: 500, botTier: 'none', invested: 0, lastSyncTime: serverTimestamp() });
-}
+onSnapshot(userRef, (s) => {
+if (s.exists()) { setBalance(s.data().balance || 0); setBotTier(s.data().botTier || 'none'); setInvested(s.data().invested || 0); }
+else { setDoc(userRef, { name: u.displayName, email: u.email, balance: 500, botTier: 'none', invested: 0, lastSyncTime: serverTimestamp() }); }
 });
 setScreen('hub');
 } else { setUser(null); setScreen('auth'); }});
@@ -175,7 +155,7 @@ const handlePurchase = () => {
 };
 
 const activateBot = async (t, c) => {
-if (balance < c) return alert("Need coins!");
+if (balance < c) return alert("Low Balance!");
 await updateDoc(doc(db, "users", user.uid), { balance: increment(-c), botTier: t, invested: c, lastSyncTime: serverTimestamp() });
 notifyAdmin("BOT PURCHASE", c, t); 
 setVisualProfit(0);
@@ -208,7 +188,7 @@ if (screen === 'auth' && !user) return (
 
 return (
 <main className="min-h-screen bg-[#020617] text-white font-sans overflow-x-hidden relative">
-    <header className="fixed top-0 w-full p-4 flex justify-between items-center z-[100] bg-black/80 backdrop-blur-xl border-b border-white/5">
+    <header className="fixed top-0 w-full p-4 flex justify-between items-center z-[100] bg-black/80 backdrop-blur-md border-b border-white/5">
         <div className="text-xl font-black italic text-cyan-400">AJ STUDIO</div>
         <div className="flex items-center gap-3">
           <div onClick={() => {setScreen('wallet'); setWalletTab('main')}} className="flex items-center gap-3 bg-white/5 px-4 py-2 rounded-full border border-white/10 shadow-lg cursor-pointer">
@@ -229,7 +209,7 @@ return (
                <Trophy className="text-cyan-400 w-10 h-10 md:w-20 md:h-20 mb-2" />
                <span className="font-black text-xl md:text-4xl uppercase">Gaming</span>
             </div>
-            {/* SOCIAL - Top Right (Moved here from Bottom Right) */}
+            {/* SOCIAL - Top Right */}
             <div onClick={() => setScreen('social')} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center active:scale-95 shadow-xl relative z-50 cursor-pointer">
                <Zap className="text-pink-500 w-10 h-10 md:w-20 md:h-20 mb-2" />
                <span className="font-black text-xl md:text-4xl uppercase">Social</span>
@@ -239,7 +219,7 @@ return (
                <Bot className="text-green-400 w-10 h-10 md:w-20 md:h-20 mb-2" />
                <span className="font-black text-xl md:text-4xl uppercase">AJ AI</span>
             </div>
-            {/* WALLET - Bottom Right (Moved here from Top Right) */}
+            {/* WALLET - Bottom Right */}
             <div onClick={() => {setScreen('wallet'); setWalletTab('main')}} className="bg-white/5 border-2 border-yellow-500/30 rounded-3xl h-48 md:h-80 flex flex-center justify-center cursor-pointer shadow-xl relative z-30">
                <Wallet className="text-yellow-500 w-10 h-10 md:w-20 md:h-20 mb-2" />
                <h2 className="font-black text-xl md:text-4xl uppercase text-yellow-500">Wallet</h2>
@@ -261,8 +241,7 @@ return (
               <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
                 {['Rider King', 'Pulse Racer', 'Subsea Surge', 'Neon Strike', 'Volcano Escape', 'Ludo', 'Air Hockey'].map((game) => (
                   <div key={game} onClick={() => setSelectedGame(game)} className="bg-white/5 border border-white/10 p-6 rounded-3xl text-center hover:border-cyan-400 cursor-pointer transition-all">
-                    {/* 512x512 LOGO FIX: ASPECT SQUARE */}
-                    <img src={`/games/${game.toLowerCase().replace(/ /g, '-')}/logo.png`} className="w-full aspect-square rounded-xl mb-4 object-cover" alt={game} onError={(e) => { (e.target as any).src = "/logo.jpg"; }} />
+                    <img src={`/games/${game.toLowerCase().replace(/ /g, '-')}/logo.png`} className="w-full aspect-square rounded-xl mb-4 object-cover" alt={game} onError={(e) => { e.target.src = "/logo.jpg"; }} />
                     <h3 className="font-black text-sm uppercase">{game}</h3>
                     <button className="mt-4 bg-cyan-500 text-black text-[10px] font-black px-4 py-2 rounded-full">PLAY NOW</button>
                   </div>
@@ -277,7 +256,7 @@ return (
     )}
 
     {screen === 'ai' && (
-        <div className="fixed inset-0 z-[200] bg-black flex flex-col items-center p-8 overflow-y-auto pt-24">
+        <div className="fixed inset-0 z-[200] bg-black flex flex-col items-center p-8 overflow-y-auto pt-24 pb-20">
           <button onClick={() => setScreen('hub')} className="self-start text-green-400 mb-12 font-bold">← BACK</button>
           {botTier !== 'none' && (
             <div className="w-full max-w-2xl bg-white/5 border-2 border-green-500/40 p-8 rounded-[3rem] text-center mb-16 shadow-2xl">
@@ -304,8 +283,27 @@ return (
         </div>
     )}
 
-    {/* Footer Section */}
-    <footer className="bg-black py-24 px-10 border-t border-cyan-500/10 text-center relative">
+    {screen === 'social' && (
+        <div className="fixed inset-0 z-[200] bg-black p-10 pt-24 flex flex-col items-center overflow-y-auto">
+          <button onClick={() => setScreen('hub')} className="self-start text-pink-500 font-bold mb-10 text-xl uppercase">← BACK</button>
+          <div className="max-w-md mx-auto space-y-8">
+            <div className="bg-white/5 backdrop-blur-2xl border border-white/10 rounded-[2.5rem] p-6 shadow-2xl relative">
+              <div className="flex items-center gap-4 mb-6">
+                 <div className="w-12 h-12 bg-cyan-500 rounded-2xl flex items-center justify-center font-black">AJ</div>
+                 <div><h4 className="font-black text-sm uppercase">AJ_Pulse_Official</h4><span className="text-[10px] text-gray-500">Premium Feed Active</span></div>
+              </div>
+              <div className="rounded-3xl overflow-hidden border border-white/10 h-64 bg-gray-900 flex items-center justify-center italic text-gray-700 text-center px-4">Multimedia Feed Loading... <br/> (Movies, Videos & Posts)</div>
+              <div className="mt-6 grid grid-cols-3 gap-2">
+                 <button className="bg-white/5 py-3 rounded-2xl flex items-center justify-center gap-1 text-[10px]"><Heart size={14}/> Like</button>
+                 <button className="bg-white/5 py-3 rounded-2xl flex items-center justify-center gap-1 text-[10px]"><MessageCircle size={14}/> Comment</button>
+                 <button className="bg-white/5 py-3 rounded-2xl flex items-center justify-center gap-1 text-[10px]"><Share2 size={14}/> Share</button>
+              </div>
+            </div>
+          </div>
+        </div>
+    )}
+
+    <footer className="bg-black py-24 px-10 border-t border-cyan-500/10 text-center relative z-10">
         <div className="text-7xl md:text-[10rem] font-black italic text-cyan-400 drop-shadow-[0_0_30px_#06b6d4] mb-12 uppercase">AJ STUDIO</div>
         <div className="flex justify-center gap-10">
             <a href="https://wa.me/96878994093" target="_blank" className="text-green-500 border border-green-500 px-6 py-2 rounded-full font-bold uppercase tracking-widest">Whatsapp</a>
