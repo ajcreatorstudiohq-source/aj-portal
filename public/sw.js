@@ -1,2 +1,18 @@
-self.addEventListener('install', (e) => { console.log('AJ Service Worker Installed'); });
-self.addEventListener('fetch', (e) => { e.respondWith(fetch(e.request)); });
+const CACHE_NAME = 'aj-portal-v1';
+
+self.addEventListener('install', (event) => {
+    self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+    event.waitUntil(clients.claim());
+});
+
+self.addEventListener('fetch', (event) => {
+    // Basic fetch handler to satisfy PWA requirements
+    event.respondWith(
+        fetch(event.request).catch(() => {
+            return caches.match(event.request);
+        })
+    );
+});

@@ -1,42 +1,26 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "AJ Super Portal",
-  description: "The Sovereign Digital Empire",
+  description: "AJ Studio Official App",
+  manifest: "/manifest.json", // Metadata way
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
-    <html lang="en" className="h-full">
+    <html lang="en">
       <head>
-        {/* MONETAG VERIFICATION - ACCOUNT ACTIVE RAKHNE KE LIYE */}
-        <meta name="monetag" content="9aaedb10af8b3eddc9af804041bc39dd" />
-        
-        {/* AGGRESSIVE ADS REMOVED - PORTAL AB CLEAN HAI */}
+        {/* Yeh line sab se zaroori hai manifest detect karwane ke liye */}
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#06b6d4" />
+        <link rel="apple-touch-icon" href="/logo.jpg" />
       </head>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-      >
-        <main className="min-h-full flex flex-col">
-          {children}
-        </main>
-      </body>
+      <body>{children}</body>
     </html>
   );
 }
