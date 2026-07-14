@@ -1,0 +1,21 @@
+{
+  "name": "AJ Super Portal",
+  "short_name": "AJ Portal",
+  "description": "Sovereign Digital Empire by Ali Asim",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#06b6d4",
+  "icons": [
+    {
+      "src": "/logo.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg"
+    },
+    {
+      "src": "/logo.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg"
+    }
+  ]
+}
