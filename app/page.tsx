@@ -68,7 +68,7 @@ const handleInstallClick = async () => {
   }
 };
 
-// --- OFFLINE EARNING SYNC (Puri Raat Ka Profit Calculation) ---
+// --- OFFLINE EARNING SYNC ---
 const syncOfflineProfit = async (u) => {
   const userRef = doc(db, "users", u.uid);
   const snap = await getDoc(userRef);
@@ -80,8 +80,8 @@ const syncOfflineProfit = async (u) => {
     const rate = d.botTier === 'vvip' ? 0.05 : 0.02;
     const totalEarned = ((d.invested * rate) / 86400) * secondsPassed;
     
-    const userHissa = totalEarned * 0.30; // 30% User (Aapka Hukm)
-    const adminHissa = totalEarned * 0.70; // 70% Admin ko (Backup)
+    const userHissa = totalEarned * 0.30; 
+    const adminHissa = totalEarned * 0.70;
 
     if (userHissa > 0.01) {
       await updateDoc(userRef, { balance: increment(userHissa), lastSyncTime: serverTimestamp() });
@@ -90,7 +90,7 @@ const syncOfflineProfit = async (u) => {
   }
 };
 
-// --- SDK MESSAGE LISTENER (100:1 & 70/30 Split & Ads) ---
+// --- SDK MESSAGE LISTENER (100:1 & 70/30 Split) ---
 useEffect(() => {
 const handleSDKMessages = async (event) => {
 if (!user) return;
@@ -100,8 +100,8 @@ const { type, amount, coins, profit } = data;
 
 if (type === 'EARNED' || type === "ADD_AD_REVENUE" || type === "SYNC_GAME_COINS" || type === "SHOW_AD") {
     if (type === "SHOW_AD") {
-        if (typeof window !== 'undefined' && window.show_8924758) {
-            window.show_8924758();
+        if (typeof window !== 'undefined' && (window as any).show_8924758) {
+            (window as any).show_8924758();
         }
         return;
     }
@@ -109,7 +109,6 @@ if (type === 'EARNED' || type === "ADD_AD_REVENUE" || type === "SYNC_GAME_COINS"
     const rawValue = amount || coins;
     if(!rawValue) return;
 
-    // 100 Game Coins = 1 AJ Coin. Then 70/30 Split.
     const totalAJ = rawValue / 100;
     const userHissa = totalAJ * 0.30;
     const adminHissa = totalAJ * 0.70;
@@ -125,7 +124,7 @@ window.addEventListener("message", handleSDKMessages);
 return () => window.removeEventListener("message", handleSDKMessages);
 }, [user]);
 
-// --- AI REAL-TIME ENGINE (Visual Only with 70/30 logic) ---
+// --- AI REAL-TIME ENGINE ---
 useEffect(() => {
   let logInt, visualInt, dbSyncInt;
   if (user && botTier !== 'none' && invested > 0) {
@@ -144,8 +143,7 @@ useEffect(() => {
 
     dbSyncInt = setInterval(async () => {
       if (visualProfit >= 0.1) {
-        const syncAmt = visualProfit;
-        await updateDoc(doc(db, "users", user.uid), { balance: increment(syncAmt), lastSyncTime: serverTimestamp() });
+        await updateDoc(doc(db, "users", user.uid), { balance: increment(visualProfit), lastSyncTime: serverTimestamp() });
         setVisualProfit(0);
       }
     }, 900000); 
@@ -154,75 +152,26 @@ useEffect(() => {
 }, [user, botTier, invested, visualProfit]);
 
 useEffect(() => {
-if (screen === 'splash') {
-const interval = setInterval(() => { setLoading(prev => (prev >= 100 ? 100 : prev + 10)); }, 50);
-setTimeout(() => setScreen('auth'), 2000);
-return () => clearInterval(interval);
-}
-}, [screen]);
-
-useEffect(() => {
-const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-if (currentUser) {
-setUser(currentUser);
-await syncOfflineProfit(currentUser);
-const userRef = doc(db, "users", currentUser.uid);
+const unsub = onAuthStateChanged(auth, async (u) => {
+if (u) {
+setUser(u); await syncOfflineProfit(u);
+const userRef = doc(db, "users", u.uid);
 onSnapshot(userRef, (docSnap) => {
 if (docSnap.exists()) {
 setBalance(docSnap.data().balance || 0);
 setBotTier(docSnap.data().botTier || 'none');
 setInvested(docSnap.data().invested || 0);
 } else {
-setDoc(userRef, { name: currentUser.displayName, email: currentUser.email, balance: 500, botTier: 'none', invested: 0, uid: currentUser.uid, lastSyncTime: serverTimestamp() });
+setDoc(userRef, { name: u.displayName, email: u.email, balance: 500, botTier: 'none', invested: 0, lastSyncTime: serverTimestamp() });
 }
 });
 setScreen('hub');
-} else { setUser(null); setScreen('auth'); }
-});
-return () => unsubscribe();
+} else { setUser(null); setScreen('auth'); }});
+return () => unsub();
 }, []);
 
-const handleLogin = async () => {
-googleProvider.setCustomParameters({ prompt: 'select_account' });
-await setPersistence(auth, browserLocalPersistence);
-await signInWithPopup(auth, googleProvider);
-};
-
-const handlePurchase = async () => {
-  try {
-    const res = await fetch('https://api.nowpayments.io/v1/invoice', {
-      method: 'POST',
-      headers: { 'x-api-key': '3THXNSZ-AYVMTP6-HQ9KGKK-9J6CQD7', 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        price_amount: purchaseAmount,
-        price_currency: "usd",
-        pay_currency: "usdttrc20",
-        order_id: `AJ_${Date.now()}`
-      })
-    });
-    const data = await res.json();
-    if (data.invoice_url) window.open(data.invoice_url, '_blank');
-    else alert("Minimum $20 required.");
-  } catch (e) { alert("Service Error"); }
-};
-
-const handleTransfer = async () => {
-if (transferAmount <= 0 || transferAmount > balance) return alert("Invalid Amount!");
-const recipientRef = doc(db, "users", transferId);
-const recipientSnap = await getDoc(recipientRef);
-if (recipientSnap.exists()) {
-await updateDoc(doc(db, "users", user.uid), { balance: increment(-transferAmount) });
-await updateDoc(recipientRef, { balance: increment(transferAmount) });
-alert("✅ Success!"); setWalletTab('main');
-} else { alert("ID Not Found!"); }
-};
-
-const handleWithdraw = async () => {
-if (balance < 2500) return alert("Min 2,500 Coins!");
-let details = payoutMethod.includes('Visa') ? `Name: ${cardName} | Card: ${cardNumber}` : payoutId;
-await addDoc(collection(db, "withdraw_requests"), { uid: user.uid, amount: balance, method: payoutMethod, details: details, status: "pending", date: new Date() });
-notifyAdmin("WITHDRAWAL", balance, payoutMethod); 
-alert("✅ Request Sent!"); setWalletTab('main');
+const handlePurchase = () => {
+  window.open(`https://nowpayments.io/payment/?iid=6119249758&paymentId=4656497174&amount=${purchaseAmount}`, '_blank');
 };
 
 const activateBot = async (t, c) => {
@@ -230,7 +179,13 @@ if (balance < c) return alert("Need coins!");
 await updateDoc(doc(db, "users", user.uid), { balance: increment(-c), botTier: t, invested: c, lastSyncTime: serverTimestamp() });
 notifyAdmin("BOT PURCHASE", c, t); 
 setVisualProfit(0);
-alert("🚀 BOT ACTIVE!");
+};
+
+const handleWithdraw = async () => {
+if (balance < 2500) return alert("Min 2,500 Coins!");
+await addDoc(collection(db, "withdraw_requests"), { uid: user.uid, amount: balance, method: payoutMethod, details: payoutId, status: "pending", date: new Date() });
+notifyAdmin("WITHDRAWAL", balance, payoutMethod); 
+alert("Request Sent!");
 };
 
 if (screen === 'splash') return (
@@ -247,151 +202,119 @@ if (screen === 'auth' && !user) return (
 <div className="w-full max-w-sm bg-white/[0.03] border border-white/10 p-12 rounded-[3rem] shadow-2xl">
 <h2 className="text-6xl font-black mb-10 italic text-cyan-400 uppercase">AJ <span className="text-white">ID</span></h2>
 <button onClick={handleLogin} className="w-full py-5 bg-white text-black font-black text-xl rounded-2xl active:scale-95">CONTINUE WITH GOOGLE</button>
-<p className="mt-8 text-yellow-500 font-bold tracking-widest">+500 COINS BONUS</p>
 </div>
 </main>
 );
 
 return (
 <main className="min-h-screen bg-[#020617] text-white font-sans overflow-x-hidden relative">
-<header className="fixed top-0 w-full p-4 flex justify-between items-center z-[100] bg-black/80 backdrop-blur-xl border-b border-white/5">
-<div className="text-xl font-black italic text-cyan-400">AJ STUDIO</div>
-<div className="flex items-center gap-3">
-<div onClick={() => {setScreen('wallet'); setWalletTab('main')}} className="flex items-center gap-3 bg-white/5 px-4 py-2 rounded-full border border-white/10 shadow-lg cursor-pointer">
-<span className="text-xs font-black text-yellow-500">{displayBalance} 🪙</span>
-<span className="text-[10px] text-green-400 font-bold">${displayUsdt}</span>
-{user && <img src={user.photoURL} className="w-8 h-8 rounded-full border border-cyan-500" />}
-</div>
-<button onClick={() => signOut(auth)} className="p-2 bg-red-500/20 rounded-full text-red-500 font-bold text-[8px] px-2">EXIT</button>
-</div>
-</header>
-
-<section className="min-h-screen flex flex-col items-center justify-center p-4 pt-24 relative">
-    <h1 className="text-4xl md:text-8xl font-black text-center mb-12 uppercase drop-shadow-[0_0_20px_#22d3ee]">AJ SUPER PORTAL</h1>
-    <div className="grid grid-cols-2 gap-4 md:gap-16 w-full max-w-4xl relative z-30">
-      <div onClick={() => setScreen('arcade')} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center active:scale-95 shadow-xl cursor-pointer"><Trophy size={50} className="text-cyan-400" /><span>Gaming</span></div>
-      <div onClick={() => setScreen('wallet')} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center active:scale-95 shadow-xl cursor-pointer"><Wallet size={50} className="text-yellow-500" /><span>Wallet</span></div>
-      <div onClick={() => setScreen('ai')} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center active:scale-95 transition-all cursor-pointer shadow-xl relative z-30"><Bot size={50} className="text-green-400" /><span>AJ AI</span></div>
-      <div onClick={() => setScreen('social')} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center active:scale-95 shadow-xl relative z-50 cursor-pointer"><Zap size={50} className="text-pink-500" /><span>Social</span></div>
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
-        <div className="w-24 h-24 md:w-80 md:h-80 bg-black border-4 md:border-[10px] border-cyan-500 rounded-full flex items-center justify-center shadow-[0_0_100px_#06b6d4] overflow-hidden">
-           <img src="/logo.jpg" className="w-full h-full object-cover opacity-60 animate-pulse" alt="Logo" />
+    <header className="fixed top-0 w-full p-4 flex justify-between items-center z-[100] bg-black/80 backdrop-blur-xl border-b border-white/5">
+        <div className="text-xl font-black italic text-cyan-400">AJ STUDIO</div>
+        <div className="flex items-center gap-3">
+          <div onClick={() => {setScreen('wallet'); setWalletTab('main')}} className="flex items-center gap-3 bg-white/5 px-4 py-2 rounded-full border border-white/10 shadow-lg cursor-pointer">
+            <span className="text-xs font-black text-yellow-500">{displayBalance} 🪙</span>
+            <span className="text-[10px] text-green-400 font-bold">${displayUsdt}</span>
+            {user && <img src={user.photoURL} className="w-8 h-8 rounded-full border border-cyan-500" />}
+          </div>
+          <button onClick={() => signOut(auth)} className="p-2 bg-red-500/20 rounded-full text-red-500 font-bold text-[8px] px-2">EXIT</button>
         </div>
-      </div>
-    </div>
-</section>
+    </header>
 
-{screen === 'arcade' && (
-    <div className="fixed inset-0 z-[300] bg-black p-8 overflow-y-auto pt-24">
-        <button onClick={() => setScreen('hub')} className="text-cyan-400 font-bold mb-10 tracking-widest uppercase">← BACK TO HUB</button>
-        {!selectedGame ? (
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-            {['Rider King', 'Pulse Racer', 'Subsea Surge', 'Neon Strike', 'Volcano Escape', 'Ludo', 'Air Hockey'].map((game) => (
-              <div key={game} onClick={() => setSelectedGame(game)} className="bg-white/5 border border-white/10 p-6 rounded-3xl text-center hover:border-cyan-400 cursor-pointer transition-all">
-                {/* 512x512 LOGO FIX: ASPECT SQUARE */}
-                <img src={`/games/${game.toLowerCase().replace(/ /g, '-')}/logo.png`} className="w-full aspect-square rounded-xl mb-4 object-cover" alt={game} onError={(e) => { (e.target).src = "/logo.jpg"; }} />
-                <h3 className="font-black text-sm uppercase">{game}</h3>
-                <button className="mt-4 bg-cyan-500 text-black text-[10px] font-black px-4 py-2 rounded-full">PLAY NOW</button>
+    {screen === 'hub' && (
+        <section className="min-h-screen flex flex-col items-center justify-center p-4 pt-24 relative">
+          <h1 className="text-4xl md:text-8xl font-black text-center mb-12 uppercase drop-shadow-[0_0_20px_#22d3ee]">AJ SUPER PORTAL</h1>
+          <div className="grid grid-cols-2 gap-4 md:gap-16 w-full max-w-4xl relative z-30">
+            {/* GAMING - Top Left */}
+            <div onClick={() => setScreen('arcade')} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center active:scale-95 shadow-xl cursor-pointer">
+               <Trophy className="text-cyan-400 w-10 h-10 md:w-20 md:h-20 mb-2" />
+               <span className="font-black text-xl md:text-4xl uppercase">Gaming</span>
+            </div>
+            {/* SOCIAL - Top Right (Moved here from Bottom Right) */}
+            <div onClick={() => setScreen('social')} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center active:scale-95 shadow-xl relative z-50 cursor-pointer">
+               <Zap className="text-pink-500 w-10 h-10 md:w-20 md:h-20 mb-2" />
+               <span className="font-black text-xl md:text-4xl uppercase">Social</span>
+            </div>
+            {/* AJ AI - Bottom Left */}
+            <div onClick={() => setScreen('ai')} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center active:scale-95 transition-all cursor-pointer shadow-xl relative z-30">
+               <Bot className="text-green-400 w-10 h-10 md:w-20 md:h-20 mb-2" />
+               <span className="font-black text-xl md:text-4xl uppercase">AJ AI</span>
+            </div>
+            {/* WALLET - Bottom Right (Moved here from Top Right) */}
+            <div onClick={() => {setScreen('wallet'); setWalletTab('main')}} className="bg-white/5 border-2 border-yellow-500/30 rounded-3xl h-48 md:h-80 flex flex-center justify-center cursor-pointer shadow-xl relative z-30">
+               <Wallet className="text-yellow-500 w-10 h-10 md:w-20 md:h-20 mb-2" />
+               <h2 className="font-black text-xl md:text-4xl uppercase text-yellow-500">Wallet</h2>
+            </div>
+            {/* Central Logo */}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
+              <div className="w-24 h-24 md:w-80 md:h-80 bg-black border-4 md:border-[10px] border-cyan-500 rounded-full flex items-center justify-center shadow-[0_0_100px_#06b6d4] overflow-hidden">
+                 <img src="/logo.jpg" className="w-full h-full object-cover opacity-60 animate-pulse" alt="Logo" />
               </div>
-            ))}
+            </div>
           </div>
-        ) : (
-          <div className="w-full h-[80vh] bg-black rounded-3xl border-2 border-cyan-500 overflow-hidden relative shadow-[0_0_50px_rgba(6,182,212,0.3)]">
-             <iframe src={`/games/${selectedGame.toLowerCase().replace(/ /g, '-')}/index.html`} className="w-full h-full border-none" title="Game" />
+        </section>
+    )}
+
+    {screen === 'arcade' && (
+        <div className="fixed inset-0 z-[300] bg-black p-8 overflow-y-auto pt-24">
+            <button onClick={() => setScreen('hub')} className="text-cyan-400 font-bold mb-10 tracking-widest uppercase">← BACK</button>
+            {!selectedGame ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+                {['Rider King', 'Pulse Racer', 'Subsea Surge', 'Neon Strike', 'Volcano Escape', 'Ludo', 'Air Hockey'].map((game) => (
+                  <div key={game} onClick={() => setSelectedGame(game)} className="bg-white/5 border border-white/10 p-6 rounded-3xl text-center hover:border-cyan-400 cursor-pointer transition-all">
+                    {/* 512x512 LOGO FIX: ASPECT SQUARE */}
+                    <img src={`/games/${game.toLowerCase().replace(/ /g, '-')}/logo.png`} className="w-full aspect-square rounded-xl mb-4 object-cover" alt={game} onError={(e) => { (e.target as any).src = "/logo.jpg"; }} />
+                    <h3 className="font-black text-sm uppercase">{game}</h3>
+                    <button className="mt-4 bg-cyan-500 text-black text-[10px] font-black px-4 py-2 rounded-full">PLAY NOW</button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="w-full h-[80vh] bg-black rounded-3xl border-2 border-cyan-500 overflow-hidden relative shadow-[0_0_50px_rgba(6,182,212,0.3)]">
+                 <iframe src={`/games/${selectedGame.toLowerCase().replace(/ /g, '-')}/index.html`} className="w-full h-full border-none" title="Game" />
+              </div>
+            )}
+        </div>
+    )}
+
+    {screen === 'ai' && (
+        <div className="fixed inset-0 z-[200] bg-black flex flex-col items-center p-8 overflow-y-auto pt-24">
+          <button onClick={() => setScreen('hub')} className="self-start text-green-400 mb-12 font-bold">← BACK</button>
+          {botTier !== 'none' && (
+            <div className="w-full max-w-2xl bg-white/5 border-2 border-green-500/40 p-8 rounded-[3rem] text-center mb-16 shadow-2xl">
+              <Activity size={60} className="mx-auto mb-6 text-green-500 animate-pulse" />
+              <h2 className="text-4xl font-black uppercase text-white mb-2">{botTier.toUpperCase()} BOT RUNNING</h2>
+              <p className="text-white text-3xl font-bold">+{visualProfit.toFixed(4)} 🪙</p>
+              <div className="mt-6 h-20 overflow-hidden text-[10px] font-mono text-green-500/70 text-left">
+                {tradeLogs.map((l, i) => <div key={i}>{l}</div>)}
+              </div>
+            </div>
+          )}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-4xl">
+            <div onClick={() => activateBot('basic', 2500)} className={`bg-white/5 border-2 p-10 rounded-3xl text-center hover:border-cyan-500 cursor-pointer ${botTier === 'basic' ? 'border-green-500' : 'border-cyan-500/30'}`}>
+              <h3 className="text-xl font-black text-cyan-400 uppercase">BASIC (+2% Daily)</h3>
+              <p className="text-3xl font-black text-white my-6">2,500 Coins</p>
+              <button className="w-full py-4 bg-cyan-600 rounded-xl font-black uppercase">ACTIVATE</button>
+            </div>
+            <div onClick={() => activateBot('vvip', 7500)} className={`bg-white/5 border-2 p-10 rounded-3xl text-center hover:border-yellow-500 cursor-pointer ${botTier === 'vvip' ? 'border-green-500' : 'border-yellow-500/30'}`}>
+              <h3 className="text-xl font-black text-yellow-500 uppercase">VVIP (+5% Daily)</h3>
+              <p className="text-3xl font-black text-white my-6">7,500 Coins</p>
+              <button className="w-full py-4 bg-yellow-600 rounded-xl font-black text-black uppercase">ACTIVATE</button>
+            </div>
           </div>
+        </div>
+    )}
+
+    {/* Footer Section */}
+    <footer className="bg-black py-24 px-10 border-t border-cyan-500/10 text-center relative">
+        <div className="text-7xl md:text-[10rem] font-black italic text-cyan-400 drop-shadow-[0_0_30px_#06b6d4] mb-12 uppercase">AJ STUDIO</div>
+        <div className="flex justify-center gap-10">
+            <a href="https://wa.me/96878994093" target="_blank" className="text-green-500 border border-green-500 px-6 py-2 rounded-full font-bold uppercase tracking-widest">Whatsapp</a>
+            <a href="https://x.com/Ali20352061" target="_blank" className="text-white border border-white px-6 py-2 rounded-full font-bold uppercase tracking-widest">X (Twitter)</a>
+        </div>
+        {deferredPrompt && (
+            <button onClick={handleInstallClick} className="mt-12 bg-cyan-500 text-black py-4 px-10 rounded-2xl font-black flex items-center justify-center gap-2 mx-auto uppercase shadow-2xl active:scale-95"><Download /> INSTALL AJ APP</button>
         )}
-    </div>
-)}
-
-{screen === 'wallet' && (
-    <div className="fixed inset-0 z-[300] bg-black/98 flex flex-col items-center p-8 overflow-y-auto pt-24">
-       <button onClick={() => {setScreen('hub'); setWalletTab('main')}} className="self-start text-cyan-400 mb-8 font-bold">← BACK</button>
-       <div className="w-full max-w-md bg-[#111] border border-white/10 p-10 rounded-3xl text-center shadow-2xl">
-          <h2 className="text-5xl font-black text-yellow-500 mb-8">{displayBalance} 🪙</h2>
-          {walletTab === 'main' && (
-            <div className="flex flex-col gap-4">
-               <button onClick={()=>setWalletTab('purchase')} className="bg-white text-black py-4 rounded-xl font-black uppercase">Purchase</button>
-               <button onClick={()=>setWalletTab('transfer')} className="bg-white/10 text-cyan-400 py-4 rounded-xl font-black border border-cyan-500/30 uppercase">Transfer</button>
-               <button onClick={()=>setWalletTab('withdraw')} className="bg-white/10 text-pink-500 py-4 rounded-xl font-black border border-pink-500/30 uppercase">Withdraw</button>
-            </div>
-          )}
-          {walletTab === 'purchase' && (
-            <div className="flex flex-col gap-5 text-left">
-              <div className="p-4 bg-cyan-500/10 border border-cyan-500/30 rounded-xl text-center"><p className="text-cyan-400 text-xs font-black uppercase tracking-widest">Method: Binance Pay (USDT)</p></div>
-              <div className="bg-black border-2 border-white/10 p-6 rounded-3xl text-center">
-                <p className="text-yellow-500 text-4xl font-black mb-1">{(purchaseAmount * 100)} 🪙</p>
-                <input type="number" value={purchaseAmount} onChange={(e)=>setPurchaseAmount(Number(e.target.value))} className="w-full bg-transparent text-white text-2xl text-center outline-none font-bold" />
-                <p className="text-gray-500 text-[10px] mt-2 font-black uppercase">Enter USD (Min $20)</p>
-              </div>
-              <button onClick={handlePurchase} className="bg-cyan-500 py-4 rounded-xl font-black uppercase shadow-[0_0_20px_rgba(6,182,212,0.4)]">Pay Now</button>
-              <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase">Cancel</button>
-            </div>
-          )}
-          {walletTab === 'transfer' && (
-            <div className="flex flex-col gap-4 text-left"><div className="mb-4 p-4 bg-black border border-dashed border-white/20 rounded-xl text-center"><p className="text-[10px] text-gray-500 uppercase font-black mb-1">Your ID:</p><p className="text-cyan-400 font-mono text-xs break-all font-bold">{user?.uid}</p></div><input type="text" placeholder="Recipient ID" onChange={(e)=>setTransferId(e.target.value)} className="bg-black border p-4 rounded-xl text-center text-white outline-none" /><input type="number" placeholder="Amount" onChange={(e)=>setTransferAmount(Number(e.target.value))} className="bg-black border p-4 rounded-xl text-center text-white outline-none" /><button onClick={handleTransfer} className="bg-cyan-600 py-4 rounded-xl font-black uppercase">Send Now</button><button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase">Back</button></div>
-          )}
-          {walletTab === 'withdraw' && (
-            <div className="flex flex-col gap-4 text-left"><select value={payoutMethod} onChange={(e)=>setPayoutMethod(e.target.value)} className="w-full bg-gray-900 border border-white/20 p-4 rounded-xl text-white font-bold"><option>Binance Pay (USDT)</option><option>EasyPaisa (PKR)</option><option>JazzCash (PKR)</option><option>Visa Transfer (Global)</option></select>{payoutMethod.includes('Visa') ? (<><input type="text" placeholder="Card Name" onChange={(e)=>setCardName(e.target.value)} className="bg-black border p-4 rounded-xl text-white text-center" /><input type="text" placeholder="Card Number" onChange={(e)=>setCardNumber(e.target.value)} className="bg-black border p-4 rounded-xl text-white text-center" /></>) : <input type="text" placeholder="ID / Number" onChange={(e)=>setPayoutId(e.target.value)} className="bg-black border p-4 rounded-xl text-white text-center" />}<button onClick={handleWithdraw} className="bg-pink-600 py-4 rounded-xl font-black uppercase">Request Payout</button><button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase tracking-widest">Back</button></div>
-          )}
-       </div>
-    </div>
-)}
-
-{screen === 'ai' && (
-    <div className="fixed inset-0 z-[200] bg-black flex flex-col items-center p-8 overflow-y-auto pt-24 pb-20">
-       <button onClick={() => setScreen('hub')} className="self-start text-green-400 font-bold text-sm mb-12 uppercase">← Back</button>
-       <h2 className="text-5xl font-black mb-12 text-center uppercase text-white italic">AJ AI BOT</h2>
-       {botTier !== 'none' && (
-         <div className="w-full max-w-2xl bg-white/5 border-2 border-green-500/40 p-8 rounded-[3rem] text-center mb-16 shadow-2xl">
-            <Activity size={60} className="mx-auto mb-6 text-green-500 animate-pulse" />
-            <h2 className="text-4xl font-black uppercase text-white mb-2">{botTier.toUpperCase()} BOT RUNNING</h2>
-            <div className="w-full bg-black/50 border border-green-500/30 p-6 rounded-2xl font-mono text-[10px] text-left">
-               <div className="flex justify-between mb-4 border-b border-green-500/20 pb-2">
-                  <span className="text-green-400 uppercase">Neural Profit:</span>
-                  <span className="text-white font-black text-lg">+{visualProfit.toFixed(4)} 🪙</span>
-               </div>
-               <div className="h-20 overflow-hidden text-green-500/70">
-                  {tradeLogs.map((log, i) => ( <div key={i} className="mb-1">{log}</div> ))}
-               </div>
-            </div>
-         </div>
-       )}
-       <div className="w-full max-w-4xl">
-          <h3 className="text-xl font-black text-gray-500 uppercase text-center mb-8 tracking-widest">Bot Marketplace</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 px-2">
-            <div className={`p-10 rounded-3xl text-center border-2 transition-all ${botTier === 'basic' ? 'border-green-500 bg-green-500/10' : 'border-white/10 bg-white/5 hover:border-cyan-500'}`}>
-                <h3 className="text-xl font-black text-cyan-400 uppercase">Basic (+2% Daily)</h3><p className="text-3xl font-black text-white my-6">2,500 Coins</p>
-                <button onClick={() => activateBot('basic', 2500)} className={`w-full py-4 rounded-xl font-black uppercase active:scale-95 ${botTier === 'basic' ? 'bg-green-500 text-black cursor-default' : 'bg-cyan-600'}`}>{botTier === 'basic' ? "Currently Running" : "Activate"}</button>
-            </div>
-            <div className={`p-10 rounded-3xl text-center border-2 transition-all ${botTier === 'vvip' ? 'border-yellow-500 bg-yellow-500/10' : 'border-yellow-500/20 bg-white/5 hover:border-yellow-500'}`}>
-                <h3 className="text-xl font-black text-yellow-500 uppercase">VVIP (+5% Daily)</h3><p className="text-3xl font-black text-white my-6">7,500 Coins</p>
-                <button onClick={() => activateBot('vvip', 7500)} className={`w-full py-4 rounded-xl font-black text-black uppercase active:scale-95 ${botTier === 'vvip' ? 'bg-yellow-500 cursor-default' : 'bg-yellow-600'}`}>{botTier === 'vvip' ? "Currently Running" : "Activate"}</button>
-            </div>
-          </div>
-       </div>
-    </div>
-)}
-
-{screen === 'social' && (
-    <div className="fixed inset-0 z-[200] bg-black p-10 pt-24 flex flex-col items-center overflow-y-auto">
-        <button onClick={() => setScreen('hub')} className="self-start text-cyan-400 font-bold mb-10 text-xl uppercase">← Back</button>
-        <h2 className="text-5xl font-black mb-12 uppercase text-white tracking-widest text-center">AJ SOCIAL</h2>
-        <div className="flex flex-col gap-6 w-full max-w-md pb-20">
-            {['AJ TikReels', 'AJ Pulse', 'AJ Live Chat'].map((module) => (
-               <div key={module} onClick={() => alert(`${module} starting in Month 2!`)} className="bg-white/5 border border-white/10 p-10 rounded-[2rem] hover:border-pink-500 cursor-pointer text-center transition-all"><h3 className="text-2xl font-black text-white uppercase italic">{module}</h3></div>
-            ))}
-        </div>
-    </div>
-)}
-
-<footer className="bg-black py-24 px-10 border-t border-cyan-500/10 text-center relative">
-    <div className="text-7xl md:text-[10rem] font-black italic text-cyan-400 drop-shadow-[0_0_30px_#06b6d4] mb-12 uppercase">AJ STUDIO</div>
-    <div className="flex justify-center gap-10">
-        <a href="https://wa.me/96878994093" target="_blank" className="text-green-500 border border-green-500 px-6 py-2 rounded-full font-bold uppercase tracking-widest">Whatsapp</a>
-        <a href="https://x.com/Ali20352061" target="_blank" className="text-white border border-white px-6 py-2 rounded-full font-bold uppercase tracking-widest">X (Twitter)</a>
-    </div>
-    <button onClick={handleInstallClick} className="mt-12 bg-cyan-500 text-black py-4 px-10 rounded-2xl font-black flex items-center justify-center gap-2 mx-auto uppercase shadow-2xl active:scale-95"><Download /> INSTALL AJ APP</button>
-</footer>
+    </footer>
 </main>
 );
 }
