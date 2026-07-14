@@ -155,7 +155,7 @@
 
         .ship-icon { width: 30px; height: 40px; position: relative; margin-bottom: 5px; }
 
-        #pauseBtn { position: absolute; top: 85px; right: 20px; width: 45px; height: 45px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--neon-blue); border-radius: 10px; color: var(--neon-blue); font-size: 18px; cursor: pointer; z-index: 150; display: none; align-items: center; justify-content: center; }
+        #pauseBtn { position: absolute; top: 85px; right: 20px; width: 45px; height: 45px; background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(10px); border: 1px solid var(--neon-blue); border-radius: 10px; color: var(--neon-blue); font-size: 18px; cursor: pointer; z-index: 150; display: none; align-items: center; justify-content: center; }
 
         .help-row { display: flex; align-items: center; margin-bottom: 15px; text-align: left; }
         .help-ring-gold { width: 35px; height: 35px; border-radius: 50%; border: 3px solid var(--neon-gold); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 10px var(--neon-gold); margin-right: 15px; flex-shrink: 0; }
@@ -281,7 +281,7 @@
                 <p>NEW RINGS: <span id="finalSessionRings" style="color:var(--neon-pink);">0</span></p>
                 <p>AJ EARNED: <span id="finalAJ" style="color:var(--neon-gold);">0.000</span></p>
             </div>
-            <button id="reviveBtn" class="btn" style="border-color:var(--neon-gold); color:var(--neon-gold); width:100%; margin-bottom:10px;" onclick="watchAdToRevive()">REVIVE</button>
+            <button class="btn" style="border-color:var(--neon-gold); color:var(--neon-gold); width:100%; margin-bottom:10px;" onclick="watchAdToRevive()">REVIVE</button>
             <button class="btn" style="border-color:var(--neon-pink); color:var(--neon-pink); width:100%;" onclick="initGame()">TRY AGAIN</button>
             <button class="btn" style="width:100%; border-color:#fff; color:#fff;" onclick="goToMenu()">MAIN MENU</button>
         </div>
@@ -359,11 +359,10 @@ const ctx = canvas.getContext('2d', { alpha: false }); // SETTING: Faster render
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
-let score, level, bestScore = 0, playerX, targetX, speed, obstacles, stars, frame, gameActive = false;
+let score, level, bestScore = 0, bestRings = 0, playerX, targetX, speed, obstacles, stars, frame, gameActive = false;
 let isPaused = false, shake = 0, totalRings = 0, sessionRings = 0; 
 let playerTilt = 0, nextLevelAt = 300, pointsForThisLevel = 300;
 let lastTouchX = 0, isTouching = false, fovStretch = 0, shieldActive = false, ghostTimer = 0;
-let trails = [];
 
 const skins = [];
 for(let i=0; i<50; i++) {
@@ -373,41 +372,59 @@ for(let i=0; i<50; i++) {
 }
 let currentSkin = 'skin_0', ownedSkins = ['skin_0'];
 
-// SETTING: Ship Symmetry Fixed & Positioned Forward (3.5)
+// SETTING: Fixed SYMMETRICAL Ship Drawing for Laptop & Positioned more forward (Agay)
 function drawLogoShip(x, y, scale, color, alpha = 1) {
     ctx.save();
     ctx.translate(x, y); ctx.scale(scale, scale);
     ctx.globalAlpha = alpha; 
-    ctx.shadowBlur = 10; ctx.shadowColor = color;
+    
+    // Performance capped glow
+    ctx.shadowBlur = 10; 
+    ctx.shadowColor = color;
+    
+    // Main Body (SYMMETRICAL PATH)
     ctx.fillStyle = color;
-    
-    // Body (Mirroring logic for symmetry)
     ctx.beginPath(); 
-    ctx.moveTo(0, -45); ctx.lineTo(25, 15); ctx.lineTo(0, 5); ctx.lineTo(-25, 15); 
-    ctx.closePath(); ctx.fill();
+    ctx.moveTo(0, -45); 
+    ctx.lineTo(25, 15); 
+    ctx.lineTo(0, 5); 
+    ctx.lineTo(-25, 15); 
+    ctx.closePath(); 
+    ctx.fill();
     
-    // Boundary Stroke
+    // SYMMETRICAL STROKE (Dono taraf white glow boundary)
     ctx.strokeStyle = "rgba(255,255,255,0.8)";
     ctx.lineWidth = 2;
     ctx.stroke();
 
+    // Details (Cockpit)
     ctx.fillStyle = "rgba(0,0,0,0.3)";
     ctx.beginPath(); ctx.moveTo(0, -25); ctx.lineTo(8, 0); ctx.lineTo(0, -5); ctx.lineTo(-8, 0); ctx.closePath(); ctx.fill();
+    
     ctx.restore();
 }
 
 function startLoading() {
-    let progress = 0; const fill = document.getElementById('progressFill');
+    let progress = 0;
+    const fill = document.getElementById('progressFill');
     const interval = setInterval(() => {
         progress += Math.random() * 8;
-        if (progress >= 100) { progress = 100; clearInterval(interval); document.getElementById('loadingText').style.display = 'none'; document.getElementById('pBarTrack').style.display = 'none'; document.getElementById('tapToContinue').style.display = 'inline-block'; }
+        if (progress > 100) progress = 100;
         fill.style.width = progress + "%";
+        if (progress >= 100) { 
+            clearInterval(interval); 
+            document.getElementById('loadingText').style.display = 'none';
+            document.getElementById('pBarTrack').style.display = 'none';
+            document.getElementById('tapToContinue').style.display = 'inline-block';
+        }
     }, 60);
 }
 
 function startEverything() { 
     if(window.AJ_SDK) window.AJ_SDK.showAd(); 
-    unlockAudio(); playSfx('click'); 
+    unlockAudio(); 
+    playSfx('click'); 
+    sounds.bg.pause();
     document.getElementById('splashScreen').style.display = 'none'; 
     document.getElementById('mainMenu').style.display = 'flex'; 
     loadProgress();
@@ -417,6 +434,8 @@ function openShop() { playSfx('click'); isPaused = true; document.getElementById
 function closeShop() { playSfx('click'); isPaused = false; document.getElementById('shopMenu').style.display = 'none'; document.getElementById('mainMenu').style.display = 'flex'; }
 function openHelp() { playSfx('click'); document.getElementById('mainMenu').style.display = 'none'; document.getElementById('helpMenu').style.display = 'flex'; }
 function closeHelp() { playSfx('click'); document.getElementById('helpMenu').style.display = 'none'; document.getElementById('mainMenu').style.display = 'flex'; }
+function showPopup(msg) { document.getElementById('msgText').innerText = msg; document.getElementById('msgPopup').style.display = 'flex'; }
+function closePopup() { document.getElementById('msgPopup').style.display = 'none'; }
 
 function renderShop() {
     document.getElementById('shopRings').innerText = totalRings;
@@ -425,7 +444,7 @@ function renderShop() {
     skins.forEach(skin => {
         const isOwned = ownedSkins.includes(skin.id), isActive = currentSkin === skin.id, item = document.createElement('div');
         item.className = `shop-item ${isActive ? 'active' : ''}`;
-        item.onclick = () => buyOrEquipSkin(skin);
+        item.onclick = (e) => { e.stopPropagation(); buyOrEquipSkin(skin); };
         item.innerHTML = `<div style="width:20px; height:20px; background:${skin.color}; border-radius:50%; margin-bottom:5px; border:1px solid white;"></div><div style="font-size:10px;">${isOwned ? 'EQUIP' : skin.cost}</div>`;
         grid.appendChild(item);
     });
@@ -433,47 +452,98 @@ function renderShop() {
 function buyOrEquipSkin(skin) { 
     playSfx('click'); 
     if (ownedSkins.includes(skin.id)) currentSkin = skin.id; 
-    else if (totalRings >= skin.cost) { 
-        if(window.AJ_SDK) window.AJ_SDK.showAd(); 
-        totalRings -= skin.cost; ownedSkins.push(skin.id); currentSkin = skin.id; saveProgress(); 
+    else { 
+        if (totalRings >= skin.cost) { 
+            if(window.AJ_SDK) window.AJ_SDK.showAd(); 
+            totalRings -= skin.cost; 
+            ownedSkins.push(skin.id); 
+            currentSkin = skin.id; 
+        } else { 
+            showPopup("NEED " + (skin.cost - totalRings) + " RINGS"); 
+            return; 
+        } 
     } 
+    saveProgress(); 
     renderShop(); 
 }
 
 function loadProgress() { 
     const sS = localStorage.getItem('pulseRacerBest'), sR = localStorage.getItem('pulseRacerTotalRings'), sSk = localStorage.getItem('pulseRacerSkin'), sO = localStorage.getItem('pulseRacerOwned');
-    bestScore = sS ? Number(sS) : 0; totalRings = sR ? Number(sR) : 0; if(sSk) currentSkin = sSk; if(sO) ownedSkins = JSON.parse(sO); 
-    document.getElementById('targetVal').innerText = bestScore; document.getElementById('menuBestScore').innerText = bestScore; document.getElementById('menuTotalRings').innerText = totalRings; document.getElementById('menuAJCoins').innerText = (totalRings * 0.003).toFixed(3);
+    bestScore = sS ? Number(sS) : 0; 
+    totalRings = sR ? Number(sR) : 0; 
+    if(sSk) currentSkin = sSk; 
+    if(sO) ownedSkins = JSON.parse(sO); 
+    
+    // SYNC HUD DISPLAY
+    document.getElementById('targetVal').innerText = bestScore; 
+    document.getElementById('menuBestScore').innerText = bestScore; 
+    document.getElementById('menuTotalRings').innerText = totalRings; 
+    document.getElementById('menuAJCoins').innerText = (totalRings * 0.003).toFixed(3);
 }
 
 function saveProgress() { 
-    localStorage.setItem('pulseRacerBest', Number(bestScore)); localStorage.setItem('pulseRacerTotalRings', Number(totalRings)); localStorage.setItem('pulseRacerSkin', currentSkin); localStorage.setItem('pulseRacerOwned', JSON.stringify(ownedSkins)); 
-    document.getElementById('menuBestScore').innerText = bestScore; document.getElementById('menuTotalRings').innerText = totalRings; document.getElementById('menuAJCoins').innerText = (totalRings * 0.003).toFixed(3);
+    localStorage.setItem('pulseRacerBest', Number(bestScore)); 
+    localStorage.setItem('pulseRacerTotalRings', Number(totalRings)); 
+    localStorage.setItem('pulseRacerSkin', currentSkin); 
+    localStorage.setItem('pulseRacerOwned', JSON.stringify(ownedSkins)); 
+    
+    // UPDATE UI IMMEDIATELY
+    document.getElementById('menuBestScore').innerText = bestScore; 
+    document.getElementById('menuTotalRings').innerText = totalRings; 
+    document.getElementById('menuAJCoins').innerText = (totalRings * 0.003).toFixed(3);
+    document.getElementById('targetVal').innerText = bestScore;
+
+    if(window.AJ_SDK) {
+        window.AJ_SDK.addBalance({ game_coins: totalRings, aj_net: (totalRings * 0.003), reason: "Pulse Racer Sync" });
+    }
 }
+
+function checkBestScore() { if (Number(score) > Number(bestScore)) { bestScore = Number(score); saveProgress(); } }
 
 function resetVariables() {
-    score = 0; level = 1; playerX = 0; targetX = 0; speed = 0.08; nextLevelAt = 300; sessionRings = 0; 
-    obstacles = []; stars = []; frame = 0; ghostTimer = 0; shieldActive = false;
-    document.getElementById('scoreVal').innerText = "0 / 300"; document.getElementById('ringVal').innerText = "0"; document.getElementById('ajVal').innerText = "0.000";
-    for(let i=0; i<80; i++) stars.push({ x: Math.random() * 120 - 60, y: Math.random() * -35 - 15, z: Math.random() * 60, size: Math.random() * 1.5 + 1.0 });
+    score = 0; level = 1; playerX = 0; targetX = 0; speed = 0.08; nextLevelAt = 300; pointsForThisLevel = 300;
+    sessionRings = 0; // SETTING: Reset session count
+    obstacles = []; stars = []; frame = 0; shake = 0; levelFlash = 0; gemFlash = 0;
+    floatingScores = []; particles = []; isPaused = false; shieldActive = false; ghostTimer = 0; comboStreak = 0;
+    document.getElementById('comboText').style.display = 'none';
+    document.getElementById('scoreVal').innerText = "0 / 300"; document.getElementById('ringVal').innerText = "0";
+    document.getElementById('ajVal').innerText = "0.000";
+    document.getElementById('levelVal').innerText = "1"; document.getElementById('pauseMenu').style.display = 'none';
+    for(let i=0; i<100; i++) stars.push({ x: Math.random() * 120 - 60, y: Math.random() * -35 - 15, z: Math.random() * 60, size: Math.random() * 1.5 + 1.0 });
+    loadProgress(); 
 }
 
-function goToMenu() { playSfx('click'); gameActive = false; isPaused = false; document.getElementById('gameOverScreen').style.display = 'none'; document.getElementById('mainMenu').style.display = 'flex'; loadProgress(); }
-function togglePause() { if(!gameActive) return; isPaused = !isPaused; document.getElementById('pauseMenu').style.display = isPaused ? 'flex' : 'none'; }
+function goToMenu() { 
+    playSfx('click'); sounds.bg.pause(); gameActive = false; isPaused = false; 
+    document.getElementById('gameOverScreen').style.display = 'none'; document.getElementById('pauseMenu').style.display = 'none'; 
+    document.getElementById('mainMenu').style.display = 'flex'; document.getElementById('pauseBtn').style.display = 'none'; 
+    loadProgress(); 
+}
+function togglePause() { if(!gameActive) return; playSfx('click'); isPaused = !isPaused; document.getElementById('pauseMenu').style.display = isPaused ? 'flex' : 'none'; }
 
-function initGame() { if(window.AJ_SDK) window.AJ_SDK.showAd(); resetVariables(); gameActive = true; document.getElementById('mainMenu').style.display = 'none'; document.getElementById('gameOverScreen').style.display = 'none'; document.getElementById('pauseBtn').style.display = 'flex'; loadProgress(); }
+function initGame() { 
+    if(window.AJ_SDK) window.AJ_SDK.showAd(); 
+    sounds.bg.play().catch(e => {}); resetVariables(); gameActive = true; 
+    document.getElementById('mainMenu').style.display = 'none'; 
+    document.getElementById('shopMenu').style.display = 'none'; 
+    document.getElementById('gameOverScreen').style.display = 'none'; 
+    document.getElementById('pauseBtn').style.display = 'flex'; 
+}
 
 function triggerGameOver() { 
-    playSfx('crash'); gameActive = false; 
+    playSfx('crash'); gameActive = false; document.getElementById('pauseBtn').style.display = 'none'; 
+    
+    // --- SYNC LIFETIME DATA (FIXED) ---
     totalRings = Number(totalRings) + Number(sessionRings);
     if (Number(score) > Number(bestScore)) { bestScore = Number(score); }
+    
     saveProgress(); 
+    
     document.getElementById('finalScore').innerText = score; 
     document.getElementById('finalSessionRings').innerText = sessionRings; 
     document.getElementById('finalAJ').innerText = (sessionRings * 0.003).toFixed(3);
     document.getElementById('gameOverScreen').style.display = 'flex'; 
-    document.getElementById('pauseBtn').style.display = 'none';
-    // Removed showAd() from here so crash screen shows immediately
+    if(window.AJ_SDK) window.parent.postMessage({ type: 'EARNED', coins: score }, "*");
 }
 
 function watchAdToRevive() {
@@ -485,48 +555,96 @@ function watchAdToRevive() {
     obstacles = obstacles.filter(o => o.z > 5); ghostTimer = 150; 
 }
 
+function spawnSparks(x, y, color) { for(let i=0; i<5; i++) particles.push({ x: x, y: y, vx: (Math.random()-0.5)*10, vy: (Math.random()-0.5)*10, life: 1.0, color: color }); }
 function project(wx, wy, wz) { let p = canvas.width * 0.8; let s = p / (wz + 0.1); return { x: (canvas.width/2) + (wx - playerX * (wy < 0 ? 0.35 : 1)) * s, y: (canvas.height/2) + (wy) * s, s: s }; }
 
+function drawPlayer(pp) {
+    ctx.save();
+    let tiltTarget = (targetX - playerX) * 0.5; playerTilt += (tiltTarget - playerTilt) * 0.1;
+    let activeSkin = skins.find(s => s.id === currentSkin); let skinColor = activeSkin ? activeSkin.color : '#0ff';
+    let alpha = 1;
+    if(ghostTimer > 0) { if(ghostTimer < 100) alpha = Math.floor(frame / 4) % 2 === 0 ? 0.8 : 0.2; else alpha = 0.4; }
+    if(shieldActive) { ctx.beginPath(); ctx.arc(pp.x, pp.y - 20, 50, 0, Math.PI*2); ctx.strokeStyle = "rgba(255, 204, 0, 0.5)"; ctx.lineWidth = 5; ctx.stroke(); }
+    ctx.translate(pp.x, pp.y - 20); ctx.rotate(playerTilt); ctx.translate(-pp.x, -(pp.y - 20));
+    drawLogoShip(pp.x, pp.y - 20, 0.8, skinColor, alpha); ctx.restore();
+}
+
 function draw() {
-    let hue = (level * 70) % 360; ctx.fillStyle = "#0f172a"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.save(); if (shake > 0) { ctx.translate(Math.random()*shake - shake/2, Math.random()*shake - shake/2); shake *= 0.9; }
+    let hue = (level * 70) % 360; 
+    ctx.fillStyle = "#0f172a"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    ctx.save();
+    if (shake > 0) { ctx.translate(Math.random()*shake - shake/2, Math.random()*shake - shake/2); shake *= 0.9; }
+    
+    // Optimized Stars
+    ctx.shadowBlur = 0; 
     stars.forEach(s => { 
         if(!isPaused && gameActive) s.z -= speed * 8; if(s.z < 0.1) s.z = 60; 
-        let p = project(s.x, s.y, s.z); if(p.y < canvas.height * 0.55) { let o = Math.min(1, (1 - s.z/60) * 1.5); ctx.fillStyle = `rgba(255, 255, 255, ${o})`; ctx.beginPath(); ctx.arc(p.x, p.y, s.size * o, 0, Math.PI*2); ctx.fill(); } 
+        let p = project(s.x, s.y, s.z); 
+        if(p.y < canvas.height * 0.55) { 
+            let o = Math.min(1, (1 - s.z/60) * 1.5); 
+            ctx.fillStyle = `rgba(255, 255, 255, ${o})`; 
+            ctx.beginPath(); ctx.arc(p.x, p.y, s.size * o, 0, Math.PI*2); ctx.fill(); 
+        } 
     });
+
+    // Road Grid (Optimized)
+    for(let i = -10; i <= 10; i++) { 
+        let p1 = project(i * 3, 0.5, 1), p2 = project(i * 3, 0.5, 60); 
+        ctx.strokeStyle = `hsla(${hue}, 100%, 50%, 0.1)`; ctx.lineWidth = 1; 
+        ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke(); 
+    }
+    
+    // Side Rails (Glowing)
     let l1 = project(-9.5, 0.5, 1), l2 = project(-9.5, 0.5, 60), r1 = project(9.5, 0.5, 1), r2 = project(9.5, 0.5, 60);
-    ctx.lineWidth = 4; ctx.strokeStyle = `hsl(${hue}, 100%, 50%)`; ctx.beginPath(); ctx.moveTo(l1.x, l1.y); ctx.lineTo(l2.x, l2.y); ctx.moveTo(r1.x, r1.y); ctx.lineTo(r2.x, r2.y); ctx.stroke();
+    ctx.lineWidth = 4; ctx.strokeStyle = `hsl(${hue}, 100%, 50%)`; ctx.beginPath(); 
+    ctx.moveTo(l1.x, l1.y); ctx.lineTo(l2.x, l2.y); ctx.moveTo(r1.x, r1.y); ctx.lineTo(r2.x, r2.y); ctx.stroke();
+
     obstacles.forEach((o) => {
         let p = project(o.x, 0.5, o.z), sz = (canvas.width * 0.45) / o.z;
         if(o.type === 'gem') { ctx.strokeStyle = "#f0f"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(p.x, p.y - sz/2, sz/2, 0, Math.PI * 2); ctx.stroke(); }
         else if(o.type === 'shield') { ctx.fillStyle = "#ffcc00"; ctx.beginPath(); ctx.arc(p.x, p.y-sz/2, sz/2, 0, Math.PI*2); ctx.fill(); }
-        else { ctx.fillStyle = o.color; ctx.fillRect(p.x - sz/2, p.y - sz, sz, sz); }
+        else if(o.type === 'ghost') { ctx.fillStyle = "#a0f"; ctx.beginPath(); ctx.arc(p.x, p.y-sz/2, sz/2, 0, Math.PI*2); ctx.fill(); }
+        else { ctx.save(); if(ghostTimer > 0) ctx.globalAlpha = 0.2; ctx.fillStyle = o.color; ctx.fillRect(p.x - sz/2, p.y - sz, sz, sz); ctx.restore(); }
     });
-    if(!isPaused && gameActive) playerX += (targetX - playerX) * 0.15;
-    let skinColor = skins.find(s => s.id === currentSkin).color;
-    drawLogoShip(project(playerX, 0.5, 3.5).x, project(playerX, 0.5, 3.5).y, 0.8, skinColor, 1);
+
+    particles.forEach((pa, i) => { ctx.globalAlpha = pa.life; ctx.fillStyle = pa.color; ctx.fillRect(pa.x, pa.y, 2, 2); if(!isPaused) { pa.x += pa.vx; pa.y += pa.vy; pa.life -= 0.05; } if(pa.life <= 0) particles.splice(i, 1); });
+    
+    if(!isPaused && gameActive) { playerX += (targetX - playerX) * 0.15; }
+    // Ship forward
+    drawPlayer(project(playerX, 0.5, 3.5));
+    
     ctx.restore(); 
 }
 
 function update() {
     if(gameActive && !isPaused) {
         frame++; if(ghostTimer > 0) ghostTimer--;
-        if(frame % 40 === 0) {
+        let spawnRate = Math.max(12, (30 - level));
+        if(frame % Math.floor(spawnRate) === 0) {
             let r = Math.random();
-            if(r < 0.15) obstacles.push({ x: Math.random()*14-7, z: 60, type: 'gem' });
-            else if(r < 0.17) obstacles.push({ x: Math.random()*14-7, z: 60, type: 'shield' });
-            else { obstacles.push({ x: Math.random()*14-7, z: 60, type: 'enemy', color: '#ff4d4d' }); }
+            if(r < 0.15) obstacles.push({ x: Math.random()*14-7, z: 60, type: 'gem', passed: false });
+            else if(r < 0.17) obstacles.push({ x: Math.random()*14-7, z: 60, type: 'shield', passed: false });
+            else { obstacles.push({ x: Math.random()*14-7, z: 60, type: 'enemy', shape: 'box', color: '#ff4d4d', passed: false, isMoving: (level>=3 && Math.random()<0.4), moveDir: 1, moveSpeed: 0.05 }); }
         }
         obstacles.forEach((o, i) => {
             let oldZ = o.z; o.z -= speed * 6; let newZ = o.z;
-            if(o.z < 0.5) { obstacles.splice(i, 1); score += 1; if(score >= nextLevelAt) { playSfx('levelup'); level++; nextLevelAt += 300; speed += 0.005; } document.getElementById('scoreVal').innerText = score + " / " + nextLevelAt; }
+            if(o.z < 0.5) { 
+                obstacles.splice(i, 1); if(o.type === 'enemy') { score += 1; } 
+                if(score >= nextLevelAt) { playSfx('levelup'); level++; pointsForThisLevel += 100; nextLevelAt += pointsForThisLevel; speed += 0.005; document.getElementById('levelVal').innerText = level; } 
+                document.getElementById('scoreVal').innerText = score + " / " + nextLevelAt;
+            }
             
             // --- RELIABLE COLLISION (FOR POSITION 3.5) ---
             if (oldZ >= 3.5 && newZ <= 3.5) {
                 let d = Math.abs(o.x - playerX);
-                if(d < 0.45) { // REDUCED Hit Width as requested
-                    if(o.type === 'gem') { playSfx('collect'); sessionRings += 1; score += 5; obstacles.splice(i, 1); document.getElementById('ringVal').innerText = sessionRings; document.getElementById('ajVal').innerText = (sessionRings * 0.003).toFixed(3); }
-                    else if(o.type === 'shield') { shieldActive = true; obstacles.splice(i, 1); }
+                if(d < 0.45) { // Narrow width
+                    if(o.type === 'gem') { 
+                        playSfx('collect'); sessionRings += 1; score += 5; obstacles.splice(i, 1); 
+                        document.getElementById('ringVal').innerText = sessionRings; 
+                        document.getElementById('ajVal').innerText = (sessionRings * 0.003).toFixed(3);
+                    }
+                    else if(o.type === 'shield') { playSfx('collect'); shieldActive = true; obstacles.splice(i, 1); }
                     else { 
                         if(shieldActive) { shieldActive = false; obstacles.splice(i, 1); shake = 20; } 
                         else { triggerGameOver(); }
@@ -535,10 +653,15 @@ function update() {
             }
         });
     }
-    if(gameActive) draw(); requestAnimationFrame(update);
+    if(gameActive) draw();
+    requestAnimationFrame(update);
 }
-window.addEventListener('keydown', (e) => { if (!gameActive || isPaused) return; if (e.key === "ArrowLeft") targetX -= 1.5; if (e.key === "ArrowRight") targetX += 1.5; });
-window.addEventListener('touchmove', (e) => { if(!gameActive || isPaused) return; targetX = (e.touches[0].clientX / canvas.width) * 17 - 8.5; });
+
+window.addEventListener('keydown', (e) => { if (!gameActive || isPaused) return; if (e.key === "ArrowLeft" || e.key === "a") targetX -= 1.5; if (e.key === "ArrowRight" || e.key === "d") targetX += 1.5; if(targetX > 8.5) targetX = 8.5; if(targetX < -8.5) targetX = -8.5; if (e.key === "p" || e.key === "Escape") togglePause(); });
+window.addEventListener('touchstart', (e) => { if(!gameActive || isPaused) return; isTouching = true; lastTouchX = e.touches[0].clientX; });
+window.addEventListener('touchmove', (e) => { if(!gameActive || isPaused) return; if(!isTouching) return; let dX = e.touches[0].clientX - lastTouchX; targetX += dX * 0.045; if(targetX > 8.5) targetX = 8.5; if(targetX < -8.5) targetX = -8.5; lastTouchX = e.touches[0].clientX; e.preventDefault(); }, {passive: false});
+window.addEventListener('touchend', () => { isTouching = false; });
+
 update();
 </script>
 </body>
