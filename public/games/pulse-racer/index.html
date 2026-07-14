@@ -169,12 +169,12 @@
         .help-text span { font-size: 10px; color: #aaa; line-height: 1.2; display: block; }
     </style>
 </head>
-<body>
+<body onload="startLoading()">
 
     <!-- Splash Screen -->
     <div id="splashScreen" class="overlay">
         <h1 class="splash-title glitch" data-text="PULSE RACER">PULSE RACER</h1>
-        <p id="loadingText" style="color:#aaa; font-size:12px; margin-top:10px;">LOADING GAME...</p>
+        <p id="loadingText" style="color:#aaa; font-size:12px; margin-top:10px;">LOADING ENGINE...</p>
         <div id="pBarTrack" class="progress-track"><div id="progressFill" class="progress-fill"></div></div>
         <button id="tapToContinue" class="btn tap-btn" onclick="startEverything()">TAP TO CONTINUE</button>
         <div class="splash-credit">BY AJ CREATOR</div>
@@ -183,7 +183,7 @@
     <!-- Main Menu -->
     <div id="mainMenu" class="overlay" style="display:none">
         <div class="glass-container">
-            <img src="logo.png" alt="Logo" class="game-logo">
+            <img src="logo.png" alt="Logo" class="game-logo" onerror="this.style.display='none'">
             <h1 class="neon-text-blue glitch" data-text="PULSE RACER">PULSE RACER</h1>
             <div style="margin: 10px 0;">
                 <p style="font-size:12px; color:#aaa;">BEST SCORE: <span id="menuBestScore" style="color:#fff;">0</span></p>
@@ -278,8 +278,8 @@
             <h1 class="neon-text-pink">CRASHED!</h1>
             <div style="margin: 20px 0;">
                 <p>SCORE: <span id="finalScore" style="color:#fff;">0</span></p>
-                <p>RINGS: <span id="finalRings" style="color:var(--neon-pink);">0</span></p>
-                <p>AJ NET: <span id="finalAJ" style="color:var(--neon-gold);">0.000</span></p>
+                <p>NEW RINGS: <span id="finalSessionRings" style="color:var(--neon-pink);">0</span></p>
+                <p>AJ EARNED: <span id="finalAJ" style="color:var(--neon-gold);">0.000</span></p>
             </div>
             <button id="reviveBtn" class="btn" style="border-color:var(--neon-gold); color:var(--neon-gold); width:100%; margin-bottom:10px;" onclick="watchAdToRevive()">REVIVE</button>
             <button class="btn" style="border-color:var(--neon-pink); color:var(--neon-pink); width:100%;" onclick="initGame()">TRY AGAIN</button>
@@ -355,12 +355,13 @@ sounds.bg.loop = true;
 
 // --- GAME LOGIC ---
 const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
+const ctx = canvas.getContext('2d', { alpha: false }); // SETTING: Faster rendering
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
 let score, level, bestScore = 0, bestRings = 0, playerX, targetX, speed, obstacles, stars, frame, gameActive = false;
 let isPaused = false, shake = 0, levelFlash = 0, roadOffset = 0, gemFlash = 0, totalRings = 0; 
+let sessionRings = 0; // SETTING: Start from 0 each session
 let playerTilt = 0, floatingScores = [], particles = [], nextLevelAt = 300, pointsForThisLevel = 300;
 let lastTouchX = 0, isTouching = false, fovStretch = 0, shieldActive = false, ghostTimer = 0;
 let comboStreak = 0, comboMultiplier = 1, trails = [];
@@ -373,18 +374,35 @@ for(let i=0; i<50; i++) {
 }
 let currentSkin = 'skin_0', ownedSkins = ['skin_0'];
 
+// SETTING: Fixed Symmetrical Ship Drawing for Laptop
 function drawLogoShip(x, y, scale, color, alpha = 1) {
     ctx.save();
     ctx.translate(x, y); ctx.scale(scale, scale);
-    ctx.globalAlpha = alpha; ctx.shadowBlur = 15; ctx.shadowColor = color;
+    ctx.globalAlpha = alpha; 
+    
+    // Performance capped glow
+    ctx.shadowBlur = 10; 
+    ctx.shadowColor = color;
+    
+    // Main Body (SYMMETRICAL)
     ctx.fillStyle = color;
-    ctx.beginPath(); ctx.moveTo(0, -45); ctx.lineTo(22, 15); ctx.lineTo(0, 5); ctx.lineTo(-22, 15); ctx.closePath(); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(-22, 5); ctx.lineTo(-35, 18); ctx.lineTo(-15, 12); ctx.closePath(); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(22, 5); ctx.lineTo(35, 18); ctx.lineTo(15, 12); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); 
+    ctx.moveTo(0, -45); 
+    ctx.lineTo(25, 15); 
+    ctx.lineTo(0, 5); 
+    ctx.lineTo(-25, 15); 
+    ctx.closePath(); 
+    ctx.fill();
+    
+    // SYMMETRICAL STROKE (Dono taraf white glow boundary)
+    ctx.strokeStyle = "rgba(255,255,255,0.8)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Details (Cockpit)
     ctx.fillStyle = "rgba(0,0,0,0.3)";
     ctx.beginPath(); ctx.moveTo(0, -25); ctx.lineTo(8, 0); ctx.lineTo(0, -5); ctx.lineTo(-8, 0); ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(0, -40); ctx.lineTo(0, -10); ctx.stroke();
+    
     ctx.restore();
 }
 
@@ -392,7 +410,7 @@ function startLoading() {
     let progress = 0;
     const fill = document.getElementById('progressFill');
     const interval = setInterval(() => {
-        progress += Math.random() * 15;
+        progress += Math.random() * 8;
         if (progress > 100) progress = 100;
         fill.style.width = progress + "%";
         if (progress >= 100) { 
@@ -401,16 +419,17 @@ function startLoading() {
             document.getElementById('pBarTrack').style.display = 'none';
             document.getElementById('tapToContinue').style.display = 'inline-block';
         }
-    }, 80);
+    }, 60);
 }
 
 function startEverything() { 
-    if(window.AJ_SDK) window.AJ_SDK.showAd(); // AD ON TAP TO CONTINUE
+    if(window.AJ_SDK) window.AJ_SDK.showAd(); 
     unlockAudio(); 
     playSfx('click'); 
     sounds.bg.pause();
     document.getElementById('splashScreen').style.display = 'none'; 
     document.getElementById('mainMenu').style.display = 'flex'; 
+    loadProgress();
 }
 
 function openShop() { playSfx('click'); isPaused = true; document.getElementById('mainMenu').style.display = 'none'; document.getElementById('shopMenu').style.display = 'flex'; renderShop(); }
@@ -428,26 +447,16 @@ function renderShop() {
         const isOwned = ownedSkins.includes(skin.id), isActive = currentSkin === skin.id, item = document.createElement('div');
         item.className = `shop-item ${isActive ? 'active' : ''}`;
         item.onclick = (e) => { e.stopPropagation(); buyOrEquipSkin(skin); };
-        const sCanvas = document.createElement('canvas'); sCanvas.width = 60; sCanvas.height = 60;
-        const sCtx = sCanvas.getContext('2d');
-        let color = skin.color;
-        sCtx.save(); sCtx.translate(30, 35); sCtx.scale(0.5, 0.5); sCtx.fillStyle = color; sCtx.shadowBlur = 10; sCtx.shadowColor = color;
-        sCtx.beginPath(); sCtx.moveTo(0, -45); sCtx.lineTo(22, 15); sCtx.lineTo(0, 5); sCtx.lineTo(-22, 15); ctx.closePath(); sCtx.fill();
-        sCtx.beginPath(); sCtx.moveTo(-22, 5); sCtx.lineTo(-35, 18); sCtx.lineTo(-15, 12); sCtx.closePath(); sCtx.fill();
-        sCtx.beginPath(); sCtx.moveTo(22, 5); sCtx.lineTo(35, 18); sCtx.lineTo(15, 12); sCtx.closePath(); sCtx.fill();
-        sCtx.restore();
-        item.appendChild(sCanvas);
-        const info = document.createElement('div'); info.style.fontSize = '10px'; info.style.fontWeight = '700'; info.innerText = isOwned ? 'OWN' : skin.cost;
-        item.appendChild(info); grid.appendChild(item);
+        item.innerHTML = `<div style="width:20px; height:20px; background:${skin.color}; border-radius:50%; margin-bottom:5px; border:1px solid white;"></div><div style="font-size:10px;">${isOwned ? 'EQUIP' : skin.cost}</div>`;
+        grid.appendChild(item);
     });
-    updateAdTimer(); 
 }
 function buyOrEquipSkin(skin) { 
     playSfx('click'); 
     if (ownedSkins.includes(skin.id)) currentSkin = skin.id; 
     else { 
         if (totalRings >= skin.cost) { 
-            if(window.AJ_SDK) window.AJ_SDK.showAd(); // AD ON PURCHASE
+            if(window.AJ_SDK) window.AJ_SDK.showAd(); 
             totalRings -= skin.cost; 
             ownedSkins.push(skin.id); 
             currentSkin = skin.id; 
@@ -461,8 +470,17 @@ function buyOrEquipSkin(skin) {
 }
 
 function loadProgress() { 
-    const sS = localStorage.getItem('pulseRacerBest'), sR = localStorage.getItem('pulseRacerTotalRings'), sSk = localStorage.getItem('pulseRacerSkin'), sO = localStorage.getItem('pulseRacerOwned');
-    if(sS) bestScore = parseInt(sS); if(sR) totalRings = parseInt(sR); if(sSk) currentSkin = sSk; if(sO) ownedSkins = JSON.parse(sO); 
+    const sS = localStorage.getItem('pulseRacerBest'); 
+    const sR = localStorage.getItem('pulseRacerTotalRings'); 
+    const sSk = localStorage.getItem('pulseRacerSkin'); 
+    const sO = localStorage.getItem('pulseRacerOwned');
+
+    bestScore = sS ? Number(sS) : 0; 
+    totalRings = sR ? Number(sR) : 0; 
+    if(sSk) currentSkin = sSk; 
+    if(sO) ownedSkins = JSON.parse(sO); 
+    
+    // SYNC HUD DISPLAY
     document.getElementById('targetVal').innerText = bestScore; 
     document.getElementById('menuBestScore').innerText = bestScore; 
     document.getElementById('menuTotalRings').innerText = totalRings; 
@@ -470,33 +488,34 @@ function loadProgress() {
 }
 
 function saveProgress() { 
-    localStorage.setItem('pulseRacerBest', bestScore); localStorage.setItem('pulseRacerTotalRings', totalRings); localStorage.setItem('pulseRacerSkin', currentSkin); localStorage.setItem('pulseRacerOwned', JSON.stringify(ownedSkins)); 
+    localStorage.setItem('pulseRacerBest', Number(bestScore)); 
+    localStorage.setItem('pulseRacerTotalRings', Number(totalRings)); 
+    localStorage.setItem('pulseRacerSkin', currentSkin); 
+    localStorage.setItem('pulseRacerOwned', JSON.stringify(ownedSkins)); 
+    
+    // UPDATE UI IMMEDIATELY
     document.getElementById('menuBestScore').innerText = bestScore; 
     document.getElementById('menuTotalRings').innerText = totalRings; 
     document.getElementById('menuAJCoins').innerText = (totalRings * 0.003).toFixed(3);
     document.getElementById('targetVal').innerText = bestScore;
 
-    // SDK SYNC
     if(window.AJ_SDK) {
-        window.AJ_SDK.addBalance({
-            game_coins: totalRings,
-            aj_net: (totalRings * 0.003),
-            reason: "Pulse Racer Rings Sync"
-        });
+        window.AJ_SDK.addBalance({ game_coins: totalRings, aj_net: (totalRings * 0.003), reason: "Pulse Racer Sync" });
     }
 }
 
-function checkBestScore() { if (score > bestScore) { bestScore = score; saveProgress(); } }
+function checkBestScore() { if (Number(score) > Number(bestScore)) { bestScore = Number(score); saveProgress(); } }
 
 function resetVariables() {
     score = 0; level = 1; playerX = 0; targetX = 0; speed = 0.08; nextLevelAt = 300; pointsForThisLevel = 300;
+    sessionRings = 0; // SETTING: Reset session count
     obstacles = []; stars = []; frame = 0; shake = 0; levelFlash = 0; gemFlash = 0;
     floatingScores = []; particles = []; isPaused = false; shieldActive = false; ghostTimer = 0; comboStreak = 0; trails = [];
     document.getElementById('comboText').style.display = 'none';
     document.getElementById('scoreVal').innerText = "0 / 300"; document.getElementById('ringVal').innerText = "0";
     document.getElementById('ajVal').innerText = "0.000";
     document.getElementById('levelVal').innerText = "1"; document.getElementById('pauseMenu').style.display = 'none';
-    for(let i=0; i<130; i++) stars.push({ x: Math.random() * 120 - 60, y: Math.random() * -35 - 15, z: Math.random() * 60, size: Math.random() * 2.0 + 1.0 });
+    for(let i=0; i<100; i++) stars.push({ x: Math.random() * 120 - 60, y: Math.random() * -35 - 15, z: Math.random() * 60, size: Math.random() * 1.5 + 1.0 });
     loadProgress(); 
 }
 
@@ -509,7 +528,7 @@ function goToMenu() {
 function togglePause() { if(!gameActive) return; playSfx('click'); isPaused = !isPaused; document.getElementById('pauseMenu').style.display = isPaused ? 'flex' : 'none'; }
 
 function initGame() { 
-    if(window.AJ_SDK) window.AJ_SDK.showAd(); // AD ON START / RETRY
+    if(window.AJ_SDK) window.AJ_SDK.showAd(); 
     sounds.bg.play().catch(e => {}); resetVariables(); gameActive = true; 
     document.getElementById('mainMenu').style.display = 'none'; 
     document.getElementById('shopMenu').style.display = 'none'; 
@@ -519,24 +538,27 @@ function initGame() {
 
 function triggerGameOver() { 
     playSfx('crash'); gameActive = false; document.getElementById('pauseBtn').style.display = 'none'; 
-    checkBestScore(); saveProgress(); 
+    
+    // --- SYNC LIFETIME DATA (FIXED) ---
+    totalRings = Number(totalRings) + Number(sessionRings);
+    if (Number(score) > Number(bestScore)) { bestScore = Number(score); }
+    
+    saveProgress(); 
+    
     document.getElementById('finalScore').innerText = score; 
-    document.getElementById('finalRings').innerText = totalRings; 
-    document.getElementById('finalAJ').innerText = (totalRings * 0.003).toFixed(3);
+    document.getElementById('finalSessionRings').innerText = sessionRings; 
+    document.getElementById('finalAJ').innerText = (sessionRings * 0.003).toFixed(3);
     document.getElementById('gameOverScreen').style.display = 'flex'; 
-    if(window.AJ_SDK) window.AJ_SDK.showAd(); // AD ON CRASH
+    if(window.AJ_SDK) window.parent.postMessage({ type: 'EARNED', coins: score }, "*");
 }
 
 function watchAdToRevive() {
-    if(window.AJ_SDK) window.AJ_SDK.showAd(); // AD ON REVIVE
+    if(window.AJ_SDK) window.AJ_SDK.showAd(); 
     playSfx('click');
     document.getElementById('gameOverScreen').style.display = 'none';
     document.getElementById('pauseBtn').style.display = 'flex';
-    gameActive = true;
-    isPaused = false;
-    obstacles = obstacles.filter(o => o.z > 5); 
-    ghostTimer = 150; 
-    sounds.bg.play().catch(e => {});
+    gameActive = true; isPaused = false;
+    obstacles = obstacles.filter(o => o.z > 5); ghostTimer = 150; 
 }
 
 function spawnSparks(x, y, color) { for(let i=0; i<5; i++) particles.push({ x: x, y: y, vx: (Math.random()-0.5)*10, vy: (Math.random()-0.5)*10, life: 1.0, color: color }); }
@@ -551,7 +573,7 @@ function drawPlayer(pp) {
     if(shieldActive) { ctx.beginPath(); ctx.arc(pp.x, pp.y - 20, 50, 0, Math.PI*2); ctx.strokeStyle = "rgba(255, 204, 0, 0.5)"; ctx.lineWidth = 5; ctx.stroke(); }
     if(frame % 2 === 0) trails.push({ x: pp.x, y: pp.y + 10, life: 1.0 });
     trails.forEach((t, i) => { 
-        ctx.globalAlpha = t.life * 0.5; ctx.fillStyle = skinColor; ctx.beginPath(); ctx.arc(t.x, t.y, 10 * t.life, 0, Math.PI*2); ctx.fill();
+        ctx.globalAlpha = t.life * 0.5; ctx.fillStyle = skinColor; ctx.beginPath(); ctx.arc(t.x, t.y, 8 * t.life, 0, Math.PI*2); ctx.fill();
         t.life -= 0.05; t.y += 2; if(t.life <= 0) trails.splice(i, 1);
     });
     ctx.translate(pp.x, pp.y - 20); ctx.rotate(playerTilt); ctx.translate(-pp.x, -(pp.y - 20));
@@ -559,80 +581,86 @@ function drawPlayer(pp) {
 }
 
 function draw() {
-    let hue = (level * 70) % 360; ctx.fillStyle = "#0f172a"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    let neb = ctx.createRadialGradient(canvas.width/2, canvas.height/2.5, 0, canvas.width/2, canvas.height/2.5, canvas.width * 0.8); neb.addColorStop(0, `hsla(${hue}, 80%, 15%, 0.4)`); neb.addColorStop(1, "#0f172a"); ctx.fillStyle = neb; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    let hue = (level * 70) % 360; 
+    ctx.fillStyle = "#0f172a"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
     ctx.save();
     if (shake > 0) { ctx.translate(Math.random()*shake - shake/2, Math.random()*shake - shake/2); shake *= 0.9; }
-    if (fovStretch > 0) { let s = 1 + fovStretch; ctx.translate(canvas.width/2, canvas.height/2); ctx.scale(1, s); ctx.translate(-canvas.width/2, -canvas.height/2); fovStretch *= 0.94; }
     
+    // SETTING: Lag Fix - No shadowBlur on stars
+    ctx.shadowBlur = 0; 
     stars.forEach(s => { 
         if(!isPaused && gameActive) s.z -= speed * 8; if(s.z < 0.1) s.z = 60; 
         let p = project(s.x, s.y, s.z); 
         if(p.y < canvas.height * 0.55) { 
             let o = Math.min(1, (1 - s.z/60) * 1.5); 
-            ctx.fillStyle = `rgba(255, 255, 255, ${o})`; ctx.shadowBlur = 5; ctx.shadowColor = "white"; 
-            ctx.beginPath(); ctx.arc(p.x, p.y, s.size * o, 0, Math.PI*2); ctx.fill(); ctx.shadowBlur = 0;
+            ctx.fillStyle = `rgba(255, 255, 255, ${o})`; 
+            ctx.beginPath(); ctx.arc(p.x, p.y, s.size * o, 0, Math.PI*2); ctx.fill(); 
         } 
     });
 
-    for(let i = -10; i <= 10; i++) { let p1 = project(i * 3, 260 * (1/450), 1), p2 = project(i * 3, 260 * (1/450), 60); ctx.strokeStyle = `hsla(${hue}, 100%, 50%, 0.05)`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke(); }
-    if(!isPaused && gameActive) roadOffset += speed * 6; 
-    for(let z = 60; z > 0.1; z -= 6) { let zp = z - (roadOffset % 6); if(zp < 0.1) continue; let pL = project(-9.5, 260 * (1/450), zp), pR = project(9.5, 260 * (1/450), zp); ctx.globalAlpha = 1 - (zp / 60); ctx.strokeStyle = `hsla(${hue}, 100%, 80%, 0.2)`; ctx.beginPath(); ctx.moveTo(pR.x, pR.y); ctx.stroke(); }
-    ctx.globalAlpha = 1.0;
-    ctx.save();
-    let l1 = project(-9.5, 260 * (1/450), 1), l2 = project(-9.5, 260 * (1/450), 60), r1 = project(9.5, 260 * (1/450), 1), r2 = project(9.5, 260 * (1/450), 60);
-    ctx.lineWidth = 5; ctx.strokeStyle = `hsl(${hue}, 100%, 50%)`; ctx.shadowBlur = 20; ctx.shadowColor = `hsl(${hue}, 100%, 50%)`; ctx.beginPath(); ctx.moveTo(l1.x, l1.y); ctx.lineTo(l2.x, l2.y); ctx.moveTo(r1.x, r1.y); ctx.lineTo(r2.x, r2.y); ctx.stroke(); ctx.restore();
+    // Road Grid (Optimized)
+    for(let i = -10; i <= 10; i++) { 
+        let p1 = project(i * 3, 0.5, 1), p2 = project(i * 3, 0.5, 60); 
+        ctx.strokeStyle = `hsla(${hue}, 100%, 50%, 0.1)`; ctx.lineWidth = 1; 
+        ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke(); 
+    }
+    
+    // Side Rails (Glowing)
+    let l1 = project(-9.5, 0.5, 1), l2 = project(-9.5, 0.5, 60), r1 = project(9.5, 0.5, 1), r2 = project(9.5, 0.5, 60);
+    ctx.lineWidth = 4; ctx.strokeStyle = `hsl(${hue}, 100%, 50%)`; ctx.beginPath(); 
+    ctx.moveTo(l1.x, l1.y); ctx.lineTo(l2.x, l2.y); ctx.moveTo(r1.x, r1.y); ctx.lineTo(r2.x, r2.y); ctx.stroke();
+
     obstacles.forEach((o) => {
-        let p = project(o.x, 260 * (1/450), o.z), sz = (canvas.width * 0.45) / o.z;
-        if(o.type === 'gem') { ctx.save(); ctx.shadowBlur = 10; ctx.shadowColor = "#f0f"; ctx.strokeStyle = "#f0f"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(p.x, p.y - sz/2, sz/2, 0, Math.PI * 2); ctx.stroke(); ctx.restore(); }
-        else if(o.type === 'shield') { ctx.save(); ctx.translate(p.x, p.y - sz/2); ctx.shadowBlur = 15; ctx.shadowColor = "#ffcc00"; ctx.strokeStyle = "#ffcc00"; ctx.lineWidth = Math.max(2, sz * 0.1); ctx.beginPath(); ctx.arc(0, 0, sz/2, 0, Math.PI*2); ctx.stroke(); ctx.fillStyle = "#ffcc00"; ctx.beginPath(); ctx.moveTo(-sz/4, -sz/4); ctx.lineTo(sz/4, -sz/4); ctx.lineTo(sz/4, sz/8); ctx.lineTo(0, sz/3); ctx.lineTo(-sz/4, sz/8); ctx.closePath(); ctx.fill(); ctx.restore(); }
-        else if(o.type === 'ghost') { ctx.save(); ctx.translate(p.x, p.y - sz/2); ctx.shadowBlur = 15; ctx.shadowColor = "#a0f"; ctx.strokeStyle = "#a0f"; ctx.lineWidth = Math.max(2, sz * 0.1); ctx.beginPath(); ctx.arc(0, 0, sz/2, 0, Math.PI*2); ctx.stroke(); ctx.fillStyle = "#a0f"; ctx.beginPath(); ctx.moveTo(-sz/5, sz/5); ctx.lineTo(-sz/5, -sz/10); ctx.quadraticCurveTo(-sz/5, -sz/3, 0, -sz/3); ctx.quadraticCurveTo(sz/5, -sz/3, sz/5, -sz/10); ctx.lineTo(sz/5, sz/5); ctx.lineTo(sz/10, sz/10); ctx.lineTo(0, sz/5); ctx.lineTo(-sz/10, sz/10); ctx.closePath(); ctx.fill(); ctx.restore(); }
-        else { ctx.save(); if(ghostTimer > 0) ctx.globalAlpha = 0.2; ctx.fillStyle = o.color; if(o.shape === 'box') ctx.fillRect(p.x - sz/2, p.y - sz, sz, sz); else if(o.shape === 'triangle') { ctx.beginPath(); ctx.moveTo(p.x, p.y - sz); ctx.lineTo(p.x - sz/2, p.y); ctx.lineTo(p.x + sz/2, p.y); ctx.closePath(); ctx.fill(); } else { ctx.beginPath(); ctx.arc(p.x, p.y - sz/2, sz/2, 0, Math.PI * 2); ctx.fill(); } ctx.restore(); }
+        let p = project(o.x, 0.5, o.z), sz = (canvas.width * 0.45) / o.z;
+        if(o.type === 'gem') { ctx.strokeStyle = "#f0f"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(p.x, p.y - sz/2, sz/2, 0, Math.PI * 2); ctx.stroke(); }
+        else if(o.type === 'shield') { ctx.fillStyle = "#ffcc00"; ctx.beginPath(); ctx.arc(p.x, p.y-sz/2, sz/2, 0, Math.PI*2); ctx.fill(); }
+        else if(o.type === 'ghost') { ctx.fillStyle = "#a0f"; ctx.beginPath(); ctx.arc(p.x, p.y-sz/2, sz/2, 0, Math.PI*2); ctx.fill(); }
+        else { ctx.save(); if(ghostTimer > 0) ctx.globalAlpha = 0.2; ctx.fillStyle = o.color; ctx.fillRect(p.x - sz/2, p.y - sz, sz, sz); ctx.restore(); }
     });
-    particles.forEach((pa, i) => { ctx.globalAlpha = pa.life; ctx.fillStyle = pa.color; ctx.fillRect(pa.x, pa.y, 1, 1); if(!isPaused) { pa.x += pa.vx; pa.y += pa.vy; pa.life -= 0.05; } if(pa.life <= 0) particles.splice(i, 1); });
-    ctx.globalAlpha = 1.0;
+
+    particles.forEach((pa, i) => { ctx.globalAlpha = pa.life; ctx.fillStyle = pa.color; ctx.fillRect(pa.x, pa.y, 2, 2); if(!isPaused) { pa.x += pa.vx; pa.y += pa.vy; pa.life -= 0.05; } if(pa.life <= 0) particles.splice(i, 1); });
+    
     if(!isPaused && gameActive) { playerX += (targetX - playerX) * 0.15; }
-    drawPlayer(project(playerX, 260 * (1/450), 1.8));
-    floatingScores.forEach((fs, i) => { ctx.save(); ctx.globalAlpha = fs.opacity; ctx.fillStyle = fs.color || "#f0f"; ctx.font = "bold 20px Orbitron"; ctx.fillText(fs.text, fs.x, fs.y - fs.yOffset); ctx.restore(); if(!isPaused && gameActive) { fs.yOffset += 2; fs.opacity -= 0.02; } if(fs.opacity <= 0) floatingScores.splice(i, 1); });
-    if(ghostTimer > 0) { ctx.fillStyle = "rgba(160, 0, 255, 0.5)"; ctx.fillRect(canvas.width/2 - 50, 110, ghostTimer/3, 4); }
+    drawPlayer(project(playerX, 0.5, 1.8));
+    
+    floatingScores.forEach((fs, i) => { ctx.globalAlpha = fs.opacity; ctx.fillStyle = fs.color || "#f0f"; ctx.font = "bold 20px Orbitron"; ctx.fillText(fs.text, fs.x, fs.y - fs.yOffset); if(!isPaused && gameActive) { fs.yOffset += 2; fs.opacity -= 0.02; } if(fs.opacity <= 0) floatingScores.splice(i, 1); });
+    
     ctx.restore(); 
-    if(levelFlash > 0) { ctx.fillStyle = `hsla(${hue}, 100%, 50%, ${levelFlash})`; ctx.fillRect(0, 0, canvas.width, canvas.height); if(!isPaused && gameActive) levelFlash -= 0.05; }
-    if(gemFlash > 0) { ctx.fillStyle = `rgba(255, 0, 255, ${gemFlash})`; ctx.fillRect(0, 0, canvas.width, canvas.height); if(!isPaused) gemFlash -= 0.05; }
 }
 
 function update() {
     if(gameActive && !isPaused) {
         frame++; if(ghostTimer > 0) ghostTimer--;
-        let spawnRate = Math.max(10, (30 - level));
+        let spawnRate = Math.max(12, (30 - level));
         if(frame % Math.floor(spawnRate) === 0) {
             let r = Math.random();
             if(r < 0.15) obstacles.push({ x: Math.random()*14-7, z: 60, type: 'gem', passed: false });
             else if(r < 0.17) obstacles.push({ x: Math.random()*14-7, z: 60, type: 'shield', passed: false });
             else if(r < 0.19) obstacles.push({ x: Math.random()*14-7, z: 60, type: 'ghost', passed: false });
-            else { const t = [{s:'box',c:'#ff4d4d'},{s:'triangle',c:'#ffff4d'},{s:'ball',c:'#4dffff'}]; let ch = t[Math.floor(Math.random() * t.length)], m = (level >= 3 && Math.random() < 0.4); obstacles.push({ x: Math.random()*14-7, z: 60, type: 'enemy', shape: ch.s, color: ch.c, passed: false, isMoving: m, moveDir: Math.random() < 0.5 ? 1 : -1, moveSpeed: 0.03 + (Math.random() * 0.04) + (level * 0.005) }); }
+            else { obstacles.push({ x: Math.random()*14-7, z: 60, type: 'enemy', shape: 'box', color: '#ff4d4d', passed: false, isMoving: (level>=3 && Math.random()<0.4), moveDir: 1, moveSpeed: 0.05 }); }
         }
         obstacles.forEach((o, i) => {
-            o.z -= speed * 6; if(o.isMoving) { o.x += o.moveDir * o.moveSpeed; if(o.x > 8 || o.x < -8) o.moveDir *= -1; }
+            o.z -= speed * 6;
             if(o.z < 0.5) { 
-                obstacles.splice(i, 1); if(o.type !== 'gem' && o.type !== 'shield' && o.type !== 'ghost') { score += 1; checkBestScore(); document.getElementById('scoreVal').innerText = score + " / " + nextLevelAt; } 
-                if(score >= nextLevelAt) { playSfx('levelup'); level++; shake = 25; levelFlash = 0.4; fovStretch = 0.2; pointsForThisLevel += 100; nextLevelAt += pointsForThisLevel; if(speed < 0.42) speed += 0.01; document.getElementById('levelVal').innerText = level; document.getElementById('scoreVal').innerText = score + " / " + nextLevelAt; } 
+                obstacles.splice(i, 1); if(o.type === 'enemy') { score += 1; } 
+                if(score >= nextLevelAt) { playSfx('levelup'); level++; pointsForThisLevel += 100; nextLevelAt += pointsForThisLevel; speed += 0.005; document.getElementById('levelVal').innerText = level; } 
+                document.getElementById('scoreVal').innerText = score + " / " + nextLevelAt;
             }
             if(o.z < 2.1 && o.z > 1.4) { 
-                let d = Math.abs(o.x - playerX), p = project(o.x, 260 * (1/450), o.z);
-                if(d < 0.55) {
-                    if(o.type === 'gem') { playSfx('collect'); floatingScores.push({ x: p.x, y: p.y, yOffset: 20, opacity: 1, text: "+5", color: "#f0f" }); obstacles.splice(i, 1); score += 5; totalRings += 1; gemFlash = 0.3; 
-                        document.getElementById('ringVal').innerText = totalRings; 
-                        document.getElementById('ajVal').innerText = (totalRings * 0.003).toFixed(3);
-                        checkBestScore(); 
+                let d = Math.abs(o.x - playerX);
+                if(d < 0.6) {
+                    if(o.type === 'gem') { 
+                        playSfx('collect'); 
+                        sessionRings += 1; // UPDATE SESSION ONLY
+                        score += 5; 
+                        obstacles.splice(i, 1); 
+                        document.getElementById('ringVal').innerText = sessionRings; 
+                        document.getElementById('ajVal').innerText = (sessionRings * 0.003).toFixed(3);
                     }
-                    else if(o.type === 'shield') { playSfx('powerup'); floatingScores.push({ x: p.x, y: p.y, yOffset: 20, opacity: 1, text: "SHIELD ON", color: "#ffcc00" }); obstacles.splice(i, 1); shieldActive = true; shake = 10; gemFlash = 0.2; }
-                    else if(o.type === 'ghost') { playSfx('powerup'); floatingScores.push({ x: p.x, y: p.y, yOffset: 20, opacity: 1, text: "GHOST", color: "#a0f" }); obstacles.splice(i, 1); ghostTimer = 300; shake = 10; gemFlash = 0.2; }
-                    else { if(ghostTimer > 0) return; if(shieldActive) { shieldActive = false; obstacles.splice(i, 1); shake = 30; levelFlash = 0.2; comboStreak = 0; document.getElementById('comboText').style.display = 'none'; } else triggerGameOver(); }
-                } 
-                else if(d < 1.0 && !o.passed && o.type !== 'gem' && o.type !== 'shield' && o.type !== 'ghost') { 
-                    playSfx('nearmiss'); shake = 12; comboStreak++; comboMultiplier = 1 + Math.floor(comboStreak / 5); spawnSparks(p.x, p.y, o.color); score += (2 * comboMultiplier);
-                    checkBestScore(); floatingScores.push({ x: p.x, y: p.y, yOffset: 20, opacity: 1, text: "CLOSE!", color: "#fff" });
-                    o.passed = true; if(comboStreak >= 5) { let cb = document.getElementById('comboText'); cb.innerText = `COMBO X${comboMultiplier}`; cb.style.display = 'block'; }
+                    else if(o.type === 'shield') { shieldActive = true; obstacles.splice(i, 1); }
+                    else if(o.type === 'ghost') { ghostTimer = 300; obstacles.splice(i, 1); }
+                    else { if(ghostTimer > 0) return; if(shieldActive) { shieldActive = false; obstacles.splice(i, 1); shake = 20; } else triggerGameOver(); }
                 }
             }
         });
@@ -646,51 +674,6 @@ window.addEventListener('touchstart', (e) => { if(!gameActive || isPaused) retur
 window.addEventListener('touchmove', (e) => { if(!gameActive || isPaused) return; if(!isTouching) return; let dX = e.touches[0].clientX - lastTouchX; targetX += dX * 0.045; if(targetX > 8.5) targetX = 8.5; if(targetX < -8.5) targetX = -8.5; lastTouchX = e.touches[0].clientX; e.preventDefault(); }, {passive: false});
 window.addEventListener('touchend', () => { isTouching = false; });
 
-function updateAdTimer() {
-    const lastClaim = localStorage.getItem('lastRingClaim');
-    const now = Date.now();
-    const btn = document.getElementById('adRewardBtn');
-    const waitTime = 24 * 60 * 60 * 1000; 
-
-    if (lastClaim && now - lastClaim < waitTime) {
-        const timeLeft = waitTime - (now - lastClaim);
-        const hours = Math.floor(timeLeft / (1000 * 60 * 60));
-        const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
-        const seconds = Math.floor((timeLeft % (1000 * 60)) / 1000);
-        
-        btn.innerText = `NEXT REWARD: ${hours}h ${minutes}m ${seconds}s`;
-        btn.disabled = true;
-        btn.style.opacity = "0.5";
-        btn.style.cursor = "not-allowed";
-        btn.style.borderColor = "#555";
-        btn.style.color = "#555";
-    } else {
-        btn.innerText = "GET FREE RINGS (+20 RINGS)";
-        btn.disabled = false;
-        btn.style.opacity = "1";
-        btn.style.cursor = "pointer";
-        btn.style.borderColor = "var(--neon-gold)";
-        btn.style.color = "var(--neon-gold)";
-    }
-}
-
-function watchAdForRings() {
-    if(window.AJ_SDK) window.AJ_SDK.showAd(); // AD ON FREE RINGS
-    playSfx('click');
-    totalRings += 20;
-    localStorage.setItem('lastRingClaim', Date.now());
-    saveProgress();
-    renderShop();
-}
-
-setInterval(() => {
-    if (document.getElementById('shopMenu').style.display === 'flex') {
-        updateAdTimer();
-    }
-}, 1000);
-
-window.onload = startLoading;
-loadProgress(); 
 update();
 </script>
 </body>
