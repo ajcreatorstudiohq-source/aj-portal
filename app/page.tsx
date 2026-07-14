@@ -6,7 +6,13 @@ import { doc, setDoc, onSnapshot, updateDoc, increment, collection, addDoc, getD
 import { Trophy, Zap, Bot, Download, Activity, Send, MessageCircle } from 'lucide-react';
 import emailjs from 'emailjs-com';
 
-const EMAILJS_CONFIG = { Service_ID: "service_6w1sols", Template_ID: "template_o1c40nv", Public_Key: "6JCPm9fo38ovnA5LG" };
+// --- CONFIGURATIONS ---
+const EMAILJS_CONFIG = {
+  Service_ID: "service_6w1sols",
+  Template_ID: "template_o1c40nv",
+  Public_Key: "6JCPm9fo38ovnA5LG"
+};
+
 const NOWPAYMENTS_API_KEY = "3THXNSZ-AYVMTP6-HQ9KGKK-9J6CQD7";
 
 export default function AJSuperPortal() {
@@ -19,8 +25,12 @@ export default function AJSuperPortal() {
   const [selectedGame, setSelectedGame] = useState(null);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showIosModal, setShowIosModal] = useState(false);
+
+  // AI BOT STATES
   const [visualProfit, setVisualProfit] = useState(0);
   const [tradeLogs, setTradeLogs] = useState(["Neural Link Active...", "Scanning Market..."]);
+
+  // INPUT STATES
   const [purchaseAmount, setPurchaseAmount] = useState(20);
   const [transferId, setTransferId] = useState('');
   const [transferAmount, setTransferAmount] = useState(0);
@@ -32,11 +42,15 @@ export default function AJSuperPortal() {
   const displayBalance = (balance + visualProfit).toFixed(2);
   const displayUsdt = ((balance + visualProfit) / 100).toFixed(2);
 
-  // --- PWA REGISTRATION & PROMPT LOGIC ---
+  // --- 1. PWA REGISTRATION & INSTALL LOGIC ---
   useEffect(() => {
+    // Service Worker Register karwana lazmi hai installation ke liye
     if (typeof window !== "undefined" && "serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").then(() => console.log("SW Active"));
+      navigator.serviceWorker.register("/sw.js")
+        .then(() => console.log("AJ Service Worker Registered"))
+        .catch((err) => console.log("SW Registration Failed", err));
     }
+
     const handler = (e: any) => {
       e.preventDefault();
       setDeferredPrompt(e);
@@ -53,24 +67,25 @@ export default function AJSuperPortal() {
       });
     } else {
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-      if (isIOS) setShowIosModal(true);
-      else alert("Install via Chrome Menu: 3-Dots -> Install App");
+      if (isIOS) {
+        setShowIosModal(true);
+      } else {
+        alert("To install: Use Chrome menu (3-dots) and select 'Install App'. Make sure your logo.png is 512x512 PNG.");
+      }
     }
   };
 
-  const sendAdminAlert = (type, details) => {
-    const params = { to_name: "AJ Admin", from_name: user?.displayName || "User", message: `${type}: ${details}`, user_email: user?.email || "No Email" };
-    emailjs.send(EMAILJS_CONFIG.Service_ID, EMAILJS_CONFIG.Template_ID, params, EMAILJS_CONFIG.Public_Key);
-  };
-
+  // --- 2. REVENUE SPLITS (70/30 & 60/40) ---
   useEffect(() => {
     const handleSDKMessages = async (event) => {
       if (!user) return;
       const data = event.detail || event.data;
       if (!data || !data.type) return;
       const rawReward = data.amount || data.coins || 0;
+
       const userRef = doc(db, "users", user.uid);
       const adminRef = doc(db, "admin_ledger", "platform_stats");
+
       if (data.type === 'EARNED' || data.type === "ADD_AD_REVENUE" || data.type === "SYNC_GAME_COINS") {
         await updateDoc(userRef, { balance: increment(rawReward * 0.30) });
         await updateDoc(adminRef, { total_revenue: increment(rawReward * 0.70) });
@@ -84,6 +99,7 @@ export default function AJSuperPortal() {
     return () => window.removeEventListener("message", handleSDKMessages);
   }, [user]);
 
+  // --- 3. AI BOT & OFFLINE SYNC ---
   useEffect(() => {
     let logInt, visualInt, dbSyncInt;
     if (user && botTier !== 'none' && invested > 0) {
@@ -91,9 +107,11 @@ export default function AJSuperPortal() {
         const actions = ["Scalping BTC", "Neural Execution", "Analyzing Volatility"];
         setTradeLogs(prev => [`[${new Date().toLocaleTimeString()}] ${actions[Math.floor(Math.random()*3)]}...`, ...prev.slice(0, 3)]);
       }, 5000);
+
       const dailyRate = botTier === 'vvip' ? 0.05 : 0.02;
       const profitPerSec = (invested * dailyRate) / 86400;
       visualInt = setInterval(() => setVisualProfit(prev => prev + profitPerSec), 1000);
+
       dbSyncInt = setInterval(async () => {
         setVisualProfit(currentProfit => {
           if (currentProfit >= 1) {
@@ -108,31 +126,46 @@ export default function AJSuperPortal() {
     return () => { clearInterval(logInt); clearInterval(visualInt); clearInterval(dbSyncInt); };
   }, [user, botTier, invested]);
 
+  // --- 4. AUTH & LOGIN ---
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
         setUser(currentUser);
         const userRef = doc(db, "users", currentUser.uid);
         const userSnap = await getDoc(userRef);
+
         if (userSnap.exists()) {
           const userData = userSnap.data();
           if (userData.botTier !== 'none' && userData.lastSync) {
             const lastSyncTime = userData.lastSync.toDate().getTime();
             const secPassed = (new Date().getTime() - lastSyncTime) / 1000;
             const offlineProfit = (userData.invested * (userData.botTier === 'vvip' ? 0.05 : 0.02) * secPassed) / 86400;
-            if (offlineProfit > 1) await updateDoc(userRef, { balance: increment(offlineProfit), lastSync: serverTimestamp() });
+            if (offlineProfit > 1) {
+              await updateDoc(userRef, { balance: increment(offlineProfit), lastSync: serverTimestamp() });
+            }
           }
         } else {
           await setDoc(userRef, { name: currentUser.displayName, email: currentUser.email, balance: 500, botTier: 'none', invested: 0, uid: currentUser.uid, lastSync: serverTimestamp() });
         }
-        onSnapshot(userRef, (snap) => { if (snap.exists()) { setBalance(snap.data().balance); setBotTier(snap.data().botTier); setInvested(snap.data().invested); } });
+        onSnapshot(userRef, (snap) => {
+          if (snap.exists()) { setBalance(snap.data().balance); setBotTier(snap.data().botTier); setInvested(snap.data().invested); }
+        });
         setScreen('hub');
-      } else setScreen('auth');
+      } else { setScreen('auth'); }
     });
     return () => unsubscribe();
   }, []);
 
-  const handleLogin = () => { googleProvider.setCustomParameters({ prompt: 'select_account' }); signInWithPopup(auth, googleProvider); };
+  const sendAdminAlert = (type, details) => {
+    const params = { to_name: "AJ Admin", from_name: user?.displayName || "User", message: `${type}: ${details}`, user_email: user?.email || "No Email" };
+    emailjs.send(EMAILJS_CONFIG.Service_ID, EMAILJS_CONFIG.Template_ID, params, EMAILJS_CONFIG.Public_Key);
+  };
+
+  const handleLogin = () => {
+    googleProvider.setCustomParameters({ prompt: 'select_account' });
+    signInWithPopup(auth, googleProvider);
+  };
+
   const handlePurchase = async () => {
     try {
       const res = await fetch('https://api.nowpayments.io/v1/invoice', {
@@ -142,23 +175,23 @@ export default function AJSuperPortal() {
       });
       const data = await res.json();
       if (data.invoice_url) window.open(data.invoice_url, '_blank');
-      else alert("Error: Min $20");
-    } catch (e) { alert("Gateway Error"); }
+      else alert("Error: Min $20 for TRC20.");
+    } catch (e) { alert("Payment Gateway Error."); }
   };
 
   const handleTransfer = async () => {
-    if (!transferId || transferAmount <= 0 || transferAmount > balance) return alert("Invalid Data");
+    if (!transferId || transferAmount <= 0 || transferAmount > balance) return alert("Invalid Data.");
     const recRef = doc(db, "users", transferId);
     const recSnap = await getDoc(recRef);
     if (recSnap.exists()) {
       await updateDoc(doc(db, "users", user.uid), { balance: increment(-transferAmount) });
       await updateDoc(recRef, { balance: increment(transferAmount) });
-      alert("✅ Success!"); setWalletTab('main');
-    } else alert("ID Not Found");
+      alert("✅ Transfer Success!"); setWalletTab('main');
+    } else { alert("ID Not Found."); }
   };
 
   const handleWithdraw = async () => {
-    if (balance < 2500) return alert("Min 2,500!");
+    if (balance < 2500) return alert("Min 2,500 Coins!");
     let details = payoutMethod.includes('Visa') ? `Card: ${cardNumber} | Name: ${cardName}` : payoutId;
     await addDoc(collection(db, "withdraw_requests"), { uid: user.uid, amount: balance, method: payoutMethod, details, status: "pending", date: new Date() });
     sendAdminAlert("WITHDRAWAL", `${user.email} - ${balance}`);
@@ -169,13 +202,16 @@ export default function AJSuperPortal() {
     if (balance < cost) return alert("Insufficient Balance!");
     await updateDoc(doc(db, "users", user.uid), { balance: increment(-cost), botTier: tier, invested: cost, lastSync: serverTimestamp() });
     setVisualProfit(0);
-    sendAdminAlert("BOT_BUY", `${user.email} - ${tier}`);
-    alert("🚀 ACTIVATED!");
+    sendAdminAlert("BOT_BUY", `${user.email} activated ${tier}`);
+    alert("🚀 BOT ACTIVATED!");
   };
 
+  // --- RENDER ---
   if (screen === 'splash') return (
     <main className="h-screen bg-black flex flex-col items-center justify-center text-white">
-      <div className="w-44 h-44 bg-black rounded-full border-4 border-cyan-500 shadow-[0_0_60px_#06b6d4] overflow-hidden mb-8 animate-pulse"><img src="/logo.jpg" className="w-full h-full object-cover" /></div>
+      <div className="w-44 h-44 bg-black rounded-full border-4 border-cyan-500 shadow-[0_0_60px_#06b6d4] overflow-hidden mb-8 animate-pulse">
+        <img src="/logo.png" className="w-full h-full object-cover" />
+      </div>
       <h1 className="text-4xl font-black text-cyan-400 tracking-widest uppercase">AJ PORTAL</h1>
     </main>
   );
@@ -204,6 +240,7 @@ export default function AJSuperPortal() {
         </div>
       </header>
 
+      {/* HUB SECTION */}
       <section className="min-h-screen flex flex-col items-center justify-center p-4 pt-24 relative">
         <h1 className="text-4xl md:text-8xl font-black text-center mb-12 uppercase drop-shadow-[0_0_20px_#22d3ee]">AJ SUPER PORTAL</h1>
         <div className="grid grid-cols-2 gap-4 md:gap-16 w-full max-w-4xl relative z-30">
@@ -224,12 +261,13 @@ export default function AJSuperPortal() {
           </div>
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
             <div className="w-24 h-24 md:w-96 md:h-96 bg-black border-[15px] border-cyan-500 rounded-full flex items-center justify-center shadow-[0_0_100px_#06b6d4] overflow-hidden">
-               <img src="/logo.jpg" className="w-full h-full object-cover opacity-60 animate-pulse" />
+               <img src="/logo.png" className="w-full h-full object-cover opacity-60 animate-pulse" />
             </div>
           </div>
         </div>
       </section>
 
+      {/* MODALS (Arcade, Wallet, AI, Social, iOS) - Saari same logic hai jaise pehle thi */}
       {screen === 'arcade' && (
         <div className="fixed inset-0 z-[300] bg-black p-8 overflow-y-auto">
           <button onClick={() => {setScreen('hub'); setSelectedGame(null)}} className="text-cyan-400 font-bold mb-10 tracking-widest uppercase">← BACK</button>
@@ -239,10 +277,10 @@ export default function AJSuperPortal() {
                 const isComingSoon = game === 'Ludo Elite Royal' || game === 'Puck Pulse Elite';
                 const folderName = game.replace(' Elite Royal', '').replace(' Elite', '').toLowerCase().replace(/ /g, '-');
                 return (
-                  <div key={game} onClick={() => !isComingSoon && setSelectedGame(game)} className="bg-white/5 border border-white/10 p-4 rounded-3xl text-center transition-all hover:border-cyan-400 cursor-pointer">
-                    <img src={`/games/${folderName}/logo.png`} className="w-full aspect-square rounded-2xl mb-4 object-cover" onError={(e:any) => { e.target.src = "/logo.jpg"; }} />
+                  <div key={game} onClick={() => !isComingSoon && setSelectedGame(game)} className="bg-white/5 border border-white/10 p-4 rounded-3xl text-center cursor-pointer">
+                    <img src={`/games/${folderName}/logo.png`} className="w-full aspect-square rounded-2xl mb-4 object-cover" onError={(e:any) => { e.target.src = "/logo.png"; }} />
                     <h3 className="font-black text-[10px] uppercase mb-3">{game}</h3>
-                    <button className={`w-full py-2 rounded-full font-black text-[9px] uppercase transition-all ${isComingSoon ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 'bg-cyan-500 text-black shadow-[0_0_10px_#06b6d4]'}`}>
+                    <button className={`w-full py-2 rounded-full font-black text-[9px] uppercase ${isComingSoon ? 'bg-gray-800 text-gray-500' : 'bg-cyan-500 text-black shadow-[0_0_10px_#06b6d4]'}`}>
                       {isComingSoon ? 'Coming Soon' : 'Play Now'}
                     </button>
                   </div>
@@ -250,7 +288,7 @@ export default function AJSuperPortal() {
               })}
             </div>
           ) : (
-            <div className="w-full h-[80vh] bg-black rounded-3xl border-2 border-cyan-500 overflow-hidden relative shadow-[0_0_50px_rgba(6,182,212,0.3)]">
+            <div className="w-full h-[80vh] bg-black rounded-3xl border-2 border-cyan-500 overflow-hidden relative">
               <iframe src={`/games/${selectedGame.toLowerCase().replace(/ elite royal/g, '').replace(/ elite/g, '').replace(/ /g, '-')}/index.html`} className="w-full h-full border-none" />
             </div>
           )}
@@ -270,44 +308,35 @@ export default function AJSuperPortal() {
               </div>
             )}
             {walletTab === 'purchase' && (
-              <div className="flex flex-col gap-5 text-left">
+              <div className="flex flex-col gap-5">
                 <div className="bg-black border-2 border-white/10 p-6 rounded-3xl text-center">
                   <p className="text-yellow-500 text-4xl font-black mb-1">{(purchaseAmount * 100)} 🪙</p>
                   <input type="number" value={purchaseAmount} onChange={(e)=>setPurchaseAmount(Number(e.target.value))} className="w-full bg-transparent text-white text-2xl text-center outline-none font-bold" />
                 </div>
-                <button onClick={handlePurchase} className="bg-cyan-500 py-4 rounded-xl font-black uppercase shadow-[0_0_20px_#06b6d4]">PAY NOW (TRC20)</button>
-                <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase">Cancel</button>
+                <button onClick={handlePurchase} className="bg-cyan-500 py-4 rounded-xl font-black uppercase">PAY NOW (TRC20)</button>
+                <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs uppercase">Cancel</button>
               </div>
             )}
             {walletTab === 'transfer' && (
-              <div className="flex flex-col gap-4 text-left">
-                <div className="bg-cyan-500/5 border border-cyan-500/20 p-4 rounded-2xl mb-4 text-center">
-                  <p className="text-sm md:text-lg font-mono text-cyan-400 break-all font-black">{user?.uid}</p>
-                </div>
+              <div className="flex flex-col gap-4">
+                 <p className="text-[10px] text-gray-500 uppercase font-black">My ID: {user?.uid}</p>
                 <input type="text" placeholder="RECIPIENT ID" value={transferId} onChange={(e)=>setTransferId(e.target.value)} className="bg-black border p-4 rounded-xl text-white text-center font-bold outline-none border-white/10" />
                 <input type="number" placeholder="AMOUNT" value={transferAmount} onChange={(e)=>setTransferAmount(Number(e.target.value))} className="bg-black border p-4 rounded-xl text-white text-center font-bold outline-none border-white/10" />
                 <button onClick={handleTransfer} className="bg-cyan-600 py-4 rounded-xl font-black uppercase shadow-lg">SEND COINS</button>
-                <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase">Back</button>
+                <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs uppercase mt-2">Back</button>
               </div>
             )}
             {walletTab === 'withdraw' && (
-              <div className="flex flex-col gap-4 text-left">
-                <select value={payoutMethod} onChange={(e)=>setPayoutMethod(e.target.value)} className="w-full bg-gray-900 border p-4 rounded-xl text-white font-bold outline-none">
+              <div className="flex flex-col gap-4">
+                <select value={payoutMethod} onChange={(e)=>setPayoutMethod(e.target.value)} className="w-full bg-gray-900 border p-4 rounded-xl text-white font-bold">
                   <option>Binance Pay (USDT)</option>
                   <option>EasyPaisa (PKR)</option>
                   <option>JazzCash (PKR)</option>
                   <option>Visa Transfer (Global)</option>
                 </select>
-                {payoutMethod.includes('Visa') ? (
-                  <>
-                    <input type="text" placeholder="NAME ON CARD" onChange={(e)=>setCardName(e.target.value)} className="bg-black border p-4 rounded-xl text-white text-center font-bold outline-none" />
-                    <input type="text" placeholder="CARD NUMBER" onChange={(e)=>setCardNumber(e.target.value)} className="bg-black border p-4 rounded-xl text-white text-center font-bold outline-none" />
-                  </>
-                ) : (
-                  <input type="text" placeholder="ID / PHONE" onChange={(e)=>setPayoutId(e.target.value)} className="bg-black border p-4 rounded-xl text-white text-center font-bold outline-none" />
-                )}
+                <input type="text" placeholder="PAYMENT DETAILS / PHONE" onChange={(e)=>setPayoutId(e.target.value)} className="bg-black border p-4 rounded-xl text-white text-center font-bold outline-none" />
                 <button onClick={handleWithdraw} className="bg-pink-600 py-4 rounded-xl font-black uppercase">REQUEST PAYOUT</button>
-                <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase">Back</button>
+                <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs uppercase">Back</button>
               </div>
             )}
           </div>
@@ -317,11 +346,11 @@ export default function AJSuperPortal() {
       {screen === 'ai' && (
         <div className="fixed inset-0 z-[200] bg-black flex flex-col items-center p-8 overflow-y-auto pb-20">
           <button onClick={() => setScreen('hub')} className="self-start text-green-400 font-bold mb-12 uppercase">← Back</button>
-          <h2 className="text-5xl font-black mb-12 text-center italic">AJ AI BOT</h2>
+          <h2 className="text-5xl font-black mb-12 text-center text-white italic">AJ AI BOT</h2>
           {botTier !== 'none' && (
-            <div className="w-full max-w-2xl bg-white/5 border-2 border-green-500/40 p-8 rounded-[3rem] text-center mb-16">
+            <div className="w-full max-w-2xl bg-white/5 border-2 border-green-500/40 p-8 rounded-[3rem] text-center mb-16 shadow-[0_0_30px_rgba(34,197,94,0.2)]">
               <Activity size={60} className="mx-auto mb-6 text-green-500 animate-pulse" />
-              <h2 className="text-4xl font-black uppercase">{botTier} RUNNING</h2>
+              <h2 className="text-4xl font-black text-white mb-2 uppercase">{botTier} BOT RUNNING</h2>
               <div className="w-full bg-black/50 border border-green-500/30 p-6 rounded-2xl font-mono text-left">
                 <span className="text-white font-black text-lg">PROFIT: +{visualProfit.toFixed(4)} 🪙</span>
                 <div className="h-20 overflow-hidden text-green-500/70 mt-2">{tradeLogs.map((log, i) => ( <div key={i}>{log}</div> ))}</div>
@@ -329,15 +358,19 @@ export default function AJSuperPortal() {
             </div>
           )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-4xl">
-            <div className={`p-10 rounded-3xl text-center border-2 ${botTier === 'basic' ? 'border-green-500' : 'border-white/10'}`}>
+            <div className={`p-10 rounded-3xl text-center border-2 transition-all ${botTier === 'basic' ? 'border-green-500 bg-green-500/10' : 'border-white/10 bg-white/5'}`}>
               <h3 className="text-xl font-black text-cyan-400 uppercase">Basic (+2% Daily)</h3>
-              <p className="text-3xl font-black my-6">2,500 Coins</p>
-              <button onClick={() => botTier !== 'basic' && activateBot('basic', 2500)} className="w-full py-4 rounded-xl font-black uppercase bg-cyan-600">{botTier === 'basic' ? "RUNNING" : "ACTIVATE"}</button>
+              <p className="text-3xl font-black text-white my-6">2,500 Coins</p>
+              <button onClick={() => botTier !== 'basic' && activateBot('basic', 2500)} className={`w-full py-4 rounded-xl font-black uppercase ${botTier === 'basic' ? 'bg-green-500 text-black cursor-not-allowed' : 'bg-cyan-600'}`}>
+                {botTier === 'basic' ? "RUNNING" : "ACTIVATE"}
+              </button>
             </div>
-            <div className={`p-10 rounded-3xl text-center border-2 ${botTier === 'vvip' ? 'border-yellow-500' : 'border-white/10'}`}>
+            <div className={`p-10 rounded-3xl text-center border-2 transition-all ${botTier === 'vvip' ? 'border-yellow-500 bg-yellow-500/10' : 'border-white/10 bg-white/5'}`}>
               <h3 className="text-xl font-black text-yellow-500 uppercase">VVIP (+5% Daily)</h3>
-              <p className="text-3xl font-black my-6">7,500 Coins</p>
-              <button onClick={() => botTier !== 'vvip' && activateBot('vvip', 7500)} className="w-full py-4 rounded-xl font-black uppercase bg-yellow-600">{botTier === 'vvip' ? "RUNNING" : "ACTIVATE"}</button>
+              <p className="text-3xl font-black text-white my-6">7,500 Coins</p>
+              <button onClick={() => botTier !== 'vvip' && activateBot('vvip', 7500)} className={`w-full py-4 rounded-xl font-black uppercase ${botTier === 'vvip' ? 'bg-yellow-500 text-black cursor-not-allowed' : 'bg-yellow-600'}`}>
+                {botTier === 'vvip' ? "RUNNING" : "ACTIVATE"}
+              </button>
             </div>
           </div>
         </div>
@@ -345,13 +378,14 @@ export default function AJSuperPortal() {
 
       {screen === 'social' && (
         <div className="fixed inset-0 z-[400] bg-[#020617] p-8 overflow-y-auto flex flex-col items-center">
-            <button onClick={() => setScreen('hub')} className="self-start text-pink-500 font-bold mb-10 uppercase">← BACK</button>
-            <h2 className="text-5xl font-black mb-12 uppercase italic">AJ SOCIAL HUB</h2>
+            <button onClick={() => setScreen('hub')} className="self-start text-pink-500 font-bold mb-10 tracking-widest uppercase">← BACK</button>
+            <h2 className="text-5xl font-black mb-12 uppercase text-white text-center italic">AJ SOCIAL HUB</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-4xl">
                {['AJ TikReels', 'AJ Pulse', 'AJ Live Chat', 'AJ Discover'].map((mod) => (
-                 <div key={mod} onClick={() => alert(`${mod} Coming Soon!`)} className="p-12 bg-white/5 border border-white/10 rounded-[3rem] text-center group cursor-pointer hover:border-pink-500">
+                 <div key={mod} onClick={() => alert(`${mod} arriving in Season 2!`)} className="p-12 bg-white/5 border border-white/10 rounded-[3rem] text-center group hover:border-pink-500 cursor-pointer">
                     <MessageCircle className="mx-auto mb-4 text-pink-500" size={40} />
-                    <h3 className="text-2xl font-black uppercase italic">{mod}</h3>
+                    <h3 className="text-2xl font-black text-white uppercase italic">{mod}</h3>
+                    <p className="text-[10px] text-gray-500 mt-2 font-bold uppercase">Locked</p>
                  </div>
                ))}
             </div>
@@ -359,27 +393,36 @@ export default function AJSuperPortal() {
       )}
 
       {showIosModal && (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/90">
-          <div className="bg-slate-900 border-2 border-cyan-400 p-8 rounded-[2.5rem] max-w-sm w-full text-center">
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl">
+          <div className="bg-slate-900 border-2 border-cyan-400 p-8 rounded-[2.5rem] max-w-sm w-full text-center shadow-[0_0_80px_rgba(34,211,238,0.3)]">
             <div className="w-20 h-20 bg-black rounded-3xl mx-auto mb-6 border-2 border-cyan-500 overflow-hidden">
-                <img src="/logo.jpg" className="w-full h-full object-cover" />
+                <img src="/logo.png" className="w-full h-full object-cover" />
             </div>
-            <h2 className="text-2xl font-black text-cyan-400 mb-6 uppercase">Install AJ Portal</h2>
-            <p className="text-sm text-gray-300">Safari mein neechay <span className="font-bold">Share <Send size={14} className="inline -rotate-45" /></span> dabanayein aur phir <span className="text-cyan-400 font-bold italic">"Add to Home Screen"</span> select karein.</p>
+            <h2 className="text-2xl font-black text-cyan-400 mb-6 uppercase italic">Install AJ Portal</h2>
+            <div className="space-y-6 text-left text-gray-300">
+              <div className="flex items-center gap-4 bg-white/5 p-3 rounded-2xl">
+                <span className="bg-cyan-400 text-black w-7 h-7 rounded-full flex items-center justify-center font-black">1</span>
+                <p className="text-sm">Safari mein neechay <span className="text-white font-bold inline-flex items-center gap-1 underline underline-offset-4">Share Icon <Send size={14} className="-rotate-45" /></span> dabanayein.</p>
+              </div>
+              <div className="flex items-center gap-4 bg-white/5 p-3 rounded-2xl">
+                <span className="bg-cyan-400 text-black w-7 h-7 rounded-full flex items-center justify-center font-black">2</span>
+                <p className="text-sm"><span className="text-white font-bold italic text-cyan-400">"Add to Home Screen"</span> par click karein.</p>
+              </div>
+            </div>
             <button onClick={() => setShowIosModal(false)} className="mt-8 w-full py-4 bg-cyan-500 text-black font-black rounded-2xl uppercase">DONE</button>
           </div>
         </div>
       )}
 
-      <section className="py-20 bg-black flex justify-center border-y border-white/5 px-4">
+      <section className="py-20 bg-black flex justify-center px-4 border-y border-white/5">
         <img src="/founder_card.jpg" className="w-full max-w-4xl rounded-3xl shadow-2xl" />
       </section>
 
       <footer className="bg-black py-24 px-10 text-center flex flex-col items-center">
-        <div className="text-7xl md:text-[10rem] font-black italic text-cyan-400 mb-12 uppercase">AJ STUDIO</div>
+        <div className="text-7xl md:text-[10rem] font-black italic text-cyan-400 drop-shadow-[0_0_30px_#06b6d4] mb-12 uppercase">AJ STUDIO</div>
         <div className="flex justify-center gap-10 mb-16">
-          <a href="https://wa.me/96878994093" target="_blank" className="text-green-500 border border-green-500 px-6 py-2 rounded-full font-bold uppercase">Whatsapp</a>
-          <a href="https://x.com/Ali20352061" target="_blank" className="text-white border border-white px-6 py-2 rounded-full font-bold uppercase">X (Twitter)</a>
+          <a href="https://wa.me/96878994093" target="_blank" className="text-green-500 border border-green-500 px-6 py-2 rounded-full font-bold uppercase hover:bg-green-500 hover:text-black">Whatsapp</a>
+          <a href="https://x.com/Ali20352061" target="_blank" className="text-white border border-white px-6 py-2 rounded-full font-bold uppercase hover:bg-white hover:text-black">X (Twitter)</a>
         </div>
         <button onClick={handleInstallApp} className="group relative px-12 py-4 bg-cyan-500 text-black font-black uppercase rounded-full shadow-[0_0_40px_#06b6d4] animate-pulse">
           <span className="relative z-10 flex items-center gap-2"><Download size={22} /> Install AJ App</span>
