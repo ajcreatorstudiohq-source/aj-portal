@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { auth, db, googleProvider } from '../firebaseConfig';
 import { signInWithPopup, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, updateDoc, increment, collection, addDoc, getDoc, serverTimestamp } from 'firebase/firestore';
-import { Trophy, Zap, Bot, Download, Activity, Send, CreditCard, Smartphone } from 'lucide-react';
+import { Trophy, Zap, Bot, Download, Activity, Send, CreditCard, Smartphone, MessageCircle } from 'lucide-react';
 import emailjs from 'emailjs-com';
 
 // --- CONFIGURATIONS ---
@@ -154,7 +154,7 @@ export default function AJSuperPortal() {
         body: JSON.stringify({
           price_amount: purchaseAmount,
           price_currency: "usd",
-          pay_currency: "usdttrc20", // Directly trigger TRC20 invoice
+          pay_currency: "usdttrc20", 
           order_id: `AJ_${Date.now()}`,
           success_url: window.location.origin,
           cancel_url: window.location.origin
@@ -162,7 +162,7 @@ export default function AJSuperPortal() {
       });
       const data = await res.json();
       if (data.invoice_url) window.open(data.invoice_url, '_blank');
-      else alert("Error: Min $20 for TRC20 Invoice.");
+      else alert("Error: Min $20 for Invoice.");
     } catch (e) { alert("Payment Gateway Error."); }
   };
 
@@ -193,7 +193,6 @@ export default function AJSuperPortal() {
     alert("🚀 BOT ACTIVATED!");
   };
 
-  // RENDER SPLASH
   if (screen === 'splash') return (
     <main className="h-screen bg-black flex flex-col items-center justify-center text-white">
       <div className="w-44 h-44 bg-black rounded-full border-4 border-cyan-500 shadow-[0_0_60px_#06b6d4] overflow-hidden mb-8 animate-pulse"><img src="/logo.jpg" className="w-full h-full object-cover" /></div>
@@ -201,7 +200,6 @@ export default function AJSuperPortal() {
     </main>
   );
 
-  // RENDER AUTH
   if (screen === 'auth') return (
     <main className="min-h-screen bg-black flex flex-col items-center justify-center p-6 text-white text-center">
       <div className="w-full max-w-sm bg-white/5 border border-white/10 p-12 rounded-[3rem] shadow-2xl">
@@ -259,11 +257,12 @@ export default function AJSuperPortal() {
           <button onClick={() => {setScreen('hub'); setSelectedGame(null)}} className="text-cyan-400 font-bold mb-10 tracking-widest uppercase">← BACK</button>
           {!selectedGame ? (
             <div className="grid grid-cols-2 md:grid-cols-3 gap-6 max-w-5xl mx-auto pb-20">
-              {['Rider King', 'Pulse Racer', 'Subsea Surge', 'Neon Strike', 'Volcano Escape', 'Ludo', 'Air Hockey'].map((game) => {
-                const isComingSoon = game === 'Ludo' || game === 'Air Hockey';
+              {['Rider King', 'Pulse Racer', 'Subsea Surge', 'Neon Strike', 'Volcano Escape', 'Ludo Elite Royal', 'Puck Pulse Elite'].map((game) => {
+                const isComingSoon = game === 'Ludo Elite Royal' || game === 'Puck Pulse Elite';
+                const folderName = game.replace(' Elite Royal', '').replace(' Elite', '').toLowerCase().replace(/ /g, '-');
                 return (
                   <div key={game} onClick={() => !isComingSoon && setSelectedGame(game)} className="bg-white/5 border border-white/10 p-4 rounded-3xl text-center transition-all hover:border-cyan-400 cursor-pointer">
-                    <img src={`/games/${game.toLowerCase().replace(/ /g, '-')}/logo.png`} className="w-full aspect-square rounded-2xl mb-4 object-cover" onError={(e) => { e.target.src = "/logo.jpg"; }} />
+                    <img src={`/games/${folderName}/logo.png`} className="w-full aspect-square rounded-2xl mb-4 object-cover" onError={(e) => { e.target.src = "/logo.jpg"; }} />
                     <h3 className="font-black text-[10px] uppercase mb-3">{game}</h3>
                     <button className={`w-full py-2 rounded-full font-black text-[9px] uppercase transition-all ${isComingSoon ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 'bg-cyan-500 text-black shadow-[0_0_10px_#06b6d4]'}`}>
                       {isComingSoon ? 'Coming Soon' : 'Play Now'}
@@ -274,7 +273,7 @@ export default function AJSuperPortal() {
             </div>
           ) : (
             <div className="w-full h-[80vh] bg-black rounded-3xl border-2 border-cyan-500 overflow-hidden relative shadow-[0_0_50px_rgba(6,182,212,0.3)]">
-              <iframe src={`/games/${selectedGame.toLowerCase().replace(/ /g, '-')}/index.html`} className="w-full h-full border-none" />
+              <iframe src={`/games/${selectedGame.toLowerCase().replace(/ elite royal/g, '').replace(/ elite/g, '').replace(/ /g, '-')}/index.html`} className="w-full h-full border-none" />
             </div>
           )}
         </div>
@@ -298,9 +297,8 @@ export default function AJSuperPortal() {
                 <div className="bg-black border-2 border-white/10 p-6 rounded-3xl text-center">
                   <p className="text-yellow-500 text-4xl font-black mb-1">{(purchaseAmount * 100)} 🪙</p>
                   <input type="number" value={purchaseAmount} onChange={(e)=>setPurchaseAmount(Number(e.target.value))} className="w-full bg-transparent text-white text-2xl text-center outline-none font-bold" />
-                  <p className="text-gray-500 text-[10px] text-center mt-2 font-black">AMOUNT (USD)</p>
                 </div>
-                <button onClick={handlePurchase} className="bg-cyan-500 py-4 rounded-xl font-black uppercase shadow-[0_0_20px_#06b6d4]">PAY NOW (INVOICE)</button>
+                <button onClick={handlePurchase} className="bg-cyan-500 py-4 rounded-xl font-black uppercase shadow-[0_0_20px_#06b6d4]">PAY NOW (TRC20)</button>
                 <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase">Cancel</button>
               </div>
             )}
@@ -353,19 +351,17 @@ export default function AJSuperPortal() {
             </div>
           )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-4xl">
-            {/* BASIC BOT */}
             <div className={`p-10 rounded-3xl text-center border-2 transition-all ${botTier === 'basic' ? 'border-green-500 bg-green-500/10' : 'border-white/10 bg-white/5'}`}>
               <h3 className="text-xl font-black text-cyan-400 uppercase">Basic (+2% Daily)</h3>
               <p className="text-3xl font-black text-white my-6">2,500 Coins</p>
-              <button onClick={() => botTier !== 'basic' && activateBot('basic', 2500)} className={`w-full py-4 rounded-xl font-black uppercase ${botTier === 'basic' ? 'bg-green-500 text-black cursor-default' : 'bg-cyan-600'}`}>
+              <button onClick={() => botTier !== 'basic' && activateBot('basic', 2500)} className={`w-full py-4 rounded-xl font-black uppercase ${botTier === 'basic' ? 'bg-green-500 text-black cursor-not-allowed' : 'bg-cyan-600'}`}>
                 {botTier === 'basic' ? "RUNNING" : "ACTIVATE"}
               </button>
             </div>
-            {/* VVIP BOT */}
             <div className={`p-10 rounded-3xl text-center border-2 transition-all ${botTier === 'vvip' ? 'border-yellow-500 bg-yellow-500/10' : 'border-white/10 bg-white/5'}`}>
               <h3 className="text-xl font-black text-yellow-500 uppercase">VVIP (+5% Daily)</h3>
               <p className="text-3xl font-black text-white my-6">7,500 Coins</p>
-              <button onClick={() => botTier !== 'vvip' && activateBot('vvip', 7500)} className={`w-full py-4 rounded-xl font-black uppercase ${botTier === 'vvip' ? 'bg-yellow-500 text-black cursor-default' : 'bg-yellow-600'}`}>
+              <button onClick={() => botTier !== 'vvip' && activateBot('vvip', 7500)} className={`w-full py-4 rounded-xl font-black uppercase ${botTier === 'vvip' ? 'bg-yellow-500 text-black cursor-not-allowed' : 'bg-yellow-600'}`}>
                 {botTier === 'vvip' ? "RUNNING" : "ACTIVATE"}
               </button>
             </div>
@@ -373,7 +369,23 @@ export default function AJSuperPortal() {
         </div>
       )}
 
-      {/* FOUNDER CARD & FOOTER */}
+      {/* SOCIAL SCREEN */}
+      {screen === 'social' && (
+        <div className="fixed inset-0 z-[400] bg-[#020617] p-8 overflow-y-auto flex flex-col items-center">
+            <button onClick={() => setScreen('hub')} className="self-start text-pink-500 font-bold mb-10 tracking-widest uppercase">← BACK TO HUB</button>
+            <h2 className="text-5xl font-black mb-12 uppercase text-white tracking-[0.2em] text-center italic">AJ SOCIAL HUB</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-4xl">
+               {['AJ TikReels', 'AJ Pulse', 'AJ Live Chat', 'AJ Discover'].map((mod) => (
+                 <div key={mod} onClick={() => alert(`${mod} arriving in Season 2!`)} className="p-12 bg-white/5 border border-white/10 rounded-[3rem] text-center group hover:border-pink-500 transition-all cursor-pointer">
+                    <MessageCircle className="mx-auto mb-4 text-pink-500 group-hover:scale-110 transition-transform" size={40} />
+                    <h3 className="text-2xl font-black text-white uppercase italic">{mod}</h3>
+                    <p className="text-[10px] text-gray-500 mt-2 font-bold tracking-widest uppercase">Locked</p>
+                 </div>
+               ))}
+            </div>
+        </div>
+      )}
+
       <section className="py-20 bg-black flex justify-center px-4 border-y border-white/5">
         <img src="/founder_card.jpg" className="w-full max-w-4xl rounded-3xl shadow-2xl" />
       </section>
