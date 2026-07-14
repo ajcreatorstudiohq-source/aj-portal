@@ -255,16 +255,16 @@
         reviveGame(); 
     }
     
-    // --- FREE COINS REWARD LOGIC FIXED ---
+    // --- INSTANT COIN REWARD LOGIC ---
     function watchRewardAd() { 
         if(window.AJ_SDK) {
             window.AJ_SDK.showAd();
-            // Simulating ad finish delay for reward
             setTimeout(() => {
-                totalCoins += 50; 
+                totalCoins = parseInt(totalCoins) + 50; 
                 localStorage.setItem('aj_sub_coins', totalCoins); 
+                updateCoinDisplays(); // INSTANT HUD/MENU UPDATE
+                renderShop(); // INSTANT SHOP BUTTON REFRESH
                 syncWithPortal();
-                renderShop(); 
                 alert("Success! 50 Free Coins Added.");
             }, 2000);
         } else {
@@ -273,8 +273,8 @@
     }
 
     function startGame() { document.getElementById('mainMenu').classList.remove('active-screen'); document.getElementById('ui').style.display = 'block'; document.getElementById('pauseBtn').style.display = 'flex'; resetGame(); }
-    function openShop() { document.getElementById('mainMenu').classList.remove('active-screen'); document.getElementById('shopScreen').classList.add('active-screen'); renderShop(); }
-    function closeShop() { document.getElementById('shopScreen').classList.remove('active-screen'); document.getElementById('mainMenu').classList.add('active-screen'); }
+    function openShop() { document.getElementById('mainMenu').classList.remove('active-screen'); document.getElementById('shopScreen').classList.add('active-screen'); renderShop(); updateCoinDisplays(); }
+    function closeShop() { document.getElementById('shopScreen').classList.remove('active-screen'); document.getElementById('mainMenu').classList.add('active-screen'); updateCoinDisplays(); }
     function togglePause() { if(!gameActive) return; isPaused = !isPaused; document.getElementById('pauseBtn').innerText = isPaused ? "▶" : "II"; if(isPaused) sounds.bg.pause(); else if(musicOn) sounds.bg.play().catch(()=>{}); }
     
     function reviveGame() { 
@@ -298,6 +298,7 @@
         sounds.bg.pause(); 
     }
     
+    // --- HUD & MENU SYNC FUNCTION ---
     function updateCoinDisplays() { 
         document.querySelectorAll('.global-coins').forEach(el => el.innerText = totalCoins); 
         let ajNet = (totalCoins * 0.003).toFixed(3);
@@ -315,14 +316,16 @@
         }
     }
 
-    // --- SKIN PURCHASE LOGIC WITH AD ---
+    // --- INSTANT SKIN PURCHASE SYNC ---
     function selectSub(id) {
         const prices = [0, 5000, 10000];
-        if(unlockedSkins.includes(id)) { currentSubSkin = id; localStorage.setItem('aj_active_skin', id); }
+        if(unlockedSkins.includes(id)) { 
+            currentSubSkin = id; 
+            localStorage.setItem('aj_active_skin', id); 
+        }
         else { 
             if(totalCoins >= prices[id]) { 
                 if(window.AJ_SDK) window.AJ_SDK.showAd(); 
-                // Delay deduction to feel like purchase after ad
                 setTimeout(() => {
                     totalCoins -= prices[id]; 
                     unlockedSkins.push(id); 
@@ -331,7 +334,8 @@
                     localStorage.setItem('aj_unlocked', JSON.stringify(unlockedSkins)); 
                     localStorage.setItem('aj_active_skin', id); 
                     syncWithPortal();
-                    renderShop();
+                    updateCoinDisplays(); // Refresh balance immediately
+                    renderShop(); // Refresh lock icons immediately
                 }, 1500);
             } else { alert("Need more coins!"); } 
         }
@@ -348,7 +352,6 @@
             if(currentSubSkin === i) item.classList.add('selected');
             label.innerText = unlockedSkins.includes(i) ? (currentSubSkin === i ? "EQUIPPED" : "SELECT") : prices[i] + " 💰";
         }
-        updateCoinDisplays();
     }
 
     function resetGame() {
@@ -361,26 +364,22 @@
         document.getElementById('oxyFill').style.width = "100%";
         document.getElementById('gameOver').classList.remove('active-screen'); document.getElementById('reviveBtn').style.display = 'inline-block';
         gameActive = true; loop(); if(musicOn) sounds.bg.play().catch(()=>{});
+        updateCoinDisplays();
     }
 
-    // --- CONTROLS START ---
+    // --- CONTROLS ---
     function isUIElement(el) { return el.tagName === 'BUTTON' || el.id === 'pauseBtn' || el.closest('.shop-item') || el.closest('.settings-gear') || el.closest('.screen'); }
     window.addEventListener('touchstart', (e) => { if (isUIElement(e.target)) return; if(gameActive && !isPaused) { isTouching = true; e.preventDefault(); } }, {passive: false});
     window.addEventListener('touchend', () => isTouching = false);
     window.addEventListener('keydown', (e) => {
         if (["Space", "ArrowDown", "KeyS", "ArrowUp", "KeyW"].includes(e.code)) {
             if(gameActive && !isPaused) { if (["Space", "ArrowDown", "KeyS"].includes(e.code)) isTouching = true; e.preventDefault(); }
-            if (e.code === "Enter" || e.code === "Space") {
-                if (document.getElementById('mainMenu').classList.contains('active-screen')) startGame();
-                else if (document.getElementById('gameOver').classList.contains('active-screen')) startGame();
-            }
         }
         if (e.code === "Escape") togglePause();
     });
     window.addEventListener('keyup', (e) => { if (["Space", "ArrowDown", "KeyS"].includes(e.code)) isTouching = false; });
     window.addEventListener('mousedown', (e) => { if (isUIElement(e.target)) return; if(gameActive && !isPaused) isTouching = true; });
     window.addEventListener('mouseup', () => isTouching = false);
-    // --- CONTROLS END ---
 
     function update() {
         if (!gameActive || isPaused) return;
@@ -520,6 +519,7 @@
         ctx.fillStyle = vig; ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
     function loop() { if (gameActive || isPaused) { if(!isPaused) update(); draw(); animationId = requestAnimationFrame(loop); } }
+    updateCoinDisplays();
 </script>
 </body>
 </html>
