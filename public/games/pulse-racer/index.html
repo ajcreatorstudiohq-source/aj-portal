@@ -451,8 +451,8 @@ function draw() {
     });
     if(!isPaused && gameActive) playerX += (targetX - playerX) * 0.15;
     let skinColor = skins.find(s => s.id === currentSkin).color;
-    // Lowered ship to wz:1.4 and wy:0.8 for mobile/laptop visibility
-    drawLogoShip(project(playerX, 0.8, 1.4).x, project(playerX, 0.8, 1.4).y, 0.8, skinColor, 1);
+    // Lowered ship position from z:3.5 to z:2.2 for mobile/laptop visibility
+    drawLogoShip(project(playerX, 0.5, 2.2).x, project(playerX, 0.5, 2.2).y, 0.8, skinColor, 1);
     ctx.restore(); 
 }
 
@@ -460,8 +460,8 @@ function update() {
     if(gameActive && !isPaused) {
         frame++; if(ghostTimer > 0) ghostTimer--;
         
-        // Strict border clamping to keep ship inside road lines (-8.0 to 8.0)
-        targetX = Math.max(-8.0, Math.min(8.0, targetX));
+        // Strict border clamping to keep ship inside road lines (-8.5 to 8.5)
+        targetX = Math.max(-8.5, Math.min(8.5, targetX));
 
         if(frame % 40 === 0) {
             let r = Math.random();
@@ -473,8 +473,8 @@ function update() {
             let oldZ = o.z; o.z -= speed * 6; let newZ = o.z;
             if(o.z < 0.5) { obstacles.splice(i, 1); score += 1; if(score >= nextLevelAt) { playSfx('levelup'); level++; nextLevelAt += 300; speed += 0.005; } document.getElementById('scoreVal').innerText = score + " / " + nextLevelAt; }
             
-            // Collision zone updated to match new lower ship position (z: 1.4)
-            if (o.z < 1.7 && o.z > 1.1) {
+            // Collision zone updated to match new lower ship position (z: 2.2)
+            if (o.z < 2.5 && o.z > 1.9) {
                 let d = Math.abs(o.x - playerX);
                 if(d < 0.55) { // Hitbox width
                     if(o.type === 'gem') { 
@@ -500,14 +500,13 @@ window.addEventListener('keydown', (e) => {
     if (!gameActive || isPaused) return; 
     if (e.key === "ArrowLeft") targetX -= 1.5; 
     if (e.key === "ArrowRight") targetX += 1.5; 
-    // Manual strict clamp for arrow keys
-    targetX = Math.max(-8.0, Math.min(8.0, targetX));
+    // Manual clamp for arrow keys
+    targetX = Math.max(-8.5, Math.min(8.5, targetX));
 });
 window.addEventListener('touchmove', (e) => { 
     if(!gameActive || isPaused) return; 
     let touchPos = (e.touches[0].clientX / canvas.width) * 17 - 8.5;
-    // Manual strict clamp for touch
-    targetX = Math.max(-8.0, Math.min(8.0, touchPos)); 
+    targetX = Math.max(-8.5, Math.min(8.5, touchPos)); 
 });
 update();
 </script>
