@@ -1,7 +1,12 @@
-self.addEventListener('install', (e) => self.skipWaiting());
-self.addEventListener('activate', (e) => e.waitUntil(clients.claim()));
+self.addEventListener('install', (event) => {
+  self.skipWaiting();
+});
 
-// Yeh fetch event Chrome ki sab se bari requirement hai install button ke liye
+self.addEventListener('activate', (event) => {
+  event.waitUntil(clients.claim());
+});
+
+// Yeh line Chrome ki sab se bari requirement hai PWA ke liye
 self.addEventListener('fetch', (event) => {
   event.respondWith(fetch(event.request));
 });
