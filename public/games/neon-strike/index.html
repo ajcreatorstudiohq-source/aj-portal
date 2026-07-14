@@ -174,7 +174,6 @@
     let totalPoints = parseInt(localStorage.getItem('ns_points')) || 0;
     let unlockedUnits = JSON.parse(localStorage.getItem('ns_unlocked')) || [0];
     let selectedUnitIndex = parseInt(localStorage.getItem('ns_selected')) || 0;
-    let lastRewardTime = parseInt(localStorage.getItem('ns_reward_time')) || 0;
     let audioSettings = JSON.parse(localStorage.getItem('ns_audio')) || { mus: true, sfx: true };
 
     let isPaused = false, gameActive = false, score = 0, frame = 0, abCharge = 0, shake = 0, flash = 0, spawnLockTimer = 0, lastShieldMilestone = 0, lastRankMilestone = 0;
@@ -198,7 +197,7 @@
     }, 30);
 
     function initAudioAndStart() { 
-        if(window.AJ_SDK) window.AJ_SDK.showAd(); // AD ON TAP TO CONTINUE
+        if(window.AJ_SDK) window.AJ_SDK.showAd(); 
         document.getElementById('splashScreen').style.display='none'; homeBg.style.display = 'block'; document.getElementById('mainMenu').classList.add('active-screen'); updateUIDisplays(); updateAudioUI(); 
     }
     function toggleAudio(type) { audioSettings[type] = !audioSettings[type]; localStorage.setItem('ns_audio', JSON.stringify(audioSettings)); updateAudioUI(); }
@@ -210,23 +209,22 @@
     document.getElementById('musVol').oninput = (e) => { audioPool.bgmusic.volume = e.target.value; audioPool.jetenginesound.volume = e.target.value * 0.5; };
     document.getElementById('sfxVol').oninput = (e) => { const v = e.target.value; ['bullet','click','enemycrash','enoughbalance','gemcollect','jetcrash','levelup','blastsound','collectreward','coincash'].forEach(k => { if(Array.isArray(audioPool[k])) audioPool[k].forEach(s => s.volume = v); }); };
 
-    // --- FREE POINTS WITH AD ---
+    // --- INSTANT POINT REWARD ---
     function showRewardAd() { 
         if(window.AJ_SDK) {
             window.AJ_SDK.showAd();
             setTimeout(() => {
-                totalPoints += 500; 
-                playFromPool('collectreward'); 
+                totalPoints = parseInt(totalPoints) + 500; 
                 localStorage.setItem('ns_points', totalPoints); 
+                updateUIDisplays(); // Foran Main Menu Update
+                updateGarageUI();   // Foran Garage Update
                 syncWithPortal(); 
-                updateGarageUI(); 
-                updateUIDisplays();
+                playFromPool('collectreward');
                 alert("Success! 500 Data Points added.");
             }, 2000);
         } else { alert("Ads not available."); }
     }
 
-    // --- REVIVE WITH AD ---
     function showReviveAd() { 
         if(window.AJ_SDK) {
             window.AJ_SDK.showAd();
@@ -249,7 +247,6 @@
         units.forEach((u, i) => { const isUnlocked = unlockedUnits.includes(i); const isSelected = selectedUnitIndex === i; const div = document.createElement('div'); div.className = `item ${isSelected ? 'selected' : ''}`; div.innerHTML = `<div class="item-color" style="background:${u.color};"></div><div style="font-size:10px">JET-${i+1}</div><div style="font-size:9px; color:var(--neon-gold)">${isUnlocked ? (isSelected ? 'ACTIVE' : 'SELECT') : u.price}</div>`; div.onclick = () => selectUnit(i); grid.appendChild(div); }); 
     }
     
-    // --- JET PURCHASE WITH AD ---
     function selectUnit(i) { 
         if (unlockedUnits.includes(i)) { playFromPool('click'); selectedUnitIndex = i; localStorage.setItem('ns_selected', i); } 
         else if (totalPoints >= units[i].price) { 
@@ -286,7 +283,7 @@
     }
 
     function startGameWithAd() {
-        if(window.AJ_SDK) window.AJ_SDK.showAd(); // AD ON START / RETRY
+        if(window.AJ_SDK) window.AJ_SDK.showAd(); 
         startGame();
     }
 
@@ -303,7 +300,7 @@
     window.addEventListener('touchstart', handleInputStart, {passive:false}); window.addEventListener('touchmove', (e) => { if(joy.active) e.preventDefault(); handleInputMove(e); }, {passive:false}); window.addEventListener('touchend', handleInputEnd);
 
     function startGame() { playFromPool('click'); gameActive = true; isPaused = false; isCrashing = false; crashTimer = 0; score = 0; frame = 0; abCharge = 0; flash = 0; spawnLockTimer = 0; lastShieldMilestone = 0; lastRankMilestone = 0; enemies = []; bullets = []; gems = []; particles = []; shields = []; player.x = canvas.width/2; player.y = canvas.height/2; player.color = units[selectedUnitIndex].color; player.hasShield = false; player.rotation = -Math.PI/2; document.getElementById('xpVal').innerText = "0"; document.getElementById('liveAJ').innerText = "0.000"; document.getElementById('timeVal').innerText = "0"; document.getElementById('abPerc').innerText = "0%"; updateAbilityUI(); homeBg.style.display = 'none'; document.querySelectorAll('.screen').forEach(s => s.classList.remove('active-screen')); document.getElementById('hud').style.display = 'flex'; document.getElementById('abilityBtn').style.display = 'flex'; document.getElementById('joyContainer').style.display = 'block'; updateAudioUI(); audioPool.jetenginesound.play().catch(()=>{}); loop(); }
-    function startCrashSequence(x, y) { isCrashing = true; crashTimer = 240; crashX = x; crashY = y; shake = 50; flash = 0.5; document.getElementById('hud').style.display = 'none'; document.getElementById('abilityBtn').style.display = 'none'; document.getElementById('joyContainer').style.display = 'none'; audioPool.bgmusic.pause(); audioPool.jetenginesound.pause(); playFromPool('jetcrash'); if(window.AJ_SDK) window.AJ_SDK.showAd(); /* AD ON MISSION TERMINATED */ }
+    function startCrashSequence(x, y) { isCrashing = true; crashTimer = 240; crashX = x; crashY = y; shake = 50; flash = 0.5; document.getElementById('hud').style.display = 'none'; document.getElementById('abilityBtn').style.display = 'none'; document.getElementById('joyContainer').style.display = 'none'; audioPool.bgmusic.pause(); audioPool.jetenginesound.pause(); playFromPool('jetcrash'); if(window.AJ_SDK) window.AJ_SDK.showAd(); }
     function finalizeGameOver() { gameActive = false; totalPoints += score; localStorage.setItem('ns_points', totalPoints); document.getElementById('finalScore').innerText = score; document.getElementById('finalAJ').innerText = (score * 0.003).toFixed(3); updateUIDisplays(); syncWithPortal(); document.getElementById('gameOver').classList.add('active-screen'); homeBg.style.display = 'block'; homeBg.classList.remove('bg-blurred'); updateAudioUI(); }
 
     function update() {
