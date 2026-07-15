@@ -3,15 +3,8 @@ import React, { useState, useEffect } from 'react';
 import { auth, db, googleProvider } from '../firebaseConfig';
 import { signInWithPopup, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, updateDoc, increment, collection, addDoc, getDoc, serverTimestamp } from 'firebase/firestore';
-import { MessageCircle, Trophy, Zap, Wallet, Bot, LogOut, Globe, ChevronRight, Send, CreditCard, ArrowUpRight, ShieldCheck, Crown, Activity, TrendingUp, X, CheckCircle2, Download, Copy, Video, Newspaper, Users, Heart, MessageSquare, Camera, Settings } from 'lucide-react';
+import { MessageCircle, Trophy, Zap, Bot, Send, Activity, CheckCircle2, Download, Copy, Video, Newspaper, Users, MessageSquare, Camera, Settings } from 'lucide-react';
 import emailjs from 'emailjs-com';
-
-// --- CONFIGURATIONS ---
-const EMAILJS_CONFIG = {
-  Service_ID: "service_6w1sols",
-  Template_ID: "template_o1c40nv",
-  Public_Key: "6JCPm9fo38ovnA5LG"
-};
 
 const NOWPAYMENTS_API_KEY = "3THXNSZ-AYVMTP6-HQ9KGKK-9J6CQD7";
 
@@ -27,18 +20,15 @@ const [loading, setLoading] = useState(0);
 const [selectedGame, setSelectedGame] = useState(null);
 const [copied, setCopied] = useState(false);
 
-// --- SOCIAL DATA STATES ---
 const [hasSocialProfile, setHasSocialProfile] = useState(false);
 const [username, setUsername] = useState('');
 const [bio, setBio] = useState('');
 const [tempPhoto, setTempPhoto] = useState('');
-const [pendingMode, setPendingMode] = useState(''); // Mode jo click kiya gaya
+const [pendingMode, setPendingMode] = useState('');
 
-// --- AI STATES ---
 const [visualProfit, setVisualProfit] = useState(0);
-const [tradeLogs, setTradeLogs] = useState(["Initialising Neural Link...", "Analysing Market Volatility...", "Connecting to AJ liquidity pool..."]);
+const [tradeLogs, setTradeLogs] = useState(["Initialising Neural Link...", "Analysing Market Volatility..."]);
 
-// Input States
 const [purchaseAmount, setPurchaseAmount] = useState(20);
 const [purchaseMethod, setPurchaseMethod] = useState('Binance (TRC20)');
 const [purchaseTxId, setPurchaseTxId] = useState('');
@@ -50,7 +40,7 @@ const [cardName, setCardName] = useState('');
 const [cardNumber, setCardNumber] = useState('');
 
 const displayBalance = (balance + visualProfit).toFixed(2);
-const displayUsdt = ((balance + visualProfit) / 100).toFixed(2);
+const displayUsdt = ((balance + visualProfit) / 10000).toFixed(2);
 
 const copyToClipboard = (id) => {
   if(!id) return;
@@ -59,7 +49,6 @@ const copyToClipboard = (id) => {
   setTimeout(() => setCopied(false), 2000);
 };
 
-// --- HANDLERS ---
 const handleCreateProfile = async () => {
     if(username.length < 3) return alert("Username too short!");
     try {
@@ -72,7 +61,7 @@ const handleCreateProfile = async () => {
         setHasSocialProfile(true);
         setSocialScreen(pendingMode || 'hub');
         alert("🚀 Profile Active!");
-    } catch (e) { alert("Error!"); }
+    } catch (e) { alert("Setup Error!"); }
 };
 
 const enterSocialMode = (mode) => {
@@ -84,7 +73,6 @@ const enterSocialMode = (mode) => {
     }
 };
 
-// --- PROFIT LOGIC (70/30) ---
 useEffect(() => {
 const handleSDKMessages = (event) => {
 if (!user) return;
@@ -103,7 +91,6 @@ window.addEventListener("message", handleSDKMessages);
 return () => window.removeEventListener("message", handleSDKMessages);
 }, [user]);
 
-// --- AI BOT ENGINE ---
 useEffect(() => {
   let logInt, visualInt, dbSyncInt;
   if (user && botTier !== 'none' && invested > 0) {
@@ -191,7 +178,7 @@ const handlePurchase = async () => {
   } else {
       if(!purchaseTxId) return alert("Enter Airtm TX ID.");
       await addDoc(collection(db, "manual_deposits"), { uid: user.uid, email: user.email, amount: purchaseAmount, method: "Airtm", txId: purchaseTxId, status: "pending", date: serverTimestamp() });
-      alert("✅ Airtm Request Sent to ajcreatorstudio.hq@gmail.com!"); setWalletTab('main');
+      alert("✅ Airtm Request Sent!"); setWalletTab('main');
   }
 };
 
@@ -207,10 +194,10 @@ alert("✅ Success!"); setWalletTab('main');
 };
 
 const handleWithdraw = async () => {
-if (balance < 2500) return alert("Min 2,500 Coins!");
+if (balance < 50000) return alert("Min 50,000 Coins ($5)!");
 let details = payoutId;
 if (payoutMethod.includes('Visa')) details = `Name: ${cardName} | Card: ${cardNumber}`;
-await addDoc(collection(db, "withdraw_requests"), { uid: user.uid, email: user.email, amount: balance, method: payoutMethod, details: details, status: "pending", date: serverTimestamp() });
+await addDoc(collection(db, "withdraw_requests"), { uid: user.uid, email: user.email, amount_coins: balance, amount_usd: (balance/10000), method: payoutMethod, details: details, status: "pending", date: serverTimestamp() });
 alert("✅ Request Sent!"); setWalletTab('main');
 };
 
@@ -243,7 +230,7 @@ return (
 <header className="fixed top-0 w-full p-4 flex justify-between items-center z-[100] bg-black/80 backdrop-blur-xl border-b border-white/5">
 <div className="text-xl font-black italic text-cyan-400">AJ STUDIO</div>
 <div className="flex items-center gap-3">
-<div onClick={() => {setScreen('wallet'); setWalletTab('main')}} className="flex items-center gap-3 bg-white/5 px-4 py-2 rounded-full border border-white/10 cursor-pointer transition-all hover:bg-white/10">
+<div onClick={() => {setScreen('wallet'); setWalletTab('main')}} className="flex items-center gap-3 bg-white/5 px-4 py-2 rounded-full border border-white/10 cursor-pointer">
 <span className="text-xs font-black text-yellow-500">{displayBalance} 🪙</span>
 {user && <img src={tempPhoto || user.photoURL} className="w-8 h-8 rounded-full border border-cyan-500" />}
 </div>
@@ -278,10 +265,9 @@ return (
     </div>
 </section>
 
-{/* ARCADE MODAL */}
 {screen === 'arcade' && (
     <div className="fixed inset-0 z-[300] bg-black p-8 overflow-y-auto">
-        <button onClick={() => {setScreen('hub'); setSelectedGame(null)}} className="text-cyan-400 font-bold mb-10 tracking-widest uppercase transition-all hover:brightness-125">← BACK TO HUB</button>
+        <button onClick={() => {setScreen('hub'); setSelectedGame(null)}} className="text-cyan-400 font-bold mb-10 tracking-widest uppercase">← BACK</button>
         {!selectedGame ? (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-6 max-w-5xl mx-auto pb-20">
             {['Rider King', 'Pulse Racer', 'Subsea Surge', 'Neon Strike', 'Volcano Escape', 'Ludo Elite Royal', 'Puck Pulse Elite'].map((game) => {
@@ -289,7 +275,7 @@ return (
               const folderName = game.replace(' Elite Royal', '').replace(' Elite', '').toLowerCase().replace(/ /g, '-');
               return (
               <div key={game} onClick={() => !isComingSoon && setSelectedGame(game)} className="bg-white/5 border border-white/10 p-4 rounded-3xl text-center hover:border-cyan-400 cursor-pointer transition-all">
-                <img src={`/games/${folderName}/logo.png`} className="w-full aspect-square rounded-xl mb-4 object-cover" alt={game} onError={(e) => { e.target.src = "/logo.png"; }} />
+                <img src={`/games/${folderName}/logo.png`} className="w-full aspect-square rounded-xl mb-4 object-cover" alt={game} onError={(e:any) => { e.target.src = "/logo.png"; }} />
                 <h3 className="font-black text-sm uppercase">{game}</h3>
                 <button className={`mt-4 w-full py-2 rounded-full font-black text-[10px] uppercase transition-all ${isComingSoon ? 'bg-gray-800 text-gray-500' : 'bg-cyan-500 text-black shadow-[0_0_10px_#06b6d4]'}`}>{isComingSoon ? "Soon" : "PLAY NOW"}</button>
               </div>
@@ -301,17 +287,16 @@ return (
     </div>
 )}
 
-{/* WALLET MODAL */}
 {screen === 'wallet' && (
     <div className="fixed inset-0 z-[300] bg-black/98 flex flex-col items-center p-8 overflow-y-auto">
-       <button onClick={() => {setScreen('hub'); setWalletTab('main')}} className="self-start text-cyan-400 mb-8 font-bold uppercase tracking-widest transition-all hover:brightness-125">← BACK</button>
+       <button onClick={() => {setScreen('hub'); setWalletTab('main')}} className="self-start text-cyan-400 mb-8 font-bold uppercase tracking-widest">← BACK</button>
        <div className="w-full max-w-md bg-[#111] border border-white/10 p-10 rounded-3xl text-center shadow-2xl">
           <h2 className="text-5xl font-black text-yellow-500 mb-8">{displayBalance} 🪙</h2>
           {walletTab === 'main' && (
             <div className="flex flex-col gap-4">
-               <button onClick={()=>setWalletTab('purchase')} className="bg-white text-black py-4 rounded-xl font-black uppercase shadow-lg transition-all hover:scale-105">Purchase</button>
-               <button onClick={()=>setWalletTab('transfer')} className="bg-white/10 text-cyan-400 py-4 rounded-xl font-black border border-cyan-500/30 uppercase transition-all hover:bg-cyan-500/10">Transfer</button>
-               <button onClick={()=>setWalletTab('withdraw')} className="bg-white/10 text-pink-500 py-4 rounded-xl font-black border border-pink-500/30 uppercase transition-all hover:bg-pink-500/10">Withdraw</button>
+               <button onClick={()=>setWalletTab('purchase')} className="bg-white text-black py-4 rounded-xl font-black uppercase">Purchase</button>
+               <button onClick={()=>setWalletTab('transfer')} className="bg-white/10 text-cyan-400 py-4 rounded-xl font-black border border-cyan-500/30 uppercase">Transfer</button>
+               <button onClick={()=>setWalletTab('withdraw')} className="bg-white/10 text-pink-500 py-4 rounded-xl font-black border border-pink-500/30 uppercase">Withdraw</button>
             </div>
           )}
           {walletTab === 'purchase' && (
@@ -321,20 +306,20 @@ return (
               <div className="bg-black border-2 border-white/10 p-6 rounded-3xl text-center"><p className="text-yellow-500 text-4xl font-black mb-1">{(purchaseAmount * 1000)} 🪙</p><input type="number" value={purchaseAmount} onChange={(e)=>setPurchaseAmount(Number(e.target.value))} className="w-full bg-transparent text-white text-2xl text-center font-bold" /></div>
               {purchaseMethod.includes('Airtm') && (<div className="p-4 bg-slate-900 rounded-2xl border border-cyan-500/30"><p className="text-[10px] text-gray-400 mb-1">Send to: ajcreatorstudio.hq@gmail.com</p><input type="text" placeholder="TX ID" value={purchaseTxId} onChange={(e)=>setPurchaseTxId(e.target.value)} className="w-full bg-black border p-2 rounded text-white text-xs" /></div>)}
               <button onClick={handlePurchase} className="bg-cyan-500 py-4 rounded-xl font-black uppercase">Confirm Purchase</button>
-              <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase mt-2 hover:text-white">Cancel</button>
+              <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase">Cancel</button>
             </div>
           )}
           {walletTab === 'transfer' && (
             <div className="flex flex-col gap-4 text-left">
               <div className="bg-cyan-500/10 border border-cyan-500/30 p-5 rounded-2xl relative cursor-pointer" onClick={() => copyToClipboard(user?.uid)}>
-                <p className="text-[10px] text-gray-500 uppercase font-black mb-1 tracking-[0.2em]">My Referral ID</p>
-                <p className="text-sm md:text-lg font-mono text-cyan-400 break-all drop-shadow-[0_0_10px_#0ff] font-black uppercase">{user?.uid}</p>
-                <div className="absolute right-4 top-1/2 -translate-y-1/2">{copied ? <CheckCircle2 size={20} className="text-green-500" /> : <Copy size={20} className="text-cyan-400 opacity-50" />}</div>
+                <p className="text-[10px] text-gray-500 uppercase font-black mb-1">My ID</p>
+                <p className="text-lg font-mono text-cyan-400 font-black truncate">{user?.uid}</p>
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 text-cyan-400">{copied ? <CheckCircle2 size={18}/> : <Copy size={18}/>}</div>
               </div>
-              <input type="text" placeholder="Recipient ID" onChange={(e)=>setTransferId(e.target.value)} className="bg-black border p-4 rounded-xl text-center text-white outline-none border-white/10 focus:border-cyan-500" />
-              <input type="number" placeholder="Amount" onChange={(e)=>setTransferAmount(Number(e.target.value))} className="bg-black border p-4 rounded-xl text-center text-white outline-none border-white/10 focus:border-cyan-500" />
-              <button onClick={handleTransfer} className="bg-cyan-600 py-4 rounded-xl font-black uppercase shadow-lg active:scale-95 transition-all">Send Now</button>
-              <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase mt-2 hover:text-white">Back</button>
+              <input type="text" placeholder="Recipient ID" onChange={(e)=>setTransferId(e.target.value)} className="bg-black border p-4 rounded-xl text-white outline-none border-white/10" />
+              <input type="number" placeholder="Amount" onChange={(e)=>setTransferAmount(Number(e.target.value))} className="bg-black border p-4 rounded-xl text-white outline-none border-white/10" />
+              <button onClick={handleTransfer} className="bg-cyan-600 py-4 rounded-xl font-black uppercase shadow-lg">Send Now</button>
+              <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase mt-2">Back</button>
             </div>
           )}
           {walletTab === 'withdraw' && (
@@ -342,7 +327,8 @@ return (
               <label className="text-[10px] text-pink-500 font-black uppercase">Method (Min 50k Coins)</label>
               <select value={payoutMethod} onChange={(e)=>setPayoutMethod(e.target.value)} className="w-full bg-gray-900 border border-white/10 p-4 rounded-xl text-white font-bold"><option>Binance Pay (USDT)</option><option>Airtm (Gmail Account)</option><option>EasyPaisa (PKR)</option><option>JazzCash (PKR)</option><option>Visa Transfer (Master/Visa)</option></select>
               <input type="text" placeholder="Details (ID/Phone/Card)" onChange={(e)=>setPayoutId(e.target.value)} className="bg-black border p-4 rounded-xl text-white outline-none border-white/10" />
-              <button onClick={handleWithdraw} className="bg-pink-600 py-4 rounded-xl font-black uppercase shadow-lg active:scale-95 transition-all">Request Payout</button>
+              {payoutMethod.includes('Visa') && (<><input type="text" placeholder="Name on Card" onChange={(e)=>setCardName(e.target.value)} className="bg-black border p-4 rounded-xl text-white mb-2"/><input type="text" placeholder="Card Number" onChange={(e)=>setCardNumber(e.target.value)} className="bg-black border p-4 rounded-xl text-white"/></>)}
+              <button onClick={handleWithdraw} className="bg-pink-600 py-4 rounded-xl font-black uppercase shadow-lg">Request Payout</button>
               <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase mt-2 hover:text-white">Back</button>
             </div>
           )}
@@ -350,10 +336,9 @@ return (
     </div>
 )}
 
-{/* AI BOT MODAL */}
 {screen === 'ai' && (
     <div className="fixed inset-0 z-[200] bg-black flex flex-col items-center p-8 overflow-y-auto pb-20">
-       <button onClick={() => setScreen('hub')} className="self-start text-green-400 font-bold text-sm mb-12 uppercase tracking-widest hover:brightness-125">← Back</button>
+       <button onClick={() => setScreen('hub')} className="self-start text-green-400 font-bold text-sm mb-12 uppercase tracking-widest">← Back</button>
        <h2 className="text-5xl font-black mb-12 text-center uppercase text-white italic">AJ AI BOT</h2>
        {botTier !== 'none' && (
          <div className="w-full max-w-2xl bg-white/5 border-2 border-green-500/40 p-8 rounded-[3rem] text-center mb-16 shadow-[0_0_30px_rgba(34,197,94,0.2)]">
@@ -369,7 +354,6 @@ return (
     </div>
 )}
 
-{/* SOCIAL HUB MODAL */}
 {screen === 'social' && (
     <div className="fixed inset-0 z-[400] bg-slate-950 p-8 overflow-y-auto">
         <div className="sticky top-0 w-full p-4 bg-black/90 backdrop-blur-md border-b border-white/5 flex justify-between items-center z-[500] mb-8 rounded-full shadow-2xl">
@@ -379,7 +363,6 @@ return (
         </div>
 
         {socialScreen === 'hub' ? (
-          /* SOCIAL DASHBOARD */
           <div className="max-w-md mx-auto grid grid-cols-1 gap-6 pb-24 px-2">
              <div className="flex items-center gap-3 bg-white/5 p-4 rounded-3xl border border-pink-500/20 mb-4">
                   <img src={tempPhoto || user?.photoURL} className="w-12 h-12 rounded-full border-2 border-pink-500 shadow-lg" alt="Profile" />
@@ -397,7 +380,6 @@ return (
              ))}
           </div>
         ) : socialScreen === 'setup' ? (
-          /* PROFILE SETUP (Visible only when clicking a mode or Settings) */
           <div className="max-w-md mx-auto bg-white/5 border border-white/10 p-10 rounded-[3rem] text-center mt-10 shadow-2xl">
               <div className="relative w-24 h-24 mx-auto mb-6">
                 <img src={tempPhoto || user?.photoURL} className="w-full h-full rounded-full border-4 border-pink-500 p-1" alt="Avatar" />
@@ -416,17 +398,16 @@ return (
               <button onClick={() => setSocialScreen('hub')} className="mt-4 text-gray-500 uppercase text-xs">Back</button>
           </div>
         ) : (
-          /* CONTENT MODES */
           <div className="flex flex-col items-center justify-center h-[60vh] text-center px-4">
              <h2 className="text-4xl font-black text-pink-500 uppercase italic mb-4">{socialScreen.toUpperCase()}</h2>
-             <p className="text-gray-400 text-sm">Welcome {username}! <br/> Pixabay API Connecting... Season 2 Launching Soon 🚀</p>
-             <button onClick={() => setSocialScreen('hub')} className="mt-12 px-10 py-3 bg-white/5 border border-white/10 rounded-full text-[10px] font-black uppercase">Back to Dashboard</button>
+             <p className="text-gray-400 text-sm">Connecting to Pixabay API... <br/> Launching in Season 2! 🚀</p>
+             <button onClick={() => setSocialScreen('hub')} className="mt-12 px-10 py-3 bg-white/5 border border-white/10 rounded-full text-[10px] font-black uppercase">Back to Hub</button>
           </div>
         )}
     </div>
 )}
 
-  <section className="py-20 bg-black flex justify-center px-4 border-y border-white/5"><img src="/founder_card.jpg" className="w-full max-w-4xl rounded-3xl shadow-2xl hover:scale-[1.01] transition-all" alt="Founder" /></section>
+  <section className="py-20 bg-black flex justify-center px-4 border-y border-white/5 transition-all"><img src="/founder_card.jpg" className="w-full max-w-4xl rounded-3xl shadow-2xl hover:scale-[1.01] transition-all" alt="Founder" /></section>
   
   <footer className="bg-black py-24 px-10 border-t border-white/5 text-center flex flex-col items-center">
     <div className="text-7xl md:text-[10rem] font-black italic text-cyan-400 drop-shadow-[0_0_30px_#06b6d4] mb-12 uppercase">AJ STUDIO</div>
@@ -434,7 +415,12 @@ return (
         <a href="https://wa.me/96878994093" target="_blank" className="text-green-500 border border-green-500 px-6 py-2 rounded-full font-bold uppercase hover:bg-green-500 hover:text-black transition-all">Whatsapp</a>
         <a href="https://x.com/Ali20352061" target="_blank" className="text-white border border-white px-6 py-2 rounded-full font-bold uppercase hover:bg-white hover:text-black transition-all">X (Twitter)</a>
     </div>
-    <button onClick={handleInstallApp} className="group relative px-12 py-4 bg-cyan-500 text-black font-black uppercase rounded-full shadow-[0_0_40px_#06b6d4] animate-pulse transition-all hover:scale-105">
+    <button onClick={() => {
+        const link = document.createElement('a');
+        link.href = '/aj-portal.apk';
+        link.download = 'aj-portal.apk';
+        link.click();
+    }} className="group relative px-12 py-4 bg-cyan-500 text-black font-black uppercase rounded-full shadow-[0_0_40px_#06b6d4] animate-pulse transition-all hover:scale-105">
        <span className="relative z-10 flex items-center gap-2 font-black tracking-widest"><Download size={22} /> Install AJ App</span>
        <div className="absolute inset-0 bg-white/20 group-hover:translate-x-full transition-transform duration-500 -skew-x-12"></div>
     </button>
