@@ -35,7 +35,7 @@ const [tempPhoto, setTempPhoto] = useState('');
 const [pendingMode, setPendingMode] = useState(''); 
 const [manualEmail, setManualEmail] = useState('');
 const [manualPass, setManualPass] = useState('');
-const fileInputRef = useRef<HTMLInputElement>(null); 
+const fileInputRef = useRef(null); 
 
 // --- AI STATES ---
 const [visualProfit, setVisualProfit] = useState(0);
@@ -56,7 +56,14 @@ const [cardNumber, setCardNumber] = useState('');
 const displayBalance = (balance + visualProfit).toFixed(2);
 const displayUsdt = ((balance + visualProfit) / 500).toFixed(2);
 
-const copyToClipboard = (id: string) => {
+// --- AD TRIGGER FUNCTION ---
+const triggerAd = () => {
+    if (typeof window !== "undefined" && (window as any).showTag) {
+        (window as any).showTag();
+    }
+};
+
+const copyToClipboard = (id) => {
   if(!id) return;
   navigator.clipboard.writeText(id);
   setCopied(true);
@@ -65,23 +72,16 @@ const copyToClipboard = (id: string) => {
 
 // --- IMAGE PICKER ---
 const handleImageClick = () => { fileInputRef.current?.click(); };
-const handleFileChange = (e: any) => {
+const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
         const reader = new FileReader();
-        reader.onloadend = () => { setTempPhoto(reader.result as string); };
+        reader.onloadend = () => { setTempPhoto(reader.result); };
         reader.readAsDataURL(file);
     }
 };
 
-// --- ADS TRIGGER ---
-const triggerAd = () => {
-    if (typeof window !== "undefined" && (window as any).showTag) {
-        (window as any).showTag();
-    }
-};
-
-// --- AUTH & LOGIN ---
+// --- AUTH HANDLERS ---
 const handleLogin = async () => {
     googleProvider.setCustomParameters({ prompt: 'select_account' });
     await signInWithPopup(auth, googleProvider);
@@ -91,8 +91,8 @@ const handleManualSignup = async () => {
     if(!manualEmail || !manualPass) return alert("Fill Email and Password");
     try {
         await createUserWithEmailAndPassword(auth, manualEmail, manualPass);
-        alert("Account Created! Setup profile.");
-    } catch (e: any) { alert(e.message); }
+        alert("Account Created! Now setup profile.");
+    } catch (e) { alert(e.message); }
 };
 
 const handleSignOut = async () => {
@@ -104,11 +104,12 @@ const handleSignOut = async () => {
 // --- SOCIAL HANDLERS ---
 const handleCreateProfile = async () => {
     if(username.length < 3) return alert("Username too short!");
+    triggerAd();
     try {
-        await updateDoc(doc(db, "users", user!.uid), {
+        await updateDoc(doc(db, "users", user.uid), {
             username: username.toLowerCase().trim(),
             bio: bio,
-            photo: tempPhoto || user!.photoURL || "/logo.png",
+            photo: tempPhoto || user.photoURL || "/logo.png",
             hasSocialProfile: true
         });
         setHasSocialProfile(true);
@@ -117,7 +118,7 @@ const handleCreateProfile = async () => {
     } catch (e) { alert("Error!"); }
 };
 
-const enterSocialMode = (mode: string) => {
+const enterSocialMode = (mode) => {
     setPendingMode(mode);
     if (!user) {
         setSocialScreen('setup'); 
@@ -129,7 +130,7 @@ const enterSocialMode = (mode: string) => {
 
 // --- PROFIT LOGIC (70/30) ---
 useEffect(() => {
-const handleSDKMessages = (event: any) => {
+const handleSDKMessages = (event) => {
     if (!user) return;
     const data = event.detail || event.data;
     if (!data || !data.type) return;
@@ -148,7 +149,7 @@ return () => window.removeEventListener("message", handleSDKMessages);
 
 // --- AI BOT ENGINE ---
 useEffect(() => {
-  let logInt: any, visualInt: any, dbSyncInt: any;
+  let logInt, visualInt, dbSyncInt;
   if (user && botTier !== 'none' && invested > 0) {
     logInt = setInterval(() => {
       const actions = ["Scalping BTC", "Neural Analysis", "Hedging SOL"];
@@ -161,7 +162,7 @@ useEffect(() => {
       setVisualProfit(curr => {
         if (curr >= 1) {
           const syncAmt = Math.floor(curr); 
-          updateDoc(doc(db, "users", user!.uid), { balance: increment(syncAmt), lastSync: serverTimestamp() });
+          updateDoc(doc(db, "users", user.uid), { balance: increment(syncAmt), lastSync: serverTimestamp() });
           return curr - syncAmt;
         }
         return curr;
@@ -174,7 +175,7 @@ useEffect(() => {
 useEffect(() => {
 const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
 if (currentUser) {
-    setUser(currentUser as any);
+    setUser(currentUser);
     const userRef = doc(db, "users", currentUser.uid);
     const userSnap = await getDoc(userRef);
     if (userSnap.exists()) {
@@ -198,7 +199,7 @@ return () => unsubscribe();
 const handleWithdraw = async () => {
     if (balance < 12500) return alert("Min 12,500 Coins!");
     triggerAd();
-    await addDoc(collection(db, "withdraw_requests"), { uid: user!.uid, email: user!.email, amount_usd: (balance/500), method: payoutMethod, status: "pending", date: serverTimestamp() });
+    await addDoc(collection(db, "withdraw_requests"), { uid: user.uid, email: user.email, amount_usd: (balance/500), method: payoutMethod, status: "pending", date: serverTimestamp() });
     alert("✅ Sent!"); setWalletTab('main');
 };
 
@@ -207,15 +208,16 @@ const handleTransfer = async () => {
     const recRef = doc(db, "users", transferId);
     const recSnap = await getDoc(recRef);
     if (recSnap.exists()) {
-        await updateDoc(doc(db, "users", user!.uid), { balance: increment(-transferAmount) });
+        await updateDoc(doc(db, "users", user.uid), { balance: increment(-transferAmount) });
         await updateDoc(recRef, { balance: increment(transferAmount) });
         alert("✅ Sent!"); setWalletTab('main');
     } else alert("Invalid ID");
 };
 
-const activateBot = async (tier: string, cost: number) => {
+const activateBot = async (tier, cost) => {
     if (balance < cost) return alert("Insufficient Balance!");
-    await updateDoc(doc(db, "users", user!.uid), { balance: increment(-cost), botTier: tier, invested: cost, lastSync: serverTimestamp() });
+    triggerAd();
+    await updateDoc(doc(db, "users", user.uid), { balance: increment(-cost), botTier: tier, invested: cost, lastSync: serverTimestamp() });
     setVisualProfit(0);
     alert("🚀 BOT ACTIVATED!");
 };
@@ -239,7 +241,7 @@ return (
                 <span className="text-[10px] text-green-400 font-bold">${displayUsdt}</span>
                 {user && <img src={tempPhoto || user.photoURL} className="w-8 h-8 rounded-full border border-cyan-500" />}
             </div>
-            <button onClick={() => signOut(auth)} className="p-2 bg-red-500/10 text-red-500 font-bold text-[8px] rounded-full uppercase">EXIT</button>
+            <button onClick={() => signOut(auth)} className="p-2 bg-red-500/10 text-red-500 font-bold text-[8px] rounded-full">EXIT</button>
         </div>
     </header>
 
@@ -328,9 +330,9 @@ return (
             <button onClick={() => {setSocialScreen('hub'); setScreen('hub')}} className="text-pink-500 font-black mb-8 uppercase">← BACK</button>
             {socialScreen === 'hub' ? (
                 <div className="max-w-md mx-auto grid grid-cols-1 gap-6">
-                    <div className="flex items-center gap-3 bg-white/5 p-4 rounded-3xl border border-pink-500/20 mb-4">
+                    <div className="flex items-center gap-3 bg-white/5 p-4 rounded-3xl border border-pink-500/20 mb-4 text-left">
                         <img src={tempPhoto || user?.photoURL} className="w-12 h-12 rounded-full border-2 border-pink-500 shadow-lg" />
-                        <div onClick={handleImageClick} className="cursor-pointer text-left">
+                        <div onClick={handleImageClick} className="cursor-pointer">
                             <p className="font-black text-white text-sm uppercase">@{username || "AJ_Member"}</p>
                             <p className="text-[9px] text-gray-500 uppercase font-bold underline">Edit Profile</p>
                         </div>
@@ -364,40 +366,6 @@ return (
                     <button onClick={() => setSocialScreen('hub')} className="mt-12 px-10 py-3 bg-white/5 border rounded-full text-xs font-black uppercase">Back</button>
                 </div>
             )}
-        </div>
-    )}
-
-    {/* AI BOT SCREEN */}
-    {screen === 'ai' && (
-        <div className="fixed inset-0 z-[400] bg-black p-8 overflow-y-auto text-center">
-            <button onClick={() => setScreen('hub')} className="self-start text-green-400 font-black mb-8 uppercase">← BACK</button>
-            <h2 className="text-5xl font-black mb-12 text-white italic">AJ AI BOT</h2>
-            {botTier !== 'none' && (
-                <div className="w-full max-w-2xl mx-auto bg-white/5 border-2 border-green-500/40 p-8 rounded-[3rem] text-center mb-16 shadow-[0_0_30px_rgba(34,197,94,0.2)]">
-                    <Activity size={60} className="mx-auto mb-6 text-green-500 animate-pulse" />
-                    <h2 className="text-4xl font-black text-white mb-2 uppercase">{botTier} BOT RUNNING</h2>
-                    <div className="w-full bg-black/50 border border-green-500/30 p-6 rounded-2xl font-mono text-left">
-                        <span className="text-white font-black text-lg">PROFIT: +{visualProfit.toFixed(4)} 🪙</span>
-                        <div className="h-20 overflow-hidden text-green-500/70 mt-2">{tradeLogs.map((log, i) => ( <div key={i}>{log}</div> ))}</div>
-                    </div>
-                </div>
-            )}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-4xl mx-auto">
-                <div className={`p-10 rounded-3xl text-center border-2 transition-all ${botTier === 'basic' ? 'border-green-500 bg-green-500/10' : 'border-white/10 bg-white/5'}`}>
-                    <h3 className="text-xl font-black text-cyan-400 uppercase">Basic (+2% Daily)</h3>
-                    <p className="text-3xl font-black text-white my-6">2,500 Coins</p>
-                    <button onClick={() => activateBot('basic', 2500)} className={`w-full py-4 rounded-xl font-black uppercase shadow-lg ${botTier === 'basic' ? 'bg-green-500 text-black cursor-not-allowed' : 'bg-cyan-600'}`}>
-                        {botTier === 'basic' ? "RUNNING" : "ACTIVATE"}
-                    </button>
-                </div>
-                <div className={`p-10 rounded-3xl text-center border-2 transition-all ${botTier === 'vvip' ? 'border-yellow-500 bg-yellow-500/10' : 'border-white/10 bg-white/5'}`}>
-                    <h3 className="text-xl font-black text-yellow-500 uppercase">VVIP (+5% Daily)</h3>
-                    <p className="text-3xl font-black text-white my-6">7,500 Coins</p>
-                    <button onClick={() => activateBot('vvip', 7500)} className={`w-full py-4 rounded-xl font-black uppercase shadow-lg ${botTier === 'vvip' ? 'bg-yellow-500 text-black cursor-not-allowed' : 'bg-yellow-600'}`}>
-                        {botTier === 'vvip' ? "RUNNING" : "ACTIVATE"}
-                    </button>
-                </div>
-            </div>
         </div>
     )}
 
