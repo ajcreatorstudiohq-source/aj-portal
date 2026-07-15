@@ -1,9 +1,9 @@
 "use client";
 import React, { useState, useEffect, useRef } from 'react';
 import { auth, db, googleProvider } from '../firebaseConfig';
-import { signInWithPopup, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithPopup, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence, createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, updateDoc, increment, collection, addDoc, getDoc, serverTimestamp } from 'firebase/firestore';
-import { MessageCircle, Trophy, Zap, Wallet, Bot, LogOut, Globe, ChevronRight, Send, CreditCard, ArrowUpRight, ShieldCheck, Crown, Activity, TrendingUp, X, CheckCircle2, Download, Copy, Video, Newspaper, Users, Heart, MessageSquare, Camera, Settings, Edit3, Mail, Lock, User, DollarSign } from 'lucide-react';
+import { MessageCircle, Trophy, Zap, Wallet, Bot, LogOut, Globe, ChevronRight, Send, CreditCard, ArrowUpRight, ShieldCheck, Crown, Activity, TrendingUp, X, CheckCircle2, Download, Copy, Video, Newspaper, Users, Heart, MessageSquare, Camera, Settings, Edit3, Mail, Lock } from 'lucide-react';
 import emailjs from 'emailjs-com';
 
 // --- CONFIGURATIONS ---
@@ -35,13 +35,13 @@ const [tempPhoto, setTempPhoto] = useState('');
 const [pendingMode, setPendingMode] = useState(''); 
 const [manualEmail, setManualEmail] = useState('');
 const [manualPass, setManualPass] = useState('');
-const fileInputRef = useRef(null); 
+const fileInputRef = useRef<HTMLInputElement>(null); 
 
 // --- AI STATES ---
 const [visualProfit, setVisualProfit] = useState(0);
 const [tradeLogs, setTradeLogs] = useState(["Initialising Neural Link...", "Analysing Market Volatility...", "Connecting to AJ liquidity pool..."]);
 
-// Input States
+// INPUT STATES
 const [purchaseAmount, setPurchaseAmount] = useState(20);
 const [purchaseMethod, setPurchaseMethod] = useState('Binance (TRC20)');
 const [purchaseTxId, setPurchaseTxId] = useState('');
@@ -56,7 +56,7 @@ const [cardNumber, setCardNumber] = useState('');
 const displayBalance = (balance + visualProfit).toFixed(2);
 const displayUsdt = ((balance + visualProfit) / 500).toFixed(2);
 
-const copyToClipboard = (id) => {
+const copyToClipboard = (id: string) => {
   if(!id) return;
   navigator.clipboard.writeText(id);
   setCopied(true);
@@ -65,16 +65,23 @@ const copyToClipboard = (id) => {
 
 // --- IMAGE PICKER ---
 const handleImageClick = () => { fileInputRef.current?.click(); };
-const handleFileChange = (e) => {
+const handleFileChange = (e: any) => {
     const file = e.target.files[0];
     if (file) {
         const reader = new FileReader();
-        reader.onloadend = () => { setTempPhoto(reader.result); };
+        reader.onloadend = () => { setTempPhoto(reader.result as string); };
         reader.readAsDataURL(file);
     }
 };
 
-// --- AUTH HANDLERS ---
+// --- ADS TRIGGER ---
+const triggerAd = () => {
+    if (typeof window !== "undefined" && (window as any).showTag) {
+        (window as any).showTag();
+    }
+};
+
+// --- AUTH & LOGIN ---
 const handleLogin = async () => {
     googleProvider.setCustomParameters({ prompt: 'select_account' });
     await signInWithPopup(auth, googleProvider);
@@ -84,8 +91,8 @@ const handleManualSignup = async () => {
     if(!manualEmail || !manualPass) return alert("Fill Email and Password");
     try {
         await createUserWithEmailAndPassword(auth, manualEmail, manualPass);
-        alert("Account Created! Now setup profile.");
-    } catch (e) { alert(e.message); }
+        alert("Account Created! Setup profile.");
+    } catch (e: any) { alert(e.message); }
 };
 
 const handleSignOut = async () => {
@@ -98,10 +105,10 @@ const handleSignOut = async () => {
 const handleCreateProfile = async () => {
     if(username.length < 3) return alert("Username too short!");
     try {
-        await updateDoc(doc(db, "users", user.uid), {
+        await updateDoc(doc(db, "users", user!.uid), {
             username: username.toLowerCase().trim(),
             bio: bio,
-            photo: tempPhoto || user.photoURL || "/logo.png",
+            photo: tempPhoto || user!.photoURL || "/logo.png",
             hasSocialProfile: true
         });
         setHasSocialProfile(true);
@@ -110,18 +117,19 @@ const handleCreateProfile = async () => {
     } catch (e) { alert("Error!"); }
 };
 
-const enterSocialMode = (mode) => {
+const enterSocialMode = (mode: string) => {
     setPendingMode(mode);
     if (!user) {
         setSocialScreen('setup'); 
     } else {
+        triggerAd();
         setSocialScreen(mode);
     }
 };
 
 // --- PROFIT LOGIC (70/30) ---
 useEffect(() => {
-const handleSDKMessages = (event) => {
+const handleSDKMessages = (event: any) => {
     if (!user) return;
     const data = event.detail || event.data;
     if (!data || !data.type) return;
@@ -140,7 +148,7 @@ return () => window.removeEventListener("message", handleSDKMessages);
 
 // --- AI BOT ENGINE ---
 useEffect(() => {
-  let logInt, visualInt, dbSyncInt;
+  let logInt: any, visualInt: any, dbSyncInt: any;
   if (user && botTier !== 'none' && invested > 0) {
     logInt = setInterval(() => {
       const actions = ["Scalping BTC", "Neural Analysis", "Hedging SOL"];
@@ -153,7 +161,7 @@ useEffect(() => {
       setVisualProfit(curr => {
         if (curr >= 1) {
           const syncAmt = Math.floor(curr); 
-          updateDoc(doc(db, "users", user.uid), { balance: increment(syncAmt), lastSync: serverTimestamp() });
+          updateDoc(doc(db, "users", user!.uid), { balance: increment(syncAmt), lastSync: serverTimestamp() });
           return curr - syncAmt;
         }
         return curr;
@@ -164,17 +172,9 @@ useEffect(() => {
 }, [user, botTier, invested]);
 
 useEffect(() => {
-if (screen === 'splash') {
-    const interval = setInterval(() => { setLoading(prev => (prev >= 100 ? 100 : prev + 10)); }, 50);
-    setTimeout(() => setScreen('hub'), 2000);
-    return () => clearInterval(interval);
-}
-}, [screen]);
-
-useEffect(() => {
 const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
 if (currentUser) {
-    setUser(currentUser);
+    setUser(currentUser as any);
     const userRef = doc(db, "users", currentUser.uid);
     const userSnap = await getDoc(userRef);
     if (userSnap.exists()) {
@@ -195,28 +195,10 @@ if (currentUser) {
 return () => unsubscribe();
 }, []);
 
-const handlePurchase = async () => {
-  if (purchaseAmount < 20) return alert("Minimum purchase is $20!");
-  if (purchaseMethod === 'Binance (TRC20)') {
-      try {
-        const res = await fetch('https://api.nowpayments.io/v1/invoice', {
-          method: 'POST',
-          headers: { 'x-api-key': NOWPAYMENTS_API_KEY, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ price_amount: purchaseAmount, price_currency: "usd", pay_currency: "usdttrc20", order_id: `AJ_${Date.now()}` })
-        });
-        const data = await res.json();
-        if (data.invoice_url) window.open(data.invoice_url, '_blank');
-      } catch (e) { alert("Payment Error!"); }
-  } else {
-      if(!purchaseTxId) return alert("Enter Airtm TX ID.");
-      await addDoc(collection(db, "manual_deposits"), { uid: user.uid, email: user.email, amount: purchaseAmount, method: "Airtm", txId: purchaseTxId, status: "pending", date: serverTimestamp() });
-      alert("✅ Request Sent!"); setWalletTab('main');
-  }
-};
-
 const handleWithdraw = async () => {
     if (balance < 12500) return alert("Min 12,500 Coins!");
-    await addDoc(collection(db, "withdraw_requests"), { uid: user.uid, email: user.email, amount_usd: (balance/500), method: payoutMethod, status: "pending", date: serverTimestamp() });
+    triggerAd();
+    await addDoc(collection(db, "withdraw_requests"), { uid: user!.uid, email: user!.email, amount_usd: (balance/500), method: payoutMethod, status: "pending", date: serverTimestamp() });
     alert("✅ Sent!"); setWalletTab('main');
 };
 
@@ -225,10 +207,17 @@ const handleTransfer = async () => {
     const recRef = doc(db, "users", transferId);
     const recSnap = await getDoc(recRef);
     if (recSnap.exists()) {
-        await updateDoc(doc(db, "users", user.uid), { balance: increment(-transferAmount) });
+        await updateDoc(doc(db, "users", user!.uid), { balance: increment(-transferAmount) });
         await updateDoc(recRef, { balance: increment(transferAmount) });
         alert("✅ Sent!"); setWalletTab('main');
     } else alert("Invalid ID");
+};
+
+const activateBot = async (tier: string, cost: number) => {
+    if (balance < cost) return alert("Insufficient Balance!");
+    await updateDoc(doc(db, "users", user!.uid), { balance: increment(-cost), botTier: tier, invested: cost, lastSync: serverTimestamp() });
+    setVisualProfit(0);
+    alert("🚀 BOT ACTIVATED!");
 };
 
 if (screen === 'splash') return (
@@ -250,17 +239,17 @@ return (
                 <span className="text-[10px] text-green-400 font-bold">${displayUsdt}</span>
                 {user && <img src={tempPhoto || user.photoURL} className="w-8 h-8 rounded-full border border-cyan-500" />}
             </div>
-            <button onClick={() => signOut(auth)} className="p-2 bg-red-500/10 text-red-500 font-bold text-[8px] rounded-full">EXIT</button>
+            <button onClick={() => signOut(auth)} className="p-2 bg-red-500/10 text-red-500 font-bold text-[8px] rounded-full uppercase">EXIT</button>
         </div>
     </header>
 
     <section className="min-h-screen flex flex-col items-center justify-center p-4 pt-24 relative">
         <h1 className="text-4xl md:text-8xl font-black text-center mb-12 uppercase">AJ SUPER PORTAL</h1>
         <div className="grid grid-cols-2 gap-4 md:gap-16 w-full max-w-4xl relative z-30">
-          <div onClick={() => setScreen('arcade')} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center cursor-pointer shadow-xl"><Trophy className="text-cyan-400 w-10 h-10 md:w-20 md:h-20 mb-2" /><span className="font-black text-xs md:text-3xl">GAMING</span></div>
+          <div onClick={() => {triggerAd(); setScreen('arcade');}} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center cursor-pointer shadow-xl"><Trophy className="text-cyan-400 w-10 h-10 md:w-20 md:h-20 mb-2" /><span className="font-black text-xs md:text-3xl">GAMING</span></div>
           <div onClick={() => {setSocialScreen('hub'); setScreen('social');}} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center cursor-pointer shadow-xl"><Zap className="text-pink-500 w-10 h-10 md:w-20 md:h-20 mb-2" /><span className="font-black text-xs md:text-3xl">SOCIAL</span></div>
           <div onClick={() => {setScreen('wallet'); setWalletTab('main')}} className="bg-white/5 border-2 border-yellow-500/30 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center cursor-pointer shadow-xl"><img src="/gold.jpg" className="w-14 h-14 mb-2" /><h2 className="font-black text-xs md:text-3xl text-yellow-500">WALLET</h2></div>
-          <div onClick={() => setScreen('ai')} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center cursor-pointer shadow-xl"><Bot className="text-green-400 w-10 h-10 md:w-20 md:h-20 mb-2" /><span className="font-black text-xs md:text-3xl">AJ AI</span></div>
+          <div onClick={() => {triggerAd(); setScreen('ai');}} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center cursor-pointer shadow-xl"><Bot className="text-green-400 w-10 h-10 md:w-20 md:h-20 mb-2" /><span className="font-black text-xs md:text-3xl">AJ AI</span></div>
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0"><div className="w-24 h-24 md:w-96 md:h-96 bg-black border-[15px] border-cyan-500 rounded-full flex items-center justify-center shadow-[0_0_100px_#06b6d4] overflow-hidden"><img src="/logo.png" className="w-full h-full object-cover opacity-60 animate-pulse" /></div></div>
         </div>
     </section>
@@ -412,7 +401,7 @@ return (
         </div>
     )}
 
-    {/* FOUNDER CARD SECTION */}
+    {/* FOUNDER CARD */}
     <section className="py-20 bg-black flex justify-center px-4 border-y border-white/5 transition-all">
         <img src="/founder_card.jpg" className="w-full max-w-4xl rounded-3xl shadow-2xl" />
     </section>
