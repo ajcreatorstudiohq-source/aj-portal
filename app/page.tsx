@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { auth, db, googleProvider } from '../firebaseConfig';
 import { signInWithPopup, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, updateDoc, increment, collection, addDoc, getDoc, serverTimestamp } from 'firebase/firestore';
@@ -32,7 +32,8 @@ const [hasSocialProfile, setHasSocialProfile] = useState(false);
 const [username, setUsername] = useState('');
 const [bio, setBio] = useState('');
 const [tempPhoto, setTempPhoto] = useState('');
-const [pendingMode, setPendingMode] = useState(''); // Tracking destination
+const [pendingMode, setPendingMode] = useState(''); 
+const fileInputRef = useRef(null); // Ref for Gallery/Camera
 
 // --- AI STATES ---
 const [visualProfit, setVisualProfit] = useState(0);
@@ -57,6 +58,22 @@ const copyToClipboard = (id) => {
   navigator.clipboard.writeText(id);
   setCopied(true);
   setTimeout(() => setCopied(false), 2000);
+};
+
+// --- IMAGE PICKER HANDLERS ---
+const handleImageClick = () => {
+    fileInputRef.current.click();
+};
+
+const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            setTempPhoto(reader.result as string); // Set the selected image as Base64
+        };
+        reader.readAsDataURL(file);
+    }
 };
 
 // --- SOCIAL HANDLERS ---
@@ -90,10 +107,13 @@ const handleSDKMessages = (event) => {
 if (!user) return;
 const data = event.detail || event.data;
 if (!data || !data.type) return;
+
 const rawReward = data.amount || data.coins || 0;
 const safeTotalValue = rawReward / 1000; 
+
 const userRef = doc(db, "users", user.uid);
 const adminRef = doc(db, "admin_ledger", "platform_stats");
+
 if (data.type === 'EARNED' || data.type === "ADD_AD_REVENUE") {
     updateDoc(userRef, { balance: increment(safeTotalValue * 0.30) });
     updateDoc(adminRef, { total_revenue: increment(safeTotalValue * 0.70) });
@@ -117,7 +137,7 @@ useEffect(() => {
     dbSyncInt = setInterval(async () => {
       setVisualProfit(curr => {
         if (curr >= 1) {
-          const syncAmt = Math.floor(curr);
+          const syncAmt = Math.floor(curr); // Fixed: curr used correctly here
           updateDoc(doc(db, "users", user.uid), { balance: increment(syncAmt), lastSync: serverTimestamp() });
           return curr - syncAmt;
         }
@@ -144,7 +164,6 @@ const userRef = doc(db, "users", currentUser.uid);
 const userSnap = await getDoc(userRef);
 if (userSnap.exists()) {
   const data = userSnap.data();
-  // Set Social Data
   setHasSocialProfile(data.hasSocialProfile || false);
   setUsername(data.username || '');
   setBio(data.bio || '');
@@ -236,12 +255,15 @@ if (screen === 'auth' && !user) return (
 
 return (
 <main className="min-h-screen bg-[#020617] text-white font-sans overflow-x-hidden relative">
+{/* Hidden File Picker */}
+<input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden" />
+
 <header className="fixed top-0 w-full p-4 flex justify-between items-center z-[100] bg-black/80 backdrop-blur-xl border-b border-white/5">
 <div className="text-xl font-black italic text-cyan-400">AJ STUDIO</div>
 <div className="flex items-center gap-3">
 <div onClick={() => {setScreen('wallet'); setWalletTab('main')}} className="flex items-center gap-3 bg-white/5 px-4 py-2 rounded-full border border-white/10 cursor-pointer transition-all hover:bg-white/10">
 <span className="text-xs font-black text-yellow-500">{displayBalance} 🪙</span>
-{user && <img src={tempPhoto || user.photoURL} className="w-8 h-8 rounded-full border border-cyan-500" />}
+{user && <img src={tempPhoto || user.photoURL} className="w-8 h-8 rounded-full border border-cyan-500 shadow-[0_0_10px_#06b6d4]" />}
 </div>
 <button onClick={() => signOut(auth)} className="p-2 bg-red-500/10 text-red-500 font-bold text-[8px] rounded-full uppercase">EXIT</button>
 </div>
@@ -285,7 +307,7 @@ return (
               const folderName = game.replace(' Elite Royal', '').replace(' Elite', '').toLowerCase().replace(/ /g, '-');
               return (
               <div key={game} onClick={() => !isComingSoon && setSelectedGame(game)} className="bg-white/5 border border-white/10 p-4 rounded-3xl text-center hover:border-cyan-400 cursor-pointer transition-all">
-                <img src={`/games/${folderName}/logo.png`} className="w-full aspect-square rounded-xl mb-4 object-cover" alt={game} onError={(e:any) => { e.target.src = "/logo.png"; }} />
+                <img src={`/games/${folderName}/logo.png`} className="w-full aspect-square rounded-xl mb-4 object-cover shadow-lg" alt={game} onError={(e:any) => { (e.target as HTMLImageElement).src = "/logo.png"; }} />
                 <h3 className="font-black text-sm uppercase">{game}</h3>
                 <button className={`mt-4 w-full py-2 rounded-full font-black text-[10px] uppercase transition-all ${isComingSoon ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 'bg-cyan-500 text-black shadow-[0_0_10px_#06b6d4]'}`}>{isComingSoon ? "Soon" : "PLAY NOW"}</button>
               </div>
@@ -317,7 +339,7 @@ return (
               <div className="bg-black border-2 border-white/10 p-6 rounded-3xl text-center"><p className="text-yellow-500 text-4xl font-black mb-1">{(purchaseAmount * 1000)} 🪙</p><input type="number" value={purchaseAmount} onChange={(e)=>setPurchaseAmount(Number(e.target.value))} className="w-full bg-transparent text-white text-2xl text-center font-bold" /></div>
               {purchaseMethod.includes('Airtm') && (<div className="p-4 bg-slate-900 rounded-2xl border border-cyan-500/30 text-xs"><p className="text-gray-400 mb-1">Send to: ajcreatorstudio.hq@gmail.com</p><input type="text" placeholder="TX ID" value={purchaseTxId} onChange={(e)=>setPurchaseTxId(e.target.value)} className="w-full bg-black border p-2 rounded text-white" /></div>)}
               <button onClick={handlePurchase} className="bg-cyan-500 py-4 rounded-xl font-black uppercase">Confirm Purchase</button>
-              <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase mt-2">Cancel</button>
+              <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase mt-2 hover:text-white">Cancel</button>
             </div>
           )}
           {walletTab === 'transfer' && (
@@ -327,10 +349,10 @@ return (
                 <p className="text-lg font-mono text-cyan-400 font-black truncate">{user?.uid}</p>
                 <div className="absolute right-4 top-1/2 -translate-y-1/2 text-cyan-400">{copied ? <CheckCircle2 size={18}/> : <Copy size={18}/>}</div>
               </div>
-              <input type="text" placeholder="Recipient ID" onChange={(e)=>setTransferId(e.target.value)} className="bg-black border p-4 rounded-xl text-white outline-none border-white/10" />
-              <input type="number" placeholder="Amount" onChange={(e)=>setTransferAmount(Number(e.target.value))} className="bg-black border p-4 rounded-xl text-white outline-none border-white/10" />
-              <button onClick={handleTransfer} className="bg-cyan-600 py-4 rounded-xl font-black uppercase shadow-lg">Send Now</button>
-              <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase mt-2">Back</button>
+              <input type="text" placeholder="Recipient ID" onChange={(e)=>setTransferId(e.target.value)} className="bg-black border p-4 rounded-xl text-center text-white outline-none border-white/10 focus:border-cyan-500" />
+              <input type="number" placeholder="Amount" onChange={(e)=>setTransferAmount(Number(e.target.value))} className="bg-black border p-4 rounded-xl text-center text-white outline-none border-white/10 focus:border-cyan-500" />
+              <button onClick={handleTransfer} className="bg-cyan-600 py-4 rounded-xl font-black uppercase shadow-lg active:scale-95 transition-all">Send Now</button>
+              <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase mt-2 hover:text-white">Back</button>
             </div>
           )}
           {walletTab === 'withdraw' && (
@@ -340,7 +362,7 @@ return (
               <input type="text" placeholder="ID / Phone / Card Details" onChange={(e)=>setPayoutId(e.target.value)} className="bg-black border p-4 rounded-xl text-white outline-none border-white/10" />
               {payoutMethod.includes('Visa') && (<><input type="text" placeholder="Name on Card" onChange={(e)=>setCardName(e.target.value)} className="bg-black border p-4 rounded-xl text-white mb-2" /><input type="text" placeholder="Card Number" onChange={(e)=>setCardNumber(e.target.value)} className="bg-black border p-4 rounded-xl text-white" /></>)}
               <button onClick={handleWithdraw} className="bg-pink-600 py-4 rounded-xl font-black uppercase shadow-lg">Request Payout</button>
-              <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase mt-2">Back</button>
+              <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase mt-2 hover:text-white">Back</button>
             </div>
           )}
        </div>
@@ -366,23 +388,22 @@ return (
     </div>
 )}
 
-{/* --- UPDATED SOCIAL HUB --- */}
+{/* --- UPDATED SOCIAL HUB (CAM/GALLERY FIX) --- */}
 {screen === 'social' && (
     <div className="fixed inset-0 z-[400] bg-slate-950 p-8 overflow-y-auto">
         <div className="sticky top-0 w-full p-4 bg-black/90 backdrop-blur-md border-b border-white/5 flex justify-between items-center z-[500] mb-8 rounded-full shadow-2xl">
             <button onClick={() => {setSocialScreen('hub'); setScreen('hub')}} className="text-pink-500 font-black text-xs uppercase">← HUB</button>
             <h2 className="text-xl font-black italic text-pink-500 uppercase">AJ Social</h2>
-            <button onClick={() => setSocialScreen('setup')} className="bg-white/10 p-2 rounded-full text-pink-500 hover:bg-white/20"><Camera size={18}/></button>
+            <button onClick={() => setSocialScreen('setup')} className="bg-white/10 p-2 rounded-full text-pink-500 hover:bg-white/20 shadow-[0_0_10px_#ec4899]"><Settings size={18}/></button>
         </div>
 
         {socialScreen === 'hub' ? (
-          /* SOCIAL DASHBOARD */
           <div className="max-w-md mx-auto grid grid-cols-1 gap-6 pb-24 px-2">
              <div className="flex items-center gap-3 bg-white/5 p-4 rounded-3xl border border-pink-500/20 mb-4">
-                  <img src={tempPhoto || user?.photoURL} className="w-12 h-12 rounded-full border-2 border-pink-500 shadow-lg" alt="Profile" />
+                  <img src={tempPhoto || user?.photoURL} className="w-12 h-12 rounded-full border-2 border-pink-500 shadow-[0_0_10px_#ec4899]" alt="Profile" />
                   <div>
                     <p className="font-black text-white text-sm uppercase">@{username || "AJ_Member"}</p>
-                    <p className="text-[9px] text-gray-500 uppercase tracking-widest">{hasSocialProfile ? "Verified Member" : "Incomplete Profile"}</p>
+                    <p className="text-[9px] text-gray-500 uppercase tracking-widest">{hasSocialProfile ? "Verified Member" : "Profile Incomplete"}</p>
                   </div>
              </div>
              {[{n:'AJ TikReels', i:<Video size={36}/>, d:'Watch & Gift Creators', s:'tikreels'}, {n:'AJ Pulse', i:<Users size={36}/>, d:'Community Feed', s:'pulse'}, {n:'AJ Live Chat', i:<MessageSquare size={36}/>, d:'Real-time Chat', s:'chat'}, {n:'AJ Discover', i:<Globe size={36}/>, d:'Platform News', s:'discover'}].map((mod) => (
@@ -394,32 +415,30 @@ return (
              ))}
           </div>
         ) : socialScreen === 'setup' ? (
-          /* PROFILE SETUP */
           <div className="max-w-md mx-auto bg-white/5 border border-white/10 p-10 rounded-[3rem] text-center mt-4 shadow-2xl">
-              <div className="relative w-20 h-20 mx-auto mb-6">
-                <img src={tempPhoto || user?.photoURL} className="w-full h-full rounded-full border-4 border-pink-500 p-1" alt="Avatar" />
-                <div className="absolute bottom-0 right-0 bg-pink-600 p-2 rounded-full border-2 border-black shadow-lg"><Camera size={12}/></div>
+              <div className="relative w-24 h-24 mx-auto mb-8 cursor-pointer group" onClick={handleImageClick}>
+                <img src={tempPhoto || user?.photoURL} className="w-full h-full rounded-full border-4 border-pink-500 p-1 object-cover transition-all group-hover:brightness-50" alt="Avatar" />
+                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><Camera size={30} className="text-white"/></div>
+                <div className="absolute bottom-0 right-0 bg-pink-600 p-2 rounded-full border-2 border-black shadow-lg"><Camera size={14}/></div>
               </div>
-              <h2 className="text-xl font-black text-white mb-6 uppercase tracking-tighter italic">Edit Profile</h2>
+              <h2 className="text-xl font-black text-white mb-6 uppercase tracking-tighter italic">Identity Setup</h2>
               <div className="space-y-4 text-left">
-                  <label className="text-[9px] font-black text-pink-500 ml-1 uppercase">Avatar Image URL</label>
-                  <input type="text" placeholder="https://image-link.jpg" value={tempPhoto} onChange={(e) => setTempPhoto(e.target.value)} className="w-full bg-black border border-white/10 p-4 rounded-2xl text-[11px] text-white outline-none focus:border-pink-500" />
+                  <p className="text-[9px] text-center text-gray-400 mb-4 uppercase">Tap photo to open Gallery/Camera</p>
                   <label className="text-[9px] font-black text-pink-500 ml-1 uppercase">Username</label>
-                  <input type="text" placeholder="@name" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full bg-black border border-white/10 p-4 rounded-2xl font-bold text-white outline-none focus:border-pink-500" />
+                  <input type="text" placeholder="@unique_name" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full bg-black border border-white/10 p-4 rounded-2xl font-bold text-white outline-none focus:border-pink-500" />
                   <label className="text-[9px] font-black text-pink-500 ml-1 uppercase">About Bio</label>
-                  <textarea placeholder="Write about yourself..." value={bio} onChange={(e) => setBio(e.target.value)} className="w-full bg-black border border-white/10 p-4 rounded-2xl text-xs text-white outline-none h-20 focus:border-pink-500" />
+                  <textarea placeholder="Tell people about yourself..." value={bio} onChange={(e) => setBio(e.target.value)} className="w-full bg-black border border-white/10 p-4 rounded-2xl text-xs text-white outline-none h-24 focus:border-pink-500" />
               </div>
-              <button onClick={handleCreateProfile} className="w-full mt-8 py-5 bg-pink-600 rounded-2xl font-black uppercase shadow-lg active:scale-95 transition-all">SAVE & CONTINUE</button>
-              <button onClick={() => setSocialScreen('hub')} className="mt-4 text-gray-500 uppercase text-[10px]">Cancel</button>
+              <button onClick={handleCreateProfile} className="w-full mt-8 py-5 bg-pink-600 rounded-2xl font-black uppercase shadow-lg shadow-pink-500/20 active:scale-95 transition-all">SAVE & CONTINUE</button>
+              <button onClick={() => setSocialScreen('hub')} className="mt-4 text-gray-500 uppercase text-[10px] w-full text-center">Cancel</button>
           </div>
         ) : (
-          /* ACTUAL MODES CONTENT */
           <div className="flex flex-col items-center justify-center h-[60vh] text-center px-4">
              <h2 className="text-4xl font-black text-pink-500 uppercase italic mb-4">{socialScreen.toUpperCase()}</h2>
-             <p className="text-gray-400 text-sm">Welcome {username}! <br/> Connecting to Pixabay API... Season 2 🚀</p>
+             <p className="text-gray-400 text-sm">Welcome {username}! <br/> Connecting to Servers... Season 2 🚀</p>
              <div className="flex gap-4 mt-12">
                 <button onClick={() => setSocialScreen('setup')} className="px-6 py-2 bg-pink-600 rounded-full text-[10px] font-black uppercase flex items-center gap-2 shadow-lg"><Edit3 size={14}/> Edit Profile</button>
-                <button onClick={() => setSocialScreen('hub')} className="px-6 py-2 bg-white/5 border border-white/10 rounded-full text-[10px] font-black uppercase">Back to Dashboard</button>
+                <button onClick={() => setSocialScreen('hub')} className="px-6 py-2 bg-white/5 border border-white/10 rounded-full text-[10px] font-black uppercase">Dashboard</button>
              </div>
           </div>
         )}
