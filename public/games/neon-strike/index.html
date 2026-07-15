@@ -26,7 +26,7 @@
         .home-bg { position: fixed; inset: 0; background: linear-gradient(rgba(0,0,0,0.5), rgba(0,0,0,0.5)), url('https://images.unsplash.com/photo-1614850523296-d8c1af93d400?auto=format&fit=crop&q=80&w=2070'); background-size: cover; background-position: center; z-index: 500; display: none; transition: filter 0.5s ease; }
         .bg-blurred { filter: blur(15px) brightness(0.6); }
 
-        .screen { position: fixed; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 2000; text-align: center; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); }
+        .screen { position: fixed; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 2000; text-align: center; background: rgba(0,0,0,0.8); backdrop-filter: blur(5px); }
         .active-screen { display: flex !important; }
 
         #splashScreen { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 5000; background: #000 linear-gradient(rgba(0,0,0,0.6), rgba(0,0,0,0.6)), url('https://images.unsplash.com/photo-1614850523296-d8c1af93d400?auto=format&fit=crop&q=80&w=2070'); background-size: cover; background-position: center; }
@@ -222,7 +222,6 @@
         } else { alert("Ads not available."); }
     }
 
-    // --- AD ONLY ON BUTTONS ---
     function showReviveAd() { 
         if(window.AJ_SDK) {
             window.AJ_SDK.showAd();
@@ -232,7 +231,7 @@
 
     function startGameWithAd() {
         if(window.AJ_SDK) window.AJ_SDK.showAd(); 
-        startGame();
+        setTimeout(startGame, 100); 
     }
 
     function revivePlayer() { 
@@ -307,29 +306,40 @@
         updateAudioUI(); audioPool.jetenginesound.play().catch(()=>{}); loop(); 
     }
 
-    // --- NO AD ON CRASH ---
+    // --- INSTANT CRASH TRANSITION ---
     function startCrashSequence(x, y) { 
-        isCrashing = true; crashTimer = 80; 
+        if(isCrashing) return;
+        isCrashing = true; 
+        crashTimer = 50; // Transition time kam kiya taake freeze na ho
         crashX = x; crashY = y; shake = 50; flash = 0.5; 
         document.getElementById('hud').style.display = 'none'; 
         document.getElementById('abilityBtn').style.display = 'none'; 
         document.getElementById('joyContainer').style.display = 'none'; 
         audioPool.bgmusic.pause(); audioPool.jetenginesound.pause(); 
         playFromPool('jetcrash'); 
-        // No AD Call here
     }
 
     function finalizeGameOver() { 
-        gameActive = false; isCrashing = false;
+        gameActive = false; 
+        isCrashing = false;
+        
+        // UI Change FIRST - Taake portal freeze na ho
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active-screen'));
+        document.getElementById('gameOver').classList.add('active-screen'); 
+        homeBg.style.display = 'block'; homeBg.classList.remove('bg-blurred'); 
+        
+        // Data updates
         totalPoints += score; 
         localStorage.setItem('ns_points', totalPoints); 
         document.getElementById('finalScore').innerText = score; 
         document.getElementById('finalAJ').innerText = (score * 0.003).toFixed(3); 
-        updateUIDisplays(); syncWithPortal(); 
-        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active-screen'));
-        document.getElementById('gameOver').classList.add('active-screen'); 
-        homeBg.style.display = 'block'; homeBg.classList.remove('bg-blurred'); 
-        updateAudioUI(); 
+        
+        // Sync AFTER UI transition
+        setTimeout(() => {
+            updateUIDisplays(); 
+            syncWithPortal(); 
+            updateAudioUI();
+        }, 300);
     }
 
     function update() {
