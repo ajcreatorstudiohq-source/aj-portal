@@ -27,9 +27,9 @@ const [loading, setLoading] = useState(0);
 const [selectedGame, setSelectedGame] = useState(null);
 const [copied, setCopied] = useState(false);
 
-// --- AI TRADING STATES ---
+// --- AI STATES ---
 const [visualProfit, setVisualProfit] = useState(0);
-const [tradeLogs, setTradeLogs] = useState(["Initialising Neural Link...", "Analysing Market Volatility...", "Connecting to AJ liquidity pool..."]);
+const [tradeLogs, setTradeLogs] = useState(["Initialising Neural Link...", "Analysing Market Volatility..."]);
 
 // Input States
 const [purchaseAmount, setPurchaseAmount] = useState(20);
@@ -42,7 +42,6 @@ const [payoutId, setPayoutId] = useState('');
 const [cardName, setCardName] = useState('');
 const [cardNumber, setCardNumber] = useState('');
 
-// Header Visual Balance
 const displayBalance = (balance + visualProfit).toFixed(2);
 const displayUsdt = ((balance + visualProfit) / 100).toFixed(2);
 
@@ -53,7 +52,7 @@ const copyToClipboard = (id) => {
   setTimeout(() => setCopied(false), 2000);
 };
 
-// --- SDK MESSAGE LISTENER (70/30 NO-LOSS MATH) ---
+// --- PROFIT LOGIC (70/30 NO-LOSS MATH) ---
 useEffect(() => {
 const handleSDKMessages = (event) => {
 if (!user) return;
@@ -61,7 +60,6 @@ const data = event.detail || event.data;
 if (!data || !data.type) return;
 
 const rawReward = data.amount || data.coins || 0;
-// NO-LOSS MATH: Divide points by 1000
 const safeTotalValue = rawReward / 1000; 
 
 const userRef = doc(db, "users", user.uid);
@@ -76,7 +74,7 @@ window.addEventListener("message", handleSDKMessages);
 return () => window.removeEventListener("message", handleSDKMessages);
 }, [user]);
 
-// --- AI REAL-TIME & OFFLINE SYNC ---
+// --- AI BOT ENGINE ---
 useEffect(() => {
   let logInt, visualInt, dbSyncInt;
   if (user && botTier !== 'none' && invested > 0) {
@@ -88,13 +86,13 @@ useEffect(() => {
     const profitPerSec = (invested * dailyRate) / 86400;
     visualInt = setInterval(() => setVisualProfit(prev => prev + profitPerSec), 1000);
     dbSyncInt = setInterval(async () => {
-      setVisualProfit(currentProfit => {
-        if (currentProfit >= 1) {
-          const syncAmt = Math.floor(currentProfit);
+      setVisualProfit(curr => {
+        if (curr >= 1) {
+          const syncAmt = Math.floor(curr);
           updateDoc(doc(db, "users", user.uid), { balance: increment(syncAmt), lastSync: serverTimestamp() });
-          return currentProfit - syncAmt;
+          return curr - syncAmt;
         }
-        return currentProfit;
+        return curr;
       });
     }, 900000);
   }
@@ -116,23 +114,17 @@ setUser(currentUser);
 const userRef = doc(db, "users", currentUser.uid);
 const userSnap = await getDoc(userRef);
 if (userSnap.exists()) {
-  const userData = userSnap.data();
-  if (userData.botTier !== 'none' && userData.lastSync) {
-    const lastSyncTime = userData.lastSync.toDate().getTime();
-    const secPassed = (new Date().getTime() - lastSyncTime) / 1000;
-    const rate = userData.botTier === 'vvip' ? 0.05 : 0.02;
-    const offlineProfit = (userData.invested * rate * secPassed) / 86400;
+  const data = userSnap.data();
+  if (data.botTier !== 'none' && data.lastSync) {
+    const secPassed = (new Date().getTime() - data.lastSync.toDate().getTime()) / 1000;
+    const offlineProfit = (data.invested * (data.botTier === 'vvip' ? 0.05 : 0.02) * secPassed) / 86400;
     if (offlineProfit > 0.1) await updateDoc(userRef, { balance: increment(offlineProfit), lastSync: serverTimestamp() });
   }
 } else {
   await setDoc(userRef, { name: currentUser.displayName, email: currentUser.email, balance: 500, botTier: 'none', invested: 0, uid: currentUser.uid, lastSync: serverTimestamp() });
 }
-onSnapshot(userRef, (docSnap) => {
-if (docSnap.exists()) {
-setBalance(docSnap.data().balance || 0);
-setBotTier(docSnap.data().botTier || 'none');
-setInvested(docSnap.data().invested || 0);
-}
+onSnapshot(userRef, (snap) => {
+if (snap.exists()) { setBalance(snap.data().balance || 0); setBotTier(snap.data().botTier || 'none'); setInvested(snap.data().invested || 0); }
 });
 setScreen('hub');
 } else { setUser(null); setScreen('auth'); }
@@ -156,9 +148,9 @@ const handlePurchase = async () => {
         });
         const data = await res.json();
         if (data.invoice_url) window.open(data.invoice_url, '_blank');
-      } catch (e) { alert("Payment Service Error!"); }
+      } catch (e) { alert("Payment Error!"); }
   } else {
-      if(!purchaseTxId) return alert("Enter Airtm Transaction ID.");
+      if(!purchaseTxId) return alert("Enter Airtm TX ID.");
       await addDoc(collection(db, "manual_deposits"), { uid: user.uid, email: user.email, amount: purchaseAmount, method: "Airtm", txId: purchaseTxId, status: "pending", date: serverTimestamp() });
       alert("✅ Airtm Request Sent to ajcreatorstudio.hq@gmail.com!"); setWalletTab('main');
   }
@@ -179,7 +171,7 @@ const handleWithdraw = async () => {
 if (balance < 2500) return alert("Min 2,500 Coins!");
 let details = payoutId;
 if (payoutMethod.includes('Visa')) details = `Name: ${cardName} | Card: ${cardNumber}`;
-await addDoc(collection(db, "withdraw_requests"), { uid: user.uid, email: user.email, amount: balance, method: payoutMethod, details: details, status: "pending", date: serverTimestamp() });
+await addDoc(collection(db, "withdraw_requests"), { uid: user.uid, email: user.email, amount: balance, method: payoutMethod, details, status: "pending", date: serverTimestamp() });
 alert("✅ Request Sent!"); setWalletTab('main');
 };
 
@@ -199,9 +191,9 @@ if (screen === 'splash') return (
 
 if (screen === 'auth' && !user) return (
 <main className="min-h-screen bg-black flex flex-col items-center justify-center p-6 text-white text-center">
-<div className="w-full max-w-sm bg-white/[0.03] border border-white/10 p-12 rounded-[3rem] shadow-2xl">
+<div className="w-full max-w-sm bg-white/5 border border-white/10 p-12 rounded-[3rem] shadow-2xl">
 <h2 className="text-6xl font-black mb-10 italic text-cyan-400 uppercase">AJ <span className="text-white">ID</span></h2>
-<button onClick={handleLogin} className="w-full py-5 bg-white text-black font-black text-xl rounded-2xl active:scale-95">CONTINUE WITH GOOGLE</button>
+<button onClick={handleLogin} className="w-full py-5 bg-white text-black font-black text-xl rounded-2xl">CONTINUE WITH GOOGLE</button>
 <p className="mt-8 text-yellow-500 font-bold tracking-widest">+500 COINS BONUS</p>
 </div>
 </main>
@@ -234,7 +226,7 @@ return (
 
 {screen === 'arcade' && (
     <div className="fixed inset-0 z-[300] bg-black p-8 overflow-y-auto">
-        <button onClick={() => {setScreen('hub'); setSelectedGame(null)}} className="text-cyan-400 font-bold mb-10 tracking-widest uppercase transition-all hover:brightness-125">← BACK TO HUB</button>
+        <button onClick={() => {setScreen('hub'); setSelectedGame(null)}} className="text-cyan-400 font-bold mb-10 tracking-widest uppercase">← BACK</button>
         {!selectedGame ? (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-6 max-w-5xl mx-auto pb-20">
             {['Rider King', 'Pulse Racer', 'Subsea Surge', 'Neon Strike', 'Volcano Escape', 'Ludo Elite Royal', 'Puck Pulse Elite'].map((game) => {
@@ -244,14 +236,12 @@ return (
               <div key={game} onClick={() => !isComingSoon && setSelectedGame(game)} className="bg-white/5 border border-white/10 p-4 rounded-3xl text-center hover:border-cyan-400 cursor-pointer transition-all">
                 <img src={`/games/${folderName}/logo.png`} className="w-full aspect-square rounded-xl mb-4 object-cover shadow-lg" alt={game} onError={(e) => { e.target.src = "/logo.png"; }} />
                 <h3 className="font-black text-sm uppercase">{game}</h3>
-                <button className={`mt-4 w-full py-2 rounded-full font-black text-[10px] uppercase transition-all ${isComingSoon ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 'bg-cyan-500 text-black shadow-[0_0_10px_#06b6d4]'}`}>
-                  {isComingSoon ? "Coming Soon" : "PLAY NOW"}
-                </button>
+                <button className={`mt-4 w-full py-2 rounded-full font-black text-[10px] uppercase transition-all ${isComingSoon ? 'bg-gray-800 text-gray-500' : 'bg-cyan-500 text-black shadow-[0_0_10px_#06b6d4]'}`}>{isComingSoon ? "Coming Soon" : "PLAY NOW"}</button>
               </div>
             )})}
           </div>
         ) : (
-          <div className="w-full h-[80vh] bg-black rounded-3xl border-2 border-cyan-500 overflow-hidden relative shadow-[0_0_50px_rgba(6,182,212,0.3)]"><iframe src={`/games/${selectedGame.toLowerCase().replace(/ elite royal/g, '').replace(/ elite/g, '').replace(/ /g, '-')}/index.html`} className="w-full h-full border-none" title="Game" /></div>
+          <div className="w-full h-[80vh] bg-black rounded-3xl border-2 border-cyan-500 overflow-hidden relative shadow-2xl"><iframe src={`/games/${selectedGame.toLowerCase().replace(/ elite royal/g, '').replace(/ elite/g, '').replace(/ /g, '-')}/index.html`} className="w-full h-full border-none" title="Game" /></div>
         )}
     </div>
 )}
@@ -284,7 +274,7 @@ return (
             <div className="flex flex-col gap-4 text-left">
               <div className="bg-cyan-500/10 border border-cyan-500/30 p-5 rounded-2xl mb-2 relative group cursor-pointer" onClick={() => copyToClipboard(user?.uid)}>
                 <p className="text-[10px] text-gray-500 uppercase font-black mb-1 tracking-[0.2em]">My Referral ID</p>
-                <p className="text-sm md:text-lg font-mono text-cyan-400 break-all drop-shadow-[0_0_10px_#0ff] font-black uppercase">{user?.uid}</p>
+                <p className="text-xl md:text-2xl font-black text-cyan-400 break-all drop-shadow-[0_0_10px_#0ff] font-black uppercase">{user?.uid}</p>
                 <div className="absolute right-4 top-1/2 -translate-y-1/2">{copied ? <CheckCircle2 size={20} className="text-green-500" /> : <Copy size={20} className="text-cyan-400 opacity-50" />}</div>
               </div>
               <input type="text" placeholder="Recipient ID" onChange={(e)=>setTransferId(e.target.value)} className="bg-black border p-4 rounded-xl text-center text-white outline-none border-white/10 focus:border-cyan-500" />
@@ -326,7 +316,7 @@ return (
 {screen === 'social' && (
     <div className="fixed inset-0 z-[400] bg-[#020617] p-8 overflow-y-auto flex flex-col items-center">
         <div className="sticky top-0 w-full p-4 bg-black/90 backdrop-blur-md border-b border-white/5 flex justify-between items-center z-[500] mb-8 rounded-full shadow-2xl"><button onClick={() => setScreen('hub')} className="text-cyan-400 font-bold text-xs uppercase hover:brightness-125">← HUB</button><h2 className="text-xl font-black italic text-pink-500 uppercase">Social Hub</h2><div className="w-10"></div></div>
-        <div className="grid grid-cols-1 gap-6 w-full max-w-md pb-24">
+        <div className="grid grid-cols-1 gap-6 w-full max-w-md pb-24 px-2">
              {[{n:'AJ TikReels', i:<Video size={40}/>, s:'tikreels', d:'Short Video & Live'}, {n:'AJ Pulse', i:<Users size={40}/>, s:'pulse', d:'Feed & Community'}, {n:'AJ Live Chat', i:<MessageCircle size={40}/>, s:'chat', d:'WhatsApp Style Chat'}, {n:'AJ Discover', i:<Newspaper size={40}/>, s:'discover', d:'Platform News'}].map((mod) => (
                <div key={mod.s} onClick={() => mod.s === 'discover' ? setSocialScreen('discover') : alert(`${mod.n} arriving in Season 2!`)} className="p-8 bg-white/5 border border-white/10 rounded-[3rem] text-center hover:border-pink-500 transition-all cursor-pointer shadow-lg hover:bg-white/10"><div className="text-pink-500 mb-4 flex justify-center">{mod.i}</div><h3 className="text-2xl font-black">{mod.n}</h3><p className="text-[10px] text-gray-500 uppercase mt-2 tracking-widest">{mod.d}</p></div>
              ))}
@@ -335,16 +325,15 @@ return (
     </div>
 )}
 
+  <section className="py-20 bg-black flex justify-center px-4 border-y border-white/5 transition-all"><img src="/founder_card.jpg" className="w-full max-w-4xl rounded-3xl shadow-2xl hover:scale-[1.01] transition-all" /></section>
+  
   <footer className="bg-black py-24 px-10 border-t border-cyan-500/10 text-center flex flex-col items-center">
-    <div className="flex flex-col items-center gap-4 mb-12">
-        <MessageCircle size={80} className="text-cyan-400 drop-shadow-[0_0_20px_#06b6d4] animate-pulse" />
-        <div className="text-7xl md:text-[10rem] font-black italic text-cyan-400 drop-shadow-[0_0_30px_#06b6d4] uppercase">AJ STUDIO</div>
-    </div>
+    <div className="text-7xl md:text-[10rem] font-black italic text-cyan-400 drop-shadow-[0_0_30px_#06b6d4] mb-12 uppercase">AJ STUDIO</div>
     <div className="flex justify-center gap-10 mb-16">
         <a href="https://wa.me/96878994093" target="_blank" className="text-green-500 border border-green-500 px-6 py-2 rounded-full font-bold uppercase hover:bg-green-500 hover:text-black transition-all">Whatsapp</a>
         <a href="https://x.com/Ali20352061" target="_blank" className="text-white border border-white px-6 py-2 rounded-full font-bold uppercase hover:bg-white hover:text-black transition-all">X (Twitter)</a>
     </div>
-    <button onClick={() => alert("Install App feature updated!")} className="group relative px-12 py-4 bg-cyan-500 text-black font-black uppercase rounded-full shadow-[0_0_40px_#06b6d4] animate-pulse transition-all hover:scale-105 active:scale-95">
+    <button onClick={() => alert("Install Updated!")} className="group relative px-12 py-4 bg-cyan-500 text-black font-black uppercase rounded-full shadow-[0_0_40px_#06b6d4] animate-pulse transition-all hover:scale-105 active:scale-95">
        <span className="relative z-10 flex items-center gap-2 font-black tracking-widest"><Download size={22} /> Install AJ App</span>
        <div className="absolute inset-0 bg-white/20 group-hover:translate-x-full transition-transform duration-500 -skew-x-12"></div>
     </button>
