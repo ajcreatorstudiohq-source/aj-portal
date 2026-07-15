@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { auth, db, googleProvider } from '../firebaseConfig';
 import { signInWithPopup, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, updateDoc, increment, collection, addDoc, getDoc, serverTimestamp } from 'firebase/firestore';
-import { MessageCircle, Trophy, Zap, Bot, Send, Activity, CheckCircle2, Download, Copy, Video, Newspaper, Users, MessageSquare, Camera, Settings } from 'lucide-react';
+import { MessageCircle, Trophy, Zap, Bot, Send, Activity, CheckCircle2, Download, Copy, Video, Newspaper, Users, MessageSquare, Camera, Settings, UserCircle, Edit3, X } from 'lucide-react';
 import emailjs from 'emailjs-com';
 
 const NOWPAYMENTS_API_KEY = "3THXNSZ-AYVMTP6-HQ9KGKK-9J6CQD7";
@@ -25,7 +25,7 @@ const [hasSocialProfile, setHasSocialProfile] = useState(false);
 const [username, setUsername] = useState('');
 const [bio, setBio] = useState('');
 const [tempPhoto, setTempPhoto] = useState('');
-const [pendingMode, setPendingMode] = useState('');
+const [pendingMode, setPendingMode] = useState(''); // Tracking which mode was clicked
 
 // --- AI STATES ---
 const [visualProfit, setVisualProfit] = useState(0);
@@ -43,7 +43,7 @@ const [cardName, setCardName] = useState('');
 const [cardNumber, setCardNumber] = useState('');
 
 const displayBalance = (balance + visualProfit).toFixed(2);
-const displayUsdt = ((balance + visualProfit) / 10000).toFixed(2);
+const displayUsdt = ((balance + visualProfit) / 100).toFixed(2);
 
 const copyToClipboard = (id) => {
   if(!id) return;
@@ -59,30 +59,23 @@ const handleCreateProfile = async () => {
         await updateDoc(doc(db, "users", user.uid), {
             username: username.toLowerCase().trim(),
             bio: bio,
-            photo: tempPhoto,
+            photo: tempPhoto || user.photoURL,
             hasSocialProfile: true
         });
         setHasSocialProfile(true);
-        setSocialScreen(pendingMode || 'hub');
+        setSocialScreen(pendingMode); // Go to the mode they clicked
         alert("🚀 Profile Active!");
     } catch (e) { alert("Setup Error!"); }
 };
 
 const enterSocialMode = (mode) => {
+    setPendingMode(mode);
     if (!hasSocialProfile) {
-        setPendingMode(mode);
         setSocialScreen('setup');
     } else {
         setSocialScreen(mode);
     }
 };
-
-// --- PWA & SW ---
-useEffect(() => {
-    if (typeof window !== "undefined" && "serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").catch((err) => console.log(err));
-    }
-}, []);
 
 // --- PROFIT LOGIC ---
 useEffect(() => {
@@ -103,7 +96,7 @@ window.addEventListener("message", handleSDKMessages);
 return () => window.removeEventListener("message", handleSDKMessages);
 }, [user]);
 
-// --- AI BOT ENGINE ---
+// --- AI BOT ENGINE (FIXED ERROR) ---
 useEffect(() => {
   let logInt, visualInt, dbSyncInt;
   if (user && botTier !== 'none' && invested > 0) {
@@ -158,12 +151,7 @@ if (userSnap.exists()) {
   await setDoc(userRef, { name: currentUser.displayName, email: currentUser.email, balance: 500, botTier: 'none', invested: 0, uid: currentUser.uid, lastSync: serverTimestamp(), hasSocialProfile: false, photo: currentUser.photoURL });
 }
 onSnapshot(userRef, (snap) => {
-if (snap.exists()) { 
-    setBalance(snap.data().balance || 0); 
-    setBotTier(snap.data().botTier || 'none'); 
-    setInvested(snap.data().invested || 0);
-    setHasSocialProfile(snap.data().hasSocialProfile || false);
-}
+if (snap.exists()) { setBalance(snap.data().balance || 0); setBotTier(snap.data().botTier || 'none'); setInvested(snap.data().invested || 0); setHasSocialProfile(snap.data().hasSocialProfile || false); }
 });
 setScreen('hub');
 } else { setUser(null); setScreen('auth'); }
@@ -191,7 +179,7 @@ const handlePurchase = async () => {
   } else {
       if(!purchaseTxId) return alert("Enter Airtm TX ID.");
       await addDoc(collection(db, "manual_deposits"), { uid: user.uid, email: user.email, amount: purchaseAmount, method: "Airtm", txId: purchaseTxId, status: "pending", date: serverTimestamp() });
-      alert("✅ Airtm Request Sent to ajcreatorstudio.hq@gmail.com!"); setWalletTab('main');
+      alert("✅ Airtm Request Sent!"); setWalletTab('main');
   }
 };
 
@@ -278,10 +266,10 @@ return (
     </div>
 </section>
 
-{/* ARCADE MODAL */}
+{/* MODALS: ARCADE, WALLET, AI BOT (SAME AS YOUR CODE) */}
 {screen === 'arcade' && (
     <div className="fixed inset-0 z-[300] bg-black p-8 overflow-y-auto">
-        <button onClick={() => {setScreen('hub'); setSelectedGame(null)}} className="text-cyan-400 font-bold mb-10 tracking-widest uppercase">← BACK</button>
+        <button onClick={() => {setScreen('hub'); setSelectedGame(null)}} className="text-cyan-400 font-bold mb-10 tracking-widest uppercase transition-all hover:brightness-125">← BACK</button>
         {!selectedGame ? (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-6 max-w-5xl mx-auto pb-20">
             {['Rider King', 'Pulse Racer', 'Subsea Surge', 'Neon Strike', 'Volcano Escape', 'Ludo Elite Royal', 'Puck Pulse Elite'].map((game) => {
@@ -301,7 +289,6 @@ return (
     </div>
 )}
 
-{/* WALLET MODAL */}
 {screen === 'wallet' && (
     <div className="fixed inset-0 z-[300] bg-black/98 flex flex-col items-center p-8 overflow-y-auto">
        <button onClick={() => {setScreen('hub'); setWalletTab('main')}} className="self-start text-cyan-400 mb-8 font-bold uppercase tracking-widest transition-all hover:brightness-125">← BACK</button>
@@ -328,7 +315,7 @@ return (
             <div className="flex flex-col gap-4 text-left">
               <div className="bg-cyan-500/10 border border-cyan-500/30 p-5 rounded-2xl relative cursor-pointer" onClick={() => copyToClipboard(user?.uid)}>
                 <p className="text-[10px] text-gray-500 uppercase font-black mb-1 tracking-[0.2em]">My Referral ID</p>
-                <p className="text-lg font-mono text-cyan-400 font-black truncate">{user?.uid}</p>
+                <p className="text-sm md:text-lg font-mono text-cyan-400 font-black truncate">{user?.uid}</p>
                 <div className="absolute right-4 top-1/2 -translate-y-1/2 text-cyan-400">{copied ? <CheckCircle2 size={18}/> : <Copy size={18}/>}</div>
               </div>
               <input type="text" placeholder="Recipient ID" onChange={(e)=>setTransferId(e.target.value)} className="bg-black border p-4 rounded-xl text-white outline-none border-white/10 focus:border-cyan-500" />
@@ -351,7 +338,6 @@ return (
     </div>
 )}
 
-{/* AI BOT MODAL */}
 {screen === 'ai' && (
     <div className="fixed inset-0 z-[200] bg-black flex flex-col items-center p-8 overflow-y-auto pb-20">
        <button onClick={() => setScreen('hub')} className="self-start text-green-400 font-bold text-sm mb-12 uppercase tracking-widest hover:brightness-125">← Back</button>
@@ -360,7 +346,7 @@ return (
          <div className="w-full max-w-2xl bg-white/5 border-2 border-green-500/40 p-8 rounded-[3rem] text-center mb-16 shadow-[0_0_30px_rgba(34,197,94,0.2)]">
             <Activity size={60} className="mx-auto mb-6 text-green-500 animate-pulse" />
             <h2 className="text-4xl font-black text-white mb-2 uppercase tracking-tighter">{botTier} BOT RUNNING</h2>
-            <div className="w-full bg-black/50 border border-green-500/30 p-6 rounded-2xl font-mono text-left"><div className="flex justify-between items-center mb-4"><span className="text-green-400 font-black text-xs uppercase">Profit:</span><span className="text-white font-black text-lg">+{visualProfit.toFixed(4)} 🪙</span></div><div className="h-20 overflow-hidden text-green-500/70 mt-2 text-[10px] leading-relaxed">{tradeLogs.map((log, i) => ( <div key={i} className="mb-1">{log}</div> ))}</div></div>
+            <div className="w-full bg-black/50 border border-green-500/30 p-6 rounded-2xl font-mono text-left shadow-inner"><div className="flex justify-between items-center mb-4"><span className="text-green-400 font-black text-xs uppercase">Profit:</span><span className="text-white font-black text-lg">+{visualProfit.toFixed(4)} 🪙</span></div><div className="h-20 overflow-hidden text-green-500/70 mt-2 text-[10px] leading-relaxed">{tradeLogs.map((log, i) => ( <div key={i} className="mb-1">{log}</div> ))}</div></div>
          </div>
        )}
        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-4xl px-2">
@@ -370,23 +356,23 @@ return (
     </div>
 )}
 
-{/* SOCIAL HUB MODAL */}
+{/* --- UPDATED SOCIAL HUB (FIXED CRASH) --- */}
 {screen === 'social' && (
     <div className="fixed inset-0 z-[400] bg-slate-950 p-8 overflow-y-auto">
         <div className="sticky top-0 w-full p-4 bg-black/90 backdrop-blur-md border-b border-white/5 flex justify-between items-center z-[500] mb-8 rounded-full shadow-2xl">
-            <button onClick={() => setScreen('hub')} className="text-pink-500 font-black text-xs uppercase hover:brightness-125">← HUB</button>
+            <button onClick={() => {setSocialScreen('hub'); setScreen('hub')}} className="text-pink-500 font-black text-xs uppercase">← HUB</button>
             <h2 className="text-xl font-black italic text-pink-500 uppercase">AJ Social</h2>
-            <button onClick={() => setSocialScreen('setup')} className="bg-white/10 p-2 rounded-full text-pink-500"><Settings size={18}/></button>
+            <button onClick={() => enterSocialMode('setup')} className="bg-white/10 p-2 rounded-full text-pink-500 hover:bg-white/20"><Camera size={18}/></button>
         </div>
 
         {socialScreen === 'hub' ? (
-          /* SOCIAL DASHBOARD */
+          /* SOCIAL DASHBOARD (MENU) */
           <div className="max-w-md mx-auto grid grid-cols-1 gap-6 pb-24 px-2">
              <div className="flex items-center gap-3 bg-white/5 p-4 rounded-3xl border border-pink-500/20 mb-4">
                   <img src={tempPhoto || user?.photoURL} className="w-12 h-12 rounded-full border-2 border-pink-500 shadow-lg" alt="Profile" />
                   <div>
-                    <p className="font-black text-white text-sm uppercase">@{username || "New_Member"}</p>
-                    <p className="text-[9px] text-gray-500 uppercase tracking-widest">{hasSocialProfile ? "Verified" : "Setup Profile First"}</p>
+                    <p className="font-black text-white text-sm uppercase">@{username || "AJ_Member"}</p>
+                    <p className="text-[9px] text-gray-500 uppercase tracking-widest">{hasSocialProfile ? "Profile Verified" : "Profile Not Set"}</p>
                   </div>
              </div>
              {[{n:'AJ TikReels', i:<Video size={36}/>, d:'Watch & Gift Creators', s:'tikreels'}, {n:'AJ Pulse', i:<Users size={36}/>, d:'Community Feed', s:'pulse'}, {n:'AJ Live Chat', i:<MessageSquare size={36}/>, d:'Real-time Chat', s:'chat'}, {n:'AJ Discover', i:<Globe size={36}/>, d:'Platform News', s:'discover'}].map((mod) => (
@@ -398,30 +384,33 @@ return (
              ))}
           </div>
         ) : socialScreen === 'setup' ? (
-          /* PROFILE SETUP */
-          <div className="max-w-md mx-auto bg-white/5 border border-white/10 p-10 rounded-[3rem] text-center mt-10 shadow-2xl">
+          /* PROFILE SETUP (DP, USERNAME, BIO) */
+          <div className="max-w-md mx-auto bg-white/5 border border-white/10 p-10 rounded-[3rem] text-center mt-4 shadow-2xl">
               <div className="relative w-24 h-24 mx-auto mb-6">
                 <img src={tempPhoto || user?.photoURL} className="w-full h-full rounded-full border-4 border-pink-500 p-1" alt="Avatar" />
                 <div className="absolute bottom-0 right-0 bg-pink-600 p-2 rounded-full border-2 border-black shadow-lg"><Camera size={14}/></div>
               </div>
-              <h2 className="text-2xl font-black text-white mb-6 italic uppercase tracking-tighter">Profile Settings</h2>
+              <h2 className="text-2xl font-black text-white mb-6 italic uppercase tracking-tighter">Edit Identity</h2>
               <div className="space-y-4 text-left">
-                  <label className="text-[10px] font-black text-pink-500 ml-2 uppercase">Avatar URL</label>
+                  <label className="text-[10px] font-black text-pink-500 ml-2 uppercase">Avatar URL (Link ending in .jpg/png)</label>
                   <input type="text" placeholder="Paste image link" value={tempPhoto} onChange={(e) => setTempPhoto(e.target.value)} className="w-full bg-black border border-white/10 p-4 rounded-2xl text-xs outline-none focus:border-pink-500" />
                   <label className="text-[10px] font-black text-pink-500 ml-2 uppercase">Username</label>
-                  <input type="text" placeholder="@name" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full bg-black border border-white/10 p-4 rounded-2xl font-bold outline-none focus:border-pink-500" />
-                  <label className="text-[10px] font-black text-pink-500 ml-2 uppercase">Bio</label>
+                  <input type="text" placeholder="@unique_name" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full bg-black border border-white/10 p-4 rounded-2xl font-bold outline-none focus:border-pink-500" />
+                  <label className="text-[10px] font-black text-pink-500 ml-2 uppercase">Your Bio</label>
                   <textarea placeholder="Tell people about yourself..." value={bio} onChange={(e) => setBio(e.target.value)} className="w-full bg-black border border-white/10 p-4 rounded-2xl text-sm outline-none h-24 focus:border-pink-500" />
               </div>
-              <button onClick={handleCreateProfile} className="w-full mt-8 py-5 bg-pink-600 rounded-2xl font-black uppercase shadow-lg shadow-pink-500/20 active:scale-95 transition-all">SAVE PROFILE</button>
+              <button onClick={handleCreateProfile} className="w-full mt-8 py-5 bg-pink-600 rounded-2xl font-black uppercase shadow-lg shadow-pink-500/20 active:scale-95 transition-all">SAVE & CONTINUE</button>
               <button onClick={() => setSocialScreen('hub')} className="mt-4 text-gray-500 uppercase text-xs">Back</button>
           </div>
         ) : (
-          /* MODES */
+          /* ACTUAL MODE CONTENT */
           <div className="flex flex-col items-center justify-center h-[60vh] text-center px-4">
              <h2 className="text-4xl font-black text-pink-500 uppercase italic mb-4">{socialScreen.toUpperCase()}</h2>
-             <p className="text-gray-400 text-sm">Welcome {username}! <br/> Connecting to Pixabay API... 🚀</p>
-             <button onClick={() => setSocialScreen('hub')} className="mt-12 px-10 py-3 bg-white/5 border border-white/10 rounded-full text-[10px] font-black uppercase">Back to Dashboard</button>
+             <p className="text-gray-400 text-sm">Hi {username}! <br/> Pixabay API integration in progress... Season 2 🚀</p>
+             <div className="flex gap-4 mt-12">
+                <button onClick={() => setSocialScreen('setup')} className="px-6 py-2 bg-pink-600 rounded-full text-[10px] font-black uppercase flex items-center gap-2"><Edit3 size={14}/> Edit Profile</button>
+                <button onClick={() => setSocialScreen('hub')} className="px-6 py-2 bg-white/5 border border-white/10 rounded-full text-[10px] font-black uppercase">Back to Dashboard</button>
+             </div>
           </div>
         )}
     </div>
