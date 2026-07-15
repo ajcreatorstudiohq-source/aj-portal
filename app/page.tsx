@@ -65,6 +65,7 @@ const data = event.detail || event.data;
 if (!data || !data.type) return;
 
 const rawReward = data.amount || data.coins || 0;
+// NO-LOSS MATH
 const safeTotalValue = rawReward / 1000; 
 
 const userRef = doc(db, "users", user.uid);
@@ -196,10 +197,6 @@ setVisualProfit(0);
 alert(`🚀 ${tier.toUpperCase()} BOT ACTIVATED!`);
 };
 
-const handleInstallApp = () => {
-    alert("Install App feature starting...");
-};
-
 if (screen === 'splash') return (
 <main className="h-screen bg-black flex flex-col items-center justify-center text-white text-center">
 <div className="w-40 h-40 bg-black rounded-full border-4 border-cyan-500 shadow-[0_0_60px_#06b6d4] overflow-hidden mb-8"><img src="/logo.png" className="w-full h-full object-cover" alt="Logo" /></div>
@@ -210,7 +207,7 @@ if (screen === 'splash') return (
 if (screen === 'auth' && !user) return (
 <main className="min-h-screen bg-black flex flex-col items-center justify-center p-6 text-white text-center">
 <div className="w-full max-w-sm bg-white/[0.03] border border-white/10 p-12 rounded-[3rem] shadow-2xl">
-<h2 className="text-6xl font-black mb-10 italic text-cyan-400 uppercase">AJ <span className="text-white">ID</span></h2>
+<h2 className="text-6xl font-black mb-10 italic text-cyan-400 uppercase font-orbitron">AJ <span className="text-white">ID</span></h2>
 <button onClick={handleLogin} className="w-full py-5 bg-white text-black font-black text-xl rounded-2xl active:scale-95">CONTINUE WITH GOOGLE</button>
 <p className="mt-8 text-yellow-500 font-bold tracking-widest">+500 COINS BONUS</p>
 </div>
@@ -264,39 +261,35 @@ return (
     </div>
 </section>
 
-{/* SOCIAL MODAL WITH PROFILE SYSTEM */}
+{/* SOCIAL MODAL */}
 {screen === 'social' && (
     <div className="fixed inset-0 z-[400] bg-[#020617] p-8 overflow-y-auto flex flex-col items-center">
         <div className="sticky top-0 w-full p-4 bg-black/90 backdrop-blur-md border-b border-white/5 flex justify-between items-center z-[500] mb-8 rounded-full shadow-2xl">
           <button onClick={() => setScreen('hub')} className="text-cyan-400 font-bold text-xs uppercase hover:brightness-125">← HUB</button>
           <h2 className="text-xl font-black italic text-pink-500 uppercase">Social Hub</h2>
-          <button onClick={() => setSocialScreen('profile')} className="p-2 bg-white/5 rounded-full border border-pink-500/30 text-pink-500 transition-all hover:bg-pink-500/20"><User size={20}/></button>
+          <button onClick={() => setSocialScreen('profile')} className="p-2 bg-white/5 rounded-full border border-pink-500/30 text-pink-500"><User size={20}/></button>
         </div>
 
         {socialScreen === 'hub' && (
           <div className="grid grid-cols-1 gap-6 w-full max-w-md pb-24 px-2">
              {[{n:'AJ TikReels', i:<Video size={40}/>, s:'tikreels', d:'Short Video & Live'}, {n:'AJ Pulse', i:<Users size={40}/>, s:'pulse', d:'Feed & Community'}, {n:'AJ Live Chat', i:<MessageCircle size={40}/>, s:'chat', d:'WhatsApp Style Chat'}, {n:'AJ Discover', i:<Newspaper size={40}/>, s:'discover', d:'Platform News'}].map((mod) => (
-               <div key={mod.s} onClick={() => mod.s === 'discover' ? setSocialScreen('discover') : alert(`${mod.n} coming in Season 2!`)} className="p-8 bg-white/5 border border-white/10 rounded-[3rem] text-center hover:border-pink-500 transition-all cursor-pointer shadow-lg hover:bg-white/10">
-                  <div className="text-pink-500 mb-4 flex justify-center">{mod.i}</div>
-                  <h3 className="text-2xl font-black">{mod.n}</h3>
-                  <p className="text-[10px] text-gray-500 uppercase mt-2 tracking-widest">{mod.d}</p>
-               </div>
+               <div key={mod.s} onClick={() => mod.s === 'discover' ? setSocialScreen('discover') : alert(`${mod.n} coming in Season 2!`)} className="p-8 bg-white/5 border border-white/10 rounded-[3rem] text-center hover:border-pink-500 transition-all cursor-pointer shadow-lg hover:bg-white/10"><div className="text-pink-500 mb-4 flex justify-center">{mod.i}</div><h3 className="text-2xl font-black">{mod.n}</h3><p className="text-[10px] text-gray-500 uppercase mt-2 tracking-widest">{mod.d}</p></div>
              ))}
           </div>
         )}
 
         {socialScreen === 'profile' && (
-          <div className="max-w-lg w-full space-y-6 pb-24 flex flex-col items-center">
+          <div className="max-w-lg w-full space-y-6 pb-24 flex flex-col items-center text-center">
               <button onClick={() => setSocialScreen('hub')} className="self-start text-pink-500 font-black text-[10px] uppercase hover:brightness-125 mb-4">← Back</button>
-              <div className="relative group w-32 h-32 mb-4">
-                  <img src={user?.photoURL} className="w-32 h-32 rounded-full border-4 border-pink-500 shadow-2xl" />
-                  <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all"><Camera className="text-white" size={24}/></div>
+              <div className="relative group">
+                <img src={user?.photoURL} className="w-32 h-32 rounded-full border-4 border-pink-500 shadow-2xl" />
+                <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all"><Camera className="text-white" size={24}/></div>
               </div>
               <h2 className="text-3xl font-black uppercase italic tracking-tighter drop-shadow-[0_0_10px_#ec4899]">{user?.displayName}</h2>
               <div className="w-full bg-white/5 border border-white/10 rounded-[2.5rem] p-8 shadow-2xl space-y-6 text-left">
-                  <div><label className="text-[10px] font-black text-gray-500 uppercase">Bio / Status</label><textarea value={bio} onChange={(e)=>setBio(e.target.value)} className="w-full bg-black border border-white/10 p-4 rounded-2xl text-sm outline-none focus:border-pink-500 mt-2 h-24 resize-none" placeholder="Who are you?" /></div>
-                  <div><label className="text-[10px] font-black text-gray-500 uppercase">Instagram</label><div className="flex items-center gap-3 bg-black border border-white/10 p-4 rounded-2xl mt-2 focus-within:border-pink-500"><Instagram size={18} className="text-pink-500"/><input value={instaLink} onChange={(e)=>setInstaLink(e.target.value)} className="bg-transparent flex-1 outline-none text-sm" placeholder="Username" /></div></div>
-                  <div><label className="text-[10px] font-black text-gray-500 uppercase">YouTube</label><div className="flex items-center gap-3 bg-black border border-white/10 p-4 rounded-2xl mt-2 focus-within:border-pink-500"><Youtube size={18} className="text-red-500"/><input value={ytLink} onChange={(e)=>setYtLink(e.target.value)} className="bg-transparent flex-1 outline-none text-sm" placeholder="Channel Link" /></div></div>
+                  <div><label className="text-[10px] font-black text-gray-500 uppercase">Bio / Status</label><textarea value={bio} onChange={(e)=>setBio(e.target.value)} className="w-full bg-black border border-white/10 p-4 rounded-2xl text-sm outline-none focus:border-pink-500 mt-2 h-24 resize-none" placeholder="Describe yourself..." /></div>
+                  <div><label className="text-[10px] font-black text-gray-500 uppercase">Instagram</label><div className="flex items-center gap-3 bg-black border border-white/10 p-4 rounded-2xl mt-2 focus-within:border-pink-500"><Instagram size={18} className="text-pink-500"/><input value={instaLink} onChange={(e)=>setInstaLink(e.target.value)} className="bg-transparent flex-1 outline-none text-sm" placeholder="username" /></div></div>
+                  <div><label className="text-[10px] font-black text-gray-500 uppercase">YouTube</label><div className="flex items-center gap-3 bg-black border border-white/10 p-4 rounded-2xl mt-2 focus-within:border-pink-500"><Youtube size={18} className="text-red-500"/><input value={ytLink} onChange={(e)=>setYtLink(e.target.value)} className="bg-transparent flex-1 outline-none text-sm" placeholder="channel link" /></div></div>
                   <button onClick={saveProfile} className="w-full py-4 bg-pink-600 text-white font-black rounded-xl uppercase shadow-lg active:scale-95 transition-all">Save Profile</button>
               </div>
           </div>
@@ -306,30 +299,7 @@ return (
     </div>
 )}
 
-{/* ARCADE MODAL */}
-{screen === 'arcade' && (
-    <div className="fixed inset-0 z-[300] bg-black p-8 overflow-y-auto">
-        <button onClick={() => {setScreen('hub'); setSelectedGame(null)}} className="text-cyan-400 font-bold mb-10 tracking-widest uppercase transition-all hover:brightness-125">← BACK</button>
-        {!selectedGame ? (
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-6 max-w-5xl mx-auto pb-20">
-            {['Rider King', 'Pulse Racer', 'Subsea Surge', 'Neon Strike', 'Volcano Escape', 'Ludo Elite Royal', 'Puck Pulse Elite'].map((game) => {
-              const isComingSoon = game === 'Ludo Elite Royal' || game === 'Puck Pulse Elite';
-              const folderName = game.replace(' Elite Royal', '').replace(' Elite', '').toLowerCase().replace(/ /g, '-');
-              return (
-              <div key={game} onClick={() => !isComingSoon && setSelectedGame(game)} className="bg-white/5 border border-white/10 p-4 rounded-3xl text-center hover:border-cyan-400 cursor-pointer transition-all">
-                <img src={`/games/${folderName}/logo.png`} className="w-full aspect-square rounded-2xl mb-4 object-cover shadow-lg" alt={game} onError={(e) => { e.target.src = "/logo.png"; }} />
-                <h3 className="font-black text-sm uppercase">{game}</h3>
-                <button className={`mt-4 w-full py-2 rounded-full font-black text-[10px] uppercase transition-all ${isComingSoon ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 'bg-cyan-500 text-black shadow-[0_0_10px_#06b6d4]'}`}>{isComingSoon ? "Coming Soon" : "PLAY NOW"}</button>
-              </div>
-            )})}
-          </div>
-        ) : (
-          <div className="w-full h-[80vh] bg-black rounded-3xl border-2 border-cyan-500 overflow-hidden relative shadow-2xl"><iframe src={`/games/${selectedGame.toLowerCase().replace(/ elite royal/g, '').replace(/ elite/g, '').replace(/ /g, '-')}/index.html`} className="w-full h-full border-none" title="Game" /></div>
-        )}
-    </div>
-)}
-
-{/* WALLET MODAL */}
+{/* WALLET, ARCADE, AI MODALS (キャラクタ-バイ-キャラクター) */}
 {screen === 'wallet' && (
     <div className="fixed inset-0 z-[300] bg-black/98 flex flex-col items-center p-8 overflow-y-auto">
        <button onClick={() => {setScreen('hub'); setWalletTab('main')}} className="self-start text-cyan-400 mb-8 font-bold uppercase tracking-widest transition-all hover:brightness-125">← BACK</button>
@@ -376,6 +346,28 @@ return (
             </div>
           )}
        </div>
+    </div>
+)}
+
+{screen === 'arcade' && (
+    <div className="fixed inset-0 z-[300] bg-black p-8 overflow-y-auto">
+        <button onClick={() => {setScreen('hub'); setSelectedGame(null)}} className="text-cyan-400 font-bold mb-10 tracking-widest uppercase transition-all hover:brightness-125">← BACK</button>
+        {!selectedGame ? (
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-6 max-w-5xl mx-auto pb-20">
+            {['Rider King', 'Pulse Racer', 'Subsea Surge', 'Neon Strike', 'Volcano Escape', 'Ludo Elite Royal', 'Puck Pulse Elite'].map((game) => {
+              const isComingSoon = game === 'Ludo Elite Royal' || game === 'Puck Pulse Elite';
+              const folderName = game.replace(' Elite Royal', '').replace(' Elite', '').toLowerCase().replace(/ /g, '-');
+              return (
+              <div key={game} onClick={() => !isComingSoon && setSelectedGame(game)} className="bg-white/5 border border-white/10 p-4 rounded-3xl text-center hover:border-cyan-400 cursor-pointer transition-all">
+                <img src={`/games/${folderName}/logo.png`} className="w-full aspect-square rounded-xl mb-4 object-cover shadow-lg" alt={game} onError={(e) => { e.target.src = "/logo.png"; }} />
+                <h3 className="font-black text-sm uppercase">{game}</h3>
+                <button className={`mt-4 w-full py-2 rounded-full font-black text-[10px] uppercase transition-all ${isComingSoon ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 'bg-cyan-500 text-black shadow-[0_0_10px_#06b6d4]'}`}>{isComingSoon ? "Coming Soon" : "PLAY NOW"}</button>
+              </div>
+            )})}
+          </div>
+        ) : (
+          <div className="w-full h-[80vh] bg-black rounded-3xl border-2 border-cyan-500 overflow-hidden relative shadow-2xl"><iframe src={`/games/${selectedGame.toLowerCase().replace(/ elite royal/g, '').replace(/ elite/g, '').replace(/ /g, '-')}/index.html`} className="w-full h-full border-none" title="Game" /></div>
+        )}
     </div>
 )}
 
