@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { auth, db, googleProvider } from '../firebaseConfig';
 import { signInWithPopup, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, updateDoc, increment, collection, addDoc, getDoc, serverTimestamp } from 'firebase/firestore';
-import { MessageCircle, Trophy, Zap, Bot, Send, Activity, CheckCircle2, Download, Copy, Video, Newspaper, Users, MessageSquare, Camera, Settings, UserCircle, Edit3, X } from 'lucide-react';
+import { MessageCircle, Trophy, Zap, Bot, Send, Activity, CheckCircle2, Download, Copy, Video, Newspaper, Users, MessageSquare, Camera, Settings, Edit3, X, UserCircle } from 'lucide-react';
 import emailjs from 'emailjs-com';
 
 const NOWPAYMENTS_API_KEY = "3THXNSZ-AYVMTP6-HQ9KGKK-9J6CQD7";
@@ -25,7 +25,7 @@ const [hasSocialProfile, setHasSocialProfile] = useState(false);
 const [username, setUsername] = useState('');
 const [bio, setBio] = useState('');
 const [tempPhoto, setTempPhoto] = useState('');
-const [pendingMode, setPendingMode] = useState(''); // Tracking which mode was clicked
+const [pendingMode, setPendingMode] = useState(''); 
 
 // --- AI STATES ---
 const [visualProfit, setVisualProfit] = useState(0);
@@ -43,7 +43,7 @@ const [cardName, setCardName] = useState('');
 const [cardNumber, setCardNumber] = useState('');
 
 const displayBalance = (balance + visualProfit).toFixed(2);
-const displayUsdt = ((balance + visualProfit) / 100).toFixed(2);
+const displayUsdt = ((balance + visualProfit) / 10000).toFixed(2);
 
 const copyToClipboard = (id) => {
   if(!id) return;
@@ -63,7 +63,7 @@ const handleCreateProfile = async () => {
             hasSocialProfile: true
         });
         setHasSocialProfile(true);
-        setSocialScreen(pendingMode); // Go to the mode they clicked
+        setSocialScreen(pendingMode || 'hub');
         alert("🚀 Profile Active!");
     } catch (e) { alert("Setup Error!"); }
 };
@@ -77,7 +77,16 @@ const enterSocialMode = (mode) => {
     }
 };
 
-// --- PROFIT LOGIC ---
+const handleInstallApp = () => {
+    const link = document.createElement('a');
+    link.href = '/aj-portal.apk';
+    link.download = 'aj-portal.apk';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+};
+
+// --- PROFIT LOGIC (70/30) ---
 useEffect(() => {
 const handleSDKMessages = (event) => {
 if (!user) return;
@@ -96,7 +105,7 @@ window.addEventListener("message", handleSDKMessages);
 return () => window.removeEventListener("message", handleSDKMessages);
 }, [user]);
 
-// --- AI BOT ENGINE (FIXED ERROR) ---
+// --- AI BOT ENGINE (FIXED CRASH) ---
 useEffect(() => {
   let logInt, visualInt, dbSyncInt;
   if (user && botTier !== 'none' && invested > 0) {
@@ -106,15 +115,15 @@ useEffect(() => {
     }, 7000);
     const dailyRate = botTier === 'vvip' ? 0.05 : 0.02;
     const profitPerSec = (invested * dailyRate) / 86400;
-    visualInt = setInterval(() => setVisualProfit(prev => prev + profitPerSec), 1000);
+    visualInt = setInterval(() => setVisualProfit(p => p + profitPerSec), 1000);
     dbSyncInt = setInterval(async () => {
-      setVisualProfit(curr => {
-        if (curr >= 1) {
-          const syncAmt = Math.floor(curr);
+      setVisualProfit(currValue => {
+        if (currValue >= 1) {
+          const syncAmt = Math.floor(currValue);
           updateDoc(doc(db, "users", user.uid), { balance: increment(syncAmt), lastSync: serverTimestamp() });
-          return curr - syncAmt;
+          return currValue - syncAmt;
         }
-        return curr;
+        return currValue;
       });
     }, 900000);
   }
@@ -151,7 +160,12 @@ if (userSnap.exists()) {
   await setDoc(userRef, { name: currentUser.displayName, email: currentUser.email, balance: 500, botTier: 'none', invested: 0, uid: currentUser.uid, lastSync: serverTimestamp(), hasSocialProfile: false, photo: currentUser.photoURL });
 }
 onSnapshot(userRef, (snap) => {
-if (snap.exists()) { setBalance(snap.data().balance || 0); setBotTier(snap.data().botTier || 'none'); setInvested(snap.data().invested || 0); setHasSocialProfile(snap.data().hasSocialProfile || false); }
+if (snap.exists()) { 
+    setBalance(snap.data().balance || 0); 
+    setBotTier(snap.data().botTier || 'none'); 
+    setInvested(snap.data().invested || 0);
+    setHasSocialProfile(snap.data().hasSocialProfile || false);
+}
 });
 setScreen('hub');
 } else { setUser(null); setScreen('auth'); }
@@ -266,7 +280,7 @@ return (
     </div>
 </section>
 
-{/* MODALS: ARCADE, WALLET, AI BOT (SAME AS YOUR CODE) */}
+{/* ARCADE MODAL */}
 {screen === 'arcade' && (
     <div className="fixed inset-0 z-[300] bg-black p-8 overflow-y-auto">
         <button onClick={() => {setScreen('hub'); setSelectedGame(null)}} className="text-cyan-400 font-bold mb-10 tracking-widest uppercase transition-all hover:brightness-125">← BACK</button>
@@ -289,6 +303,7 @@ return (
     </div>
 )}
 
+{/* WALLET MODAL */}
 {screen === 'wallet' && (
     <div className="fixed inset-0 z-[300] bg-black/98 flex flex-col items-center p-8 overflow-y-auto">
        <button onClick={() => {setScreen('hub'); setWalletTab('main')}} className="self-start text-cyan-400 mb-8 font-bold uppercase tracking-widest transition-all hover:brightness-125">← BACK</button>
@@ -296,9 +311,9 @@ return (
           <h2 className="text-5xl font-black text-yellow-500 mb-8">{displayBalance} 🪙</h2>
           {walletTab === 'main' && (
             <div className="flex flex-col gap-4">
-               <button onClick={()=>setWalletTab('purchase')} className="bg-white text-black py-4 rounded-xl font-black uppercase shadow-lg transition-all hover:scale-105">Purchase</button>
-               <button onClick={()=>setWalletTab('transfer')} className="bg-white/10 text-cyan-400 py-4 rounded-xl font-black border border-cyan-500/30 uppercase transition-all hover:bg-cyan-500/10">Transfer</button>
-               <button onClick={()=>setWalletTab('withdraw')} className="bg-white/10 text-pink-500 py-4 rounded-xl font-black border border-pink-500/30 uppercase transition-all hover:bg-pink-500/10">Withdraw</button>
+               <button onClick={()=>setWalletTab('purchase')} className="bg-white text-black py-4 rounded-xl font-black uppercase shadow-lg">Purchase</button>
+               <button onClick={()=>setWalletTab('transfer')} className="bg-white/10 text-cyan-400 py-4 rounded-xl font-black border border-cyan-500/30 uppercase">Transfer</button>
+               <button onClick={()=>setWalletTab('withdraw')} className="bg-white/10 text-pink-500 py-4 rounded-xl font-black border border-pink-500/30 uppercase">Withdraw</button>
             </div>
           )}
           {walletTab === 'purchase' && (
@@ -315,13 +330,13 @@ return (
             <div className="flex flex-col gap-4 text-left">
               <div className="bg-cyan-500/10 border border-cyan-500/30 p-5 rounded-2xl relative cursor-pointer" onClick={() => copyToClipboard(user?.uid)}>
                 <p className="text-[10px] text-gray-500 uppercase font-black mb-1 tracking-[0.2em]">My Referral ID</p>
-                <p className="text-sm md:text-lg font-mono text-cyan-400 font-black truncate">{user?.uid}</p>
+                <p className="text-lg font-mono text-cyan-400 font-black truncate">{user?.uid}</p>
                 <div className="absolute right-4 top-1/2 -translate-y-1/2 text-cyan-400">{copied ? <CheckCircle2 size={18}/> : <Copy size={18}/>}</div>
               </div>
-              <input type="text" placeholder="Recipient ID" onChange={(e)=>setTransferId(e.target.value)} className="bg-black border p-4 rounded-xl text-white outline-none border-white/10 focus:border-cyan-500" />
-              <input type="number" placeholder="Amount" onChange={(e)=>setTransferAmount(Number(e.target.value))} className="bg-black border p-4 rounded-xl text-white outline-none border-white/10 focus:border-cyan-500" />
-              <button onClick={handleTransfer} className="bg-cyan-600 py-4 rounded-xl font-black uppercase shadow-lg active:scale-95 transition-all">Send Now</button>
-              <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase mt-2 hover:text-white">Back</button>
+              <input type="text" placeholder="Recipient ID" onChange={(e)=>setTransferId(e.target.value)} className="bg-black border p-4 rounded-xl text-white outline-none border-white/10" />
+              <input type="number" placeholder="Amount" onChange={(e)=>setTransferAmount(Number(e.target.value))} className="bg-black border p-4 rounded-xl text-white outline-none border-white/10" />
+              <button onClick={handleTransfer} className="bg-cyan-600 py-4 rounded-xl font-black uppercase shadow-lg">Send Now</button>
+              <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase mt-2">Back</button>
             </div>
           )}
           {walletTab === 'withdraw' && (
@@ -338,6 +353,7 @@ return (
     </div>
 )}
 
+{/* AI BOT MODAL */}
 {screen === 'ai' && (
     <div className="fixed inset-0 z-[200] bg-black flex flex-col items-center p-8 overflow-y-auto pb-20">
        <button onClick={() => setScreen('hub')} className="self-start text-green-400 font-bold text-sm mb-12 uppercase tracking-widest hover:brightness-125">← Back</button>
@@ -356,7 +372,7 @@ return (
     </div>
 )}
 
-{/* --- UPDATED SOCIAL HUB (FIXED CRASH) --- */}
+{/* --- UPDATED SOCIAL HUB --- */}
 {screen === 'social' && (
     <div className="fixed inset-0 z-[400] bg-slate-950 p-8 overflow-y-auto">
         <div className="sticky top-0 w-full p-4 bg-black/90 backdrop-blur-md border-b border-white/5 flex justify-between items-center z-[500] mb-8 rounded-full shadow-2xl">
@@ -366,7 +382,7 @@ return (
         </div>
 
         {socialScreen === 'hub' ? (
-          /* SOCIAL DASHBOARD (MENU) */
+          /* SOCIAL DASHBOARD */
           <div className="max-w-md mx-auto grid grid-cols-1 gap-6 pb-24 px-2">
              <div className="flex items-center gap-3 bg-white/5 p-4 rounded-3xl border border-pink-500/20 mb-4">
                   <img src={tempPhoto || user?.photoURL} className="w-12 h-12 rounded-full border-2 border-pink-500 shadow-lg" alt="Profile" />
@@ -384,7 +400,7 @@ return (
              ))}
           </div>
         ) : socialScreen === 'setup' ? (
-          /* PROFILE SETUP (DP, USERNAME, BIO) */
+          /* PROFILE SETUP */
           <div className="max-w-md mx-auto bg-white/5 border border-white/10 p-10 rounded-[3rem] text-center mt-4 shadow-2xl">
               <div className="relative w-24 h-24 mx-auto mb-6">
                 <img src={tempPhoto || user?.photoURL} className="w-full h-full rounded-full border-4 border-pink-500 p-1" alt="Avatar" />
@@ -392,21 +408,21 @@ return (
               </div>
               <h2 className="text-2xl font-black text-white mb-6 italic uppercase tracking-tighter">Edit Identity</h2>
               <div className="space-y-4 text-left">
-                  <label className="text-[10px] font-black text-pink-500 ml-2 uppercase">Avatar URL (Link ending in .jpg/png)</label>
+                  <label className="text-[10px] font-black text-pink-500 ml-2 uppercase">Avatar URL</label>
                   <input type="text" placeholder="Paste image link" value={tempPhoto} onChange={(e) => setTempPhoto(e.target.value)} className="w-full bg-black border border-white/10 p-4 rounded-2xl text-xs outline-none focus:border-pink-500" />
                   <label className="text-[10px] font-black text-pink-500 ml-2 uppercase">Username</label>
                   <input type="text" placeholder="@unique_name" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full bg-black border border-white/10 p-4 rounded-2xl font-bold outline-none focus:border-pink-500" />
                   <label className="text-[10px] font-black text-pink-500 ml-2 uppercase">Your Bio</label>
                   <textarea placeholder="Tell people about yourself..." value={bio} onChange={(e) => setBio(e.target.value)} className="w-full bg-black border border-white/10 p-4 rounded-2xl text-sm outline-none h-24 focus:border-pink-500" />
               </div>
-              <button onClick={handleCreateProfile} className="w-full mt-8 py-5 bg-pink-600 rounded-2xl font-black uppercase shadow-lg shadow-pink-500/20 active:scale-95 transition-all">SAVE & CONTINUE</button>
+              <button onClick={handleCreateProfile} className="w-full mt-8 py-5 bg-pink-600 rounded-2xl font-black uppercase shadow-lg active:scale-95 transition-all">SAVE & CONTINUE</button>
               <button onClick={() => setSocialScreen('hub')} className="mt-4 text-gray-500 uppercase text-xs">Back</button>
           </div>
         ) : (
-          /* ACTUAL MODE CONTENT */
+          /* MODES */
           <div className="flex flex-col items-center justify-center h-[60vh] text-center px-4">
              <h2 className="text-4xl font-black text-pink-500 uppercase italic mb-4">{socialScreen.toUpperCase()}</h2>
-             <p className="text-gray-400 text-sm">Hi {username}! <br/> Pixabay API integration in progress... Season 2 🚀</p>
+             <p className="text-gray-400 text-sm">Hi {username}! <br/> Connecting to Pixabay API... Season 2 🚀</p>
              <div className="flex gap-4 mt-12">
                 <button onClick={() => setSocialScreen('setup')} className="px-6 py-2 bg-pink-600 rounded-full text-[10px] font-black uppercase flex items-center gap-2"><Edit3 size={14}/> Edit Profile</button>
                 <button onClick={() => setSocialScreen('hub')} className="px-6 py-2 bg-white/5 border border-white/10 rounded-full text-[10px] font-black uppercase">Back to Dashboard</button>
@@ -424,14 +440,9 @@ return (
         <a href="https://wa.me/96878994093" target="_blank" className="text-green-500 border border-green-500 px-6 py-2 rounded-full font-bold uppercase hover:bg-green-500 hover:text-black transition-all">Whatsapp</a>
         <a href="https://x.com/Ali20352061" target="_blank" className="text-white border border-white px-6 py-2 rounded-full font-bold uppercase hover:bg-white hover:text-black transition-all">X (Twitter)</a>
     </div>
-    <button onClick={() => {
-        const link = document.createElement('a');
-        link.href = '/aj-portal.apk';
-        link.download = 'aj-portal.apk';
-        link.click();
-    }} className="group relative px-12 py-4 bg-cyan-500 text-black font-black uppercase rounded-full shadow-[0_0_40px_#06b6d4] animate-pulse transition-all hover:scale-105">
+    <button onClick={handleInstallApp} className="group relative px-12 py-4 bg-cyan-500 text-black font-black uppercase rounded-full shadow-[0_0_40px_#06b6d4] animate-pulse transition-all hover:scale-105">
        <span className="relative z-10 flex items-center gap-2 font-black tracking-widest"><Download size={22} /> Install AJ App</span>
-       <div className="absolute inset-0 bg-white/20 group-hover:translate-x-full transition-transform duration-500 -skew-x-12"></div>
+       <div className="absolute inset-0 bg-white/10 group-hover:translate-x-full transition-transform duration-500 -skew-x-12"></div>
     </button>
   </footer>
 </main>
