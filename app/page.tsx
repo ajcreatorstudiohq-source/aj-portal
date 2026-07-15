@@ -42,7 +42,7 @@ const [payoutId, setPayoutId] = useState('');
 const [cardName, setCardName] = useState('');
 const [cardNumber, setCardNumber] = useState('');
 
-// Header Balance
+// Header Visual Balance
 const displayBalance = (balance + visualProfit).toFixed(2);
 const displayUsdt = ((balance + visualProfit) / 100).toFixed(2);
 
@@ -61,7 +61,7 @@ const data = event.detail || event.data;
 if (!data || !data.type) return;
 
 const rawReward = data.amount || data.coins || 0;
-// NO-LOSS MATH: points / 1000
+// NO-LOSS MATH: Divide points by 1000
 const safeTotalValue = rawReward / 1000; 
 
 const userRef = doc(db, "users", user.uid);
@@ -336,12 +336,15 @@ return (
 )}
 
   <footer className="bg-black py-24 px-10 border-t border-cyan-500/10 text-center flex flex-col items-center">
-    <div className="text-7xl md:text-[10rem] font-black italic text-cyan-400 drop-shadow-[0_0_30px_#06b6d4] mb-12 uppercase">AJ STUDIO</div>
+    <div className="flex flex-col items-center gap-4 mb-12">
+        <MessageCircle size={80} className="text-cyan-400 drop-shadow-[0_0_20px_#06b6d4] animate-pulse" />
+        <div className="text-7xl md:text-[10rem] font-black italic text-cyan-400 drop-shadow-[0_0_30px_#06b6d4] uppercase">AJ STUDIO</div>
+    </div>
     <div className="flex justify-center gap-10 mb-16">
         <a href="https://wa.me/96878994093" target="_blank" className="text-green-500 border border-green-500 px-6 py-2 rounded-full font-bold uppercase hover:bg-green-500 hover:text-black transition-all">Whatsapp</a>
         <a href="https://x.com/Ali20352061" target="_blank" className="text-white border border-white px-6 py-2 rounded-full font-bold uppercase hover:bg-white hover:text-black transition-all">X (Twitter)</a>
     </div>
-    <button onClick={() => alert("Updated!")} className="group relative px-12 py-4 bg-cyan-500 text-black font-black uppercase rounded-full shadow-[0_0_40px_#06b6d4] animate-pulse transition-all hover:scale-105 active:scale-95">
+    <button onClick={() => alert("Install App feature updated!")} className="group relative px-12 py-4 bg-cyan-500 text-black font-black uppercase rounded-full shadow-[0_0_40px_#06b6d4] animate-pulse transition-all hover:scale-105 active:scale-95">
        <span className="relative z-10 flex items-center gap-2 font-black tracking-widest"><Download size={22} /> Install AJ App</span>
        <div className="absolute inset-0 bg-white/20 group-hover:translate-x-full transition-transform duration-500 -skew-x-12"></div>
     </button>
