@@ -29,7 +29,7 @@ const [copied, setCopied] = useState(false);
 
 // --- AI STATES ---
 const [visualProfit, setVisualProfit] = useState(0);
-const [tradeLogs, setTradeLogs] = useState(["Initialising Neural Link...", "Analysing Market Volatility..."]);
+const [tradeLogs, setTradeLogs] = useState(["Initialising Neural Link...", "Analysing Market Volatility...", "Connecting to AJ liquidity pool..."]);
 
 // Input States
 const [purchaseAmount, setPurchaseAmount] = useState(20);
@@ -88,7 +88,7 @@ useEffect(() => {
     dbSyncInt = setInterval(async () => {
       setVisualProfit(curr => {
         if (curr >= 1) {
-          const syncAmt = Math.floor(curr);
+          const syncAmt = Math.floor(currentProfit);
           updateDoc(doc(db, "users", user.uid), { balance: increment(syncAmt), lastSync: serverTimestamp() });
           return curr - syncAmt;
         }
@@ -171,7 +171,7 @@ const handleWithdraw = async () => {
 if (balance < 2500) return alert("Min 2,500 Coins!");
 let details = payoutId;
 if (payoutMethod.includes('Visa')) details = `Name: ${cardName} | Card: ${cardNumber}`;
-await addDoc(collection(db, "withdraw_requests"), { uid: user.uid, email: user.email, amount: balance, method: payoutMethod, details, status: "pending", date: serverTimestamp() });
+await addDoc(collection(db, "withdraw_requests"), { uid: user.uid, email: user.email, amount: balance, method: payoutMethod, details: details, status: "pending", date: serverTimestamp() });
 alert("✅ Request Sent!"); setWalletTab('main');
 };
 
@@ -191,9 +191,9 @@ if (screen === 'splash') return (
 
 if (screen === 'auth' && !user) return (
 <main className="min-h-screen bg-black flex flex-col items-center justify-center p-6 text-white text-center">
-<div className="w-full max-w-sm bg-white/5 border border-white/10 p-12 rounded-[3rem] shadow-2xl">
+<div className="w-full max-w-sm bg-white/[0.03] border border-white/10 p-12 rounded-[3rem] shadow-2xl">
 <h2 className="text-6xl font-black mb-10 italic text-cyan-400 uppercase">AJ <span className="text-white">ID</span></h2>
-<button onClick={handleLogin} className="w-full py-5 bg-white text-black font-black text-xl rounded-2xl">CONTINUE WITH GOOGLE</button>
+<button onClick={handleLogin} className="w-full py-5 bg-white text-black font-black text-xl rounded-2xl active:scale-95">CONTINUE WITH GOOGLE</button>
 <p className="mt-8 text-yellow-500 font-bold tracking-widest">+500 COINS BONUS</p>
 </div>
 </main>
@@ -218,15 +218,19 @@ return (
     <div className="grid grid-cols-2 gap-4 md:gap-16 w-full max-w-4xl relative z-30">
       <div onClick={() => setScreen('arcade')} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center cursor-pointer shadow-xl active:scale-95 transition-all hover:border-cyan-400"><Trophy className="text-cyan-400 w-10 h-10 md:w-20 md:h-20 mb-2" /><span className="font-black text-xs md:text-3xl uppercase">Gaming</span></div>
       <div onClick={() => {setScreen('social'); setSocialScreen('hub');}} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center active:scale-95 shadow-xl relative z-50 cursor-pointer hover:border-pink-500"><Zap className="text-pink-500 w-10 h-10 md:w-20 md:h-20 mb-2" /><span className="font-black text-xs md:text-3xl uppercase">Social</span></div>
-      <div onClick={() => {setScreen('wallet'); setWalletTab('main')}} className="bg-white/5 border-2 border-yellow-500/30 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center cursor-pointer shadow-xl relative z-30"><img src="/gold.jpg" className="w-14 h-14 mb-2" /><h2 className="font-black text-xs md:text-3xl uppercase text-yellow-500">Wallet</h2></div>
+      
+      {/* WALLET CARD - Outline removed to match others */}
+      <div onClick={() => {setScreen('wallet'); setWalletTab('main')}} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center cursor-pointer shadow-xl active:scale-95 transition-all hover:border-yellow-500 relative z-30"><img src="/gold.jpg" className="w-14 h-14 mb-2" /><h2 className="font-black text-xs md:text-3xl uppercase text-yellow-500">Wallet</h2></div>
+      
       <div onClick={() => setScreen('ai')} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center active:scale-95 transition-all cursor-pointer shadow-xl relative z-30 hover:border-green-500"><Bot className="text-green-400 w-10 h-10 md:w-20 md:h-20 mb-2" /><span className="font-black text-xs md:text-3xl uppercase">AJ AI</span></div>
+      
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0"><div className="w-24 h-24 md:w-96 md:h-96 bg-black border-[15px] border-cyan-500 rounded-full flex items-center justify-center shadow-[0_0_100px_#06b6d4] overflow-hidden"><img src="/logo.png" className="w-full h-full object-cover opacity-60 animate-pulse" alt="Logo" /></div></div>
     </div>
 </section>
 
 {screen === 'arcade' && (
     <div className="fixed inset-0 z-[300] bg-black p-8 overflow-y-auto">
-        <button onClick={() => {setScreen('hub'); setSelectedGame(null)}} className="text-cyan-400 font-bold mb-10 tracking-widest uppercase">← BACK</button>
+        <button onClick={() => {setScreen('hub'); setSelectedGame(null)}} className="text-cyan-400 font-bold mb-10 tracking-widest uppercase transition-all hover:brightness-125">← BACK</button>
         {!selectedGame ? (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-6 max-w-5xl mx-auto pb-20">
             {['Rider King', 'Pulse Racer', 'Subsea Surge', 'Neon Strike', 'Volcano Escape', 'Ludo Elite Royal', 'Puck Pulse Elite'].map((game) => {
@@ -236,7 +240,7 @@ return (
               <div key={game} onClick={() => !isComingSoon && setSelectedGame(game)} className="bg-white/5 border border-white/10 p-4 rounded-3xl text-center hover:border-cyan-400 cursor-pointer transition-all">
                 <img src={`/games/${folderName}/logo.png`} className="w-full aspect-square rounded-xl mb-4 object-cover shadow-lg" alt={game} onError={(e) => { e.target.src = "/logo.png"; }} />
                 <h3 className="font-black text-sm uppercase">{game}</h3>
-                <button className={`mt-4 w-full py-2 rounded-full font-black text-[10px] uppercase transition-all ${isComingSoon ? 'bg-gray-800 text-gray-500' : 'bg-cyan-500 text-black shadow-[0_0_10px_#06b6d4]'}`}>{isComingSoon ? "Coming Soon" : "PLAY NOW"}</button>
+                <button className={`mt-4 w-full py-2 rounded-full font-black text-[10px] uppercase transition-all ${isComingSoon ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 'bg-cyan-500 text-black shadow-[0_0_10px_#06b6d4]'}`}>{isComingSoon ? "Coming Soon" : "PLAY NOW"}</button>
               </div>
             )})}
           </div>
@@ -274,7 +278,7 @@ return (
             <div className="flex flex-col gap-4 text-left">
               <div className="bg-cyan-500/10 border border-cyan-500/30 p-5 rounded-2xl mb-2 relative group cursor-pointer" onClick={() => copyToClipboard(user?.uid)}>
                 <p className="text-[10px] text-gray-500 uppercase font-black mb-1 tracking-[0.2em]">My Referral ID</p>
-                <p className="text-xl md:text-2xl font-black text-cyan-400 break-all drop-shadow-[0_0_10px_#0ff] font-black uppercase">{user?.uid}</p>
+                <p className="text-sm md:text-lg font-mono text-cyan-400 break-all drop-shadow-[0_0_10px_#0ff] font-black uppercase">{user?.uid}</p>
                 <div className="absolute right-4 top-1/2 -translate-y-1/2">{copied ? <CheckCircle2 size={20} className="text-green-500" /> : <Copy size={20} className="text-cyan-400 opacity-50" />}</div>
               </div>
               <input type="text" placeholder="Recipient ID" onChange={(e)=>setTransferId(e.target.value)} className="bg-black border p-4 rounded-xl text-center text-white outline-none border-white/10 focus:border-cyan-500" />
