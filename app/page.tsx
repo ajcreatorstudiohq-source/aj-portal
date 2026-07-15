@@ -45,6 +45,8 @@ const [pixaData, setPixaData] = useState([]);
 const [pixaVideos, setPixaVideos] = useState([]);
 const [newsData, setNewsData] = useState([]);
 const [chatMessages, setChatMessages] = useState([]);
+const [userPosts, setUserPosts] = useState([]); // User's own real posts
+const [postText, setPostText] = useState('');
 const [newMessage, setNewMessage] = useState('');
 const [activeContact, setActiveContact] = useState(null);
 
@@ -76,22 +78,26 @@ const navigateWithAd = (toScreen: string) => {
 
 const fetchSocialAPIs = async () => {
     try {
-        const pRes = await fetch(`https://pixabay.com/api/?key=${PIXABAY_KEY}&q=models+lifestyle&image_type=photo&per_page=30`);
+        const pRes = await fetch(`https://pixabay.com/api/?key=${PIXABAY_KEY}&q=fashion+lifestyle&image_type=photo&per_page=30`);
         const pData = await pRes.json(); setPixaData(pData.hits || []);
-        const vRes = await fetch(`https://pixabay.com/api/videos/?key=${PIXABAY_KEY}&q=fashion+dance&per_page=20`);
+        
+        const vRes = await fetch(`https://pixabay.com/api/videos/?key=${PIXABAY_KEY}&q=travel+vlog&per_page=20`);
         const vData = await vRes.json(); setPixaVideos(vData.hits || []);
+
         const nRes = await fetch(`https://newsapi.org/v2/everything?q=crypto+tech&apiKey=${NEWS_API_KEY}`);
         const nData = await nRes.json(); setNewsData(nData.articles?.slice(0, 15) || []);
     } catch (e) { console.log("API Error"); }
 };
 
-// --- FIREBASE LIVE CHAT ---
+// --- FIREBASE REAL-TIME LISTENERS (CHAT & POSTS) ---
 useEffect(() => {
     if (socialScreen === 'chat' && activeContact) {
         const q = query(collection(db, "global_chat"), orderBy("createdAt", "desc"), limit(40));
-        return onSnapshot(q, (snap) => {
-            setChatMessages(snap.docs.map(d => ({id: d.id, ...d.data()})).reverse());
-        });
+        return onSnapshot(q, (snap) => { setChatMessages(snap.docs.map(d => ({id: d.id, ...d.data()})).reverse()); });
+    }
+    if (socialScreen === 'pulse') {
+        const q = query(collection(db, "user_posts"), orderBy("createdAt", "desc"), limit(20));
+        return onSnapshot(q, (snap) => { setUserPosts(snap.docs.map(d => ({id: d.id, ...d.data()}))); });
     }
 }, [socialScreen, activeContact]);
 
@@ -106,9 +112,24 @@ const sendChatMessage = async () => {
     setNewMessage('');
 };
 
+const handleCreatePost = async () => {
+    if (!postText.trim() && !tempPhoto) return alert("Add text or image!");
+    await addDoc(collection(db, "user_posts"), {
+        text: postText,
+        image: tempPhoto,
+        uid: (user as any).uid,
+        username: username || "AJ_Member",
+        photo: (user as any).photoURL,
+        likes: 0,
+        createdAt: serverTimestamp()
+    });
+    setPostText(''); setTempPhoto('');
+    alert("🚀 Post Published!");
+};
+
 // --- INTERACTION HANDLERS ---
-const handleLike = (id) => { alert("Post Liked! ❤️"); };
-const handleShare = (msg) => { if(navigator.share) navigator.share({title:'AJ Super Portal', text: msg}); else alert("Link Copied!"); };
+const handleLike = (id: any) => { alert("Post Liked! ❤️"); };
+const handleShare = (msg: string) => { if(navigator.share) navigator.share({title:'AJ Portal', text: msg}); else alert("Link Copied!"); };
 
 const copyToClipboard = (id: string) => {
   if(!id) return;
@@ -157,20 +178,16 @@ const handleCreateProfile = async () => {
         });
         setHasSocialProfile(true);
         setSocialScreen(pendingMode || 'hub');
-        alert("🚀 Profile Active!");
     } catch (e) { alert("Setup Error!"); }
 };
 
 const enterSocialMode = (mode: string) => {
     setPendingMode(mode);
-    if (!user || !hasSocialProfile) {
-        setSocialScreen('setup'); 
-    } else {
-        setSocialScreen(mode);
-    }
+    if (!user || !hasSocialProfile) { setSocialScreen('setup'); } 
+    else { setSocialScreen(mode); }
 };
 
-// --- AI & BALANCE EFFECT ---
+// --- PROFIT LOGIC ---
 useEffect(() => {
 const handleSDKMessages = (event: any) => {
 if (!user) return;
@@ -353,24 +370,24 @@ return (
             </div>
         ) : (
             <div className="flex-1 flex flex-col">
-                <div className="w-full bg-black h-12 flex items-center px-4 border-b border-white/10">
-                    <button onClick={() => setSelectedGame(null)} className="text-cyan-400 font-black text-[10px] uppercase tracking-widest hover:brightness-125 transition-all">← BACK TO HUB</button>
+                <div className="w-full bg-black h-12 flex items-center px-6 border-b border-white/10">
+                    <button onClick={() => setSelectedGame(null)} className="text-cyan-400 font-black text-[10px] uppercase">← BACK TO HUB</button>
                     <div className="flex-1 text-center font-black uppercase text-[10px] opacity-40">{selectedGame}</div>
                 </div>
-                <iframe src={`/games/${selectedGame.toLowerCase().replace(/ elite royal/g, '').replace(/ elite/g, '').replace(/ /g, '-')}/index.html`} className="w-full h-full border-none flex-1" title="Game" />
+                <iframe src={`/games/${selectedGame.toLowerCase().replace(/ elite royal/g, '').replace(/ elite/g, '').replace(/ /g, '-')}/index.html`} className="w-full flex-1 border-none" title="Game" />
             </div>
         )}
     </div>
 )}
 
-{/* SOCIAL HUB - HEAVY DESIGNED */}
+{/* SOCIAL HUB - FUNCTIONAL SETUP */}
 {screen === 'social' && (
     <div className="fixed inset-0 z-[400] bg-slate-950 flex flex-col">
-        <div className="sticky top-0 w-full p-4 bg-black/90 backdrop-blur-md border-b border-white/5 flex justify-between items-center z-[500] rounded-b-3xl shadow-2xl">
+        <header className="sticky top-0 w-full p-4 bg-black/90 backdrop-blur-md border-b border-white/5 flex justify-between items-center z-[500] rounded-b-3xl">
             <button onClick={() => {setSocialScreen('hub'); setScreen('hub')}} className="text-pink-500 font-black text-xs uppercase hover:brightness-125">← HUB</button>
             <h2 className="text-xl font-black italic text-pink-500 uppercase text-center flex-1">AJ Social</h2>
-            <button onClick={() => setSocialScreen('setup')} className="bg-white/10 p-2 rounded-full text-pink-500 hover:bg-white/20 shadow-[0_0_100px_#ec4899]"><Settings size={18}/></button>
-        </div>
+            <button onClick={() => setSocialScreen('setup')} className="bg-white/10 p-2 rounded-full text-pink-500 hover:bg-white/20"><Settings size={18}/></button>
+        </header>
 
         <div className="flex-1 overflow-y-auto">
         {socialScreen === 'hub' ? (
@@ -379,10 +396,10 @@ return (
                   <img src={tempPhoto || (user as any)?.photoURL} className="w-12 h-12 rounded-full border-2 border-pink-500 shadow-lg" alt="Profile" />
                   <div>
                     <p className="font-black text-white text-sm uppercase">@{username || "AJ_Member"}</p>
-                    <p className="text-[9px] text-gray-500 uppercase tracking-widest">{hasSocialProfile ? "Verified Member" : "Profile Not Set"}</p>
+                    <p className="text-[9px] text-gray-500 uppercase tracking-widest">Verified Member</p>
                   </div>
              </div>
-             {[{n:'AJ TikReels', i:Video, d:'TikTok Style Videos', s:'tikreels'}, {n:'AJ Pulse', i:Users, d:'Insta Style Feed', s:'pulse'}, {n:'AJ Live Chat', i:MessageSquare, d:'WhatsApp Setup Style', s:'chatlist'}, {n:'AJ Discover', i:Globe, d:'Crypto & Tech News', s:'discover'}].map((mod) => (
+             {[{n:'AJ TikReels', i:Video, d:'TikTok Clone Videos', s:'tikreels'}, {n:'AJ Pulse', i:Users, d:'Insta Style Feed', s:'pulse'}, {n:'AJ Live Chat', i:MessageSquare, d:'WhatsApp Clone', s:'chatlist'}, {n:'AJ Discover', i:Globe, d:'Crypto & Tech News', s:'discover'}].map((mod) => (
                 <div key={mod.n} onClick={() => enterSocialMode(mod.s)} className="p-8 bg-white/5 border border-white/10 rounded-[3rem] text-center hover:border-pink-500 transition-all cursor-pointer group shadow-lg">
                     <div className="text-pink-500 mb-4 flex justify-center group-hover:scale-110 transition-transform"><mod.i size={36}/></div>
                     <h3 className="text-2xl font-black uppercase italic text-white">{mod.n}</h3>
@@ -398,20 +415,19 @@ return (
                         <div className="h-[85vh] w-full snap-start relative border-b border-white/5">
                             <video src={vid.videos.large.url} autoPlay loop muted playsInline className="w-full h-full object-cover" />
                             <div className="absolute right-4 bottom-32 flex flex-col gap-6 items-center">
-                                <div onClick={()=>handleLike(vid.id)} className="flex flex-col items-center cursor-pointer"><Heart size={35} className="text-pink-500"/><span className="text-[10px] font-bold">12.4k</span></div>
+                                <div onClick={()=>handleLike(vid.id)} className="flex flex-col items-center cursor-pointer active:scale-125 transition-all"><Heart size={35} className="text-pink-500"/><span className="text-[10px] font-bold">12k</span></div>
                                 <div className="flex flex-col items-center"><MessageCircle size={35}/><span className="text-[10px] font-bold">842</span></div>
-                                <div onClick={()=>handleShare('Check this out!')} className="flex flex-col items-center cursor-pointer"><Share2 size={35}/><span className="text-[10px] font-bold">Share</span></div>
-                                <div className="w-10 h-10 rounded-full border-2 border-white overflow-hidden animate-spin-slow"><img src="/logo.png" /></div>
+                                <div onClick={()=>handleShare('Check this out on AJ!')} className="flex flex-col items-center cursor-pointer active:scale-125 transition-all"><Share2 size={35}/><span className="text-[10px] font-bold">Share</span></div>
                             </div>
                             <div className="absolute bottom-10 left-6 text-white max-w-[70%]">
                                 <p className="font-black text-sm mb-1">@{vid.user} • LIVE</p>
                                 <p className="text-xs opacity-90 line-clamp-2">New travel visuals on AJ Super Portal! #Viral #TikReels #AJ</p>
-                                <div className="flex items-center gap-2 mt-3 bg-black/30 w-max p-1.5 rounded-full"><Music size={12}/> <marquee className="text-[10px] w-24">Original Sound - AJ Creator Studio</marquee></div>
+                                <div className="flex items-center gap-2 mt-3 bg-black/30 w-max p-1.5 rounded-full"><Music size={12}/> <marquee className="text-[10px] w-24">Original Sound - AJ Creator</marquee></div>
                             </div>
                         </div>
                         {(i + 1) % 5 === 0 && (
                             <div className="h-[85vh] w-full snap-start flex items-center justify-center bg-gray-900 text-cyan-400 font-black flex-col gap-4">
-                                <VideoIcon size={60}/> <p className="uppercase tracking-[0.3em]">AJ Video Ad Sponsor</p>
+                                <VideoIcon size={60}/> <p className="uppercase tracking-[0.3em]">AJ ADVERTISING SPONSOR</p>
                             </div>
                         )}
                     </React.Fragment>
@@ -421,12 +437,30 @@ return (
             <div className="max-w-md mx-auto space-y-6 p-4 pb-24">
                 <button onClick={()=>setSocialScreen('hub')} className="text-pink-500 font-bold mb-4 flex items-center gap-2"><ChevronRight className="rotate-180"/> DISCOVER PULSE</button>
                 <div className="bg-white/5 p-4 rounded-3xl border border-pink-500/20 shadow-xl">
-                    <div className="flex gap-3"><img src={tempPhoto || (user as any).photoURL} className="w-10 h-10 rounded-full border border-pink-500"/><input type="text" placeholder="Share your AJ story..." className="flex-1 bg-white/5 rounded-full px-5 text-xs outline-none border border-white/10"/></div>
+                    <div className="flex gap-3">
+                        <img src={(user as any)?.photoURL || "/logo.png"} className="w-10 h-10 rounded-full border border-pink-500"/>
+                        <textarea value={postText} onChange={(e)=>setPostText(e.target.value)} placeholder="Share your AJ story..." className="flex-1 bg-white/5 rounded-2xl p-4 text-xs outline-none border border-white/10 h-20"/>
+                    </div>
+                    {tempPhoto && <img src={tempPhoto} className="mt-4 rounded-xl w-full h-40 object-cover border border-white/10" />}
                     <div className="flex justify-between mt-4 border-t border-white/5 pt-3">
-                        <button className="flex items-center gap-2 text-[10px] font-bold text-gray-400 hover:text-pink-500 transition-all"><Camera size={18}/> Photo/Video</button>
-                        <button className="bg-pink-600 px-6 py-1.5 rounded-full text-xs font-black shadow-lg">POST</button>
+                        <button onClick={handleImageClick} className="flex items-center gap-2 text-[10px] font-bold text-gray-400 hover:text-pink-500 transition-all"><Camera size={18}/> {tempPhoto ? "Change Photo" : "Add Photo"}</button>
+                        <button onClick={handleCreatePost} className="bg-pink-600 px-6 py-1.5 rounded-full text-xs font-black shadow-lg hover:scale-105 active:scale-95 transition-all">PUBLISH POST</button>
                     </div>
                 </div>
+
+                {/* USER POSTS FIRST */}
+                {userPosts.map((post:any, i) => (
+                    <div key={post.id} className="bg-white/10 border border-white/10 rounded-[2rem] overflow-hidden shadow-2xl">
+                        <div className="flex items-center justify-between p-4"><div className="flex items-center gap-3"><img src={post.photo || "/logo.png"} className="w-9 h-9 rounded-full border-2 border-pink-500 shadow-md"/><p className="font-black text-xs">@{post.username}</p></div><MoreVertical size={18} className="opacity-40"/></div>
+                        {post.image && <img src={post.image} className="w-full aspect-square object-cover" />}
+                        <div className="p-5">
+                            <div className="flex gap-5 mb-4"><Heart size={28} onClick={()=>handleLike(post.id)} className="hover:text-pink-500 cursor-pointer"/><MessageSquare size={28}/><Share2 size={28}/></div>
+                            <p className="text-[11px] leading-relaxed"><span className="font-black mr-2">@{post.username}</span>{post.text}</p>
+                        </div>
+                    </div>
+                ))}
+
+                {/* API POSTS */}
                 {pixaData.map((post:any, i) => (
                     <React.Fragment key={i}>
                     <div className="bg-white/10 border border-white/10 rounded-[2rem] overflow-hidden shadow-2xl">
@@ -435,12 +469,11 @@ return (
                         <div className="p-5">
                             <div className="flex gap-5 mb-4"><Heart size={28} onClick={()=>handleLike(post.id)} className="hover:text-pink-500 cursor-pointer transition-all"/><MessageSquare size={28}/><Share2 size={28} onClick={()=>handleShare('Pulse Post')}/></div>
                             <p className="text-xs"><b>{post.likes.toLocaleString()} likes</b></p>
-                            <p className="text-[11px] mt-2 leading-relaxed"><span className="font-black mr-2">@{post.user}</span>Just chilling on the AJ Portal. This tech is insane! 🔥 #AJ #PortalLife #Gaming</p>
-                            <p className="text-[9px] text-gray-500 mt-3 font-bold uppercase tracking-wider cursor-pointer">View all 48 comments</p>
+                            <p className="text-[11px] mt-2 leading-relaxed"><span className="font-black mr-2">@{post.user}</span>Living my best life on the AJ Super Portal! #Viral #Tech #AJ</p>
                         </div>
                     </div>
                     {(i+1) % 4 === 0 && (
-                        <div className="bg-cyan-500/10 border border-cyan-500/30 p-4 rounded-2xl text-center"><p className="text-[10px] text-cyan-400 font-black tracking-widest uppercase">ADVERTISEMENT SPONSOR</p></div>
+                        <div className="bg-cyan-500/10 border border-cyan-500/30 p-4 rounded-2xl text-center"><p className="text-[10px] text-cyan-400 font-black tracking-widest uppercase">BANNER AD SPONSOR</p></div>
                     )}
                     </React.Fragment>
                 ))}
@@ -450,10 +483,10 @@ return (
                 <div className="bg-[#1f2c33] p-4 flex justify-between items-center"><h2 className="text-xl font-bold text-[#e9edef]">Chats</h2><div className="flex gap-4"><MessageSquare size={20}/><MoreVertical size={20}/></div></div>
                 <div className="p-3"><div className="bg-[#202c33] flex items-center gap-4 px-4 py-2 rounded-xl text-gray-400"><Search size={18}/><input type="text" placeholder="Search chats" className="bg-transparent border-none outline-none text-sm w-full"/></div></div>
                 <div className="mt-2">
-                    {['AJ Global Support', 'Crypto Whale Group', 'Tech Warriors', 'Ali Bhai Elite'].map((contact, i) => (
+                    {['AJ Global Support', 'Crypto Whale Group', 'Ali Bhai VIP Elite', 'Tech News Hub'].map((contact, i) => (
                         <div key={i} onClick={()=>{setActiveContact(contact); setSocialScreen('chat')}} className="flex items-center gap-4 p-4 hover:bg-[#202c33] cursor-pointer border-b border-white/5">
-                            <div className="w-12 h-12 rounded-full bg-pink-500 flex items-center justify-center font-black">AJ</div>
-                            <div className="flex-1"><div className="flex justify-between items-center"><p className="font-bold text-[#e9edef]">{contact}</p><span className="text-[10px] text-green-500 font-bold">11:0{i} PM</span></div><p className="text-xs text-gray-400 line-clamp-1">Welcome to the real-time hub!</p></div>
+                            <div className="w-12 h-12 rounded-full bg-[#00a884] flex items-center justify-center font-black">AJ</div>
+                            <div className="flex-1"><div className="flex justify-between items-center"><p className="font-bold text-[#e9edef]">{contact}</p><span className="text-[10px] text-green-500 font-bold">11:0{i} PM</span></div><p className="text-xs text-gray-400 line-clamp-1">Welcome to AJ Live! How can we help?</p></div>
                         </div>
                     ))}
                 </div>
@@ -463,8 +496,8 @@ return (
                 <div className="bg-[#1f2c33] p-4 flex items-center gap-3 border-b border-white/5">
                     <button onClick={()=>setSocialScreen('chatlist')} className="text-green-500"><ChevronRight className="rotate-180"/></button>
                     <img src="/logo.png" className="w-10 h-10 rounded-full border-2 border-green-500 shadow-md" />
-                    <div className="flex-1"><p className="font-bold text-sm text-white">{activeContact}</p><p className="text-[8px] text-green-500 font-bold uppercase animate-pulse">Online • WhatsApp Mode</p></div>
-                    <div className="flex gap-4"><VideoIcon size={20}/><Phone size={20}/><MoreVertical size={20}/></div>
+                    <div className="flex-1"><p className="font-bold text-sm text-white">{activeContact}</p><p className="text-[8px] text-green-500 font-bold uppercase animate-pulse">Online • WhatsApp Setup</p></div>
+                    <div className="flex gap-4"><VideoIcon size={20}/><Phone size={20}/></div>
                 </div>
                 <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-repeat bg-contain">
                     {chatMessages.map((m:any) => (
@@ -472,7 +505,7 @@ return (
                             <div className={`p-2.5 max-w-[85%] rounded-xl shadow-lg relative ${m.uid === (user as any).uid ? 'bg-[#005c4b] text-[#e9edef] rounded-tr-none' : 'bg-[#202c33] text-[#e9edef] rounded-tl-none'}`}>
                                 <p className="font-black text-[9px] text-yellow-500 mb-1 opacity-70">@{m.username}</p>
                                 <p className="text-[11px] leading-relaxed mb-1 pr-6">{m.text}</p>
-                                <p className="text-[7px] text-white/40 absolute bottom-1 right-2 uppercase">11:42 PM</p>
+                                <p className="text-[7px] text-white/40 absolute bottom-1 right-2 uppercase">Just now</p>
                             </div>
                         </div>
                     ))}
@@ -486,7 +519,7 @@ return (
         ) : socialScreen === 'discover' ? (
             <div className="max-w-4xl mx-auto space-y-5 p-4 pb-24">
                 <button onClick={()=>setSocialScreen('hub')} className="text-pink-500 font-black mb-4 flex items-center gap-2"><ChevronRight className="rotate-180"/> BACK TO HUB</button>
-                <div className="flex items-center gap-3 mb-6"><Globe className="text-cyan-400" size={30}/><h3 className="text-2xl font-black italic uppercase">Crypto & Tech Headlines</h3></div>
+                <div className="flex items-center gap-3 mb-6"><Globe className="text-cyan-400" size={30}/><h3 className="text-2xl font-black italic uppercase">Crypto & Tech Daily</h3></div>
                 {newsData.map((art: any, i) => (
                     <div key={i} className="bg-white/5 p-5 rounded-[2rem] border border-white/10 flex flex-col md:flex-row gap-5 hover:border-cyan-400 transition-all shadow-xl">
                         {art.urlToImage && <img src={art.urlToImage} className="w-full md:w-44 h-44 object-cover rounded-3xl" />}
@@ -494,7 +527,7 @@ return (
                             <div className="flex justify-between items-center mb-3"><span className="text-[9px] bg-cyan-500/20 text-cyan-400 px-3 py-1 rounded-full font-black uppercase">{art.source?.name}</span><span className="text-[8px] text-gray-500 font-bold">{new Date(art.publishedAt).toLocaleDateString()}</span></div>
                             <h4 className="font-black text-base text-white leading-snug mb-3">{art.title}</h4>
                             <p className="text-[11px] text-gray-400 line-clamp-3 mb-4 leading-relaxed">{art.description}</p>
-                            <a href={art.url} target="_blank" className="text-[10px] text-cyan-400 font-black uppercase flex items-center gap-2 border-b border-cyan-400/30 w-max pb-1">Read Source <ArrowUpRight size={14}/></a>
+                            <a href={art.url} target="_blank" className="text-[10px] text-cyan-400 font-black uppercase flex items-center gap-2 border-b border-cyan-400/30 w-max pb-1">Read Full Story <ArrowUpRight size={14}/></a>
                         </div>
                     </div>
                 ))}
@@ -517,7 +550,7 @@ return (
                   </div>
               ) : (
                   <div className="space-y-4 text-left">
-                      <p className="text-[10px] text-center text-gray-400 mb-4 uppercase italic">Tap photo to open Gallery/Camera</p>
+                      <p className="text-[10px] text-center text-gray-400 mb-4 uppercase italic">Tap photo to select from gallery</p>
                       <label className="text-[9px] font-black text-pink-500 ml-1 uppercase">Username</label>
                       <input type="text" placeholder="@unique_name" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full bg-black border border-white/10 p-4 rounded-2xl font-bold text-white outline-none focus:border-pink-500" />
                       <label className="text-[9px] font-black text-pink-500 ml-1 uppercase">Bio</label>
@@ -526,18 +559,8 @@ return (
                   </div>
               )}
               <div className="mt-8 pt-6 border-t border-white/5">
-                <button onClick={handleSignOut} className="text-red-500 text-[10px] font-black uppercase flex items-center justify-center gap-2 mx-auto hover:brightness-125"><LogOut size={14}/> Sign Out / Switch Account</button>
+                <button onClick={handleSignOut} className="text-red-500 text-[10px] font-black uppercase flex items-center justify-center gap-2 mx-auto hover:brightness-125"><LogOut size={14}/> Sign Out</button>
               </div>
-              <button onClick={() => setSocialScreen('hub')} className="mt-4 text-gray-500 uppercase text-[10px] w-full text-center hover:text-white">Back</button>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center h-[60vh] text-center px-4">
-             <h2 className="text-4xl font-black text-pink-500 uppercase italic mb-4">{socialScreen.toUpperCase()}</h2>
-             <p className="text-gray-400 text-sm italic">Connecting to Servers... Season 2 🚀</p>
-             <div className="flex gap-4 mt-12">
-                <button onClick={() => setSocialScreen('setup')} className="px-6 py-2 bg-pink-600 rounded-full text-[10px] font-black uppercase flex items-center gap-2 shadow-lg hover:scale-105 transition-all text-white"><Edit3 size={14}/> Edit Profile</button>
-                <button onClick={() => setSocialScreen('hub')} className="px-6 py-2 bg-white/5 border border-white/10 rounded-full text-[10px] font-black uppercase hover:bg-white/10 text-white">Dashboard</button>
-             </div>
           </div>
         )}
         </div>
@@ -563,18 +586,14 @@ return (
               <label className="text-[10px] font-black text-cyan-400 uppercase tracking-widest">Method</label>
               <select value={purchaseMethod} onChange={(e)=>setPurchaseMethod(e.target.value)} className="w-full bg-gray-900 border border-white/10 p-4 rounded-xl text-white font-bold outline-none"><option>Binance (TRC20)</option><option>Airtm (Gmail Account)</option></select>
               
-              <div className="bg-black border-2 border-white/10 p-6 rounded-3xl text-center shadow-[inset_0_0_20px_rgba(0,255,255,0.05)]">
+              <div className="bg-black border-2 border-white/10 p-6 rounded-3xl text-center">
                  <p className="text-[10px] text-gray-500 uppercase font-black mb-2">You will receive</p>
                  <p className="text-yellow-500 text-5xl font-black mb-4 drop-shadow-[0_0_10px_#eab308]">{(purchaseAmount * 100).toLocaleString()} 🪙</p>
                  <div className="flex items-center justify-center gap-2 bg-white/5 p-3 rounded-2xl border border-white/10">
                     <DollarSign className="text-green-400" size={24}/>
                     <input type="number" value={purchaseAmount === 0 ? '' : purchaseAmount} onChange={(e)=>setPurchaseAmount(e.target.value === '' ? 0 : Number(e.target.value))} className="bg-transparent text-white text-3xl w-32 text-center font-bold outline-none" />
                  </div>
-                 <p className="text-[9px] text-red-400 mt-3 font-bold uppercase italic">Minimum Purchase: $20</p>
               </div>
-
-              {purchaseMethod.includes('Airtm') && (<div className="p-4 bg-slate-900 rounded-2xl border border-cyan-500/30 text-xs"><p className="text-gray-400 mb-1">Send to: ajcreatorstudio.hq@gmail.com</p><input type="text" placeholder="TX ID" value={purchaseTxId} onChange={(e)=>setPurchaseTxId(e.target.value)} className="w-full bg-black border p-2 rounded text-white" /></div>)}
-              
               <button onClick={handlePurchase} className="bg-cyan-500 py-5 rounded-xl font-black uppercase shadow-lg active:scale-95 transition-all">Confirm Purchase</button>
               <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase mt-2 hover:text-white">Cancel</button>
             </div>
@@ -597,30 +616,10 @@ return (
               <label className="text-[10px] text-pink-500 font-black uppercase">Min 12,500 Coins ($25)</label>
               <select value={payoutMethod} onChange={(e)=>setPayoutMethod(e.target.value)} className="w-full bg-gray-900 border border-white/10 p-4 rounded-xl text-white font-bold outline-none focus:border-pink-500"><option>Binance Pay (USDT)</option><option>Airtm (Gmail Account)</option><option>EasyPaisa (PKR)</option><option>JazzCash (PKR)</option><option>Visa Transfer (Master/Visa)</option></select>
               <input type="text" placeholder="ID / Phone / Card Details" onChange={(e)=>setPayoutId(e.target.value)} className="bg-black border p-4 rounded-xl text-white outline-none border-white/10" />
-              {payoutMethod.includes('Visa') && (<><input type="text" placeholder="Name on Card" onChange={(e)=>setCardName(e.target.value)} className="bg-black border p-4 rounded-xl text-white mb-2 outline-none" /><input type="text" placeholder="Card Number" onChange={(e)=>setCardNumber(e.target.value)} className="bg-black border p-4 rounded-xl text-white outline-none" /></>)}
               <button onClick={handleWithdraw} className="bg-pink-600 py-4 rounded-xl font-black uppercase shadow-lg">Request Payout</button>
               <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase mt-2 hover:text-white">Back</button>
             </div>
           )}
-       </div>
-    </div>
-)}
-
-{/* AI BOT */}
-{screen === 'ai' && (
-    <div className="fixed inset-0 z-[600] bg-black flex flex-col items-center p-8 overflow-y-auto">
-       <div className="w-full max-w-4xl pt-10"><button onClick={() => setScreen('hub')} className="text-green-400 font-bold text-sm mb-12 uppercase tracking-widest hover:brightness-125">← Back</button></div>
-       <h2 className="text-5xl font-black mb-12 text-center uppercase text-white italic">AJ AI BOT</h2>
-       {botTier !== 'none' && (
-         <div className="w-full max-w-2xl bg-white/5 border-2 border-green-500/40 p-8 rounded-[3rem] text-center mb-16 shadow-[0_0_30px_rgba(34,197,94,0.2)]">
-            <Activity size={60} className="mx-auto mb-6 text-green-500 animate-pulse" />
-            <h2 className="text-4xl font-black text-white mb-2 uppercase tracking-tighter">{botTier} BOT RUNNING</h2>
-            <div className="w-full bg-black/50 border border-green-500/30 p-6 rounded-2xl font-mono text-left shadow-inner"><div className="flex justify-between items-center mb-4"><span className="text-green-400 font-black text-xs uppercase">Neural Profit:</span><span className="text-white font-black text-lg">+{visualProfit.toFixed(4)} 🪙</span></div><div className="h-20 overflow-hidden text-green-500/70 mt-2 text-[10px] leading-relaxed">{tradeLogs.map((log, i) => ( <div key={i} className="mb-1">{log}</div> ))}</div></div>
-         </div>
-       )}
-       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-4xl px-2 pb-20">
-          <div className={`p-10 rounded-3xl text-center border-2 transition-all ${botTier === 'basic' ? 'border-green-500 bg-green-500/10' : 'border-white/10 bg-white/5'}`}><h3 className="text-xl font-black text-cyan-400 uppercase">Basic (25k Coins)</h3><p className="text-sm text-gray-400 mt-2">Earn 2% Daily</p><button onClick={() => activateBot('basic', 25000)} className={`mt-6 w-full py-4 rounded-xl font-black uppercase ${botTier === 'basic' ? 'bg-green-500 text-black cursor-not-allowed' : 'bg-cyan-600'}`}>{botTier === 'basic' ? "RUNNING" : "ACTIVATE"}</button></div>
-          <div className={`p-10 rounded-3xl text-center border-2 transition-all ${botTier === 'vvip' ? 'border-yellow-500 bg-yellow-500/10' : 'border-white/10 bg-white/5'}`}><h3 className="text-xl font-black text-yellow-500 uppercase">VVIP (75k Coins)</h3><p className="text-sm text-gray-400 mt-2">Earn 5% Daily</p><button onClick={() => activateBot('vvip', 75000)} className={`mt-6 w-full py-4 rounded-xl font-black uppercase ${botTier === 'vvip' ? 'bg-yellow-500 text-black cursor-not-allowed' : 'bg-yellow-600'}`}>{botTier === 'vvip' ? "RUNNING" : "ACTIVATE"}</button></div>
        </div>
     </div>
 )}
