@@ -222,14 +222,11 @@
         } else { alert("Ads not available."); }
     }
 
-    // --- REVIVE WITH AD ---
     function showReviveAd() { 
         if(window.AJ_SDK) {
             window.AJ_SDK.showAd();
             setTimeout(() => { revivePlayer(); }, 1000);
-        } else { 
-            revivePlayer(); 
-        }
+        } else { revivePlayer(); }
     }
 
     function revivePlayer() { 
@@ -261,13 +258,10 @@
     function selectUnit(i) { 
         if (unlockedUnits.includes(i)) { playFromPool('click'); selectedUnitIndex = i; localStorage.setItem('ns_selected', i); } 
         else if (totalPoints >= units[i].price) { 
-            if(window.AJ_SDK) window.AJ_SDK.showAd(); 
-            setTimeout(() => {
-                totalPoints -= units[i].price; unlockedUnits.push(i); selectedUnitIndex = i; 
-                playFromPool('coincash');
-                localStorage.setItem('ns_points', totalPoints); localStorage.setItem('ns_unlocked', JSON.stringify(unlockedUnits)); localStorage.setItem('ns_selected', i); 
-                syncWithPortal(); updateGarageUI(); updateUIDisplays();
-            }, 1500);
+            totalPoints -= units[i].price; unlockedUnits.push(i); selectedUnitIndex = i; 
+            playFromPool('coincash');
+            localStorage.setItem('ns_points', totalPoints); localStorage.setItem('ns_unlocked', JSON.stringify(unlockedUnits)); localStorage.setItem('ns_selected', i); 
+            syncWithPortal(); updateGarageUI(); updateUIDisplays();
         } else { playFromPool('enoughbalance'); let diff = units[i].price - totalPoints; showAlert("NEED " + diff + " DATA POINTS"); } updateGarageUI(); updateUIDisplays();
     }
 
@@ -283,7 +277,7 @@
         }
     }
 
-    // --- RETRY WITH AD ---
+    // --- ONLY AD ON RETRY BUTTON ---
     function startGameWithAd() {
         if(window.AJ_SDK) window.AJ_SDK.showAd(); 
         startGame();
@@ -310,48 +304,33 @@
         homeBg.style.display = 'none'; 
         document.querySelectorAll('.screen').forEach(s => s.classList.remove('active-screen')); 
         document.getElementById('hud').style.display = 'flex'; document.getElementById('abilityBtn').style.display = 'flex'; document.getElementById('joyContainer').style.display = 'block'; 
-        updateAudioUI(); 
-        audioPool.jetenginesound.play().catch(()=>{}); 
-        loop(); 
+        updateAudioUI(); audioPool.jetenginesound.play().catch(()=>{}); loop(); 
     }
 
-    // --- CRASH WITHOUT STUCK AD ---
     function startCrashSequence(x, y) { 
-        isCrashing = true; 
-        crashTimer = 90; // Optimized time for screen transition
+        isCrashing = true; crashTimer = 60; // Fast transition
         crashX = x; crashY = y; shake = 50; flash = 0.5; 
-        document.getElementById('hud').style.display = 'none'; 
-        document.getElementById('abilityBtn').style.display = 'none'; 
-        document.getElementById('joyContainer').style.display = 'none'; 
+        document.getElementById('hud').style.display = 'none'; document.getElementById('abilityBtn').style.display = 'none'; document.getElementById('joyContainer').style.display = 'none'; 
         audioPool.bgmusic.pause(); audioPool.jetenginesound.pause(); 
         playFromPool('jetcrash'); 
-        // Ad Removed from here to prevent freeze
     }
 
     function finalizeGameOver() { 
-        gameActive = false; 
-        isCrashing = false;
+        gameActive = false; isCrashing = false;
         totalPoints += score; 
         localStorage.setItem('ns_points', totalPoints); 
         document.getElementById('finalScore').innerText = score; 
         document.getElementById('finalAJ').innerText = (score * 0.003).toFixed(3); 
-        updateUIDisplays(); 
-        syncWithPortal(); 
-        
+        updateUIDisplays(); syncWithPortal(); 
         document.querySelectorAll('.screen').forEach(s => s.classList.remove('active-screen'));
         document.getElementById('gameOver').classList.add('active-screen'); 
         homeBg.style.display = 'block'; homeBg.classList.remove('bg-blurred'); 
         updateAudioUI(); 
-        // Ad Removed from here - it now triggers on button click (Retry/Revive)
     }
 
     function update() {
         if(!gameActive || isPaused) return;
-        if(isCrashing) { 
-            crashTimer--; 
-            if(crashTimer <= 0) finalizeGameOver(); 
-            return; 
-        }
+        if(isCrashing) { crashTimer--; if(crashTimer <= 0) finalizeGameOver(); return; }
         frame++; if(shake > 0) shake *= 0.9; if(flash > 0) flash -= 0.05;
         if(joy.active && joy.dist > 5) { player.rotation = joy.angle; const mS = (joy.dist / joy.maxDist) * player.speed; player.x += Math.cos(joy.angle) * mS; player.y += Math.sin(joy.angle) * mS; }
         player.x = Math.max(20, Math.min(canvas.width-20, player.x)); player.y = Math.max(20, Math.min(canvas.height-20, player.y));
