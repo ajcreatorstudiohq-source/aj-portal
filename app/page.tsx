@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { auth, db, googleProvider } from '../firebaseConfig';
 import { signInWithPopup, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, updateDoc, increment, collection, addDoc, getDoc, serverTimestamp } from 'firebase/firestore';
-import { MessageCircle, Trophy, Zap, Wallet, Bot, LogOut, Globe, ChevronRight, Send, CreditCard, ArrowUpRight, ShieldCheck, Crown, Activity, TrendingUp, X, CheckCircle2, Download, Copy, Video, Newspaper, Users, Heart, MessageSquare, User, Edit3, Camera, Link as LinkIcon, Youtube, Instagram } from 'lucide-react';
+import { MessageCircle, Trophy, Zap, Wallet, Bot, LogOut, Globe, ChevronRight, Send, CreditCard, ArrowUpRight, ShieldCheck, Crown, Activity, TrendingUp, X, CheckCircle2, Download, Copy, Video, Newspaper, Users, Heart, MessageSquare, User, Camera, Instagram, Youtube } from 'lucide-react';
 import emailjs from 'emailjs-com';
 
 // --- CONFIGURATIONS ---
@@ -31,9 +31,8 @@ const [copied, setCopied] = useState(false);
 const [bio, setBio] = useState('');
 const [instaLink, setInstaLink] = useState('');
 const [ytLink, setYtLink] = useState('');
-const [isEditing, setIsEditing] = useState(false);
 
-// AI STATES
+// --- AI STATES ---
 const [visualProfit, setVisualProfit] = useState(0);
 const [tradeLogs, setTradeLogs] = useState(["Initialising Neural Link...", "Analysing Market Volatility...", "Connecting to AJ liquidity pool..."]);
 
@@ -64,10 +63,13 @@ const handleSDKMessages = (event) => {
 if (!user) return;
 const data = event.detail || event.data;
 if (!data || !data.type) return;
+
 const rawReward = data.amount || data.coins || 0;
 const safeTotalValue = rawReward / 1000; 
+
 const userRef = doc(db, "users", user.uid);
 const adminRef = doc(db, "admin_ledger", "platform_stats");
+
 if (data.type === 'EARNED' || data.type === "ADD_AD_REVENUE") {
     updateDoc(userRef, { balance: increment(safeTotalValue * 0.30) });
     updateDoc(adminRef, { total_revenue: increment(safeTotalValue * 0.70) });
@@ -91,7 +93,7 @@ useEffect(() => {
     dbSyncInt = setInterval(async () => {
       setVisualProfit(curr => {
         if (curr >= 1) {
-          const syncAmt = Math.floor(curr);
+          const syncAmt = Math.floor(currentProfit);
           updateDoc(doc(db, "users", user.uid), { balance: increment(syncAmt), lastSync: serverTimestamp() });
           return curr - syncAmt;
         }
@@ -164,7 +166,7 @@ const handlePurchase = async () => {
 
 const saveProfile = async () => {
   await updateDoc(doc(db, "users", user.uid), { bio, instaLink, ytLink });
-  setIsEditing(false);
+  setSocialScreen('hub');
   alert("✅ Profile Updated!");
 };
 
@@ -183,7 +185,7 @@ const handleWithdraw = async () => {
 if (balance < 2500) return alert("Min 2,500 Coins!");
 let details = payoutId;
 if (payoutMethod.includes('Visa')) details = `Name: ${cardName} | Card: ${cardNumber}`;
-await addDoc(collection(db, "withdraw_requests"), { uid: user.uid, email: user.email, amount: balance, method: payoutMethod, details, status: "pending", date: serverTimestamp() });
+await addDoc(collection(db, "withdraw_requests"), { uid: user.uid, email: user.email, amount: balance, method: payoutMethod, details: details, status: "pending", date: serverTimestamp() });
 alert("✅ Request Sent!"); setWalletTab('main');
 };
 
@@ -204,7 +206,7 @@ if (screen === 'splash') return (
 if (screen === 'auth' && !user) return (
 <main className="min-h-screen bg-black flex flex-col items-center justify-center p-6 text-white text-center">
 <div className="w-full max-w-sm bg-white/[0.03] border border-white/10 p-12 rounded-[3rem] shadow-2xl">
-<h2 className="text-6xl font-black mb-10 italic text-cyan-400 uppercase font-orbitron">AJ <span className="text-white">ID</span></h2>
+<h2 className="text-6xl font-black mb-10 italic text-cyan-400 uppercase">AJ <span className="text-white">ID</span></h2>
 <button onClick={handleLogin} className="w-full py-5 bg-white text-black font-black text-xl rounded-2xl active:scale-95">CONTINUE WITH GOOGLE</button>
 <p className="mt-8 text-yellow-500 font-bold tracking-widest">+500 COINS BONUS</p>
 </div>
@@ -228,27 +230,52 @@ return (
 <section className="min-h-screen flex flex-col items-center justify-center p-4 pt-24 relative">
     <h1 className="text-4xl md:text-8xl font-black text-center mb-12 uppercase drop-shadow-[0_0_20px_#22d3ee]">AJ SUPER PORTAL</h1>
     <div className="grid grid-cols-2 gap-4 md:gap-16 w-full max-w-4xl relative z-30">
-      <div onClick={() => setScreen('arcade')} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center cursor-pointer shadow-xl active:scale-95 transition-all hover:border-cyan-400">
-         <Trophy className="text-cyan-400 w-10 h-10 md:w-20 md:h-20 mb-2 drop-shadow-[0_0_10px_#22d3ee]" />
-         <span className="font-black text-xs md:text-3xl uppercase drop-shadow-[0_0_10px_#22d3ee]">Gaming</span>
-      </div>
-      <div onClick={() => {setScreen('social'); setSocialScreen('hub');}} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center active:scale-95 shadow-xl relative z-50 cursor-pointer hover:border-pink-500">
-         <Zap className="text-pink-500 w-10 h-10 md:w-20 md:h-20 mb-2 drop-shadow-[0_0_10px_#ec4899]" />
-         <span className="font-black text-xs md:text-3xl uppercase drop-shadow-[0_0_10px_#ec4899]">Social</span>
-      </div>
-      <div onClick={() => {setScreen('wallet'); setWalletTab('main')}} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center cursor-pointer shadow-xl active:scale-95 transition-all hover:border-yellow-500 relative z-30">
-         <img src="/gold.jpg" className="w-14 h-14 mb-2 drop-shadow-[0_0_10px_#eab308]" />
-         <h2 className="font-black text-xs md:text-3xl uppercase text-yellow-500 drop-shadow-[0_0_10px_#eab308]">Wallet</h2>
-      </div>
-      <div onClick={() => setScreen('ai')} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center active:scale-95 transition-all cursor-pointer shadow-xl relative z-30 hover:border-green-500">
-         <Bot className="text-green-400 w-10 h-10 md:w-20 md:h-20 mb-2 drop-shadow-[0_0_10px_#4ade80]" />
-         <span className="font-black text-xs md:text-3xl uppercase drop-shadow-[0_0_10px_#4ade80]">AJ AI</span>
-      </div>
+      <div onClick={() => setScreen('arcade')} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center cursor-pointer shadow-xl active:scale-95 transition-all hover:border-cyan-400"><Trophy className="text-cyan-400 w-10 h-10 md:w-20 md:h-20 mb-2" /><span className="font-black text-xs md:text-3xl uppercase">Gaming</span></div>
+      <div onClick={() => {setScreen('social'); setSocialScreen('hub');}} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center active:scale-95 shadow-xl relative z-50 cursor-pointer hover:border-pink-500"><Zap className="text-pink-500 w-10 h-10 md:w-20 md:h-20 mb-2" /><span className="font-black text-xs md:text-3xl uppercase">Social</span></div>
+      <div onClick={() => {setScreen('wallet'); setWalletTab('main')}} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center cursor-pointer shadow-xl active:scale-95 transition-all hover:border-yellow-500 relative z-30"><img src="/gold.jpg" className="w-14 h-14 mb-2" /><h2 className="font-black text-xs md:text-3xl uppercase text-yellow-500">Wallet</h2></div>
+      <div onClick={() => setScreen('ai')} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center active:scale-95 transition-all cursor-pointer shadow-xl relative z-30 hover:border-green-500"><Bot className="text-green-400 w-10 h-10 md:w-20 md:h-20 mb-2" /><span className="font-black text-xs md:text-3xl uppercase">AJ AI</span></div>
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0"><div className="w-24 h-24 md:w-96 md:h-96 bg-black border-[15px] border-cyan-500 rounded-full flex items-center justify-center shadow-[0_0_100px_#06b6d4] overflow-hidden"><img src="/logo.png" className="w-full h-full object-cover opacity-60 animate-pulse" alt="Logo" /></div></div>
     </div>
 </section>
 
-{/* ARCADE MODAL */}
+{screen === 'social' && (
+    <div className="fixed inset-0 z-[400] bg-[#020617] p-8 overflow-y-auto flex flex-col items-center">
+        <div className="sticky top-0 w-full p-4 bg-black/90 backdrop-blur-md border-b border-white/5 flex justify-between items-center z-[500] mb-8 rounded-full shadow-2xl">
+          <button onClick={() => setScreen('hub')} className="text-cyan-400 font-bold text-xs uppercase hover:brightness-125">← HUB</button>
+          <h2 className="text-xl font-black italic text-pink-500 uppercase">Social Hub</h2>
+          <button onClick={() => setSocialScreen('profile')} className="p-2 bg-white/5 rounded-full border border-pink-500/30 text-pink-500"><User size={20}/></button>
+        </div>
+
+        {socialScreen === 'hub' && (
+          <div className="grid grid-cols-1 gap-6 w-full max-w-md pb-24 px-2">
+             {[{n:'AJ TikReels', i:<Video size={40}/>, s:'tikreels', d:'Short Video & Live'}, {n:'AJ Pulse', i:<Users size={40}/>, s:'pulse', d:'Feed & Community'}, {n:'AJ Live Chat', i:<MessageCircle size={40}/>, s:'chat', d:'WhatsApp Style Chat'}, {n:'AJ Discover', i:<Newspaper size={40}/>, s:'discover', d:'Platform News'}].map((mod) => (
+               <div key={mod.s} onClick={() => mod.s === 'discover' ? setSocialScreen('discover') : alert(`${mod.n} arriving in Season 2!`)} className="p-8 bg-white/5 border border-white/10 rounded-[3rem] text-center hover:border-pink-500 transition-all cursor-pointer shadow-lg hover:bg-white/10"><div className="text-pink-500 mb-4 flex justify-center">{mod.i}</div><h3 className="text-2xl font-black">{mod.n}</h3><p className="text-[10px] text-gray-500 uppercase mt-2 tracking-widest">{mod.d}</p></div>
+             ))}
+          </div>
+        )}
+
+        {/* STEP 1: USER PROFILE SCREEN */}
+        {socialScreen === 'profile' && (
+          <div className="max-w-lg w-full space-y-6 pb-24 flex flex-col items-center">
+              <button onClick={() => setSocialScreen('hub')} className="self-start text-pink-500 font-black text-[10px] uppercase hover:brightness-125 mb-4">← Back</button>
+              <div className="relative group w-32 h-32 mb-4">
+                  <img src={user?.photoURL} className="w-32 h-32 rounded-full border-4 border-pink-500 shadow-2xl" />
+                  <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all"><Camera className="text-white"/></div>
+              </div>
+              <h2 className="text-3xl font-black uppercase italic">{user?.displayName}</h2>
+              <div className="w-full bg-white/5 border border-white/10 rounded-[2.5rem] p-8 shadow-2xl space-y-6 text-left">
+                  <div><label className="text-[10px] font-black text-gray-500 uppercase">Bio / Status</label><textarea value={bio} onChange={(e)=>setBio(e.target.value)} className="w-full bg-black border border-white/10 p-4 rounded-2xl text-sm outline-none focus:border-pink-500 mt-2 h-24" placeholder="Describe yourself..." /></div>
+                  <div><label className="text-[10px] font-black text-gray-500 uppercase">Instagram</label><div className="flex items-center gap-3 bg-black border border-white/10 p-4 rounded-2xl mt-2 focus-within:border-pink-500"><Instagram size={18}/><input value={instaLink} onChange={(e)=>setInstaLink(e.target.value)} className="bg-transparent flex-1 outline-none text-sm" placeholder="Username" /></div></div>
+                  <div><label className="text-[10px] font-black text-gray-500 uppercase">YouTube</label><div className="flex items-center gap-3 bg-black border border-white/10 p-4 rounded-2xl mt-2 focus-within:border-pink-500"><Youtube size={18}/><input value={ytLink} onChange={(e)=>setYtLink(e.target.value)} className="bg-transparent flex-1 outline-none text-sm" placeholder="Channel Link" /></div></div>
+                  <button onClick={saveProfile} className="w-full py-4 bg-pink-600 text-white font-black rounded-xl uppercase shadow-lg active:scale-95 transition-all">Save Profile</button>
+              </div>
+          </div>
+        )}
+
+        {socialScreen === 'discover' && (<div className="max-w-lg w-full space-y-6 pb-24 fixed inset-0 z-[600] bg-black p-8 overflow-y-auto flex flex-col items-center"><button onClick={() => setSocialScreen('hub')} className="self-start text-pink-500 font-black text-[10px] uppercase hover:brightness-125 mb-8">← Back</button><div className="bg-white/5 border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl p-6 w-full max-w-md"><div className="flex items-center gap-3 mb-6"><img src="/logo.png" className="w-10 h-10 rounded-full border border-cyan-500" /><div><p className="font-black text-sm">AJ ADMIN</p><p className="text-[10px] text-gray-500">Official News • Just now</p></div></div><img src="/founder_card.jpg" className="w-full rounded-3xl mb-6 shadow-xl" /><p className="text-sm text-gray-200 leading-relaxed">Welcome to AJ Super Portal Season 2! 🔥<br/><br/>We are building a complete Insta/FB style Social Hub. Stay active and build your balance! 🚀</p></div></div>)}
+    </div>
+)}
+
 {screen === 'arcade' && (
     <div className="fixed inset-0 z-[300] bg-black p-8 overflow-y-auto">
         <button onClick={() => {setScreen('hub'); setSelectedGame(null)}} className="text-cyan-400 font-bold mb-10 tracking-widest uppercase transition-all hover:brightness-125">← BACK</button>
@@ -271,7 +298,6 @@ return (
     </div>
 )}
 
-{/* WALLET MODAL */}
 {screen === 'wallet' && (
     <div className="fixed inset-0 z-[300] bg-black/98 flex flex-col items-center p-8 overflow-y-auto">
        <button onClick={() => {setScreen('hub'); setWalletTab('main')}} className="self-start text-cyan-400 mb-8 font-bold uppercase tracking-widest transition-all hover:brightness-125">← BACK</button>
@@ -321,7 +347,6 @@ return (
     </div>
 )}
 
-{/* AI MODAL */}
 {screen === 'ai' && (
     <div className="fixed inset-0 z-[200] bg-black flex flex-col items-center p-8 overflow-y-auto pb-20">
        <button onClick={() => setScreen('hub')} className="self-start text-green-400 font-bold text-sm mb-12 uppercase tracking-widest hover:brightness-125">← Back</button>
@@ -340,50 +365,9 @@ return (
     </div>
 )}
 
-{/* --- SEASON 2: SOCIAL HUB WITH PROFILE STEP 1 --- */}
-{screen === 'social' && (
-    <div className="fixed inset-0 z-[400] bg-[#020617] p-8 overflow-y-auto flex flex-col items-center">
-        <div className="sticky top-0 w-full p-4 bg-black/90 backdrop-blur-md border-b border-white/5 flex justify-between items-center z-[500] mb-8 rounded-full shadow-2xl">
-          <button onClick={() => setScreen('hub')} className="text-cyan-400 font-bold text-xs uppercase hover:brightness-125">← HUB</button>
-          <h2 className="text-xl font-black italic text-pink-500 uppercase">Social Hub</h2>
-          <button onClick={() => setSocialScreen('profile')} className="p-2 bg-white/5 rounded-full border border-pink-500/30 text-pink-500"><User size={20}/></button>
-        </div>
-
-        {socialScreen === 'hub' && (
-          <div className="grid grid-cols-1 gap-6 w-full max-w-md pb-24 px-2">
-             {[{n:'AJ TikReels', i:<Video size={40}/>, s:'tikreels', d:'Short Video & Live'}, {n:'AJ Pulse', i:<Users size={40}/>, s:'pulse', d:'Feed & Community'}, {n:'AJ Live Chat', i:<MessageCircle size={40}/>, s:'chat', d:'WhatsApp Style Chat'}, {n:'AJ Discover', i:<Newspaper size={40}/>, s:'discover', d:'Platform News'}].map((mod) => (
-               <div key={mod.s} onClick={() => mod.s === 'discover' ? setSocialScreen('discover') : alert(`${mod.n} coming in Season 2!`)} className="p-8 bg-white/5 border border-white/10 rounded-[3rem] text-center hover:border-pink-500 transition-all cursor-pointer shadow-lg hover:bg-white/10"><div className="text-pink-500 mb-4 flex justify-center">{mod.i}</div><h3 className="text-2xl font-black">{mod.n}</h3><p className="text-[10px] text-gray-500 uppercase mt-2 tracking-widest">{mod.d}</p></div>
-             ))}
-          </div>
-        )}
-
-        {/* STEP 1: USER PROFILE SCREEN */}
-        {socialScreen === 'profile' && (
-          <div className="max-w-lg w-full space-y-6 pb-24 flex flex-col items-center">
-              <button onClick={() => setSocialScreen('hub')} className="self-start text-pink-500 font-black text-[10px] uppercase hover:brightness-125 mb-4">← Back to Hub</button>
-              <div className="relative group w-32 h-32 mb-4">
-                  <img src={user?.photoURL} className="w-32 h-32 rounded-full border-4 border-pink-500 shadow-[0_0_20px_rgba(236,72,153,0.5)]" />
-                  <div className="absolute inset-0 bg-black/40 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all cursor-pointer"><Camera className="text-white" /></div>
-              </div>
-              <h2 className="text-3xl font-black uppercase italic tracking-tighter">{user?.displayName}</h2>
-              <div className="px-4 py-1 bg-pink-500/20 border border-pink-500/50 rounded-full text-[10px] font-black text-pink-500 uppercase tracking-widest">Bot Status: {botTier.toUpperCase()}</div>
-
-              <div className="w-full bg-white/5 border border-white/10 rounded-[2.5rem] p-8 shadow-2xl space-y-6">
-                  <div><label className="text-[10px] font-black text-gray-500 uppercase ml-1">About Me / Bio</label><textarea value={bio} onChange={(e)=>setBio(e.target.value)} placeholder="Write something about yourself..." className="w-full bg-black border border-white/10 p-4 rounded-2xl text-sm outline-none focus:border-pink-500 mt-2 h-24 resize-none" /></div>
-                  <div><label className="text-[10px] font-black text-gray-500 uppercase ml-1">Instagram Link</label><div className="flex items-center gap-3 bg-black border border-white/10 p-4 rounded-2xl mt-2 focus-within:border-pink-500"><Instagram size={18} className="text-pink-500"/><input value={instaLink} onChange={(e)=>setInstaLink(e.target.value)} placeholder="Username" className="bg-transparent flex-1 outline-none text-sm" /></div></div>
-                  <div><label className="text-[10px] font-black text-gray-500 uppercase ml-1">YouTube Link</label><div className="flex items-center gap-3 bg-black border border-white/10 p-4 rounded-2xl mt-2 focus-within:border-pink-500"><Youtube size={18} className="text-red-500"/><input value={ytLink} onChange={(e)=>setYtLink(e.target.value)} placeholder="Channel Link" className="bg-transparent flex-1 outline-none text-sm" /></div></div>
-                  <button onClick={saveProfile} className="w-full py-4 bg-pink-600 text-white font-black rounded-xl uppercase shadow-lg active:scale-95 transition-all">Save Profile</button>
-              </div>
-          </div>
-        )}
-
-        {socialScreen === 'discover' && (<div className="max-w-lg w-full space-y-6 pb-24 fixed inset-0 z-[600] bg-black p-8 overflow-y-auto flex flex-col items-center"><button onClick={() => setSocialScreen('hub')} className="self-start text-pink-500 font-black text-[10px] uppercase hover:brightness-125 mb-8">← Back</button><div className="bg-white/5 border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl p-6 w-full max-w-md"><div className="flex items-center gap-3 mb-6"><img src="/logo.png" className="w-10 h-10 rounded-full border border-cyan-500" /><div><p className="font-black text-sm">AJ ADMIN</p><p className="text-[10px] text-gray-500">Official News • Just now</p></div></div><img src="/founder_card.jpg" className="w-full rounded-3xl mb-6 shadow-xl" /><p className="text-sm text-gray-200 leading-relaxed">Welcome to AJ Super Portal Season 2! 🔥<br/><br/>We are building a complete Insta/FB style Social Hub. Stay active and build your balance! 🚀</p></div></div>)}
-    </div>
-)}
-
   <section className="py-20 bg-black flex justify-center px-4 border-y border-white/5 transition-all"><img src="/founder_card.jpg" className="w-full max-w-4xl rounded-3xl shadow-2xl hover:scale-[1.01] transition-all" /></section>
   
-  <footer className="bg-black py-24 px-10 border-t border-white/5 text-center flex flex-col items-center">
+  <footer className="bg-black py-24 px-10 border-t border-cyan-500/10 text-center flex flex-col items-center">
     <div className="flex flex-col items-center gap-4 mb-12">
         <MessageCircle size={80} className="text-cyan-400 drop-shadow-[0_0_20px_#06b6d4] animate-pulse" />
         <div className="text-7xl md:text-[10rem] font-black italic text-cyan-400 drop-shadow-[0_0_30px_#06b6d4] uppercase">AJ STUDIO</div>
@@ -392,7 +376,7 @@ return (
         <a href="https://wa.me/96878994093" target="_blank" className="text-green-500 border border-green-500 px-6 py-2 rounded-full font-bold uppercase hover:bg-green-500 hover:text-black transition-all">Whatsapp</a>
         <a href="https://x.com/Ali20352061" target="_blank" className="text-white border border-white px-6 py-2 rounded-full font-bold uppercase hover:bg-white hover:text-black transition-all">X (Twitter)</a>
     </div>
-    <button onClick={handleInstallApp} className="group relative px-12 py-4 bg-cyan-500 text-black font-black uppercase rounded-full shadow-[0_0_40px_#06b6d4] animate-pulse transition-all hover:scale-105 active:scale-95">
+    <button onClick={() => alert("Install Updated!")} className="group relative px-12 py-4 bg-cyan-500 text-black font-black uppercase rounded-full shadow-[0_0_40px_#06b6d4] animate-pulse transition-all hover:scale-105 active:scale-95">
        <span className="relative z-10 flex items-center gap-2 font-black tracking-widest"><Download size={22} /> Install AJ App</span>
        <div className="absolute inset-0 bg-white/20 group-hover:translate-x-full transition-transform duration-500 -skew-x-12"></div>
     </button>
