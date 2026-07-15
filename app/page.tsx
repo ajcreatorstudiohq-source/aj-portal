@@ -6,6 +6,7 @@ import { doc, setDoc, onSnapshot, updateDoc, increment, collection, addDoc, getD
 import { MessageCircle, Trophy, Zap, Wallet, Bot, LogOut, Globe, ChevronRight, Send, CreditCard, ArrowUpRight, ShieldCheck, Crown, Activity, TrendingUp, X, CheckCircle2, Download, Copy, Video, Newspaper, Users, Heart, MessageSquare, User, Camera, Instagram, Youtube } from 'lucide-react';
 import emailjs from 'emailjs-com';
 
+// --- CONFIGURATIONS ---
 const EMAILJS_CONFIG = {
   Service_ID: "service_6w1sols",
   Template_ID: "template_o1c40nv",
@@ -26,13 +27,16 @@ const [loading, setLoading] = useState(0);
 const [selectedGame, setSelectedGame] = useState(null);
 const [copied, setCopied] = useState(false);
 
+// PROFILE STATES
 const [bio, setBio] = useState('');
 const [instaLink, setInstaLink] = useState('');
 const [ytLink, setYtLink] = useState('');
 
+// --- AI STATES ---
 const [visualProfit, setVisualProfit] = useState(0);
-const [tradeLogs, setTradeLogs] = useState(["Initialising Neural Link...", "Analysing Market Volatility..."]);
+const [tradeLogs, setTradeLogs] = useState(["Initialising Neural Link...", "Analysing Market Volatility...", "Connecting to AJ liquidity pool..."]);
 
+// Input States
 const [purchaseAmount, setPurchaseAmount] = useState(20);
 const [purchaseMethod, setPurchaseMethod] = useState('Binance (TRC20)');
 const [purchaseTxId, setPurchaseTxId] = useState('');
@@ -53,15 +57,19 @@ const copyToClipboard = (id) => {
   setTimeout(() => setCopied(false), 2000);
 };
 
+// --- PROFIT LOGIC (70/30 NO-LOSS MATH) ---
 useEffect(() => {
 const handleSDKMessages = (event) => {
 if (!user) return;
 const data = event.detail || event.data;
 if (!data || !data.type) return;
+
 const rawReward = data.amount || data.coins || 0;
 const safeTotalValue = rawReward / 1000; 
+
 const userRef = doc(db, "users", user.uid);
 const adminRef = doc(db, "admin_ledger", "platform_stats");
+
 if (data.type === 'EARNED' || data.type === "ADD_AD_REVENUE") {
     updateDoc(userRef, { balance: increment(safeTotalValue * 0.30) });
     updateDoc(adminRef, { total_revenue: increment(safeTotalValue * 0.70) });
@@ -71,6 +79,7 @@ window.addEventListener("message", handleSDKMessages);
 return () => window.removeEventListener("message", handleSDKMessages);
 }, [user]);
 
+// --- AI BOT ENGINE ---
 useEffect(() => {
   let logInt, visualInt, dbSyncInt;
   if (user && botTier !== 'none' && invested > 0) {
@@ -187,6 +196,10 @@ setVisualProfit(0);
 alert(`🚀 ${tier.toUpperCase()} BOT ACTIVATED!`);
 };
 
+const handleInstallApp = () => {
+    alert("Install App feature starting...");
+};
+
 if (screen === 'splash') return (
 <main className="h-screen bg-black flex flex-col items-center justify-center text-white text-center">
 <div className="w-40 h-40 bg-black rounded-full border-4 border-cyan-500 shadow-[0_0_60px_#06b6d4] overflow-hidden mb-8"><img src="/logo.png" className="w-full h-full object-cover" alt="Logo" /></div>
@@ -221,26 +234,37 @@ return (
 <section className="min-h-screen flex flex-col items-center justify-center p-4 pt-24 relative">
     <h1 className="text-4xl md:text-8xl font-black text-center mb-12 uppercase drop-shadow-[0_0_20px_#22d3ee]">AJ SUPER PORTAL</h1>
     <div className="grid grid-cols-2 gap-4 md:gap-16 w-full max-w-4xl relative z-30">
+      
+      {/* GAMING CARD */}
       <div onClick={() => setScreen('arcade')} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center cursor-pointer shadow-xl active:scale-95 transition-all hover:border-cyan-400">
          <Trophy className="text-cyan-400 w-10 h-10 md:w-20 md:h-20 mb-2 drop-shadow-[0_0_15px_#22d3ee]" />
          <span className="font-black text-xs md:text-3xl uppercase drop-shadow-[0_0_10px_#22d3ee]">Gaming</span>
       </div>
+
+      {/* SOCIAL CARD */}
       <div onClick={() => {setScreen('social'); setSocialScreen('hub');}} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center active:scale-95 shadow-xl relative z-50 cursor-pointer hover:border-pink-500">
          <Zap className="text-pink-500 w-10 h-10 md:w-20 md:h-20 mb-2 drop-shadow-[0_0_15px_#ec4899]" />
          <span className="font-black text-xs md:text-3xl uppercase drop-shadow-[0_0_10px_#ec4899]">Social</span>
       </div>
+      
+      {/* WALLET CARD */}
       <div onClick={() => {setScreen('wallet'); setWalletTab('main')}} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center cursor-pointer shadow-xl active:scale-95 transition-all hover:border-yellow-500 relative z-30">
          <img src="/gold.jpg" className="w-14 h-14 mb-2 drop-shadow-[0_0_15px_#eab308]" />
          <h2 className="font-black text-xs md:text-3xl uppercase text-yellow-500 drop-shadow-[0_0_10px_#eab308]">Wallet</h2>
       </div>
+      
+      {/* AJ AI CARD */}
       <div onClick={() => setScreen('ai')} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center active:scale-95 transition-all cursor-pointer shadow-xl relative z-30 hover:border-green-500">
          <Bot className="text-green-400 w-10 h-10 md:w-20 md:h-20 mb-2 drop-shadow-[0_0_15px_#4ade80]" />
          <span className="font-black text-xs md:text-3xl uppercase drop-shadow-[0_0_10px_#4ade80]">AJ AI</span>
       </div>
+      
+      {/* CENTER LOGO */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0"><div className="w-24 h-24 md:w-96 md:h-96 bg-black border-[15px] border-cyan-500 rounded-full flex items-center justify-center shadow-[0_0_100px_#06b6d4] overflow-hidden"><img src="/logo.png" className="w-full h-full object-cover opacity-60 animate-pulse" alt="Logo" /></div></div>
     </div>
 </section>
 
+{/* SOCIAL MODAL WITH PROFILE SYSTEM */}
 {screen === 'social' && (
     <div className="fixed inset-0 z-[400] bg-[#020617] p-8 overflow-y-auto flex flex-col items-center">
         <div className="sticky top-0 w-full p-4 bg-black/90 backdrop-blur-md border-b border-white/5 flex justify-between items-center z-[500] mb-8 rounded-full shadow-2xl">
@@ -248,33 +272,41 @@ return (
           <h2 className="text-xl font-black italic text-pink-500 uppercase">Social Hub</h2>
           <button onClick={() => setSocialScreen('profile')} className="p-2 bg-white/5 rounded-full border border-pink-500/30 text-pink-500 transition-all hover:bg-pink-500/20"><User size={20}/></button>
         </div>
+
         {socialScreen === 'hub' && (
           <div className="grid grid-cols-1 gap-6 w-full max-w-md pb-24 px-2">
              {[{n:'AJ TikReels', i:<Video size={40}/>, s:'tikreels', d:'Short Video & Live'}, {n:'AJ Pulse', i:<Users size={40}/>, s:'pulse', d:'Feed & Community'}, {n:'AJ Live Chat', i:<MessageCircle size={40}/>, s:'chat', d:'WhatsApp Style Chat'}, {n:'AJ Discover', i:<Newspaper size={40}/>, s:'discover', d:'Platform News'}].map((mod) => (
-               <div key={mod.s} onClick={() => mod.s === 'discover' ? setSocialScreen('discover') : alert(`${mod.n} coming in Season 2!`)} className="p-8 bg-white/5 border border-white/10 rounded-[3rem] text-center hover:border-pink-500 transition-all cursor-pointer shadow-lg hover:bg-white/10"><div className="text-pink-500 mb-4 flex justify-center">{mod.i}</div><h3 className="text-2xl font-black">{mod.n}</h3><p className="text-[10px] text-gray-500 uppercase mt-2 tracking-widest">{mod.d}</p></div>
+               <div key={mod.s} onClick={() => mod.s === 'discover' ? setSocialScreen('discover') : alert(`${mod.n} coming in Season 2!`)} className="p-8 bg-white/5 border border-white/10 rounded-[3rem] text-center hover:border-pink-500 transition-all cursor-pointer shadow-lg hover:bg-white/10">
+                  <div className="text-pink-500 mb-4 flex justify-center">{mod.i}</div>
+                  <h3 className="text-2xl font-black">{mod.n}</h3>
+                  <p className="text-[10px] text-gray-500 uppercase mt-2 tracking-widest">{mod.d}</p>
+               </div>
              ))}
           </div>
         )}
+
         {socialScreen === 'profile' && (
-          <div className="max-w-lg w-full space-y-6 pb-24 flex flex-col items-center text-center">
+          <div className="max-w-lg w-full space-y-6 pb-24 flex flex-col items-center">
               <button onClick={() => setSocialScreen('hub')} className="self-start text-pink-500 font-black text-[10px] uppercase hover:brightness-125 mb-4">← Back</button>
-              <div className="relative group">
-                <img src={user?.photoURL} className="w-32 h-32 rounded-full border-4 border-pink-500 shadow-2xl" />
-                <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all"><Camera className="text-white" size={24}/></div>
+              <div className="relative group w-32 h-32 mb-4">
+                  <img src={user?.photoURL} className="w-32 h-32 rounded-full border-4 border-pink-500 shadow-2xl" />
+                  <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all"><Camera className="text-white" size={24}/></div>
               </div>
               <h2 className="text-3xl font-black uppercase italic tracking-tighter drop-shadow-[0_0_10px_#ec4899]">{user?.displayName}</h2>
               <div className="w-full bg-white/5 border border-white/10 rounded-[2.5rem] p-8 shadow-2xl space-y-6 text-left">
-                  <div><label className="text-[10px] font-black text-gray-500 uppercase">Bio</label><textarea value={bio} onChange={(e)=>setBio(e.target.value)} className="w-full bg-black border border-white/10 p-4 rounded-2xl text-sm outline-none focus:border-pink-500 mt-2 h-24" placeholder="Describe yourself..." /></div>
-                  <div><label className="text-[10px] font-black text-gray-500 uppercase">Instagram</label><div className="flex items-center gap-3 bg-black border border-white/10 p-4 rounded-2xl mt-2 focus-within:border-pink-500"><Instagram size={18} className="text-pink-500" /><input value={instaLink} onChange={(e)=>setInstaLink(e.target.value)} className="bg-transparent flex-1 outline-none text-sm" placeholder="username" /></div></div>
-                  <div><label className="text-[10px] font-black text-gray-500 uppercase">YouTube</label><div className="flex items-center gap-3 bg-black border border-white/10 p-4 rounded-2xl mt-2 focus-within:border-pink-500"><Youtube size={18} className="text-red-500" /><input value={ytLink} onChange={(e)=>setYtLink(e.target.value)} className="bg-transparent flex-1 outline-none text-sm" placeholder="channel link" /></div></div>
-                  <button onClick={saveProfile} className="w-full py-4 bg-pink-600 text-white font-black rounded-xl uppercase transition-all shadow-lg shadow-pink-500/20 active:scale-95">Save Profile</button>
+                  <div><label className="text-[10px] font-black text-gray-500 uppercase">Bio / Status</label><textarea value={bio} onChange={(e)=>setBio(e.target.value)} className="w-full bg-black border border-white/10 p-4 rounded-2xl text-sm outline-none focus:border-pink-500 mt-2 h-24 resize-none" placeholder="Who are you?" /></div>
+                  <div><label className="text-[10px] font-black text-gray-500 uppercase">Instagram</label><div className="flex items-center gap-3 bg-black border border-white/10 p-4 rounded-2xl mt-2 focus-within:border-pink-500"><Instagram size={18} className="text-pink-500"/><input value={instaLink} onChange={(e)=>setInstaLink(e.target.value)} className="bg-transparent flex-1 outline-none text-sm" placeholder="Username" /></div></div>
+                  <div><label className="text-[10px] font-black text-gray-500 uppercase">YouTube</label><div className="flex items-center gap-3 bg-black border border-white/10 p-4 rounded-2xl mt-2 focus-within:border-pink-500"><Youtube size={18} className="text-red-500"/><input value={ytLink} onChange={(e)=>setYtLink(e.target.value)} className="bg-transparent flex-1 outline-none text-sm" placeholder="Channel Link" /></div></div>
+                  <button onClick={saveProfile} className="w-full py-4 bg-pink-600 text-white font-black rounded-xl uppercase shadow-lg active:scale-95 transition-all">Save Profile</button>
               </div>
           </div>
         )}
+
         {socialScreen === 'discover' && (<div className="max-w-lg w-full space-y-6 pb-24 fixed inset-0 z-[600] bg-black p-8 overflow-y-auto flex flex-col items-center"><button onClick={() => setSocialScreen('hub')} className="self-start text-pink-500 font-black text-[10px] uppercase hover:brightness-125 mb-8">← Back</button><div className="bg-white/5 border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl p-6 w-full max-w-md"><div className="flex items-center gap-3 mb-6"><img src="/logo.png" className="w-10 h-10 rounded-full border border-cyan-500" /><div><p className="font-black text-sm">AJ ADMIN</p><p className="text-[10px] text-gray-500">Official News • Just now</p></div></div><img src="/founder_card.jpg" className="w-full rounded-3xl mb-6 shadow-xl" /><p className="text-sm text-gray-200 leading-relaxed">Welcome to AJ Super Portal Season 2! 🔥<br/><br/>We are building a complete Insta/FB style Social Hub. Stay active and build your balance! 🚀</p></div></div>)}
     </div>
 )}
 
+{/* ARCADE MODAL */}
 {screen === 'arcade' && (
     <div className="fixed inset-0 z-[300] bg-black p-8 overflow-y-auto">
         <button onClick={() => {setScreen('hub'); setSelectedGame(null)}} className="text-cyan-400 font-bold mb-10 tracking-widest uppercase transition-all hover:brightness-125">← BACK</button>
@@ -285,7 +317,7 @@ return (
               const folderName = game.replace(' Elite Royal', '').replace(' Elite', '').toLowerCase().replace(/ /g, '-');
               return (
               <div key={game} onClick={() => !isComingSoon && setSelectedGame(game)} className="bg-white/5 border border-white/10 p-4 rounded-3xl text-center hover:border-cyan-400 cursor-pointer transition-all">
-                <img src={`/games/${folderName}/logo.png`} className="w-full aspect-square rounded-xl mb-4 object-cover shadow-lg" alt={game} onError={(e) => { e.target.src = "/logo.png"; }} />
+                <img src={`/games/${folderName}/logo.png`} className="w-full aspect-square rounded-2xl mb-4 object-cover shadow-lg" alt={game} onError={(e) => { e.target.src = "/logo.png"; }} />
                 <h3 className="font-black text-sm uppercase">{game}</h3>
                 <button className={`mt-4 w-full py-2 rounded-full font-black text-[10px] uppercase transition-all ${isComingSoon ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 'bg-cyan-500 text-black shadow-[0_0_10px_#06b6d4]'}`}>{isComingSoon ? "Coming Soon" : "PLAY NOW"}</button>
               </div>
@@ -297,6 +329,7 @@ return (
     </div>
 )}
 
+{/* WALLET MODAL */}
 {screen === 'wallet' && (
     <div className="fixed inset-0 z-[300] bg-black/98 flex flex-col items-center p-8 overflow-y-auto">
        <button onClick={() => {setScreen('hub'); setWalletTab('main')}} className="self-start text-cyan-400 mb-8 font-bold uppercase tracking-widest transition-all hover:brightness-125">← BACK</button>
@@ -358,15 +391,15 @@ return (
          </div>
        )}
        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-4xl px-2">
-          <div className={`p-10 rounded-3xl text-center border-2 transition-all ${botTier === 'basic' ? 'border-green-500 bg-green-500/10' : 'border-white/10 bg-white/5 hover:border-cyan-500'}`}><h3 className="text-xl font-black text-cyan-400 uppercase">Basic (+2% Daily)</h3><p className="text-3xl font-black text-white my-6">2,500 Coins</p><button onClick={() => activateBot('basic', 2500)} className={`w-full py-4 rounded-xl font-black uppercase transition-all ${botTier === 'basic' ? 'bg-green-500 text-black cursor-not-allowed' : 'bg-cyan-600 hover:scale-105 active:scale-95'}`}>{botTier === 'basic' ? "RUNNING" : "ACTIVATE"}</button></div>
-          <div className={`p-10 rounded-3xl text-center border-2 transition-all ${botTier === 'vvip' ? 'border-yellow-500 bg-yellow-500/10' : 'border-white/10 bg-white/5 hover:border-yellow-500'}`}><h3 className="text-xl font-black text-yellow-500 uppercase">VVIP (+5% Daily)</h3><p className="text-3xl font-black text-white my-6">7,500 Coins</p><button onClick={() => activateBot('vvip', 7500)} className={`w-full py-4 rounded-xl font-black uppercase transition-all ${botTier === 'vvip' ? 'bg-yellow-500 text-black cursor-not-allowed' : 'bg-yellow-600 hover:scale-105 active:scale-95'}`}>{botTier === 'vvip' ? "RUNNING" : "ACTIVATE"}</button></div>
+          <div className={`p-10 rounded-3xl text-center border-2 transition-all ${botTier === 'basic' ? 'border-green-500 bg-green-500/10 shadow-[0_0_20px_rgba(34,197,94,0.3)]' : 'border-white/10 bg-white/5 hover:border-cyan-500'}`}><h3 className="text-xl font-black text-cyan-400 uppercase">Basic (+2% Daily)</h3><p className="text-3xl font-black text-white my-6">2,500 Coins</p><button onClick={() => activateBot('basic', 2500)} className={`w-full py-4 rounded-xl font-black uppercase transition-all ${botTier === 'basic' ? 'bg-green-500 text-black cursor-not-allowed' : 'bg-cyan-600 hover:scale-105 active:scale-95'}`}>{botTier === 'basic' ? "RUNNING" : "ACTIVATE"}</button></div>
+          <div className={`p-10 rounded-3xl text-center border-2 transition-all ${botTier === 'vvip' ? 'border-yellow-500 bg-yellow-500/10 shadow-[0_0_20px_rgba(234,179,8,0.3)]' : 'border-white/10 bg-white/5 hover:border-yellow-500'}`}><h3 className="text-xl font-black text-yellow-500 uppercase">VVIP (+5% Daily)</h3><p className="text-3xl font-black text-white my-6">7,500 Coins</p><button onClick={() => activateBot('vvip', 7500)} className={`w-full py-4 rounded-xl font-black uppercase transition-all ${botTier === 'vvip' ? 'bg-yellow-500 text-black cursor-not-allowed' : 'bg-yellow-600 hover:scale-105 active:scale-95'}`}>{botTier === 'vvip' ? "RUNNING" : "ACTIVATE"}</button></div>
        </div>
     </div>
 )}
 
   <section className="py-20 bg-black flex justify-center px-4 border-y border-white/5 transition-all"><img src="/founder_card.jpg" className="w-full max-w-4xl rounded-3xl shadow-2xl hover:scale-[1.01] transition-all" /></section>
   
-  <footer className="bg-black py-24 px-10 border-t border-cyan-500/10 text-center flex flex-col items-center">
+  <footer className="bg-black py-24 px-10 border-t border-white/5 text-center flex flex-col items-center">
     <div className="flex flex-col items-center gap-4 mb-12">
         <MessageCircle size={80} className="text-cyan-400 drop-shadow-[0_0_20px_#06b6d4] animate-pulse" />
         <div className="text-7xl md:text-[10rem] font-black italic text-cyan-400 drop-shadow-[0_0_30px_#06b6d4] uppercase">AJ STUDIO</div>
@@ -375,7 +408,7 @@ return (
         <a href="https://wa.me/96878994093" target="_blank" className="text-green-500 border border-green-500 px-6 py-2 rounded-full font-bold uppercase hover:bg-green-500 hover:text-black transition-all">Whatsapp</a>
         <a href="https://x.com/Ali20352061" target="_blank" className="text-white border border-white px-6 py-2 rounded-full font-bold uppercase hover:bg-white hover:text-black transition-all">X (Twitter)</a>
     </div>
-    <button onClick={() => alert("Install feature updated!")} className="group relative px-12 py-4 bg-cyan-500 text-black font-black uppercase rounded-full shadow-[0_0_40px_#06b6d4] animate-pulse transition-all hover:scale-105 active:scale-95">
+    <button onClick={handleInstallApp} className="group relative px-12 py-4 bg-cyan-500 text-black font-black uppercase rounded-full shadow-[0_0_40px_#06b6d4] animate-pulse transition-all hover:scale-105 active:scale-95">
        <span className="relative z-10 flex items-center gap-2 font-black tracking-widest"><Download size={22} /> Install AJ App</span>
        <div className="absolute inset-0 bg-white/20 group-hover:translate-x-full transition-transform duration-500 -skew-x-12"></div>
     </button>
