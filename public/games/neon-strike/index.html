@@ -215,30 +215,27 @@
             setTimeout(() => {
                 totalPoints = parseInt(totalPoints) + 500; 
                 localStorage.setItem('ns_points', totalPoints); 
-                updateUIDisplays(); 
-                updateGarageUI();   
-                syncWithPortal(); 
+                updateUIDisplays(); updateGarageUI(); syncWithPortal(); 
                 playFromPool('collectreward');
                 alert("Success! 500 Data Points added.");
             }, 2000);
         } else { alert("Ads not available."); }
     }
 
+    // --- REVIVE WITH AD ---
     function showReviveAd() { 
         if(window.AJ_SDK) {
             window.AJ_SDK.showAd();
             setTimeout(() => { revivePlayer(); }, 1000);
-        } else { alert("Ads not available."); }
+        } else { 
+            revivePlayer(); 
+        }
     }
 
     function revivePlayer() { 
         document.getElementById('gameOver').classList.remove('active-screen'); 
-        isCrashing = false; 
-        gameActive = true; 
-        enemies = []; 
-        bullets = []; 
-        spawnLockTimer = 120; 
-        player.hasShield = true; 
+        isCrashing = false; gameActive = true; enemies = []; bullets = []; 
+        spawnLockTimer = 120; player.hasShield = true; 
         document.getElementById('hud').style.display = 'flex'; 
         document.getElementById('abilityBtn').style.display = 'flex'; 
         document.getElementById('joyContainer').style.display = 'block'; 
@@ -266,16 +263,10 @@
         else if (totalPoints >= units[i].price) { 
             if(window.AJ_SDK) window.AJ_SDK.showAd(); 
             setTimeout(() => {
-                totalPoints -= units[i].price; 
-                unlockedUnits.push(i); 
-                selectedUnitIndex = i; 
+                totalPoints -= units[i].price; unlockedUnits.push(i); selectedUnitIndex = i; 
                 playFromPool('coincash');
-                localStorage.setItem('ns_points', totalPoints); 
-                localStorage.setItem('ns_unlocked', JSON.stringify(unlockedUnits)); 
-                localStorage.setItem('ns_selected', i); 
-                syncWithPortal();
-                updateGarageUI(); 
-                updateUIDisplays();
+                localStorage.setItem('ns_points', totalPoints); localStorage.setItem('ns_unlocked', JSON.stringify(unlockedUnits)); localStorage.setItem('ns_selected', i); 
+                syncWithPortal(); updateGarageUI(); updateUIDisplays();
             }, 1500);
         } else { playFromPool('enoughbalance'); let diff = units[i].price - totalPoints; showAlert("NEED " + diff + " DATA POINTS"); } updateGarageUI(); updateUIDisplays();
     }
@@ -288,14 +279,11 @@
 
     function syncWithPortal() {
         if(window.AJ_SDK) {
-            window.AJ_SDK.addBalance({
-                game_coins: totalPoints,
-                aj_net: (totalPoints * 0.003),
-                source: "Neon Strike Sync"
-            });
+            window.AJ_SDK.addBalance({ game_coins: totalPoints, aj_net: (totalPoints * 0.003), source: "Neon Strike Sync" });
         }
     }
 
+    // --- RETRY WITH AD ---
     function startGameWithAd() {
         if(window.AJ_SDK) window.AJ_SDK.showAd(); 
         startGame();
@@ -327,19 +315,22 @@
         loop(); 
     }
 
+    // --- CRASH WITHOUT STUCK AD ---
     function startCrashSequence(x, y) { 
         isCrashing = true; 
-        crashTimer = 100; // Screen fast trigger karne ke liye kam kiya
+        crashTimer = 90; // Optimized time for screen transition
         crashX = x; crashY = y; shake = 50; flash = 0.5; 
         document.getElementById('hud').style.display = 'none'; 
         document.getElementById('abilityBtn').style.display = 'none'; 
         document.getElementById('joyContainer').style.display = 'none'; 
         audioPool.bgmusic.pause(); audioPool.jetenginesound.pause(); 
         playFromPool('jetcrash'); 
+        // Ad Removed from here to prevent freeze
     }
 
     function finalizeGameOver() { 
         gameActive = false; 
+        isCrashing = false;
         totalPoints += score; 
         localStorage.setItem('ns_points', totalPoints); 
         document.getElementById('finalScore').innerText = score; 
@@ -347,22 +338,18 @@
         updateUIDisplays(); 
         syncWithPortal(); 
         
-        // Hide game UI and Show Game Over Screen
         document.querySelectorAll('.screen').forEach(s => s.classList.remove('active-screen'));
         document.getElementById('gameOver').classList.add('active-screen'); 
         homeBg.style.display = 'block'; homeBg.classList.remove('bg-blurred'); 
         updateAudioUI(); 
-        
-        if(window.AJ_SDK) window.AJ_SDK.showAd(); // Ad trigger
+        // Ad Removed from here - it now triggers on button click (Retry/Revive)
     }
 
     function update() {
         if(!gameActive || isPaused) return;
         if(isCrashing) { 
             crashTimer--; 
-            if(crashTimer <= 0) {
-                finalizeGameOver(); 
-            }
+            if(crashTimer <= 0) finalizeGameOver(); 
             return; 
         }
         frame++; if(shake > 0) shake *= 0.9; if(flash > 0) flash -= 0.05;
