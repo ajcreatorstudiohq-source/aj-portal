@@ -209,15 +209,14 @@
     document.getElementById('musVol').oninput = (e) => { audioPool.bgmusic.volume = e.target.value; audioPool.jetenginesound.volume = e.target.value * 0.5; };
     document.getElementById('sfxVol').oninput = (e) => { const v = e.target.value; ['bullet','click','enemycrash','enoughbalance','gemcollect','jetcrash','levelup','blastsound','collectreward','coincash'].forEach(k => { if(Array.isArray(audioPool[k])) audioPool[k].forEach(s => s.volume = v); }); };
 
-    // --- INSTANT POINT REWARD ---
     function showRewardAd() { 
         if(window.AJ_SDK) {
             window.AJ_SDK.showAd();
             setTimeout(() => {
                 totalPoints = parseInt(totalPoints) + 500; 
                 localStorage.setItem('ns_points', totalPoints); 
-                updateUIDisplays(); // Foran Main Menu Update
-                updateGarageUI();   // Foran Garage Update
+                updateUIDisplays(); 
+                updateGarageUI();   
                 syncWithPortal(); 
                 playFromPool('collectreward');
                 alert("Success! 500 Data Points added.");
@@ -232,7 +231,22 @@
         } else { alert("Ads not available."); }
     }
 
-    function revivePlayer() { document.getElementById('gameOver').classList.remove('active-screen'); isCrashing = false; gameActive = true; enemies = []; bullets = []; spawnLockTimer = 120; player.hasShield = true; document.getElementById('hud').style.display = 'flex'; document.getElementById('abilityBtn').style.display = 'flex'; document.getElementById('joyContainer').style.display = 'block'; homeBg.style.display = 'none'; if(audioSettings.mus) { audioPool.bgmusic.play(); audioPool.jetenginesound.play(); } loop(); }
+    function revivePlayer() { 
+        document.getElementById('gameOver').classList.remove('active-screen'); 
+        isCrashing = false; 
+        gameActive = true; 
+        enemies = []; 
+        bullets = []; 
+        spawnLockTimer = 120; 
+        player.hasShield = true; 
+        document.getElementById('hud').style.display = 'flex'; 
+        document.getElementById('abilityBtn').style.display = 'flex'; 
+        document.getElementById('joyContainer').style.display = 'block'; 
+        homeBg.style.display = 'none'; 
+        if(audioSettings.mus) { audioPool.bgmusic.play(); audioPool.jetenginesound.play(); } 
+        loop(); 
+    }
+
     function showAlert(msg) { document.getElementById('alertMsg').innerText = msg; document.getElementById('customAlert').style.display = 'flex'; }
     function closeAlert() { document.getElementById('customAlert').style.display = 'none'; }
     function toggleSettings(show) { if(audioSettings.sfx) playFromPool('click'); if(show) { homeBg.classList.add('bg-blurred'); document.getElementById('mainMenu').classList.remove('active-screen'); document.getElementById('settingsScreen').classList.add('active-screen'); } else { homeBg.classList.remove('bg-blurred'); document.getElementById('settingsScreen').classList.remove('active-screen'); document.getElementById('mainMenu').classList.add('active-screen'); } }
@@ -299,13 +313,58 @@
     window.addEventListener('mousedown', handleInputStart); window.addEventListener('mousemove', handleInputMove); window.addEventListener('mouseup', handleInputEnd);
     window.addEventListener('touchstart', handleInputStart, {passive:false}); window.addEventListener('touchmove', (e) => { if(joy.active) e.preventDefault(); handleInputMove(e); }, {passive:false}); window.addEventListener('touchend', handleInputEnd);
 
-    function startGame() { playFromPool('click'); gameActive = true; isPaused = false; isCrashing = false; crashTimer = 0; score = 0; frame = 0; abCharge = 0; flash = 0; spawnLockTimer = 0; lastShieldMilestone = 0; lastRankMilestone = 0; enemies = []; bullets = []; gems = []; particles = []; shields = []; player.x = canvas.width/2; player.y = canvas.height/2; player.color = units[selectedUnitIndex].color; player.hasShield = false; player.rotation = -Math.PI/2; document.getElementById('xpVal').innerText = "0"; document.getElementById('liveAJ').innerText = "0.000"; document.getElementById('timeVal').innerText = "0"; document.getElementById('abPerc').innerText = "0%"; updateAbilityUI(); homeBg.style.display = 'none'; document.querySelectorAll('.screen').forEach(s => s.classList.remove('active-screen')); document.getElementById('hud').style.display = 'flex'; document.getElementById('abilityBtn').style.display = 'flex'; document.getElementById('joyContainer').style.display = 'block'; updateAudioUI(); audioPool.jetenginesound.play().catch(()=>{}); loop(); }
-    function startCrashSequence(x, y) { isCrashing = true; crashTimer = 240; crashX = x; crashY = y; shake = 50; flash = 0.5; document.getElementById('hud').style.display = 'none'; document.getElementById('abilityBtn').style.display = 'none'; document.getElementById('joyContainer').style.display = 'none'; audioPool.bgmusic.pause(); audioPool.jetenginesound.pause(); playFromPool('jetcrash'); if(window.AJ_SDK) window.AJ_SDK.showAd(); }
-    function finalizeGameOver() { gameActive = false; totalPoints += score; localStorage.setItem('ns_points', totalPoints); document.getElementById('finalScore').innerText = score; document.getElementById('finalAJ').innerText = (score * 0.003).toFixed(3); updateUIDisplays(); syncWithPortal(); document.getElementById('gameOver').classList.add('active-screen'); homeBg.style.display = 'block'; homeBg.classList.remove('bg-blurred'); updateAudioUI(); }
+    function startGame() { 
+        playFromPool('click'); 
+        gameActive = true; isPaused = false; isCrashing = false; crashTimer = 0; score = 0; frame = 0; abCharge = 0; flash = 0; spawnLockTimer = 0; lastShieldMilestone = 0; lastRankMilestone = 0; enemies = []; bullets = []; gems = []; particles = []; shields = []; 
+        player.x = canvas.width/2; player.y = canvas.height/2; player.color = units[selectedUnitIndex].color; player.hasShield = false; player.rotation = -Math.PI/2; 
+        document.getElementById('xpVal').innerText = "0"; document.getElementById('liveAJ').innerText = "0.000"; document.getElementById('timeVal').innerText = "0"; document.getElementById('abPerc').innerText = "0%"; 
+        updateAbilityUI(); 
+        homeBg.style.display = 'none'; 
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active-screen')); 
+        document.getElementById('hud').style.display = 'flex'; document.getElementById('abilityBtn').style.display = 'flex'; document.getElementById('joyContainer').style.display = 'block'; 
+        updateAudioUI(); 
+        audioPool.jetenginesound.play().catch(()=>{}); 
+        loop(); 
+    }
+
+    function startCrashSequence(x, y) { 
+        isCrashing = true; 
+        crashTimer = 100; // Screen fast trigger karne ke liye kam kiya
+        crashX = x; crashY = y; shake = 50; flash = 0.5; 
+        document.getElementById('hud').style.display = 'none'; 
+        document.getElementById('abilityBtn').style.display = 'none'; 
+        document.getElementById('joyContainer').style.display = 'none'; 
+        audioPool.bgmusic.pause(); audioPool.jetenginesound.pause(); 
+        playFromPool('jetcrash'); 
+    }
+
+    function finalizeGameOver() { 
+        gameActive = false; 
+        totalPoints += score; 
+        localStorage.setItem('ns_points', totalPoints); 
+        document.getElementById('finalScore').innerText = score; 
+        document.getElementById('finalAJ').innerText = (score * 0.003).toFixed(3); 
+        updateUIDisplays(); 
+        syncWithPortal(); 
+        
+        // Hide game UI and Show Game Over Screen
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active-screen'));
+        document.getElementById('gameOver').classList.add('active-screen'); 
+        homeBg.style.display = 'block'; homeBg.classList.remove('bg-blurred'); 
+        updateAudioUI(); 
+        
+        if(window.AJ_SDK) window.AJ_SDK.showAd(); // Ad trigger
+    }
 
     function update() {
         if(!gameActive || isPaused) return;
-        if(isCrashing) { crashTimer--; if(crashTimer <= 0) finalizeGameOver(); return; }
+        if(isCrashing) { 
+            crashTimer--; 
+            if(crashTimer <= 0) {
+                finalizeGameOver(); 
+            }
+            return; 
+        }
         frame++; if(shake > 0) shake *= 0.9; if(flash > 0) flash -= 0.05;
         if(joy.active && joy.dist > 5) { player.rotation = joy.angle; const mS = (joy.dist / joy.maxDist) * player.speed; player.x += Math.cos(joy.angle) * mS; player.y += Math.sin(joy.angle) * mS; }
         player.x = Math.max(20, Math.min(canvas.width-20, player.x)); player.y = Math.max(20, Math.min(canvas.height-20, player.y));
