@@ -151,6 +151,17 @@
         .shop-item.active { border-color: var(--neon-blue); background: rgba(0, 255, 255, 0.1); }
 
         #pauseBtn { position: absolute; top: 85px; right: 20px; width: 45px; height: 45px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--neon-blue); border-radius: 10px; color: var(--neon-blue); font-size: 18px; cursor: pointer; z-index: 150; display: none; align-items: center; justify-content: center; }
+        
+        /* Help Section styles */
+        .help-row { display: flex; align-items: center; margin-bottom: 15px; text-align: left; gap: 15px; }
+        .help-text b { display: block; font-size: 14px; }
+        .help-text span { font-size: 10px; color: #aaa; }
+        .help-ring-gold { width: 40px; height: 40px; border: 3px solid var(--neon-gold); border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 10px var(--neon-gold); }
+        .inner-shield { width: 20px; height: 20px; background: var(--neon-gold); clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%); }
+        .help-ring-purple { width: 40px; height: 40px; border: 3px solid var(--neon-purple); border-radius: 50%; box-shadow: 0 0 10px var(--neon-purple); }
+        .help-ring-ghost { width: 40px; height: 40px; border: 3px dashed var(--neon-blue); border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+        .inner-ghost { width: 22px; height: 22px; background: rgba(0, 255, 255, 0.3); border-radius: 50%; }
+
     </style>
 </head>
 <body onload="startLoading()">
@@ -320,7 +331,12 @@ for(let i=0; i<50; i++) {
 }
 let currentSkin = 'skin_0', ownedSkins = ['skin_0'];
 
-// --- SHIP DRAWING (SYMMETRICAL FIX) ---
+function syncVolume(type, val) {
+    if(type === 'music') { musicVol = val; sounds.bg.volume = musicVol; }
+    else { sfxVol = val; }
+}
+
+// --- SHIP DRAWING ---
 function drawLogoShip(x, y, scale, color, alpha = 1) {
     ctx.save();
     ctx.translate(x, y); ctx.scale(scale, scale);
@@ -328,7 +344,6 @@ function drawLogoShip(x, y, scale, color, alpha = 1) {
     ctx.shadowBlur = 10; ctx.shadowColor = color;
     ctx.fillStyle = color;
     
-    // Body (Mirror logic for symmetry)
     ctx.beginPath(); 
     ctx.moveTo(0, -45); 
     ctx.lineTo(25, 15); 
@@ -337,13 +352,9 @@ function drawLogoShip(x, y, scale, color, alpha = 1) {
     ctx.closePath(); 
     ctx.fill();
     
-    // Symmetrical Stroke
     ctx.strokeStyle = "rgba(255,255,255,0.8)";
     ctx.lineWidth = 2;
     ctx.stroke();
-
-    ctx.fillStyle = "rgba(0,0,0,0.3)";
-    ctx.beginPath(); ctx.moveTo(0, -25); ctx.lineTo(8, 0); ctx.lineTo(0, -5); ctx.lineTo(-8, 0); ctx.closePath(); ctx.fill();
     ctx.restore();
 }
 
@@ -372,6 +383,7 @@ function closeHelp() { playSfx('click'); document.getElementById('helpMenu').sty
 
 function renderShop() {
     document.getElementById('shopRings').innerText = totalRings;
+    document.getElementById('shopAJ').innerText = (totalRings * 0.003).toFixed(3);
     const grid = document.getElementById('shopGrid'); grid.innerHTML = '';
     skins.forEach(skin => {
         const isOwned = ownedSkins.includes(skin.id), isActive = currentSkin === skin.id, item = document.createElement('div');
@@ -382,7 +394,6 @@ function renderShop() {
     });
 }
 
-// --- UPDATED: PURCHASE WITH AD & INSTANT UPDATE ---
 function buyOrEquipSkin(skin) { 
     if (ownedSkins.includes(skin.id)) { 
         currentSkin = skin.id; 
@@ -398,16 +409,16 @@ function buyOrEquipSkin(skin) {
             renderShop();
         }, 1500);
     } 
-    else {
-        alert("Not enough rings!");
-    }
     renderShop(); 
 }
 
 function loadProgress() { 
     const sS = localStorage.getItem('pulseRacerBest'), sR = localStorage.getItem('pulseRacerTotalRings'), sSk = localStorage.getItem('pulseRacerSkin'), sO = localStorage.getItem('pulseRacerOwned');
     bestScore = sS ? Number(sS) : 0; totalRings = sR ? Number(sR) : 0; if(sSk) currentSkin = sSk; if(sO) ownedSkins = JSON.parse(sO); 
-    updateUIDisplays();
+    document.getElementById('targetVal').innerText = bestScore; 
+    document.getElementById('menuBestScore').innerText = bestScore; 
+    document.getElementById('menuTotalRings').innerText = totalRings; 
+    document.getElementById('menuAJCoins').innerText = (totalRings * 0.003).toFixed(3);
 }
 
 function saveProgress() { 
@@ -415,26 +426,15 @@ function saveProgress() {
     localStorage.setItem('pulseRacerTotalRings', Number(totalRings)); 
     localStorage.setItem('pulseRacerSkin', currentSkin); 
     localStorage.setItem('pulseRacerOwned', JSON.stringify(ownedSkins)); 
-    updateUIDisplays();
-}
-
-// --- INSTANT UI UPDATE LOGIC ---
-function updateUIDisplays() {
-    const ajNet = (totalRings * 0.003).toFixed(3);
-    if(document.getElementById('menuBestScore')) document.getElementById('menuBestScore').innerText = bestScore;
-    if(document.getElementById('targetVal')) document.getElementById('targetVal').innerText = bestScore;
-    if(document.getElementById('menuTotalRings')) document.getElementById('menuTotalRings').innerText = totalRings;
-    if(document.getElementById('shopRings')) document.getElementById('shopRings').innerText = totalRings;
-    if(document.getElementById('menuAJCoins')) document.getElementById('menuAJCoins').innerText = ajNet;
-    if(document.getElementById('shopAJ')) document.getElementById('shopAJ').innerText = ajNet;
-    if(document.getElementById('ajVal')) document.getElementById('ajVal').innerText = ajNet;
+    document.getElementById('menuBestScore').innerText = bestScore; 
+    document.getElementById('menuTotalRings').innerText = totalRings; 
+    document.getElementById('menuAJCoins').innerText = (totalRings * 0.003).toFixed(3);
 }
 
 function resetVariables() {
     score = 0; level = 1; playerX = 0; targetX = 0; speed = 0.08; nextLevelAt = 300; sessionRings = 0; 
     obstacles = []; stars = []; frame = 0; ghostTimer = 0; shieldActive = false;
-    document.getElementById('scoreVal').innerText = "0 / 300"; document.getElementById('ringVal').innerText = "0"; 
-    updateUIDisplays();
+    document.getElementById('scoreVal').innerText = "0 / 300"; document.getElementById('ringVal').innerText = "0"; document.getElementById('ajVal').innerText = "0.000";
     for(let i=0; i<80; i++) stars.push({ x: Math.random() * 120 - 60, y: Math.random() * -35 - 15, z: Math.random() * 60, size: Math.random() * 1.5 + 1.0 });
 }
 
@@ -442,6 +442,17 @@ function goToMenu() { playSfx('click'); sounds.bg.pause(); gameActive = false; i
 function togglePause() { if(!gameActive) return; playSfx('click'); isPaused = !isPaused; document.getElementById('pauseMenu').style.display = isPaused ? 'flex' : 'none'; }
 
 function initGame() { if(window.AJ_SDK) window.AJ_SDK.showAd(); resetVariables(); gameActive = true; sounds.bg.play().catch(()=>{}); document.getElementById('mainMenu').style.display = 'none'; document.getElementById('gameOverScreen').style.display = 'none'; document.getElementById('pauseBtn').style.display = 'flex'; loadProgress(); }
+
+// --- PORTAL REAL-TIME SYNC ---
+function syncRealTimeAJ() {
+    if(window.AJ_SDK && typeof window.AJ_SDK.addBalance === 'function') {
+        window.AJ_SDK.addBalance({
+            game_coins: 1, 
+            aj_net: 0.003,
+            source: "Pulse Racer Collection"
+        });
+    }
+}
 
 function triggerGameOver() { 
     playSfx('crash'); gameActive = false; 
@@ -453,7 +464,15 @@ function triggerGameOver() {
     document.getElementById('finalAJ').innerText = (sessionRings * 0.003).toFixed(3);
     document.getElementById('gameOverScreen').style.display = 'flex'; 
     document.getElementById('pauseBtn').style.display = 'none';
-    if(window.AJ_SDK) window.parent.postMessage({ type: 'EARNED', coins: score }, "*");
+    
+    // Final Sync
+    if(window.AJ_SDK && typeof window.AJ_SDK.addBalance === 'function') {
+        window.AJ_SDK.addBalance({ 
+            game_coins: 0, 
+            aj_net: 0, 
+            source: "Pulse Racer Over" 
+        });
+    }
 }
 
 function watchAdToRevive() {
@@ -464,7 +483,6 @@ function watchAdToRevive() {
     obstacles = obstacles.filter(o => o.z > 5); ghostTimer = 150; 
 }
 
-// --- FREE RINGS REWARD LOGIC WITH INSTANT UPDATE ---
 function watchAdForRings() {
     playSfx('click');
     if (window.AJ_SDK) {
@@ -473,10 +491,8 @@ function watchAdForRings() {
             totalRings = Number(totalRings) + 20;
             saveProgress();
             renderShop();
-            alert("Congrats! 20 Free Rings added instantly.");
+            alert("Congrats! 20 Free Rings added.");
         }, 2000);
-    } else {
-        alert("Ads currently unavailable.");
     }
 }
 
@@ -499,7 +515,6 @@ function draw() {
     });
     if(!isPaused && gameActive) playerX += (targetX - playerX) * 0.15;
     let skinColor = skins.find(s => s.id === currentSkin).color;
-    // Lowered ship position (z: 2.2) and strict borders maintained
     drawLogoShip(project(playerX, 0.5, 2.2).x, project(playerX, 0.5, 2.2).y, 0.8, skinColor, 1);
     ctx.restore(); 
 }
@@ -507,9 +522,7 @@ function draw() {
 function update() {
     if(gameActive && !isPaused) {
         frame++; if(ghostTimer > 0) ghostTimer--;
-        
         targetX = Math.max(-8.5, Math.min(8.5, targetX));
-
         if(frame % 40 === 0) {
             let r = Math.random();
             if(r < 0.15) obstacles.push({ x: Math.random()*14-7, z: 60, type: 'gem' });
@@ -517,24 +530,29 @@ function update() {
             else { obstacles.push({ x: Math.random()*14-7, z: 60, type: 'enemy', color: '#ff4d4d' }); }
         }
         obstacles.forEach((o, i) => {
-            let oldZ = o.z; o.z -= speed * 6; let newZ = o.z;
-            if(o.z < 0.5) { obstacles.splice(i, 1); score += 1; if(score >= nextLevelAt) { playSfx('levelup'); level++; nextLevelAt += 300; speed += 0.005; } document.getElementById('scoreVal').innerText = score + " / " + nextLevelAt; }
-            
+            o.z -= speed * 6;
+            if(o.z < 0.5) { 
+                obstacles.splice(i, 1); score += 1; 
+                if(score >= nextLevelAt) { playSfx('levelup'); level++; nextLevelAt += 300; speed += 0.005; } 
+                document.getElementById('scoreVal').innerText = score + " / " + nextLevelAt; 
+            }
             if (o.z < 2.5 && o.z > 1.9) {
                 let d = Math.abs(o.x - playerX);
                 if(d < 0.55) { 
                     if(o.type === 'gem') { 
-                        playSfx('collect'); sessionRings += 1; score += 5; obstacles.splice(i, 1); 
+                        playSfx('collect'); 
+                        sessionRings += 1; 
+                        score += 5; 
+                        obstacles.splice(i, 1); 
+                        // --- REAL-TIME UPDATES ---
                         document.getElementById('ringVal').innerText = sessionRings; 
-                        updateUIDisplays();
+                        document.getElementById('ajVal').innerText = (sessionRings * 0.003).toFixed(3);
+                        syncRealTimeAJ(); // Signal to portal
                     }
                     else if(o.type === 'shield') { playSfx('collect'); shieldActive = true; obstacles.splice(i, 1); }
                     else { 
-                        if(!shieldActive && ghostTimer <= 0) { 
-                             triggerGameOver(); 
-                        } else if(shieldActive) {
-                             shieldActive = false; obstacles.splice(i, 1); shake = 20;
-                        }
+                        if(!shieldActive && ghostTimer <= 0) { triggerGameOver(); } 
+                        else if(shieldActive) { shieldActive = false; obstacles.splice(i, 1); shake = 20; }
                     }
                 }
             }
@@ -546,7 +564,6 @@ window.addEventListener('keydown', (e) => {
     if (!gameActive || isPaused) return; 
     if (e.key === "ArrowLeft") targetX -= 1.5; 
     if (e.key === "ArrowRight") targetX += 1.5; 
-    targetX = Math.max(-8.5, Math.min(8.5, targetX));
 });
 window.addEventListener('touchmove', (e) => { 
     if(!gameActive || isPaused) return; 
