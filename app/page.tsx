@@ -20,15 +20,18 @@ const [loading, setLoading] = useState(0);
 const [selectedGame, setSelectedGame] = useState(null);
 const [copied, setCopied] = useState(false);
 
+// --- SOCIAL DATA STATES ---
 const [hasSocialProfile, setHasSocialProfile] = useState(false);
 const [username, setUsername] = useState('');
 const [bio, setBio] = useState('');
 const [tempPhoto, setTempPhoto] = useState('');
 const [pendingMode, setPendingMode] = useState('');
 
+// --- AI STATES ---
 const [visualProfit, setVisualProfit] = useState(0);
 const [tradeLogs, setTradeLogs] = useState(["Initialising Neural Link...", "Analysing Market Volatility..."]);
 
+// Input States
 const [purchaseAmount, setPurchaseAmount] = useState(20);
 const [purchaseMethod, setPurchaseMethod] = useState('Binance (TRC20)');
 const [purchaseTxId, setPurchaseTxId] = useState('');
@@ -49,6 +52,7 @@ const copyToClipboard = (id) => {
   setTimeout(() => setCopied(false), 2000);
 };
 
+// --- HANDLERS ---
 const handleCreateProfile = async () => {
     if(username.length < 3) return alert("Username too short!");
     try {
@@ -73,6 +77,14 @@ const enterSocialMode = (mode) => {
     }
 };
 
+// --- PWA & SW ---
+useEffect(() => {
+    if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch((err) => console.log(err));
+    }
+}, []);
+
+// --- PROFIT LOGIC ---
 useEffect(() => {
 const handleSDKMessages = (event) => {
 if (!user) return;
@@ -91,6 +103,7 @@ window.addEventListener("message", handleSDKMessages);
 return () => window.removeEventListener("message", handleSDKMessages);
 }, [user]);
 
+// --- AI BOT ENGINE ---
 useEffect(() => {
   let logInt, visualInt, dbSyncInt;
   if (user && botTier !== 'none' && invested > 0) {
@@ -178,7 +191,7 @@ const handlePurchase = async () => {
   } else {
       if(!purchaseTxId) return alert("Enter Airtm TX ID.");
       await addDoc(collection(db, "manual_deposits"), { uid: user.uid, email: user.email, amount: purchaseAmount, method: "Airtm", txId: purchaseTxId, status: "pending", date: serverTimestamp() });
-      alert("✅ Airtm Request Sent!"); setWalletTab('main');
+      alert("✅ Airtm Request Sent to ajcreatorstudio.hq@gmail.com!"); setWalletTab('main');
   }
 };
 
@@ -230,7 +243,7 @@ return (
 <header className="fixed top-0 w-full p-4 flex justify-between items-center z-[100] bg-black/80 backdrop-blur-xl border-b border-white/5">
 <div className="text-xl font-black italic text-cyan-400">AJ STUDIO</div>
 <div className="flex items-center gap-3">
-<div onClick={() => {setScreen('wallet'); setWalletTab('main')}} className="flex items-center gap-3 bg-white/5 px-4 py-2 rounded-full border border-white/10 cursor-pointer">
+<div onClick={() => {setScreen('wallet'); setWalletTab('main')}} className="flex items-center gap-3 bg-white/5 px-4 py-2 rounded-full border border-white/10 cursor-pointer transition-all hover:bg-white/10">
 <span className="text-xs font-black text-yellow-500">{displayBalance} 🪙</span>
 {user && <img src={tempPhoto || user.photoURL} className="w-8 h-8 rounded-full border border-cyan-500" />}
 </div>
@@ -265,6 +278,7 @@ return (
     </div>
 </section>
 
+{/* ARCADE MODAL */}
 {screen === 'arcade' && (
     <div className="fixed inset-0 z-[300] bg-black p-8 overflow-y-auto">
         <button onClick={() => {setScreen('hub'); setSelectedGame(null)}} className="text-cyan-400 font-bold mb-10 tracking-widest uppercase">← BACK</button>
@@ -287,16 +301,17 @@ return (
     </div>
 )}
 
+{/* WALLET MODAL */}
 {screen === 'wallet' && (
     <div className="fixed inset-0 z-[300] bg-black/98 flex flex-col items-center p-8 overflow-y-auto">
-       <button onClick={() => {setScreen('hub'); setWalletTab('main')}} className="self-start text-cyan-400 mb-8 font-bold uppercase tracking-widest">← BACK</button>
+       <button onClick={() => {setScreen('hub'); setWalletTab('main')}} className="self-start text-cyan-400 mb-8 font-bold uppercase tracking-widest transition-all hover:brightness-125">← BACK</button>
        <div className="w-full max-w-md bg-[#111] border border-white/10 p-10 rounded-3xl text-center shadow-2xl">
           <h2 className="text-5xl font-black text-yellow-500 mb-8">{displayBalance} 🪙</h2>
           {walletTab === 'main' && (
             <div className="flex flex-col gap-4">
-               <button onClick={()=>setWalletTab('purchase')} className="bg-white text-black py-4 rounded-xl font-black uppercase">Purchase</button>
-               <button onClick={()=>setWalletTab('transfer')} className="bg-white/10 text-cyan-400 py-4 rounded-xl font-black border border-cyan-500/30 uppercase">Transfer</button>
-               <button onClick={()=>setWalletTab('withdraw')} className="bg-white/10 text-pink-500 py-4 rounded-xl font-black border border-pink-500/30 uppercase">Withdraw</button>
+               <button onClick={()=>setWalletTab('purchase')} className="bg-white text-black py-4 rounded-xl font-black uppercase shadow-lg transition-all hover:scale-105">Purchase</button>
+               <button onClick={()=>setWalletTab('transfer')} className="bg-white/10 text-cyan-400 py-4 rounded-xl font-black border border-cyan-500/30 uppercase transition-all hover:bg-cyan-500/10">Transfer</button>
+               <button onClick={()=>setWalletTab('withdraw')} className="bg-white/10 text-pink-500 py-4 rounded-xl font-black border border-pink-500/30 uppercase transition-all hover:bg-pink-500/10">Withdraw</button>
             </div>
           )}
           {walletTab === 'purchase' && (
@@ -312,14 +327,14 @@ return (
           {walletTab === 'transfer' && (
             <div className="flex flex-col gap-4 text-left">
               <div className="bg-cyan-500/10 border border-cyan-500/30 p-5 rounded-2xl relative cursor-pointer" onClick={() => copyToClipboard(user?.uid)}>
-                <p className="text-[10px] text-gray-500 uppercase font-black mb-1">My ID</p>
+                <p className="text-[10px] text-gray-500 uppercase font-black mb-1 tracking-[0.2em]">My Referral ID</p>
                 <p className="text-lg font-mono text-cyan-400 font-black truncate">{user?.uid}</p>
                 <div className="absolute right-4 top-1/2 -translate-y-1/2 text-cyan-400">{copied ? <CheckCircle2 size={18}/> : <Copy size={18}/>}</div>
               </div>
-              <input type="text" placeholder="Recipient ID" onChange={(e)=>setTransferId(e.target.value)} className="bg-black border p-4 rounded-xl text-white outline-none border-white/10" />
-              <input type="number" placeholder="Amount" onChange={(e)=>setTransferAmount(Number(e.target.value))} className="bg-black border p-4 rounded-xl text-white outline-none border-white/10" />
-              <button onClick={handleTransfer} className="bg-cyan-600 py-4 rounded-xl font-black uppercase shadow-lg">Send Now</button>
-              <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase mt-2">Back</button>
+              <input type="text" placeholder="Recipient ID" onChange={(e)=>setTransferId(e.target.value)} className="bg-black border p-4 rounded-xl text-white outline-none border-white/10 focus:border-cyan-500" />
+              <input type="number" placeholder="Amount" onChange={(e)=>setTransferAmount(Number(e.target.value))} className="bg-black border p-4 rounded-xl text-white outline-none border-white/10 focus:border-cyan-500" />
+              <button onClick={handleTransfer} className="bg-cyan-600 py-4 rounded-xl font-black uppercase shadow-lg active:scale-95 transition-all">Send Now</button>
+              <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase mt-2 hover:text-white">Back</button>
             </div>
           )}
           {walletTab === 'withdraw' && (
@@ -336,9 +351,10 @@ return (
     </div>
 )}
 
+{/* AI BOT MODAL */}
 {screen === 'ai' && (
     <div className="fixed inset-0 z-[200] bg-black flex flex-col items-center p-8 overflow-y-auto pb-20">
-       <button onClick={() => setScreen('hub')} className="self-start text-green-400 font-bold text-sm mb-12 uppercase tracking-widest">← Back</button>
+       <button onClick={() => setScreen('hub')} className="self-start text-green-400 font-bold text-sm mb-12 uppercase tracking-widest hover:brightness-125">← Back</button>
        <h2 className="text-5xl font-black mb-12 text-center uppercase text-white italic">AJ AI BOT</h2>
        {botTier !== 'none' && (
          <div className="w-full max-w-2xl bg-white/5 border-2 border-green-500/40 p-8 rounded-[3rem] text-center mb-16 shadow-[0_0_30px_rgba(34,197,94,0.2)]">
@@ -354,15 +370,17 @@ return (
     </div>
 )}
 
+{/* SOCIAL HUB MODAL */}
 {screen === 'social' && (
     <div className="fixed inset-0 z-[400] bg-slate-950 p-8 overflow-y-auto">
         <div className="sticky top-0 w-full p-4 bg-black/90 backdrop-blur-md border-b border-white/5 flex justify-between items-center z-[500] mb-8 rounded-full shadow-2xl">
-            <button onClick={() => setScreen('hub')} className="text-pink-500 font-black text-xs uppercase">← HUB</button>
+            <button onClick={() => setScreen('hub')} className="text-pink-500 font-black text-xs uppercase hover:brightness-125">← HUB</button>
             <h2 className="text-xl font-black italic text-pink-500 uppercase">AJ Social</h2>
             <button onClick={() => setSocialScreen('setup')} className="bg-white/10 p-2 rounded-full text-pink-500"><Settings size={18}/></button>
         </div>
 
         {socialScreen === 'hub' ? (
+          /* SOCIAL DASHBOARD */
           <div className="max-w-md mx-auto grid grid-cols-1 gap-6 pb-24 px-2">
              <div className="flex items-center gap-3 bg-white/5 p-4 rounded-3xl border border-pink-500/20 mb-4">
                   <img src={tempPhoto || user?.photoURL} className="w-12 h-12 rounded-full border-2 border-pink-500 shadow-lg" alt="Profile" />
@@ -380,6 +398,7 @@ return (
              ))}
           </div>
         ) : socialScreen === 'setup' ? (
+          /* PROFILE SETUP */
           <div className="max-w-md mx-auto bg-white/5 border border-white/10 p-10 rounded-[3rem] text-center mt-10 shadow-2xl">
               <div className="relative w-24 h-24 mx-auto mb-6">
                 <img src={tempPhoto || user?.photoURL} className="w-full h-full rounded-full border-4 border-pink-500 p-1" alt="Avatar" />
@@ -398,10 +417,11 @@ return (
               <button onClick={() => setSocialScreen('hub')} className="mt-4 text-gray-500 uppercase text-xs">Back</button>
           </div>
         ) : (
+          /* MODES */
           <div className="flex flex-col items-center justify-center h-[60vh] text-center px-4">
              <h2 className="text-4xl font-black text-pink-500 uppercase italic mb-4">{socialScreen.toUpperCase()}</h2>
-             <p className="text-gray-400 text-sm">Connecting to Pixabay API... <br/> Launching in Season 2! 🚀</p>
-             <button onClick={() => setSocialScreen('hub')} className="mt-12 px-10 py-3 bg-white/5 border border-white/10 rounded-full text-[10px] font-black uppercase">Back to Hub</button>
+             <p className="text-gray-400 text-sm">Welcome {username}! <br/> Connecting to Pixabay API... 🚀</p>
+             <button onClick={() => setSocialScreen('hub')} className="mt-12 px-10 py-3 bg-white/5 border border-white/10 rounded-full text-[10px] font-black uppercase">Back to Dashboard</button>
           </div>
         )}
     </div>
