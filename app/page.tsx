@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { auth, db, googleProvider } from '../firebaseConfig';
 import { signInWithPopup, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, updateDoc, increment, collection, addDoc, getDoc, serverTimestamp } from 'firebase/firestore';
-import { MessageCircle, Trophy, Zap, Wallet, Bot, LogOut, Globe, ChevronRight, Send, CreditCard, ArrowUpRight, ShieldCheck, Crown, Activity, TrendingUp, X, CheckCircle2, Download, Copy, Video, Newspaper, Users, Heart, MessageSquare } from 'lucide-react';
+import { MessageCircle, Trophy, Zap, Wallet, Bot, LogOut, Globe, ChevronRight, Send, CreditCard, ArrowUpRight, ShieldCheck, Crown, Activity, TrendingUp, X, CheckCircle2, Download, Copy, Video, Newspaper, Users, Heart, MessageSquare, Smartphone, Mail } from 'lucide-react';
 import emailjs from 'emailjs-com';
 
 // --- CONFIGURATIONS ---
@@ -29,7 +29,7 @@ const [copied, setCopied] = useState(false);
 
 // --- AI TRADING STATES ---
 const [visualProfit, setVisualProfit] = useState(0);
-const [tradeLogs, setTradeLogs] = useState(["Initialising Neural Link...", "Analysing Market Volatility...", "Connecting to AJ liquidity pool..."]);
+const [tradeLogs, setTradeLogs] = useState(["Initialising Neural Link...", "Analysing Market Volatility..."]);
 
 // Input States
 const [purchaseAmount, setPurchaseAmount] = useState(20);
@@ -42,7 +42,7 @@ const [payoutId, setPayoutId] = useState('');
 const [cardName, setCardName] = useState('');
 const [cardNumber, setCardNumber] = useState('');
 
-// Header Visual Balance
+// Header Balance Logic
 const displayBalance = (balance + visualProfit).toFixed(2);
 const displayUsdt = ((balance + visualProfit) / 100).toFixed(2);
 
@@ -55,19 +55,21 @@ const copyToClipboard = (id) => {
 
 // --- SDK MESSAGE LISTENER (70/30 NO-LOSS MATH) ---
 useEffect(() => {
-const handleSDKMessages = async (event) => {
+const handleSDKMessages = (event) => {
 if (!user) return;
 const data = event.detail || event.data;
 if (!data || !data.type) return;
-const { type, amount, coins } = data;
 
-if (type === 'EARNED' || type === "ADD_AD_REVENUE" || type === "SYNC_GAME_COINS") {
-    const rawReward = amount || coins || 0;
-    const safeTotalValue = rawReward / 1000; 
-    const userRef = doc(db, "users", user.uid);
-    const adminRef = doc(db, "admin_ledger", "platform_stats");
-    await updateDoc(userRef, { balance: increment(safeTotalValue * 0.30) });
-    await updateDoc(adminRef, { total_revenue: increment(safeTotalValue * 0.70) });
+const rawReward = data.amount || data.coins || 0;
+// LOSS PREVENTION: Dividing game points by 1000
+const safeTotalValue = rawReward / 1000; 
+
+const userRef = doc(db, "users", user.uid);
+const adminRef = doc(db, "admin_ledger", "platform_stats");
+
+if (data.type === 'EARNED' || data.type === "ADD_AD_REVENUE") {
+    updateDoc(userRef, { balance: increment(safeTotalValue * 0.30) });
+    updateDoc(adminRef, { total_revenue: increment(safeTotalValue * 0.70) });
   }
 };
 window.addEventListener("message", handleSDKMessages);
@@ -79,9 +81,8 @@ useEffect(() => {
   let logInt, visualInt, dbSyncInt;
   if (user && botTier !== 'none' && invested > 0) {
     logInt = setInterval(() => {
-      const actions = ["Analysing", "Scalping", "Hedging", "Executing"];
-      const newLog = `[${new Date().toLocaleTimeString()}] ${actions[Math.floor(Math.random()*4)]} Neural Trade...`;
-      setTradeLogs(prev => [newLog, ...prev.slice(0, 3)]);
+      const actions = ["Scalping BTC", "Neural Analysis", "Hedging SOL"];
+      setTradeLogs(prev => [`[${new Date().toLocaleTimeString()}] ${actions[Math.floor(Math.random()*3)]}...`, ...prev.slice(0, 3)]);
     }, 7000);
     const dailyRate = botTier === 'vvip' ? 0.05 : 0.02;
     const profitPerSec = (invested * dailyRate) / 86400;
@@ -103,6 +104,7 @@ useEffect(() => {
 useEffect(() => {
 if (screen === 'splash') {
 const interval = setInterval(() => { setLoading(prev => (prev >= 100 ? 100 : prev + 10)); }, 50);
+setTimeout(() => setScreen('hub'), 2000);
 return () => clearInterval(interval);
 }
 }, [screen]);
@@ -118,7 +120,8 @@ if (userSnap.exists()) {
   if (userData.botTier !== 'none' && userData.lastSync) {
     const lastSyncTime = userData.lastSync.toDate().getTime();
     const secPassed = (new Date().getTime() - lastSyncTime) / 1000;
-    const offlineProfit = (userData.invested * (userData.botTier === 'vvip' ? 0.05 : 0.02) * secPassed) / 86400;
+    const rate = userData.botTier === 'vvip' ? 0.05 : 0.02;
+    const offlineProfit = (userData.invested * rate * secPassed) / 86400;
     if (offlineProfit > 0.1) await updateDoc(userRef, { balance: increment(offlineProfit), lastSync: serverTimestamp() });
   }
 } else {
@@ -139,7 +142,6 @@ return () => unsubscribe();
 
 const handleLogin = async () => {
 googleProvider.setCustomParameters({ prompt: 'select_account' });
-await setPersistence(auth, browserLocalPersistence);
 await signInWithPopup(auth, googleProvider);
 };
 
@@ -153,7 +155,7 @@ const handlePurchase = async () => {
         });
         const data = await res.json();
         if (data.invoice_url) window.open(data.invoice_url, '_blank');
-      } catch (e) { alert("Payment Service Error!"); }
+      } catch (e) { alert("Gateway Error"); }
   } else {
       if(!purchaseTxId) return alert("Enter Airtm Transaction ID.");
       await addDoc(collection(db, "manual_deposits"), { uid: user.uid, email: user.email, amount: purchaseAmount, method: "Airtm", txId: purchaseTxId, status: "pending", date: serverTimestamp() });
@@ -209,7 +211,7 @@ return (
 <header className="fixed top-0 w-full p-4 flex justify-between items-center z-[100] bg-black/80 backdrop-blur-xl border-b border-white/5">
 <div className="text-xl font-black italic text-cyan-400">AJ STUDIO</div>
 <div className="flex items-center gap-3">
-<div onClick={() => {setScreen('wallet'); setWalletTab('main')}} className="flex items-center gap-3 bg-white/5 px-4 py-2 rounded-full border border-white/10 cursor-pointer transition-all hover:bg-white/10">
+<div onClick={() => {setScreen('wallet'); setWalletTab('main')}} className="flex items-center gap-3 bg-white/5 px-4 py-2 rounded-full border border-white/10 cursor-pointer">
 <span className="text-xs font-black text-yellow-500">{displayBalance} 🪙</span>
 <span className="text-[10px] text-green-400 font-bold">${displayUsdt}</span>
 {user && <img src={user.photoURL} className="w-8 h-8 rounded-full border border-cyan-500" />}
@@ -238,10 +240,10 @@ return (
               const isComingSoon = game === 'Ludo Elite Royal' || game === 'Puck Pulse Elite';
               const folderName = game.replace(' Elite Royal', '').replace(' Elite', '').toLowerCase().replace(/ /g, '-');
               return (
-              <div key={game} onClick={() => !isComingSoon && setSelectedGame(game)} className="bg-white/5 border border-white/10 p-6 rounded-3xl text-center hover:border-cyan-400 cursor-pointer transition-all">
+              <div key={game} onClick={() => !isComingSoon && setSelectedGame(game)} className="bg-white/5 border border-white/10 p-4 rounded-3xl text-center hover:border-cyan-400 cursor-pointer transition-all">
                 <img src={`/games/${folderName}/logo.png`} className="w-full aspect-square rounded-xl mb-4 object-cover shadow-lg" alt={game} onError={(e) => { e.target.src = "/logo.png"; }} />
                 <h3 className="font-black text-sm uppercase">{game}</h3>
-                <button className={`mt-4 w-full py-2 rounded-full font-black text-[10px] uppercase transition-all ${isComingSoon ? 'bg-gray-800 text-gray-500' : 'bg-cyan-500 text-black shadow-[0_0_10px_#06b6d4]'}`}>
+                <button className={`mt-4 w-full py-2 rounded-full font-black text-[10px] uppercase transition-all ${isComingSoon ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 'bg-cyan-500 text-black shadow-[0_0_10px_#06b6d4]'}`}>
                   {isComingSoon ? "Coming Soon" : "PLAY NOW"}
                 </button>
               </div>
@@ -274,7 +276,7 @@ return (
                 <div className="p-4 bg-slate-900 rounded-2xl border border-dashed border-cyan-500/50"><p className="text-[10px] text-gray-400 mb-2 uppercase">Step 1: Send to Airtm Gmail:</p><p className="text-cyan-400 font-bold mb-3 select-all bg-white/5 p-2 rounded">aliassim339@gmail.com</p><p className="text-[10px] text-gray-400 mb-1 uppercase">Step 2: Enter Transaction ID:</p><input type="text" placeholder="TX ID from Airtm" value={purchaseTxId} onChange={(e)=>setPurchaseTxId(e.target.value)} className="w-full bg-black border p-3 rounded-xl text-white outline-none border-white/10" /></div>
               )}
               <button onClick={handlePurchase} className="bg-cyan-500 py-4 rounded-xl font-black uppercase shadow-[0_0_20px_#06b6d4] transition-all hover:brightness-110">Confirm Purchase</button>
-              <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase mt-2">Cancel</button>
+              <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase mt-2 hover:text-white">Cancel</button>
             </div>
           )}
           {walletTab === 'transfer' && (
@@ -284,19 +286,18 @@ return (
                 <p className="text-xl md:text-2xl font-black text-cyan-400 break-all drop-shadow-[0_0_10px_rgba(34,211,238,0.8)] uppercase">{user?.uid}</p>
                 <div className="absolute right-4 top-1/2 -translate-y-1/2">{copied ? <CheckCircle2 size={20} className="text-green-500" /> : <Copy size={20} className="text-cyan-400 opacity-50" />}</div>
               </div>
-              <input type="text" placeholder="Recipient ID" onChange={(e)=>setTransferId(e.target.value)} className="bg-black border p-4 rounded-xl text-center text-white outline-none border-white/10 focus:border-cyan-500" />
-              <input type="number" placeholder="Amount" onChange={(e)=>setTransferAmount(Number(e.target.value))} className="bg-black border p-4 rounded-xl text-center text-white outline-none border-white/10 focus:border-cyan-500" />
+              <input type="text" placeholder="Recipient ID" onChange={(e)=>setTransferId(e.target.value)} className="bg-black border p-4 rounded-xl text-white text-center outline-none border-white/10 focus:border-cyan-500" />
+              <input type="number" placeholder="Amount" onChange={(e)=>setTransferAmount(Number(e.target.value))} className="bg-black border p-4 rounded-xl text-white text-center outline-none border-white/10 focus:border-cyan-500" />
               <button onClick={handleTransfer} className="bg-cyan-600 py-4 rounded-xl font-black uppercase shadow-lg active:scale-95 transition-all">Send Now</button>
-              <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase mt-2">Back</button>
+              <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase mt-2 hover:text-white">Back</button>
             </div>
           )}
           {walletTab === 'withdraw' && (
             <div className="flex flex-col gap-4 text-left">
               <select value={payoutMethod} onChange={(e)=>setPayoutMethod(e.target.value)} className="w-full bg-gray-900 border border-white/10 p-4 rounded-xl text-white font-bold outline-none focus:border-pink-500"><option>Binance Pay (USDT)</option><option>Airtm (Gmail Account)</option><option>EasyPaisa (PKR)</option><option>JazzCash (PKR)</option><option>Visa Transfer (Master/Visa)</option></select>
               <input type="text" placeholder={payoutMethod.includes('Airtm') ? "ENTER YOUR AIRTM GMAIL" : "ID / PHONE / CARD"} onChange={(e)=>setPayoutId(e.target.value)} className="bg-black border p-4 rounded-xl text-white text-center font-bold outline-none border-white/10" />
-              {payoutMethod.includes('Visa') && (<><input type="text" placeholder="Card Name" onChange={(e)=>setCardName(e.target.value)} className="bg-black border p-4 rounded-xl text-white text-center border-white/10" /><input type="text" placeholder="Card Number" onChange={(e)=>setCardNumber(e.target.value)} className="bg-black border p-4 rounded-xl text-white text-center border-white/10" /></>)}
               <button onClick={handleWithdraw} className="bg-pink-600 py-4 rounded-xl font-black uppercase shadow-lg active:scale-95 transition-all">Request Payout</button>
-              <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase mt-2">Back</button>
+              <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase mt-2 hover:text-white">Back</button>
             </div>
           )}
        </div>
@@ -315,8 +316,8 @@ return (
          </div>
        )}
        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-4xl px-2">
-          <div className={`p-10 rounded-3xl text-center border-2 transition-all ${botTier === 'basic' ? 'border-green-500 bg-green-500/10' : 'border-white/10 bg-white/5 hover:border-cyan-500'}`}><h3 className="text-xl font-black text-cyan-400 uppercase">Basic (+2% Daily)</h3><p className="text-3xl font-black text-white my-6">2,500 Coins</p><button onClick={() => activateBot('basic', 2500)} className={`w-full py-4 rounded-xl font-black uppercase transition-all ${botTier === 'basic' ? 'bg-green-500 text-black cursor-not-allowed' : 'bg-cyan-600 hover:scale-105 active:scale-95'}`}>{botTier === 'basic' ? "RUNNING" : "ACTIVATE"}</button></div>
-          <div className={`p-10 rounded-3xl text-center border-2 transition-all ${botTier === 'vvip' ? 'border-yellow-500 bg-yellow-500/10' : 'border-white/10 bg-white/5 hover:border-yellow-500'}`}><h3 className="text-xl font-black text-yellow-500 uppercase">VVIP (+5% Daily)</h3><p className="text-3xl font-black text-white my-6">7,500 Coins</p><button onClick={() => activateBot('vvip', 7500)} className={`w-full py-4 rounded-xl font-black uppercase transition-all ${botTier === 'vvip' ? 'bg-yellow-500 text-black cursor-not-allowed' : 'bg-yellow-600 hover:scale-105 active:scale-95'}`}>{botTier === 'vvip' ? "RUNNING" : "ACTIVATE"}</button></div>
+          <div className={`p-10 rounded-3xl text-center border-2 transition-all ${botTier === 'basic' ? 'border-green-500 bg-green-500/10' : 'border-white/10 bg-white/5 hover:border-cyan-500'}`}><h3 className="text-xl font-black text-cyan-400 uppercase">Basic (+2% Daily)</h3><p className="text-3xl font-black text-white my-6">2,500 Coins</p><button onClick={() => activateBot('basic', 2500)} className={`w-full py-4 rounded-xl font-black uppercase ${botTier === 'basic' ? 'bg-green-500 text-black cursor-not-allowed' : 'bg-cyan-600 hover:scale-105 active:scale-95'}`}>{botTier === 'basic' ? "RUNNING" : "ACTIVATE"}</button></div>
+          <div className={`p-10 rounded-3xl text-center border-2 transition-all ${botTier === 'vvip' ? 'border-yellow-500 bg-yellow-500/10' : 'border-white/10 bg-white/5 hover:border-yellow-500'}`}><h3 className="text-xl font-black text-yellow-500 uppercase">VVIP (+5% Daily)</h3><p className="text-3xl font-black text-white my-6">7,500 Coins</p><button onClick={() => activateBot('vvip', 7500)} className={`w-full py-4 rounded-xl font-black uppercase ${botTier === 'vvip' ? 'bg-yellow-500 text-black cursor-not-allowed' : 'bg-yellow-600 hover:scale-105 active:scale-95'}`}>{botTier === 'vvip' ? "RUNNING" : "ACTIVATE"}</button></div>
        </div>
     </div>
 )}
@@ -326,16 +327,14 @@ return (
         <div className="sticky top-0 w-full p-4 bg-black/90 backdrop-blur-md border-b border-white/5 flex justify-between items-center z-[500] mb-8 rounded-full shadow-2xl"><button onClick={() => setScreen('hub')} className="text-cyan-400 font-bold text-xs uppercase hover:brightness-125">← HUB</button><h2 className="text-xl font-black italic text-pink-500 uppercase">Social Hub</h2><div className="w-10"></div></div>
         <div className="grid grid-cols-1 gap-6 w-full max-w-md pb-24">
              {[{n:'AJ TikReels', i:<Video size={40}/>, s:'tikreels', d:'Short Video & Live'}, {n:'AJ Pulse', i:<Users size={40}/>, s:'pulse', d:'Feed & Community'}, {n:'AJ Live Chat', i:<MessageCircle size={40}/>, s:'chat', d:'WhatsApp Style Chat'}, {n:'AJ Discover', i:<Newspaper size={40}/>, s:'discover', d:'Platform News'}].map((mod) => (
-               <div key={mod.s} onClick={() => mod.s === 'discover' ? setSocialScreen('discover') : alert(`${mod.n} arriving in Season 2!`)} className="p-8 bg-white/5 border border-white/10 rounded-[3rem] text-center hover:border-pink-500 transition-all cursor-pointer shadow-lg hover:bg-white/10"><div className="text-pink-500 mb-4 flex justify-center">{mod.i}</div><h3 className="text-2xl font-black">{mod.n}</h3><p className="text-[10px] text-gray-500 uppercase mt-2 tracking-widest">{mod.d}</p></div>
+               <div key={mod.s} onClick={() => mod.s === 'discover' ? setSocialScreen('discover') : alert(`${mod.n} coming in Season 2!`)} className="p-8 bg-white/5 border border-white/10 rounded-[3rem] text-center hover:border-pink-500 transition-all cursor-pointer shadow-lg hover:bg-white/10"><div className="text-pink-500 mb-4 flex justify-center">{mod.i}</div><h3 className="text-2xl font-black">{mod.n}</h3><p className="text-[10px] text-gray-500 uppercase mt-2 tracking-widest">{mod.d}</p></div>
              ))}
         </div>
-        {socialScreen === 'discover' && (<div className="max-w-lg w-full space-y-6 pb-24 fixed inset-0 z-[600] bg-black p-8 overflow-y-auto flex flex-col items-center"><button onClick={() => setSocialScreen('hub')} className="self-start text-pink-500 font-black text-[10px] uppercase hover:brightness-125 mb-8">← Back</button><div className="bg-white/5 border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl p-6 w-full max-w-md"><div className="flex items-center gap-3 mb-6"><img src="/logo.png" className="w-10 h-10 rounded-full border border-cyan-500" /><div><p className="font-black text-sm">AJ ADMIN</p><p className="text-[10px] text-gray-500">Official News • Just now</p></div></div><img src="/founder_card.jpg" className="w-full rounded-3xl mb-6 shadow-xl" /><p className="text-sm text-gray-200 leading-relaxed">Welcome to AJ Super Portal Season 2! 🔥<br/><br/>We are building a complete Insta/FB style Social Hub. Live Chat (WhatsApp style) and TikReels (TikTok style) are coming very soon. Stay active and build your balance! 🚀</p></div></div>)}
+        {socialScreen === 'discover' && (<div className="max-w-lg w-full space-y-6 pb-24 fixed inset-0 z-[600] bg-black p-8 overflow-y-auto flex flex-col items-center"><button onClick={() => setSocialScreen('hub')} className="self-start text-pink-500 font-black text-[10px] uppercase hover:brightness-125 mb-8">← Back</button><div className="bg-white/5 border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl p-6 w-full max-w-md"><div className="flex items-center gap-3 mb-6"><img src="/logo.png" className="w-10 h-10 rounded-full border border-cyan-500" /><div><p className="font-black text-sm">AJ ADMIN</p><p className="text-[10px] text-gray-500">Official News • Just now</p></div></div><img src="/founder_card.jpg" className="w-full rounded-3xl mb-6 shadow-xl" /><p className="text-sm text-gray-200 leading-relaxed">Welcome to AJ Super Portal Season 2! 🔥<br/><br/>We are building a complete Insta/FB style Social Hub. Stay active and build your balance! 🚀</p></div></div>)}
     </div>
 )}
 
-  <section className="py-20 bg-black flex justify-center px-4 border-y border-white/5 transition-all"><img src="/founder_card.jpg" className="w-full max-w-4xl rounded-3xl shadow-2xl hover:scale-[1.01] transition-all" /></section>
-  
-  <footer className="bg-black py-24 px-10 text-center flex flex-col items-center border-t border-white/5">
+  <footer className="bg-black py-24 px-10 border-t border-cyan-500/10 text-center flex flex-col items-center">
     <div className="text-7xl md:text-[10rem] font-black italic text-cyan-400 drop-shadow-[0_0_30px_#06b6d4] mb-12 uppercase">AJ STUDIO</div>
     <div className="flex justify-center gap-10 mb-16">
         <a href="https://wa.me/96878994093" target="_blank" className="text-green-500 border border-green-500 px-6 py-2 rounded-full font-bold uppercase hover:bg-green-500 hover:text-black transition-all">Whatsapp</a>
