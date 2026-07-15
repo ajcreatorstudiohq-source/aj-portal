@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { auth, db, googleProvider } from '../firebaseConfig';
 import { signInWithPopup, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, updateDoc, increment, collection, addDoc, getDoc, serverTimestamp, query, orderBy, limit } from 'firebase/firestore';
-import { MessageCircle, Trophy, Zap, Wallet, Bot, LogOut, Globe, ChevronRight, Send, CreditCard, ArrowUpRight, ShieldCheck, Crown, Activity, TrendingUp, X, CheckCircle2, Download, Copy, Video, Newspaper, Users, Heart, MessageSquare, Camera, Settings, Edit3, Mail, Lock, User, DollarSign, Share2, Music, Play, PlusSquare, MoreVertical } from 'lucide-react';
+import { MessageCircle, Trophy, Zap, Wallet, Bot, LogOut, Globe, ChevronRight, Send, CreditCard, ArrowUpRight, ShieldCheck, Crown, Activity, TrendingUp, X, CheckCircle2, Download, Copy, Video, Newspaper, Users, Heart, MessageSquare, Camera, Settings, Edit3, Mail, Lock, User, DollarSign, Share2, Music, Play, PlusSquare, MoreVertical, Search, Phone, Video as VideoIcon } from 'lucide-react';
 import emailjs from 'emailjs-com';
 
 // --- CONFIGURATIONS ---
@@ -46,6 +46,7 @@ const [pixaVideos, setPixaVideos] = useState([]);
 const [newsData, setNewsData] = useState([]);
 const [chatMessages, setChatMessages] = useState([]);
 const [newMessage, setNewMessage] = useState('');
+const [activeContact, setActiveContact] = useState(null);
 
 // --- AI STATES ---
 const [visualProfit, setVisualProfit] = useState(0);
@@ -62,7 +63,7 @@ const [payoutId, setPayoutId] = useState('');
 const [cardName, setCardName] = useState('');
 const [cardNumber, setCardNumber] = useState('');
 
-// --- ALI BHAI MATH (Withdrawal 500:1 -> 1000 per $2) ---
+// --- ALI BHAI MATH ---
 const displayBalance = (balance + visualProfit).toFixed(2);
 const displayUsdt = ((balance + visualProfit) / 500).toFixed(2);
 
@@ -73,41 +74,41 @@ const navigateWithAd = (toScreen: string) => {
     else { setScreen(toScreen); }
 };
 
-// --- API FETCHERS ---
 const fetchSocialAPIs = async () => {
     try {
-        const pRes = await fetch(`https://pixabay.com/api/?key=${PIXABAY_KEY}&q=models+car+fitness&image_type=photo&per_page=30`);
+        const pRes = await fetch(`https://pixabay.com/api/?key=${PIXABAY_KEY}&q=models+lifestyle&image_type=photo&per_page=30`);
         const pData = await pRes.json(); setPixaData(pData.hits || []);
-        
-        const vRes = await fetch(`https://pixabay.com/api/videos/?key=${PIXABAY_KEY}&q=travel+fashion&per_page=20`);
+        const vRes = await fetch(`https://pixabay.com/api/videos/?key=${PIXABAY_KEY}&q=fashion+dance&per_page=20`);
         const vData = await vRes.json(); setPixaVideos(vData.hits || []);
-
         const nRes = await fetch(`https://newsapi.org/v2/everything?q=crypto+tech&apiKey=${NEWS_API_KEY}`);
-        const nData = await nRes.json(); setNewsData(nData.articles || []);
+        const nData = await nRes.json(); setNewsData(nData.articles?.slice(0, 15) || []);
     } catch (e) { console.log("API Error"); }
 };
 
-// --- FIREBASE LIVE CHAT LISTENER ---
+// --- FIREBASE LIVE CHAT ---
 useEffect(() => {
-    if (socialScreen === 'chat') {
-        const q = query(collection(db, "global_chat"), orderBy("createdAt", "desc"), limit(30));
+    if (socialScreen === 'chat' && activeContact) {
+        const q = query(collection(db, "global_chat"), orderBy("createdAt", "desc"), limit(40));
         return onSnapshot(q, (snap) => {
             setChatMessages(snap.docs.map(d => ({id: d.id, ...d.data()})).reverse());
         });
     }
-}, [socialScreen]);
+}, [socialScreen, activeContact]);
 
 const sendChatMessage = async () => {
     if (!newMessage.trim() || !user) return;
     await addDoc(collection(db, "global_chat"), {
-        text: newMessage,
-        uid: (user as any).uid,
+        text: newMessage, uid: (user as any).uid,
         username: username || "AJ_Member",
         photo: tempPhoto || (user as any).photoURL,
         createdAt: serverTimestamp()
     });
     setNewMessage('');
 };
+
+// --- INTERACTION HANDLERS ---
+const handleLike = (id) => { alert("Post Liked! ❤️"); };
+const handleShare = (msg) => { if(navigator.share) navigator.share({title:'AJ Super Portal', text: msg}); else alert("Link Copied!"); };
 
 const copyToClipboard = (id: string) => {
   if(!id) return;
@@ -116,7 +117,6 @@ const copyToClipboard = (id: string) => {
   setTimeout(() => setCopied(false), 2000);
 };
 
-// --- IMAGE PICKER HANDLERS ---
 const handleImageClick = () => { fileInputRef.current?.click(); };
 const handleFileChange = (e: any) => {
     const file = e.target.files[0];
@@ -127,7 +127,6 @@ const handleFileChange = (e: any) => {
     }
 };
 
-// --- AUTH HANDLERS ---
 const handleGoogleLogin = async () => {
     googleProvider.setCustomParameters({ prompt: 'select_account' });
     await signInWithPopup(auth, googleProvider);
@@ -147,7 +146,6 @@ const handleSignOut = async () => {
     setScreen('auth');
 };
 
-// --- SOCIAL HANDLERS ---
 const handleCreateProfile = async () => {
     if(username.length < 3) return alert("Username too short!");
     try {
@@ -172,7 +170,7 @@ const enterSocialMode = (mode: string) => {
     }
 };
 
-// --- PROFIT LOGIC (70/30) ---
+// --- AI & BALANCE EFFECT ---
 useEffect(() => {
 const handleSDKMessages = (event: any) => {
 if (!user) return;
@@ -192,7 +190,6 @@ window.addEventListener("message", handleSDKMessages);
 return () => window.removeEventListener("message", handleSDKMessages);
 }, [user]);
 
-// --- AI BOT ENGINE (FIXED CRASH) ---
 useEffect(() => {
   let logInt: any, visualInt: any, dbSyncInt: any;
   if (user && botTier !== 'none' && invested > 0) {
@@ -237,12 +234,6 @@ if (userSnap.exists()) {
   setUsername(data.username || '');
   setBio(data.bio || '');
   setTempPhoto(data.photo || currentUser.photoURL);
-
-  if (data.botTier !== 'none' && data.lastSync) {
-    const secPassed = (new Date().getTime() - data.lastSync.toDate().getTime()) / 1000;
-    const offlineProfit = (data.invested * (data.botTier === 'vvip' ? 0.05 : 0.02) * secPassed) / 86400;
-    if (offlineProfit > 0.1) await updateDoc(userRef, { balance: increment(offlineProfit), lastSync: serverTimestamp() });
-  }
 } else {
   await setDoc(userRef, { name: currentUser.displayName, email: currentUser.email, balance: 500, botTier: 'none', invested: 0, uid: currentUser.uid, lastSync: serverTimestamp(), hasSocialProfile: false, photo: currentUser.photoURL });
 }
@@ -272,25 +263,6 @@ const handlePurchase = async () => {
       await addDoc(collection(db, "manual_deposits"), { uid: (user as any)!.uid, email: (user as any)!.email, amount: purchaseAmount, method: "Airtm", txId: purchaseTxId, status: "pending", date: serverTimestamp() });
       alert("✅ Request Sent!"); setWalletTab('main');
   }
-};
-
-const handleTransfer = async () => {
-if (!transferId || transferAmount <= 0 || transferAmount > balance) return alert("Invalid Data or Balance!");
-const recipientRef = doc(db, "users", transferId);
-const recipientSnap = await getDoc(recipientRef);
-if (recipientSnap.exists()) {
-await updateDoc(doc(db, "users", (user as any)!.uid), { balance: increment(-transferAmount) });
-await updateDoc(recipientRef, { balance: increment(transferAmount) });
-alert("✅ Success!"); setWalletTab('main');
-} else { alert("ID Not Found!"); }
-};
-
-const handleWithdraw = async () => {
-if (balance < 12500) return alert("Min 12,500 Coins ($25)!");
-let details = payoutId;
-if (payoutMethod.includes('Visa')) details = `Name: ${cardName} | Card: ${cardNumber}`;
-await addDoc(collection(db, "withdraw_requests"), { uid: (user as any)!.uid, email: (user as any)!.email, amount_coins: balance, amount_usd: (balance/500), method: payoutMethod, details: details, status: "pending", date: serverTimestamp() });
-alert("✅ Request Sent!"); setWalletTab('main');
 };
 
 const activateBot = async (tier: string, cost: number) => {
@@ -381,24 +353,24 @@ return (
             </div>
         ) : (
             <div className="flex-1 flex flex-col">
-                <div className="w-full bg-black h-12 flex items-center px-6 border-b border-white/10">
-                    <button onClick={() => setSelectedGame(null)} className="text-cyan-400 font-black text-[10px] uppercase">← BACK TO HUB</button>
+                <div className="w-full bg-black h-12 flex items-center px-4 border-b border-white/10">
+                    <button onClick={() => setSelectedGame(null)} className="text-cyan-400 font-black text-[10px] uppercase tracking-widest hover:brightness-125 transition-all">← BACK TO HUB</button>
                     <div className="flex-1 text-center font-black uppercase text-[10px] opacity-40">{selectedGame}</div>
                 </div>
-                <iframe src={`/games/${selectedGame.toLowerCase().replace(/ elite royal/g, '').replace(/ elite/g, '').replace(/ /g, '-')}/index.html`} className="w-full flex-1 border-none" title="Game" />
+                <iframe src={`/games/${selectedGame.toLowerCase().replace(/ elite royal/g, '').replace(/ elite/g, '').replace(/ /g, '-')}/index.html`} className="w-full h-full border-none flex-1" title="Game" />
             </div>
         )}
     </div>
 )}
 
-{/* SOCIAL HUB - TIKTOK, INSTA, WHATSAPP DESIGNED */}
+{/* SOCIAL HUB - HEAVY DESIGNED */}
 {screen === 'social' && (
     <div className="fixed inset-0 z-[400] bg-slate-950 flex flex-col">
-        <header className="sticky top-0 w-full p-4 bg-black/90 backdrop-blur-md border-b border-white/5 flex justify-between items-center z-[500] rounded-b-3xl">
-            <button onClick={() => {setSocialScreen('hub'); setScreen('hub')}} className="text-pink-500 font-black text-xs uppercase">← HUB</button>
+        <div className="sticky top-0 w-full p-4 bg-black/90 backdrop-blur-md border-b border-white/5 flex justify-between items-center z-[500] rounded-b-3xl shadow-2xl">
+            <button onClick={() => {setSocialScreen('hub'); setScreen('hub')}} className="text-pink-500 font-black text-xs uppercase hover:brightness-125">← HUB</button>
             <h2 className="text-xl font-black italic text-pink-500 uppercase text-center flex-1">AJ Social</h2>
-            <button onClick={() => setSocialScreen('setup')} className="bg-white/10 p-2 rounded-full text-pink-500"><Settings size={18}/></button>
-        </header>
+            <button onClick={() => setSocialScreen('setup')} className="bg-white/10 p-2 rounded-full text-pink-500 hover:bg-white/20 shadow-[0_0_100px_#ec4899]"><Settings size={18}/></button>
+        </div>
 
         <div className="flex-1 overflow-y-auto">
         {socialScreen === 'hub' ? (
@@ -407,10 +379,10 @@ return (
                   <img src={tempPhoto || (user as any)?.photoURL} className="w-12 h-12 rounded-full border-2 border-pink-500 shadow-lg" alt="Profile" />
                   <div>
                     <p className="font-black text-white text-sm uppercase">@{username || "AJ_Member"}</p>
-                    <p className="text-[9px] text-gray-500 uppercase tracking-widest">Verified Member</p>
+                    <p className="text-[9px] text-gray-500 uppercase tracking-widest">{hasSocialProfile ? "Verified Member" : "Profile Not Set"}</p>
                   </div>
              </div>
-             {[{n:'AJ TikReels', i:Video, d:'TikTok Style Short Videos', s:'tikreels'}, {n:'AJ Pulse', i:Users, d:'FB/Insta Post Feed', s:'pulse'}, {n:'AJ Live Chat', i:MessageSquare, d:'WhatsApp Setup Style', s:'chat'}, {n:'AJ Discover', i:Globe, d:'Crypto & Tech News', s:'discover'}].map((mod) => (
+             {[{n:'AJ TikReels', i:Video, d:'TikTok Style Videos', s:'tikreels'}, {n:'AJ Pulse', i:Users, d:'Insta Style Feed', s:'pulse'}, {n:'AJ Live Chat', i:MessageSquare, d:'WhatsApp Setup Style', s:'chatlist'}, {n:'AJ Discover', i:Globe, d:'Crypto & Tech News', s:'discover'}].map((mod) => (
                 <div key={mod.n} onClick={() => enterSocialMode(mod.s)} className="p-8 bg-white/5 border border-white/10 rounded-[3rem] text-center hover:border-pink-500 transition-all cursor-pointer group shadow-lg">
                     <div className="text-pink-500 mb-4 flex justify-center group-hover:scale-110 transition-transform"><mod.i size={36}/></div>
                     <h3 className="text-2xl font-black uppercase italic text-white">{mod.n}</h3>
@@ -420,65 +392,87 @@ return (
           </div>
         ) : socialScreen === 'tikreels' ? (
             <div className="h-full w-full max-w-md mx-auto snap-y snap-mandatory overflow-y-auto bg-black">
-                <button onClick={()=>setSocialScreen('hub')} className="fixed left-4 top-20 z-[600] bg-white/20 p-2 rounded-full">←</button>
+                <button onClick={()=>setSocialScreen('hub')} className="fixed left-4 top-20 z-[600] bg-white/20 p-2 rounded-full text-white">←</button>
                 {pixaVideos.map((vid:any, i) => (
-                    <div key={i} className="h-[85vh] w-full snap-start relative border-b border-white/5">
-                        <video src={vid.videos.large.url} autoPlay loop muted playsInline className="w-full h-full object-cover" />
-                        <div className="absolute right-4 bottom-32 flex flex-col gap-6 items-center">
-                            <div className="flex flex-col items-center"><Heart size={30} fill="#ff0055" className="text-pink-500"/><span className="text-[10px] font-bold">12.4k</span></div>
-                            <div className="flex flex-col items-center"><MessageCircle size={30}/><span className="text-[10px] font-bold">842</span></div>
-                            <div className="flex flex-col items-center"><Share2 size={30}/><span className="text-[10px] font-bold">Share</span></div>
+                    <React.Fragment key={i}>
+                        <div className="h-[85vh] w-full snap-start relative border-b border-white/5">
+                            <video src={vid.videos.large.url} autoPlay loop muted playsInline className="w-full h-full object-cover" />
+                            <div className="absolute right-4 bottom-32 flex flex-col gap-6 items-center">
+                                <div onClick={()=>handleLike(vid.id)} className="flex flex-col items-center cursor-pointer"><Heart size={35} className="text-pink-500"/><span className="text-[10px] font-bold">12.4k</span></div>
+                                <div className="flex flex-col items-center"><MessageCircle size={35}/><span className="text-[10px] font-bold">842</span></div>
+                                <div onClick={()=>handleShare('Check this out!')} className="flex flex-col items-center cursor-pointer"><Share2 size={35}/><span className="text-[10px] font-bold">Share</span></div>
+                                <div className="w-10 h-10 rounded-full border-2 border-white overflow-hidden animate-spin-slow"><img src="/logo.png" /></div>
+                            </div>
+                            <div className="absolute bottom-10 left-6 text-white max-w-[70%]">
+                                <p className="font-black text-sm mb-1">@{vid.user} • LIVE</p>
+                                <p className="text-xs opacity-90 line-clamp-2">New travel visuals on AJ Super Portal! #Viral #TikReels #AJ</p>
+                                <div className="flex items-center gap-2 mt-3 bg-black/30 w-max p-1.5 rounded-full"><Music size={12}/> <marquee className="text-[10px] w-24">Original Sound - AJ Creator Studio</marquee></div>
+                            </div>
                         </div>
-                        <div className="absolute bottom-10 left-6 text-white">
-                            <p className="font-black text-sm">@{vid.user}</p>
-                            <p className="text-xs opacity-80 mt-1 line-clamp-1">Amazing trip to the hills! #AJTikReels #Viral</p>
-                            <div className="flex items-center gap-2 mt-2"><Music size={12}/> <p className="text-[10px] italic">Original Sound - AJ Creator</p></div>
-                        </div>
-                    </div>
+                        {(i + 1) % 5 === 0 && (
+                            <div className="h-[85vh] w-full snap-start flex items-center justify-center bg-gray-900 text-cyan-400 font-black flex-col gap-4">
+                                <VideoIcon size={60}/> <p className="uppercase tracking-[0.3em]">AJ Video Ad Sponsor</p>
+                            </div>
+                        )}
+                    </React.Fragment>
                 ))}
             </div>
         ) : socialScreen === 'pulse' ? (
             <div className="max-w-md mx-auto space-y-6 p-4 pb-24">
-                <button onClick={()=>setSocialScreen('hub')} className="text-pink-500 font-bold mb-4">← BACK</button>
-                <div className="bg-white/5 p-4 rounded-2xl border border-white/10"><div className="flex gap-3"><img src={tempPhoto || (user as any).photoURL} className="w-10 h-10 rounded-full"/><input type="text" placeholder="What's on your mind?" className="flex-1 bg-white/5 rounded-full px-4 text-xs outline-none border border-white/10"/></div><div className="flex justify-between mt-4 border-t border-white/5 pt-3"><div className="flex gap-4 text-xs font-bold text-gray-400"><Camera size={18}/> Image</div><button className="bg-pink-600 px-4 py-1 rounded-lg text-xs font-black">POST</button></div></div>
-                {pixaData.map((post:any, i) => (
-                    <div key={i} className="bg-white/10 border border-white/10 rounded-3xl overflow-hidden">
-                        <div className="flex items-center justify-between p-4"><div className="flex items-center gap-3"><img src={post.userImageURL || "/logo.png"} className="w-8 h-8 rounded-full border border-pink-500"/><p className="font-bold text-xs">@{post.user}</p></div><MoreVertical size={16}/></div>
-                        <img src={post.largeImageURL} className="w-full aspect-square object-cover" />
-                        <div className="p-4"><div className="flex gap-4 mb-3"><Heart size={24} className="hover:text-pink-500 cursor-pointer"/><MessageSquare size={24}/><Share2 size={24}/></div><p className="text-xs"><b>{post.likes} likes</b></p><p className="text-[11px] mt-2 line-clamp-2"><span className="font-bold">@{post.user}</span> Exploring new horizons with #AJPortal technology!</p><p className="text-[9px] text-gray-500 mt-2 uppercase">View all 12 comments</p></div>
+                <button onClick={()=>setSocialScreen('hub')} className="text-pink-500 font-bold mb-4 flex items-center gap-2"><ChevronRight className="rotate-180"/> DISCOVER PULSE</button>
+                <div className="bg-white/5 p-4 rounded-3xl border border-pink-500/20 shadow-xl">
+                    <div className="flex gap-3"><img src={tempPhoto || (user as any).photoURL} className="w-10 h-10 rounded-full border border-pink-500"/><input type="text" placeholder="Share your AJ story..." className="flex-1 bg-white/5 rounded-full px-5 text-xs outline-none border border-white/10"/></div>
+                    <div className="flex justify-between mt-4 border-t border-white/5 pt-3">
+                        <button className="flex items-center gap-2 text-[10px] font-bold text-gray-400 hover:text-pink-500 transition-all"><Camera size={18}/> Photo/Video</button>
+                        <button className="bg-pink-600 px-6 py-1.5 rounded-full text-xs font-black shadow-lg">POST</button>
                     </div>
-                ))}
-            </div>
-        ) : socialScreen === 'discover' ? (
-            <div className="max-w-4xl mx-auto space-y-4 p-4 pb-24">
-                <button onClick={()=>setSocialScreen('hub')} className="text-pink-500 font-black mb-4">← BACK</button>
-                <h3 className="text-cyan-400 font-black flex items-center gap-2"><TrendingUp size={18}/> TECH & CRYPTO DAILY</h3>
-                {newsData.map((art: any, i) => (
-                    <div key={i} className="bg-white/5 p-5 rounded-3xl border border-white/10 flex flex-col md:flex-row gap-5">
-                        {art.urlToImage && <img src={art.urlToImage} className="w-full md:w-40 h-40 object-cover rounded-2xl" />}
-                        <div className="flex-1">
-                            <div className="flex justify-between items-center mb-2"><span className="text-[8px] bg-cyan-500/20 text-cyan-400 px-2 py-0.5 rounded-full font-black uppercase">{art.source?.name}</span><span className="text-[8px] text-gray-500">{new Date(art.publishedAt).toLocaleDateString()}</span></div>
-                            <h4 className="font-black text-sm text-white leading-tight mb-2">{art.title}</h4>
-                            <p className="text-[10px] text-gray-400 line-clamp-2 mb-3">{art.description}</p>
-                            <a href={art.url} target="_blank" className="text-[10px] text-cyan-400 font-black uppercase flex items-center gap-1">Read Full Article <ArrowUpRight size={12}/></a>
+                </div>
+                {pixaData.map((post:any, i) => (
+                    <React.Fragment key={i}>
+                    <div className="bg-white/10 border border-white/10 rounded-[2rem] overflow-hidden shadow-2xl">
+                        <div className="flex items-center justify-between p-4"><div className="flex items-center gap-3"><img src={post.userImageURL || "/logo.png"} className="w-9 h-9 rounded-full border-2 border-pink-500 shadow-md"/><p className="font-black text-xs">@{post.user}</p></div><MoreVertical size={18} className="opacity-40"/></div>
+                        <img src={post.largeImageURL} className="w-full aspect-square object-cover" onDoubleClick={()=>handleLike(post.id)}/>
+                        <div className="p-5">
+                            <div className="flex gap-5 mb-4"><Heart size={28} onClick={()=>handleLike(post.id)} className="hover:text-pink-500 cursor-pointer transition-all"/><MessageSquare size={28}/><Share2 size={28} onClick={()=>handleShare('Pulse Post')}/></div>
+                            <p className="text-xs"><b>{post.likes.toLocaleString()} likes</b></p>
+                            <p className="text-[11px] mt-2 leading-relaxed"><span className="font-black mr-2">@{post.user}</span>Just chilling on the AJ Portal. This tech is insane! 🔥 #AJ #PortalLife #Gaming</p>
+                            <p className="text-[9px] text-gray-500 mt-3 font-bold uppercase tracking-wider cursor-pointer">View all 48 comments</p>
                         </div>
                     </div>
+                    {(i+1) % 4 === 0 && (
+                        <div className="bg-cyan-500/10 border border-cyan-500/30 p-4 rounded-2xl text-center"><p className="text-[10px] text-cyan-400 font-black tracking-widest uppercase">ADVERTISEMENT SPONSOR</p></div>
+                    )}
+                    </React.Fragment>
                 ))}
             </div>
-        ) : socialScreen === 'chat' ? (
-            <div className="max-w-md mx-auto h-[82vh] flex flex-col bg-[#0b141a] rounded-3xl border border-green-500/20 overflow-hidden m-2 shadow-2xl">
-                <div className="bg-[#1f2c33] p-4 flex items-center gap-3 border-b border-white/5">
-                    <button onClick={()=>setSocialScreen('hub')} className="text-green-500"><ChevronRight className="rotate-180"/></button>
-                    <div className="relative"><img src="/logo.png" className="w-10 h-10 rounded-full border border-green-500" /><div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-[#1f2c33]"></div></div>
-                    <div><p className="font-bold text-sm text-white">AJ GLOBAL LIVE</p><p className="text-[8px] text-green-500 font-bold uppercase tracking-widest">Active Now • WhatsApp Style</p></div>
+        ) : socialScreen === 'chatlist' ? (
+            <div className="max-w-md mx-auto bg-[#111b21] h-screen border-x border-white/5">
+                <div className="bg-[#1f2c33] p-4 flex justify-between items-center"><h2 className="text-xl font-bold text-[#e9edef]">Chats</h2><div className="flex gap-4"><MessageSquare size={20}/><MoreVertical size={20}/></div></div>
+                <div className="p-3"><div className="bg-[#202c33] flex items-center gap-4 px-4 py-2 rounded-xl text-gray-400"><Search size={18}/><input type="text" placeholder="Search chats" className="bg-transparent border-none outline-none text-sm w-full"/></div></div>
+                <div className="mt-2">
+                    {['AJ Global Support', 'Crypto Whale Group', 'Tech Warriors', 'Ali Bhai Elite'].map((contact, i) => (
+                        <div key={i} onClick={()=>{setActiveContact(contact); setSocialScreen('chat')}} className="flex items-center gap-4 p-4 hover:bg-[#202c33] cursor-pointer border-b border-white/5">
+                            <div className="w-12 h-12 rounded-full bg-pink-500 flex items-center justify-center font-black">AJ</div>
+                            <div className="flex-1"><div className="flex justify-between items-center"><p className="font-bold text-[#e9edef]">{contact}</p><span className="text-[10px] text-green-500 font-bold">11:0{i} PM</span></div><p className="text-xs text-gray-400 line-clamp-1">Welcome to the real-time hub!</p></div>
+                        </div>
+                    ))}
                 </div>
-                <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-repeat bg-[length:400px]">
+            </div>
+        ) : socialScreen === 'chat' ? (
+            <div className="max-w-md mx-auto h-[88vh] flex flex-col bg-[#0b141a] overflow-hidden m-2 rounded-3xl shadow-2xl">
+                <div className="bg-[#1f2c33] p-4 flex items-center gap-3 border-b border-white/5">
+                    <button onClick={()=>setSocialScreen('chatlist')} className="text-green-500"><ChevronRight className="rotate-180"/></button>
+                    <img src="/logo.png" className="w-10 h-10 rounded-full border-2 border-green-500 shadow-md" />
+                    <div className="flex-1"><p className="font-bold text-sm text-white">{activeContact}</p><p className="text-[8px] text-green-500 font-bold uppercase animate-pulse">Online • WhatsApp Mode</p></div>
+                    <div className="flex gap-4"><VideoIcon size={20}/><Phone size={20}/><MoreVertical size={20}/></div>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-repeat bg-contain">
                     {chatMessages.map((m:any) => (
                         <div key={m.id} className={`flex ${m.uid === (user as any).uid ? 'justify-end' : 'justify-start'}`}>
-                            <div className={`p-2.5 max-w-[85%] rounded-xl shadow-lg relative ${m.uid === (user as any).uid ? 'bg-[#005c4b] text-white rounded-tr-none' : 'bg-[#1f2c33] text-gray-200 rounded-tl-none'}`}>
+                            <div className={`p-2.5 max-w-[85%] rounded-xl shadow-lg relative ${m.uid === (user as any).uid ? 'bg-[#005c4b] text-[#e9edef] rounded-tr-none' : 'bg-[#202c33] text-[#e9edef] rounded-tl-none'}`}>
                                 <p className="font-black text-[9px] text-yellow-500 mb-1 opacity-70">@{m.username}</p>
-                                <p className="text-[11px] leading-relaxed mb-1 pr-8">{m.text}</p>
-                                <p className="text-[7px] text-gray-400 absolute bottom-1 right-2 uppercase">11:42 PM</p>
+                                <p className="text-[11px] leading-relaxed mb-1 pr-6">{m.text}</p>
+                                <p className="text-[7px] text-white/40 absolute bottom-1 right-2 uppercase">11:42 PM</p>
                             </div>
                         </div>
                     ))}
@@ -486,16 +480,34 @@ return (
                 <div className="p-3 bg-[#1f2c33] flex gap-2 items-center">
                     <button className="text-gray-400"><PlusSquare size={24}/></button>
                     <input type="text" value={newMessage} onChange={(e)=>setNewMessage(e.target.value)} placeholder="Type a message" className="flex-1 bg-[#2a3942] border-none p-3 rounded-full text-xs text-white outline-none focus:ring-1 focus:ring-green-500" />
-                    <button onClick={sendChatMessage} className="bg-[#00a884] p-3 rounded-full text-white active:scale-90 transition-all shadow-lg"><Send size={20}/></button>
+                    <button onClick={sendChatMessage} className="bg-[#00a884] p-3 rounded-full text-white shadow-xl active:scale-90 transition-all"><Send size={20}/></button>
                 </div>
             </div>
-        ) : socialScreen === 'setup' && (
+        ) : socialScreen === 'discover' ? (
+            <div className="max-w-4xl mx-auto space-y-5 p-4 pb-24">
+                <button onClick={()=>setSocialScreen('hub')} className="text-pink-500 font-black mb-4 flex items-center gap-2"><ChevronRight className="rotate-180"/> BACK TO HUB</button>
+                <div className="flex items-center gap-3 mb-6"><Globe className="text-cyan-400" size={30}/><h3 className="text-2xl font-black italic uppercase">Crypto & Tech Headlines</h3></div>
+                {newsData.map((art: any, i) => (
+                    <div key={i} className="bg-white/5 p-5 rounded-[2rem] border border-white/10 flex flex-col md:flex-row gap-5 hover:border-cyan-400 transition-all shadow-xl">
+                        {art.urlToImage && <img src={art.urlToImage} className="w-full md:w-44 h-44 object-cover rounded-3xl" />}
+                        <div className="flex-1">
+                            <div className="flex justify-between items-center mb-3"><span className="text-[9px] bg-cyan-500/20 text-cyan-400 px-3 py-1 rounded-full font-black uppercase">{art.source?.name}</span><span className="text-[8px] text-gray-500 font-bold">{new Date(art.publishedAt).toLocaleDateString()}</span></div>
+                            <h4 className="font-black text-base text-white leading-snug mb-3">{art.title}</h4>
+                            <p className="text-[11px] text-gray-400 line-clamp-3 mb-4 leading-relaxed">{art.description}</p>
+                            <a href={art.url} target="_blank" className="text-[10px] text-cyan-400 font-black uppercase flex items-center gap-2 border-b border-cyan-400/30 w-max pb-1">Read Source <ArrowUpRight size={14}/></a>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        ) : socialScreen === 'setup' ? (
           <div className="max-w-md mx-auto bg-white/5 border border-white/10 p-10 rounded-[3rem] text-center mt-4 shadow-2xl">
               <div className="relative w-24 h-24 mx-auto mb-8 cursor-pointer group" onClick={handleImageClick}>
-                <img src={tempPhoto || (user as any)?.photoURL || "/logo.png"} className="w-full h-full rounded-full border-4 border-pink-500 p-1 object-cover" alt="Avatar" />
-                <div className="absolute bottom-0 right-0 bg-pink-600 p-2 rounded-full border-2 border-black text-white"><Camera size={14}/></div>
+                <img src={tempPhoto || (user as any)?.photoURL || "/logo.png"} className="w-full h-full rounded-full border-4 border-pink-500 p-1 object-cover shadow-2xl" alt="Avatar" />
+                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40 rounded-full text-white"><Camera size={30} className="text-white"/></div>
+                <div className="absolute bottom-0 right-0 bg-pink-600 p-2 rounded-full border-2 border-black shadow-lg text-white"><Camera size={14}/></div>
               </div>
               <h2 className="text-xl font-black text-white mb-6 uppercase tracking-tighter italic text-center">Setup Identity</h2>
+              
               {!user ? (
                   <div className="space-y-4">
                       <div className="flex items-center gap-2 bg-black border border-white/10 p-4 rounded-2xl"><Mail className="text-pink-500" size={18}/><input type="email" placeholder="Email" value={manualEmail} onChange={(e)=>setManualEmail(e.target.value)} className="bg-transparent outline-none text-white w-full text-sm"/></div>
@@ -505,14 +517,27 @@ return (
                   </div>
               ) : (
                   <div className="space-y-4 text-left">
-                      <label className="text-[9px] font-black text-pink-500 uppercase">Username</label>
+                      <p className="text-[10px] text-center text-gray-400 mb-4 uppercase italic">Tap photo to open Gallery/Camera</p>
+                      <label className="text-[9px] font-black text-pink-500 ml-1 uppercase">Username</label>
                       <input type="text" placeholder="@unique_name" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full bg-black border border-white/10 p-4 rounded-2xl font-bold text-white outline-none focus:border-pink-500" />
-                      <label className="text-[9px] font-black text-pink-500 uppercase">Bio</label>
+                      <label className="text-[9px] font-black text-pink-500 ml-1 uppercase">Bio</label>
                       <textarea placeholder="Tell people about yourself..." value={bio} onChange={(e) => setBio(e.target.value)} className="w-full bg-black border border-white/10 p-4 rounded-2xl text-xs text-white outline-none h-24 focus:border-pink-500" />
-                      <button onClick={handleCreateProfile} className="w-full mt-8 py-5 bg-pink-600 rounded-2xl font-black uppercase shadow-lg active:scale-95">START {pendingMode.toUpperCase()}</button>
+                      <button onClick={handleCreateProfile} className="w-full mt-8 py-5 bg-pink-600 rounded-2xl font-black uppercase shadow-lg active:scale-95 transition-all">START {pendingMode.toUpperCase()}</button>
                   </div>
               )}
-              <div className="mt-8 pt-6 border-t border-white/5"><button onClick={handleSignOut} className="text-red-500 text-[10px] font-black uppercase flex items-center justify-center gap-2 mx-auto"><LogOut size={14}/> Sign Out</button></div>
+              <div className="mt-8 pt-6 border-t border-white/5">
+                <button onClick={handleSignOut} className="text-red-500 text-[10px] font-black uppercase flex items-center justify-center gap-2 mx-auto hover:brightness-125"><LogOut size={14}/> Sign Out / Switch Account</button>
+              </div>
+              <button onClick={() => setSocialScreen('hub')} className="mt-4 text-gray-500 uppercase text-[10px] w-full text-center hover:text-white">Back</button>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center h-[60vh] text-center px-4">
+             <h2 className="text-4xl font-black text-pink-500 uppercase italic mb-4">{socialScreen.toUpperCase()}</h2>
+             <p className="text-gray-400 text-sm italic">Connecting to Servers... Season 2 🚀</p>
+             <div className="flex gap-4 mt-12">
+                <button onClick={() => setSocialScreen('setup')} className="px-6 py-2 bg-pink-600 rounded-full text-[10px] font-black uppercase flex items-center gap-2 shadow-lg hover:scale-105 transition-all text-white"><Edit3 size={14}/> Edit Profile</button>
+                <button onClick={() => setSocialScreen('hub')} className="px-6 py-2 bg-white/5 border border-white/10 rounded-full text-[10px] font-black uppercase hover:bg-white/10 text-white">Dashboard</button>
+             </div>
           </div>
         )}
         </div>
@@ -537,13 +562,19 @@ return (
             <div className="flex flex-col gap-5 text-left">
               <label className="text-[10px] font-black text-cyan-400 uppercase tracking-widest">Method</label>
               <select value={purchaseMethod} onChange={(e)=>setPurchaseMethod(e.target.value)} className="w-full bg-gray-900 border border-white/10 p-4 rounded-xl text-white font-bold outline-none"><option>Binance (TRC20)</option><option>Airtm (Gmail Account)</option></select>
-              <div className="bg-black border-2 border-white/10 p-6 rounded-3xl text-center">
+              
+              <div className="bg-black border-2 border-white/10 p-6 rounded-3xl text-center shadow-[inset_0_0_20px_rgba(0,255,255,0.05)]">
                  <p className="text-[10px] text-gray-500 uppercase font-black mb-2">You will receive</p>
                  <p className="text-yellow-500 text-5xl font-black mb-4 drop-shadow-[0_0_10px_#eab308]">{(purchaseAmount * 100).toLocaleString()} 🪙</p>
                  <div className="flex items-center justify-center gap-2 bg-white/5 p-3 rounded-2xl border border-white/10">
-                    <DollarSign className="text-green-400" size={24}/><input type="number" value={purchaseAmount === 0 ? '' : purchaseAmount} onChange={(e)=>setPurchaseAmount(e.target.value === '' ? 0 : Number(e.target.value))} className="bg-transparent text-white text-3xl w-32 text-center font-bold outline-none" />
+                    <DollarSign className="text-green-400" size={24}/>
+                    <input type="number" value={purchaseAmount === 0 ? '' : purchaseAmount} onChange={(e)=>setPurchaseAmount(e.target.value === '' ? 0 : Number(e.target.value))} className="bg-transparent text-white text-3xl w-32 text-center font-bold outline-none" />
                  </div>
+                 <p className="text-[9px] text-red-400 mt-3 font-bold uppercase italic">Minimum Purchase: $20</p>
               </div>
+
+              {purchaseMethod.includes('Airtm') && (<div className="p-4 bg-slate-900 rounded-2xl border border-cyan-500/30 text-xs"><p className="text-gray-400 mb-1">Send to: ajcreatorstudio.hq@gmail.com</p><input type="text" placeholder="TX ID" value={purchaseTxId} onChange={(e)=>setPurchaseTxId(e.target.value)} className="w-full bg-black border p-2 rounded text-white" /></div>)}
+              
               <button onClick={handlePurchase} className="bg-cyan-500 py-5 rounded-xl font-black uppercase shadow-lg active:scale-95 transition-all">Confirm Purchase</button>
               <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase mt-2 hover:text-white">Cancel</button>
             </div>
@@ -551,21 +582,22 @@ return (
           {walletTab === 'transfer' && (
             <div className="flex flex-col gap-4 text-left">
               <div className="bg-cyan-500/10 border border-cyan-500/30 p-5 rounded-2xl relative cursor-pointer" onClick={() => copyToClipboard((user as any)?.uid)}>
-                <p className="text-[10px] text-gray-500 uppercase font-black mb-1">My Referral ID</p>
+                <p className="text-[10px] text-gray-500 uppercase font-black mb-1 tracking-[0.2em]">My Referral ID</p>
                 <p className="text-lg font-mono text-cyan-400 font-black truncate">{(user as any)?.uid}</p>
                 <div className="absolute right-4 top-1/2 -translate-y-1/2">{copied ? <CheckCircle2 size={18}/> : <Copy size={18}/>}</div>
               </div>
-              <input type="text" value={transferId} placeholder="Recipient ID" onChange={(e)=>setTransferId(e.target.value)} className="bg-black border p-4 rounded-xl text-center text-white outline-none border-white/10" />
-              <input type="number" value={transferAmount === 0 ? '' : transferAmount} placeholder="Amount" onChange={(e)=>setTransferAmount(e.target.value === '' ? 0 : Number(e.target.value))} className="bg-black border p-4 rounded-xl text-center text-white outline-none border-white/10" />
-              <button onClick={handleTransfer} className="bg-cyan-600 py-4 rounded-xl font-black uppercase shadow-lg">Send Now</button>
+              <input type="text" value={transferId} placeholder="Recipient ID" onChange={(e)=>setTransferId(e.target.value)} className="bg-black border p-4 rounded-xl text-center text-white outline-none border-white/10 focus:border-cyan-500" />
+              <input type="number" value={transferAmount === 0 ? '' : transferAmount} placeholder="Amount" onChange={(e)=>setTransferAmount(e.target.value === '' ? 0 : Number(e.target.value))} className="bg-black border p-4 rounded-xl text-center text-white outline-none border-white/10 focus:border-cyan-500" />
+              <button onClick={handleTransfer} className="bg-cyan-600 py-4 rounded-xl font-black uppercase shadow-lg active:scale-95 transition-all">Send Now</button>
               <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase mt-2 hover:text-white">Back</button>
             </div>
           )}
           {walletTab === 'withdraw' && (
             <div className="flex flex-col gap-4 text-left">
               <label className="text-[10px] text-pink-500 font-black uppercase">Min 12,500 Coins ($25)</label>
-              <select value={payoutMethod} onChange={(e)=>setPayoutMethod(e.target.value)} className="w-full bg-gray-900 border border-white/10 p-4 rounded-xl text-white font-bold outline-none"><option>Binance Pay (USDT)</option><option>Airtm (Gmail Account)</option><option>EasyPaisa (PKR)</option><option>JazzCash (PKR)</option><option>Visa Transfer (Master/Visa)</option></select>
-              <input type="text" placeholder="ID / Details" onChange={(e)=>setPayoutId(e.target.value)} className="bg-black border p-4 rounded-xl text-white outline-none" />
+              <select value={payoutMethod} onChange={(e)=>setPayoutMethod(e.target.value)} className="w-full bg-gray-900 border border-white/10 p-4 rounded-xl text-white font-bold outline-none focus:border-pink-500"><option>Binance Pay (USDT)</option><option>Airtm (Gmail Account)</option><option>EasyPaisa (PKR)</option><option>JazzCash (PKR)</option><option>Visa Transfer (Master/Visa)</option></select>
+              <input type="text" placeholder="ID / Phone / Card Details" onChange={(e)=>setPayoutId(e.target.value)} className="bg-black border p-4 rounded-xl text-white outline-none border-white/10" />
+              {payoutMethod.includes('Visa') && (<><input type="text" placeholder="Name on Card" onChange={(e)=>setCardName(e.target.value)} className="bg-black border p-4 rounded-xl text-white mb-2 outline-none" /><input type="text" placeholder="Card Number" onChange={(e)=>setCardNumber(e.target.value)} className="bg-black border p-4 rounded-xl text-white outline-none" /></>)}
               <button onClick={handleWithdraw} className="bg-pink-600 py-4 rounded-xl font-black uppercase shadow-lg">Request Payout</button>
               <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase mt-2 hover:text-white">Back</button>
             </div>
