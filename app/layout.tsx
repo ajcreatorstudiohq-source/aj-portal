@@ -1,27 +1,48 @@
-import type { Metadata } from "next";
-import { Inter } from "next/font/google";
-import "./globals.css";
+import './globals.css'
+import { Inter } from 'next/font/google'
+import Script from 'next/script' // Next.js ka special script component
 
-const inter = Inter({ subsets: ["latin"] });
+const inter = Inter({ subsets: ['latin'] })
 
-export const metadata: Metadata = {
-  title: "AJ Super Portal",
-  description: "Official AJ Studio Portal",
-  manifest: "/manifest.json",
-};
+export const metadata = {
+  title: 'AJ Super Portal',
+  description: 'Gaming, Social and AI Hub',
+}
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
   return (
     <html lang="en">
       <head>
-        {/* MONETAG SMART TAG - Yeh aapki earning barhaye ga */}
-        <script src="https://alwingulla.com/88/p.js" data-ahas="123456" async></script>
-        
-        <link rel="manifest" href="/manifest.json" />
-        <meta name="theme-color" content="#06b6d4" />
-        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0" />
+        {/* 1. Pehle aapki main SDK file load hogi */}
+        <Script 
+          src="/aj-sdk.js" 
+          strategy="beforeInteractive" 
+        />
+
+        {/* 2. Yeh script ensure karega ke window.AJ_SDK hamesha available rahe */}
+        <Script id="aj-sdk-init" strategy="afterInteractive">
+          {`
+            if (!window.AJ_SDK) {
+              window.AJ_SDK = {
+                showAd: function() { 
+                  console.log("SDK: Showing Interstitial Ad...");
+                  // Agar asli SDK load nahi hua to ye dummy function chalega
+                },
+                addBalance: function(data) {
+                  console.log("SDK: Syncing Balance...", data);
+                }
+              };
+            }
+          `}
+        </Script>
       </head>
-      <body className={inter.className}>{children}</body>
+      <body className={inter.className}>
+        {children}
+      </body>
     </html>
-  );
+  )
 }
