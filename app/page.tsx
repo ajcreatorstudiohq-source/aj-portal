@@ -39,6 +39,7 @@ const [pendingMode, setPendingMode] = useState('');
 const [manualEmail, setManualEmail] = useState('');
 const [manualPass, setManualPass] = useState('');
 const fileInputRef = useRef<HTMLInputElement>(null); 
+const searchInputRef = useRef<HTMLInputElement>(null);
 
 // --- NEW SOCIAL CONTENT STATES ---
 const [pixaData, setPixaData] = useState([]);
@@ -65,11 +66,11 @@ const [payoutId, setPayoutId] = useState('');
 const [cardName, setCardName] = useState('');
 const [cardNumber, setCardNumber] = useState('');
 
-// --- ALI BHAI MATH (Withdrawal 1000:1 -> 12500 per $12.5) ---
+// --- CEO MATH (500:1 -> $1 per 500 Coins) ---
 const displayBalance = (balance + visualProfit).toFixed(2);
-const displayUsdt = ((balance + visualProfit) / 1000).toFixed(2);
+const displayUsdt = ((balance + visualProfit) / 500).toFixed(2);
 
-// --- AD NAVIGATION HELPER (ACTIVE TRIGGER) ---
+// --- AD NAVIGATION HELPER ---
 const navigateWithAd = (toScreen: string) => {
     if (typeof window !== 'undefined' && (window as any).AJ_SDK) {
         (window as any).AJ_SDK.showAd();
@@ -78,13 +79,12 @@ const navigateWithAd = (toScreen: string) => {
     else { setScreen(toScreen); }
 };
 
-// --- API FETCHERS ---
 const fetchSocialAPIs = async () => {
     try {
-        const pRes = await fetch(`https://pixabay.com/api/?key=${PIXABAY_KEY}&q=models+car+fitness&image_type=photo&per_page=30`);
+        const pRes = await fetch(`https://pixabay.com/api/?key=${PIXABAY_KEY}&q=fashion+luxury+car&image_type=photo&per_page=30`);
         const pData = await pRes.json(); setPixaData(pData.hits || []);
         
-        const vRes = await fetch(`https://pixabay.com/api/videos/?key=${PIXABAY_KEY}&q=travel+fashion+dance&per_page=20`);
+        const vRes = await fetch(`https://pixabay.com/api/videos/?key=${PIXABAY_KEY}&q=travel+vlog&per_page=20`);
         const vData = await vRes.json(); setPixaVideos(vData.hits || []);
 
         const nRes = await fetch(`https://newsapi.org/v2/everything?q=crypto+tech&apiKey=${NEWS_API_KEY}`);
@@ -126,7 +126,7 @@ const handleCreatePost = async () => {
     // Add reward for post: 2.5 coins
     await updateDoc(doc(db, "users", (user as any).uid), { balance: increment(2.5) });
     setPostText(''); setTempPhoto('');
-    alert("🚀 Post Published! +2.5 Coins Reward Received.");
+    alert("🚀 Post Published! +2.5 Coins Received.");
 };
 
 // --- INTERACTION HANDLERS ---
@@ -138,6 +138,8 @@ const handleShare = (msg: string) => {
     if(navigator.share) navigator.share({title:'AJ Portal', text: msg}); 
     else alert("Link Copied!"); 
 };
+const handleSearchFocus = () => { searchInputRef.current?.focus(); };
+const handleMoreMenu = () => { alert("WeChat Profile Settings (CEO ACCESS ONLY)"); };
 
 const copyToClipboard = (id: string) => {
   if(!id) return;
@@ -146,7 +148,6 @@ const copyToClipboard = (id: string) => {
   setTimeout(() => setCopied(false), 2000);
 };
 
-// --- IMAGE PICKER HANDLERS ---
 const handleImageClick = () => { fileInputRef.current?.click(); };
 const handleFileChange = (e: any) => {
     const file = e.target.files[0];
@@ -157,7 +158,6 @@ const handleFileChange = (e: any) => {
     }
 };
 
-// --- AUTH HANDLERS ---
 const handleGoogleLogin = async () => {
     googleProvider.setCustomParameters({ prompt: 'select_account' });
     await signInWithPopup(auth, googleProvider);
@@ -177,7 +177,6 @@ const handleSignOut = async () => {
     setScreen('auth');
 };
 
-// --- SOCIAL HANDLERS ---
 const handleCreateProfile = async () => {
     if(username.length < 3) return alert("Username too short!");
     try {
@@ -264,6 +263,12 @@ if (userSnap.exists()) {
   setUsername(data.username || '');
   setBio(data.bio || '');
   setTempPhoto(data.photo || currentUser.photoURL);
+
+  if (data.botTier !== 'none' && data.lastSync) {
+    const secPassed = (new Date().getTime() - data.lastSync.toDate().getTime()) / 1000;
+    const offlineProfit = (data.invested * (data.botTier === 'vvip' ? 0.05 : 0.02) * secPassed) / 86400;
+    if (offlineProfit > 0.1) await updateDoc(userRef, { balance: increment(offlineProfit), lastSync: serverTimestamp() });
+  }
 } else {
   await setDoc(userRef, { name: currentUser.displayName, email: currentUser.email, balance: 500, botTier: 'none', invested: 0, uid: currentUser.uid, lastSync: serverTimestamp(), hasSocialProfile: false, photo: currentUser.photoURL });
 }
@@ -293,6 +298,25 @@ const handlePurchase = async () => {
       await addDoc(collection(db, "manual_deposits"), { uid: (user as any)!.uid, email: (user as any)!.email, amount: purchaseAmount, method: "Airtm", txId: purchaseTxId, status: "pending", date: serverTimestamp() });
       alert("✅ Request Sent!"); setWalletTab('main');
   }
+};
+
+const handleTransfer = async () => {
+if (!transferId || transferAmount <= 0 || transferAmount > balance) return alert("Invalid Data or Balance!");
+const recipientRef = doc(db, "users", transferId);
+const recipientSnap = await getDoc(recipientRef);
+if (recipientSnap.exists()) {
+await updateDoc(doc(db, "users", (user as any)!.uid), { balance: increment(-transferAmount) });
+await updateDoc(recipientRef, { balance: increment(transferAmount) });
+alert("✅ Success!"); setWalletTab('main');
+} else { alert("ID Not Found!"); }
+};
+
+const handleWithdraw = async () => {
+if (balance < 12500) return alert("Min 12,500 Coins ($25)!");
+let details = payoutId;
+if (payoutMethod.includes('Visa')) details = `Name: ${cardName} | Card: ${cardNumber}`;
+await addDoc(collection(db, "withdraw_requests"), { uid: (user as any)!.uid, email: (user as any)!.email, amount_coins: balance, amount_usd: (balance/500), method: payoutMethod, details: details, status: "pending", date: serverTimestamp() });
+alert("✅ Request Sent!"); setWalletTab('main');
 };
 
 const activateBot = async (tier: string, cost: number) => {
@@ -371,7 +395,7 @@ return (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-6 max-w-5xl mx-auto pb-20">
                 {['Rider King', 'Pulse Racer', 'Subsea Surge', 'Neon Strike', 'Volcano Escape', 'Ludo Elite Royal', 'Puck Pulse Elite'].map((game) => {
                 const isComingSoon = game === 'Ludo Elite Royal' || game === 'Puck Pulse Elite';
-                const folderName = game.toLowerCase().replace(/ /g, '-');
+                const folderName = game.replace(' Elite Royal', '').replace(' Elite', '').toLowerCase().replace(/ /g, '-');
                 return (
                 <div key={game} onClick={() => !isComingSoon && setSelectedGame(game)} className="bg-white/5 border border-white/10 p-4 rounded-3xl text-center hover:border-cyan-400 cursor-pointer transition-all">
                     <img src={`/games/${folderName}/logo.png`} className="w-full aspect-square rounded-xl mb-4 object-cover shadow-lg" alt={game} onError={(e:any) => { (e.target as HTMLImageElement).src = "/logo.png"; }} />
@@ -384,26 +408,26 @@ return (
         ) : (
             <div className="flex-1 flex flex-col h-full w-full">
                 <div className="w-full bg-black h-12 flex items-center px-4 border-b border-white/10 shrink-0">
-                    <button onClick={() => setSelectedGame(null)} className="text-cyan-400 font-black text-[10px] uppercase tracking-widest hover:brightness-125 transition-all">← BACK TO GAMES</button>
+                    <button onClick={() => setSelectedGame(null)} className="text-cyan-400 font-black text-[10px] uppercase tracking-widest hover:brightness-125 transition-all">← BACK TO HUB</button>
                     <div className="flex-1 text-center font-black uppercase text-[10px] opacity-40">{selectedGame}</div>
                 </div>
-                <iframe src={`/games/${selectedGame.toLowerCase().replace(/ /g, '-')}/index.html`} className="w-full h-full border-none flex-1" title="Game" />
+                <iframe src={`/games/${selectedGame.toLowerCase().replace(/ elite royal/g, '').replace(/ elite/g, '').replace(/ /g, '-')}/index.html`} className="w-full h-full border-none flex-1" title="Game" />
             </div>
         )}
     </div>
 )}
 
-{/* SOCIAL HUB - HEAVY VVIP DESIGN */}
+{/* SOCIAL HUB - VVIP WeChat DESIGN */}
 {screen === 'social' && (
     <div className="fixed inset-0 z-[400] bg-slate-950 flex flex-col h-screen overflow-hidden">
-        <header className="sticky top-0 w-full p-4 bg-black/80 backdrop-blur-xl border-b border-white/10 flex justify-between items-center z-[500] rounded-b-3xl shrink-0">
+        <header className="sticky top-0 w-full p-4 bg-black/90 backdrop-blur-md border-b border-white/10 flex justify-between items-center z-[500] rounded-b-3xl shrink-0">
             {socialScreen === 'hub' ? (
                 <button onClick={() => setScreen('hub')} className="text-pink-500 font-black text-xs uppercase hover:brightness-125">← HUB</button>
             ) : (
                 <button onClick={() => setSocialScreen('hub')} className="text-pink-500 font-black text-xs uppercase hover:brightness-125">← BACK</button>
             )}
             <h2 className="text-xl font-black italic text-pink-500 uppercase text-center flex-1 tracking-[0.2em] font-orbitron">WeChat</h2>
-            <button onClick={() => setSocialScreen('setup')} className="bg-white/10 p-2 rounded-full text-pink-500 hover:bg-white/20"><Settings size={18}/></button>
+            <button onClick={() => setSocialScreen('setup')} className="bg-white/10 p-2 rounded-full text-pink-500 hover:bg-white/20 shadow-lg"><Settings size={18}/></button>
         </header>
 
         <div className="flex-1 overflow-y-auto">
@@ -416,7 +440,7 @@ return (
                     <p className="text-[9px] text-gray-500 uppercase tracking-widest">{hasSocialProfile ? "Verified VVIP Member" : "Profile Not Set"}</p>
                   </div>
              </div>
-             {[{n:'AJ TikReels', i:Video, d:'TikTok Style Scroll', s:'tikreels'}, {n:'AJ Pulse', i:Users, d:'Insta Style Feed', s:'pulse'}, {n:'AJ WeChat', i:MessageSquare, d:'WhatsApp Clone Style', s:'chatlist'}, {n:'AJ Discover', i:Globe, d:'Crypto & Tech News', s:'discover'}].map((mod) => (
+             {[{n:'AJ TikReels', i:Video, d:'TikTok Style Videos', s:'tikreels'}, {n:'AJ Pulse', i:Users, d:'Insta Style Feed', s:'pulse'}, {n:'AJ WeChat', i:MessageSquare, d:'VVIP Messenger', s:'chatlist'}, {n:'AJ Discover', i:Globe, d:'Crypto & Tech News', s:'discover'}].map((mod) => (
                 <div key={mod.n} onClick={() => enterSocialMode(mod.s)} className="p-8 bg-white/5 border border-white/10 rounded-[3rem] text-center hover:border-pink-500 transition-all cursor-pointer group shadow-lg backdrop-blur-sm">
                     <div className="text-pink-500 mb-4 flex justify-center group-hover:scale-110 transition-transform"><mod.i size={36}/></div>
                     <h3 className="text-2xl font-black uppercase italic text-white">{mod.n}</h3>
@@ -437,13 +461,13 @@ return (
                             </div>
                             <div className="absolute bottom-10 left-6 text-white max-w-[70%]">
                                 <p className="font-black text-sm mb-1">@{vid.user} • LIVE</p>
-                                <p className="text-xs opacity-90 line-clamp-2">New visuals on AJ Super Portal! #Viral #TikReels #Muscat</p>
-                                <div className="flex items-center gap-2 mt-3 bg-black/30 w-max p-1.5 rounded-full backdrop-blur-md border border-white/10"><Music size={12}/> <marquee className="text-[10px] w-24">Original Sound - AJ Studio</marquee></div>
+                                <p className="text-xs opacity-90 line-clamp-2">New travel visuals on AJ Super Portal! #Viral #TikReels #AJ</p>
+                                <div className="flex items-center gap-2 mt-3 bg-black/30 w-max p-1.5 rounded-full backdrop-blur-md border border-white/10"><Music size={12}/> <marquee className="text-[10px] w-24">Original Sound - AJ Creator</marquee></div>
                             </div>
                         </div>
                         {(i + 1) % 5 === 0 && (
                             <div onClick={()=>(window as any).AJ_SDK?.showAd()} className="h-[85vh] w-full snap-start flex items-center justify-center bg-gray-900 text-cyan-400 font-black flex-col gap-4 cursor-pointer">
-                                <VideoIcon size={60} className="animate-bounce"/> <p className="uppercase tracking-[0.3em]">AJ ADVERTISING BREAK</p>
+                                <VideoIcon size={60} className="animate-bounce"/> <p className="uppercase tracking-[0.3em]">AJ ADVERTISING SPONSOR</p>
                             </div>
                         )}
                     </React.Fragment>
@@ -454,12 +478,12 @@ return (
                 <div className="bg-white/10 backdrop-blur-xl p-5 rounded-3xl border border-pink-500/20 shadow-2xl">
                     <div className="flex gap-3">
                         <img src={(user as any)?.photoURL || "/logo.png"} className="w-10 h-10 rounded-full border-2 border-pink-500 shadow-md"/>
-                        <textarea value={postText} onChange={(e)=>setPostText(e.target.value)} placeholder="What's trending today?" className="flex-1 bg-white/5 rounded-2xl p-4 text-xs outline-none border border-white/10 h-20 text-white"/>
+                        <textarea value={postText} onChange={(e)=>setPostText(e.target.value)} placeholder="Share your AJ story..." className="flex-1 bg-white/5 rounded-2xl p-4 text-xs outline-none border border-white/10 h-20 text-white"/>
                     </div>
-                    {tempPhoto && <img src={tempPhoto} className="mt-4 rounded-xl w-full h-40 object-cover border border-white/10" />}
+                    {tempPhoto && <img src={tempPhoto} className="mt-4 rounded-xl w-full h-40 object-cover border border-white/10 shadow-lg" />}
                     <div className="flex justify-between mt-4 border-t border-white/5 pt-3">
                         <button onClick={handleImageClick} className="flex items-center gap-2 text-[10px] font-bold text-gray-400 hover:text-pink-500 transition-all"><Camera size={18}/> Photo/Video</button>
-                        <button onClick={handleCreatePost} className="bg-pink-600 px-6 py-1.5 rounded-full text-xs font-black shadow-lg hover:scale-105 active:scale-95 transition-all">PUBLISH (+2.5🪙)</button>
+                        <button onClick={handleCreatePost} className="bg-pink-600 px-6 py-1.5 rounded-full text-xs font-black shadow-lg hover:scale-105 active:scale-95 transition-all text-white">PUBLISH (+2.5🪙)</button>
                     </div>
                 </div>
                 {userPosts.map((post:any) => (
@@ -475,22 +499,22 @@ return (
             </div>
         ) : socialScreen === 'chatlist' ? (
             <div className="max-w-md mx-auto bg-[#111b21]/80 backdrop-blur-2xl h-screen border-x border-white/10 shadow-2xl overflow-y-auto">
-                <div className="bg-[#1f2c33]/90 backdrop-blur-md p-5 flex justify-between items-center border-b border-white/5">
+                <div className="bg-[#1f2c33]/90 backdrop-blur-md p-5 flex justify-between items-center border-b border-white/10">
                     <h2 className="text-xl font-bold text-[#e9edef] tracking-tight">WeChat</h2>
-                    <div className="flex gap-5 text-[#aebac1]">
-                        <Camera size={22}/><Search size={22}/><MoreVertical size={22}/>
+                    <div className="flex gap-6 text-[#aebac1]">
+                        <Camera size={22} className="cursor-pointer hover:text-white" onClick={handleImageClick}/><Search size={22} className="cursor-pointer hover:text-white" onClick={handleSearchFocus}/><MoreVertical size={22} className="cursor-pointer hover:text-white" onClick={handleMoreMenu}/>
                     </div>
                 </div>
                 <div className="p-4">
                     <div className="bg-[#202c33] flex items-center gap-4 px-4 py-2.5 rounded-2xl text-gray-400 shadow-inner">
-                        <Search size={18}/><input type="text" placeholder="Search family & friends" className="bg-transparent border-none outline-none text-sm w-full text-white"/>
+                        <Search size={18}/><input ref={searchInputRef} type="text" placeholder="Search family & friends" className="bg-transparent border-none outline-none text-sm w-full text-white"/>
                     </div>
                 </div>
                 <div className="mt-2 space-y-1">
-                    {['AJ Global Support', 'Family WeChat Hub', 'Ali Bhai Elite VIP', 'Crypto News Daily'].map((contact, i) => (
+                    {['AJ Global Support', 'Family WeChat Hub', 'CEO VIP Elite', 'Crypto News Daily'].map((contact, i) => (
                         <div key={i} onClick={()=>{setActiveContact(contact); setSocialScreen('chat'); (window as any).AJ_SDK?.showAd();}} className="flex items-center gap-4 p-5 hover:bg-white/5 cursor-pointer border-b border-white/5 transition-colors mx-2 rounded-[1.5rem]">
-                            <div className="w-14 h-14 rounded-full bg-cyan-600/30 flex items-center justify-center font-black border border-cyan-500/50 text-cyan-400 shadow-[0_0_15px_rgba(0,255,255,0.2)]">AJ</div>
-                            <div className="flex-1">
+                            <div className="w-14 h-14 rounded-full bg-cyan-600/30 flex items-center justify-center font-black border border-cyan-500/50 text-cyan-400 shadow-xl">AJ</div>
+                            <div className="flex-1 text-left">
                                 <div className="flex justify-between items-center mb-1"><p className="font-bold text-[#e9edef]">{contact}</p><span className="text-[10px] text-[#8696a0]">11:0{i} PM</span></div>
                                 <p className="text-xs text-[#8696a0] line-clamp-1">Welcome! End-to-end AI encryption enabled.</p>
                             </div>
@@ -503,8 +527,10 @@ return (
                 <div className="bg-[#1f2c33]/95 backdrop-blur-md p-4 flex items-center gap-3 border-b border-white/10 shadow-lg">
                     <button onClick={()=>setSocialScreen('chatlist')} className="text-cyan-500 p-2"><ChevronRight className="rotate-180"/></button>
                     <img src="/logo.png" className="w-10 h-10 rounded-full border-2 border-green-500 shadow-md" />
-                    <div className="flex-1 text-left"><p className="font-bold text-sm text-white">{activeContact}</p><p className="text-[8px] text-green-500 font-black uppercase tracking-[0.2em] animate-pulse">Online • WeChat VVIP</p></div>
-                    <div className="flex gap-4 text-[#aebac1] px-2"><VideoIcon size={20}/><Phone size={20}/></div>
+                    <div className="flex-1 text-left"><p className="font-bold text-sm text-white">{activeContact}</p><p className="text-[8px] text-green-500 font-black uppercase tracking-[0.2em] animate-pulse">Online • WeChat Encryption</p></div>
+                    <div className="flex gap-5 text-[#aebac1] px-2">
+                        <VideoIcon size={20} className="cursor-pointer hover:text-cyan-400"/><Phone size={20} className="cursor-pointer hover:text-cyan-400"/>
+                    </div>
                 </div>
                 <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-repeat bg-contain opacity-90">
                     {chatMessages.map((m:any) => (
@@ -518,19 +544,19 @@ return (
                     ))}
                 </div>
                 <div className="p-4 bg-[#1f2c33]/95 backdrop-blur-md flex gap-3 items-center">
-                    <button className="text-[#aebac1] hover:text-white"><PlusSquare size={26}/></button>
+                    <button className="text-[#aebac1] hover:text-white" onClick={handleImageClick}><PlusSquare size={26}/></button>
                     <input type="text" value={newMessage} onChange={(e)=>setNewMessage(e.target.value)} placeholder="Type a message" className="flex-1 bg-[#2a3942] border-none p-3.5 rounded-full text-xs text-white outline-none focus:ring-1 focus:ring-cyan-500" />
                     <button onClick={sendChatMessage} className="bg-cyan-600 p-3.5 rounded-full text-white shadow-2xl active:scale-90 transition-all"><Send size={22}/></button>
                 </div>
             </div>
         ) : socialScreen === 'discover' ? (
             <div className="max-w-4xl mx-auto space-y-5 p-4 pb-24">
-                <h3 className="text-3xl font-black italic uppercase text-white tracking-widest flex items-center gap-3 mb-8"><Globe className="text-cyan-400" size={36}/> Crypto & Tech Daily</h3>
+                <h3 className="text-3xl font-black italic uppercase text-white tracking-widest flex items-center gap-3 mb-8"><Globe className="text-cyan-400" size={36}/> Tech Daily Headlines</h3>
                 {newsData.map((art: any, i) => (
                     <div key={i} className="bg-white/5 backdrop-blur-sm p-6 rounded-[2.5rem] border border-white/10 flex flex-col md:flex-row gap-6 hover:border-cyan-400 transition-all shadow-xl group">
                         {art.urlToImage && <img src={art.urlToImage} className="w-full md:w-52 h-52 object-cover rounded-[2rem] group-hover:scale-105 transition-transform shadow-2xl" />}
-                        <div className="flex-1 py-2">
-                            <div className="flex justify-between items-center mb-4"><span className="text-[10px] bg-cyan-500/20 text-cyan-400 px-4 py-1.5 rounded-full font-black uppercase border border-cyan-500/30">{art.source?.name}</span><span className="text-[9px] text-gray-500 font-bold">{new Date(art.publishedAt).toLocaleDateString()}</span></div>
+                        <div className="flex-1 py-2 text-left">
+                            <div className="flex justify-between items-center mb-4"><span className="text-[10px] bg-cyan-500/20 text-cyan-400 px-4 py-1.5 rounded-full font-black uppercase border border-cyan-500/30">{art.source?.name}</span></div>
                             <h4 className="font-black text-lg text-white leading-snug mb-3 group-hover:text-cyan-400 transition-colors">{art.title}</h4>
                             <p className="text-xs text-gray-400 line-clamp-3 mb-4 leading-relaxed">{art.description}</p>
                             <a href={art.url} target="_blank" className="text-[11px] text-cyan-400 font-black uppercase flex items-center gap-2 border-b-2 border-cyan-400/20 w-max pb-1 hover:border-cyan-400 transition-all">Explore Story <ArrowUpRight size={16}/></a>
@@ -559,7 +585,7 @@ return (
     </div>
 )}
 
-{/* WALLET & AI MODALS (SAME AS USER CODE) */}
+{/* WALLET MODAL (SAME AS USER CODE) */}
 {screen === 'wallet' && (
     <div className="fixed inset-0 z-[300] bg-black/98 flex flex-col items-center p-8 overflow-y-auto">
        <button onClick={() => {setScreen('hub'); setWalletTab('main')}} className="self-start text-cyan-400 mb-8 font-bold uppercase tracking-widest transition-all hover:brightness-125 flex items-center gap-2"><ArrowLeft size={18}/> BACK</button>
@@ -579,10 +605,10 @@ return (
               <select value={purchaseMethod} onChange={(e)=>setPurchaseMethod(e.target.value)} className="w-full bg-gray-900 border border-white/10 p-4 rounded-xl text-white font-bold outline-none"><option>Binance (TRC20)</option><option>Airtm (Gmail Account)</option></select>
               <div className="bg-black border-2 border-white/10 p-8 rounded-[2.5rem] text-center shadow-[inset_0_0_30px_rgba(0,255,255,0.05)]">
                  <p className="text-[10px] text-gray-500 uppercase font-black mb-4 tracking-[0.3em]">You will receive</p>
-                 <p className="text-yellow-500 text-6xl font-black mb-6 drop-shadow-[0_0_15px_#eab308]">{(purchaseAmount * 100).toLocaleString()} 🪙</p>
+                 <p className="text-yellow-500 text-6xl font-black mb-6 drop-shadow-[0_0_10px_#eab308]">{(purchaseAmount * 100).toLocaleString()} 🪙</p>
                  <div className="flex items-center justify-center gap-3 bg-white/5 p-4 rounded-2xl border border-white/10">
                     <DollarSign className="text-green-400" size={30}/>
-                    <input type="number" value={purchaseAmount === 0 ? '' : purchaseAmount} onChange={(e)=>setPurchaseAmount(e.target.value === '' ? 0 : Number(e.target.value))} className="bg-transparent text-white text-4xl w-32 text-center font-black outline-none" />
+                    <input type="number" value={purchaseAmount === 0 ? '' : purchaseAmount} onChange={(e)=>setPurchaseAmount(e.target.value === '' ? 0 : Number(e.target.value))} className="bg-transparent text-white text-3xl w-32 text-center font-black outline-none" />
                  </div>
               </div>
               <button onClick={handlePurchase} className="bg-cyan-500 py-5 rounded-2xl font-black uppercase shadow-xl hover:scale-[1.02] active:scale-95 transition-all text-black">Confirm Purchase</button>
