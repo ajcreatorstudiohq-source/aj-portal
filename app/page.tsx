@@ -1,33 +1,25 @@
 "use client";
 import React, { useState, useEffect, useRef } from 'react';
 import { auth, db, googleProvider } from '../firebaseConfig';
-import { signInWithPopup, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithPopup, onAuthStateChanged, signOut, createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, updateDoc, increment, collection, addDoc, getDoc, serverTimestamp, query, orderBy, limit, deleteDoc } from 'firebase/firestore';
 import { MessageCircle, Trophy, Zap, Wallet, Bot, LogOut, Globe, ChevronRight, Send, CreditCard, ArrowUpRight, ShieldCheck, Crown, Activity, TrendingUp, X, CheckCircle2, Download, Copy, Video, Newspaper, Users, Heart, MessageSquare, Camera, Settings, Edit3, Mail, Lock, User, DollarSign, Share2, Music, Play, PlusSquare, MoreVertical, Search, Phone, Video as VideoIcon, ArrowLeft, Trash2, Edit } from 'lucide-react';
-import emailjs from 'emailjs-com';
 
 // --- CONFIGURATIONS ---
 const PIXABAY_KEY = "56712915-2297d0968e99520a1b3d80623";
 const NEWS_API_KEY = "6e79bcc161f047039bf1acab74da28ea";
-
-const EMAILJS_CONFIG = {
-  Service_ID: "service_6w1sols",
-  Template_ID: "template_o1c40nv",
-  Public_Key: "6JCPm9fo38ovnA5LG"
-};
-
 const NOWPAYMENTS_API_KEY = "3THXNSZ-AYVMTP6-HQ9KGKK-9J6CQD7";
 
 export default function AJSuperPortal() {
 const [screen, setScreen] = useState('splash');
 const [walletTab, setWalletTab] = useState('main');
 const [socialScreen, setSocialScreen] = useState('hub'); 
-const [user, setUser] = useState(null);
+const [user, setUser] = useState<any>(null);
 const [balance, setBalance] = useState(0);
 const [botTier, setBotTier] = useState('none');
 const [invested, setInvested] = useState(0);
 const [loading, setLoading] = useState(0);
-const [selectedGame, setSelectedGame] = useState(null);
+const [selectedGame, setSelectedGame] = useState<string | null>(null);
 const [copied, setCopied] = useState(false);
 
 // --- SOCIAL STATES ---
@@ -45,23 +37,23 @@ const searchInputRef = useRef<HTMLInputElement>(null);
 const [pixaData, setPixaData] = useState([]);
 const [pixaVideos, setPixaVideos] = useState([]);
 const [newsData, setNewsData] = useState([]);
-const [chatMessages, setChatMessages] = useState([]);
-const [userPosts, setUserPosts] = useState([]); 
+const [chatMessages, setChatMessages] = useState<any[]>([]);
+const [userPosts, setUserPosts] = useState<any[]>([]); 
 const [postText, setPostText] = useState('');
 const [newMessage, setNewMessage] = useState('');
-const [activeContact, setActiveContact] = useState(null);
+const [activeContact, setActiveContact] = useState<any>(null);
 
 // --- INTERACTIVE STATES ---
 const [likedPosts, setLikedPosts] = useState({}); 
-const [activeMenuId, setActiveMenuId] = useState(null); 
+const [activeMenuId, setActiveMenuId] = useState<string | null>(null); 
 const [wechatMenuOpen, setWechatMenuOpen] = useState(false); 
-const [commentBoardPostId, setCommentBoardPostId] = useState(null); 
-const [postComments, setPostComments] = useState([]);
+const [commentBoardPostId, setCommentBoardPostId] = useState<string | null>(null); 
+const [postComments, setPostComments] = useState<any[]>([]);
 const [newComment, setNewComment] = useState('');
 
 // --- AI STATES ---
 const [visualProfit, setVisualProfit] = useState(0);
-const [tradeLogs, setTradeLogs] = useState(["Initialising Neural Link...", "Analysing Market Volatility...", "Connecting to AJ liquidity pool..."]);
+const [tradeLogs] = useState(["Neural Link Established...", "Analysing Market Volatility...", "Connecting to AJ liquidity pool..."]);
 
 // Input States
 const [purchaseAmount, setPurchaseAmount] = useState(20);
@@ -80,11 +72,10 @@ const displayUsdt = ((balance + visualProfit) / 500).toFixed(2);
 
 // --- AD NAVIGATION HELPER ---
 const navigateWithAd = (toScreen: string) => {
-    if (typeof window !== 'undefined' && (window as any).AJ_SDK) {
-        (window as any).AJ_SDK.showAd();
-    }
+    if (typeof window !== 'undefined' && (window as any).AJ_SDK) (window as any).AJ_SDK.showAd();
     if (toScreen === 'social') { fetchSocialAPIs(); setScreen('social'); setSocialScreen('hub'); }
     else if (toScreen === 'wallet') { setScreen('wallet'); setWalletTab('main'); }
+    else if (toScreen === 'ai') setScreen('ai');
     else { setScreen(toScreen); }
 };
 
@@ -101,8 +92,9 @@ const fetchSocialAPIs = async () => {
 
 // --- FIREBASE LISTENERS ---
 useEffect(() => {
-    if (socialScreen === 'chat' && activeContact) {
-        const q = query(collection(db, "global_chat"), orderBy("createdAt", "desc"), limit(40));
+    if (socialScreen === 'chat' && activeContact && user) {
+        const chatId = [user.uid, activeContact.id || activeContact].sort().join("_");
+        const q = query(collection(db, "chats", chatId, "messages"), orderBy("createdAt", "desc"), limit(40));
         return onSnapshot(q, (snap) => { setChatMessages(snap.docs.map(d => ({id: d.id, ...d.data()})).reverse()); });
     }
     if (socialScreen === 'pulse') {
@@ -113,135 +105,68 @@ useEffect(() => {
         const q = query(collection(db, "user_posts", commentBoardPostId, "comments"), orderBy("createdAt", "asc"));
         return onSnapshot(q, (snap) => { setPostComments(snap.docs.map(d => ({id: d.id, ...d.data()}))); });
     }
-}, [socialScreen, activeContact, commentBoardPostId]);
+}, [socialScreen, activeContact, user, commentBoardPostId]);
 
 const sendChatMessage = async () => {
-    if (!newMessage.trim() || !user) return;
-    await addDoc(collection(db, "global_chat"), {
-        text: newMessage, uid: (user as any).uid,
-        username: username || "AJ_Member",
-        photo: tempPhoto || (user as any).photoURL,
-        createdAt: serverTimestamp()
-    });
+    if (!newMessage.trim() || !user || !activeContact) return;
+    const chatId = [user.uid, activeContact.id || activeContact].sort().join("_");
+    await addDoc(collection(db, "chats", chatId, "messages"), { text: newMessage, uid: user.uid, username: username || "AJ_Member", createdAt: serverTimestamp() });
     setNewMessage('');
 };
 
 const handleCreatePost = async () => {
     if (!postText.trim() && !tempPhoto) return alert("Empty Post!");
     if ((window as any).AJ_SDK) (window as any).AJ_SDK.showAd(); 
-    await addDoc(collection(db, "user_posts"), {
-        text: postText, image: tempPhoto, uid: (user as any).uid,
-        username: username || "AJ_Member", photo: (user as any).photoURL,
-        likes: 0, createdAt: serverTimestamp()
-    });
-    await updateDoc(doc(db, "users", (user as any).uid), { balance: increment(2.5) });
+    await addDoc(collection(db, "user_posts"), { text: postText, image: tempPhoto, uid: user.uid, username: username || "AJ_Member", photo: user.photoURL, likes: 0, createdAt: serverTimestamp() });
+    await updateDoc(doc(db, "users", user.uid), { balance: increment(2.5) });
     setPostText(''); setTempPhoto('');
     alert("🚀 Post Published! +2.5 Coins Received.");
 };
 
 const submitComment = async () => {
     if (!newComment.trim() || !commentBoardPostId) return;
-    await addDoc(collection(db, "user_posts", commentBoardPostId, "comments"), {
-        text: newComment,
-        username: username || "AJ_Member",
-        photo: (user as any)?.photoURL,
-        createdAt: serverTimestamp()
-    });
+    await addDoc(collection(db, "user_posts", commentBoardPostId, "comments"), { text: newComment, username: username || "AJ_Member", photo: user?.photoURL, createdAt: serverTimestamp() });
     setNewComment('');
 };
 
-// --- INTERACTION HANDLERS ---
-const handleLike = (id: any) => { 
-    setLikedPosts(prev => ({ ...prev, [id]: !prev[id] }));
-};
-const handleShare = (msg: string) => { 
-    if(navigator.share) navigator.share({title:'AJ Portal', text: msg}); 
-    else alert("Link Copied!"); 
-};
-const handleDeletePost = async (id: string) => {
-    if (confirm("Delete permanently?")) {
-        await deleteDoc(doc(db, "user_posts", id));
-        setActiveMenuId(null);
-    }
-};
-
+const handleLike = (id: any) => { setLikedPosts(prev => ({ ...prev, [id]: !prev[id] })); };
+const handleShare = (msg: string) => { if(navigator.share) navigator.share({title:'AJ Portal', text: msg}); else alert("Link Copied!"); };
+const handleDeletePost = async (id: string) => { if (confirm("Delete permanently?")) { await deleteDoc(doc(db, "user_posts", id)); setActiveMenuId(null); } };
 const handleSearchFocus = () => { searchInputRef.current?.focus(); };
 
-const copyToClipboard = (id: string) => {
-  if(!id) return;
-  navigator.clipboard.writeText(id);
-  setCopied(true);
-  setTimeout(() => setCopied(false), 2000);
-};
-
-const handleImageClick = () => { fileInputRef.current?.click(); };
-const handleFileChange = (e: any) => {
-    const file = e.target.files[0];
-    if (file) {
-        const reader = new FileReader();
-        reader.onloadend = () => { setTempPhoto(reader.result as string); };
-        reader.readAsDataURL(file);
-    }
-};
-
+// --- AUTH HANDLERS ---
 const handleGoogleLogin = async () => {
     googleProvider.setCustomParameters({ prompt: 'select_account' });
     await signInWithPopup(auth, googleProvider);
 };
-
-const handleSignOut = async () => {
-    await signOut(auth);
-    setSocialScreen('hub');
-    setScreen('auth');
-};
-
+const handleSignOut = async () => { await signOut(auth); setSocialScreen('hub'); setScreen('auth'); };
 const handleCreateProfile = async () => {
-    if(username.length < 3) return alert("Username too short!");
-    try {
-        await updateDoc(doc(db, "users", (user as any)!.uid), {
-            username: username.toLowerCase().trim(),
-            bio: bio,
-            photo: tempPhoto || (user as any)!.photoURL || "/logo.png",
-            hasSocialProfile: true
-        });
-        setHasSocialProfile(true);
-        setSocialScreen('hub');
-        alert("🚀 Profile Active!");
-    } catch (e) { alert("Setup Error!"); }
+    if(username.length < 3) return alert("Short Username!");
+    await updateDoc(doc(db, "users", user!.uid), { username: username.toLowerCase().trim(), bio, photo: tempPhoto || user!.photoURL, hasSocialProfile: true });
+    setHasSocialProfile(true); setSocialScreen('hub');
 };
 
-const enterSocialMode = (mode: string) => {
-    setPendingMode(mode);
-    if (!user || !hasSocialProfile) { setSocialScreen('setup'); } 
-    else { setSocialScreen(mode); }
-};
-
-// --- AUTH SYNC ---
 useEffect(() => {
-const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-if (currentUser) {
-setUser(currentUser as any);
-const userRef = doc(db, "users", currentUser.uid);
-const userSnap = await getDoc(userRef);
-if (userSnap.exists()) {
-  const data = userSnap.data();
-  setHasSocialProfile(data.hasSocialProfile || false);
-  setUsername(data.username || '');
-  setBio(data.bio || '');
-  setTempPhoto(data.photo || currentUser.photoURL);
-} else {
-  await setDoc(userRef, { name: currentUser.displayName, email: currentUser.email, balance: 500, botTier: 'none', invested: 0, uid: currentUser.uid, lastSync: serverTimestamp(), hasSocialProfile: false, photo: currentUser.photoURL });
-}
-onSnapshot(userRef, (snap) => {
-if (snap.exists()) { setBalance(snap.data().balance || 0); setBotTier(snap.data().botTier || 'none'); setInvested(snap.data().invested || 0); }
-});
-setScreen('hub');
-} else { setUser(null); setScreen('auth'); }
-});
-return () => unsubscribe();
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+        if (currentUser) {
+            setUser(currentUser);
+            const userRef = doc(db, "users", currentUser.uid);
+            const userSnap = await getDoc(userRef);
+            if (userSnap.exists()) {
+                const data = userSnap.data();
+                setHasSocialProfile(data.hasSocialProfile || false);
+                setUsername(data.username || '');
+                setTempPhoto(data.photo || currentUser.photoURL);
+            } else {
+                await setDoc(userRef, { name: currentUser.displayName, email: currentUser.email, balance: 500, botTier: 'none', invested: 0, uid: currentUser.uid, lastSync: serverTimestamp(), hasSocialProfile: false, photo: currentUser.photoURL });
+            }
+            onSnapshot(userRef, (snap) => { if (snap.exists()) { setBalance(snap.data().balance || 0); setBotTier(snap.data().botTier || 'none'); setInvested(snap.data().invested || 0); } });
+            setScreen('hub');
+        } else { setUser(null); setScreen('auth'); }
+    });
+    return () => unsubscribe();
 }, []);
 
-// --- AI PROFIT ---
 useEffect(() => {
   let vInt: any;
   if (user && botTier !== 'none' && invested > 0) {
@@ -252,43 +177,36 @@ useEffect(() => {
   return () => clearInterval(vInt);
 }, [user, botTier, invested]);
 
-const activateBot = async (tier: string, cost: number) => {
-    if (balance < cost) return alert("Insufficient Balance!");
-    const userRef = doc(db, "users", (user as any)!.uid);
-    await updateDoc(userRef, { balance: increment(-cost), botTier: tier, invested: cost, lastSync: serverTimestamp() });
-    alert(`${tier.toUpperCase()} BOT ACTIVATED!`);
-};
-
 useEffect(() => {
-if (screen === 'splash') {
-const interval = setInterval(() => { setLoading(prev => (prev >= 100 ? 100 : prev + 10)); }, 50);
-setTimeout(() => setScreen('hub'), 2000);
-return () => clearInterval(interval);
-}
+    if (screen === 'splash') {
+        const interval = setInterval(() => { setLoading(prev => (prev >= 100 ? 100 : prev + 10)); }, 50);
+        setTimeout(() => setScreen('hub'), 2000);
+        return () => clearInterval(interval);
+    }
 }, [screen]);
 
 const handlePurchase = async () => {
-  if (purchaseAmount < 20) return alert("Minimum purchase is $20!");
-  if (purchaseMethod === 'Binance (TRC20)') {
-      try {
-        const res = await fetch('https://api.nowpayments.io/v1/invoice', {
-          method: 'POST',
-          headers: { 'x-api-key': NOWPAYMENTS_API_KEY, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ price_amount: purchaseAmount, price_currency: "usd", pay_currency: "usdttrc20", order_id: `AJ_${Date.now()}` })
-        });
-        const data = await res.json();
-        if (data.invoice_url) window.open(data.invoice_url, '_blank');
-      } catch (e) { alert("Payment Error!"); }
-  } else {
-      if(!purchaseTxId) return alert("Enter Airtm TX ID.");
-      await addDoc(collection(db, "manual_deposits"), { uid: (user as any)!.uid, email: (user as any)!.email, amount: purchaseAmount, method: "Airtm", txId: purchaseTxId, status: "pending", date: serverTimestamp() });
-      alert("✅ Request Sent!"); setWalletTab('main');
-  }
+    if (purchaseAmount < 20) return alert("Minimum purchase is $20!");
+    if (purchaseMethod === 'Binance (TRC20)') {
+        try {
+          const res = await fetch('https://api.nowpayments.io/v1/invoice', {
+            method: 'POST',
+            headers: { 'x-api-key': NOWPAYMENTS_API_KEY, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ price_amount: purchaseAmount, price_currency: "usd", pay_currency: "usdttrc20", order_id: `AJ_${Date.now()}` })
+          });
+          const data = await res.json();
+          if (data.invoice_url) window.open(data.invoice_url, '_blank');
+        } catch (e) { alert("Payment Error!"); }
+    } else {
+        if(!purchaseTxId) return alert("Enter TX ID.");
+        await addDoc(collection(db, "manual_deposits"), { uid: user!.uid, amount: purchaseAmount, method: "Airtm", txId: purchaseTxId, status: "pending", date: serverTimestamp() });
+        alert("✅ Request Sent!"); setWalletTab('main');
+    }
 };
 
 if (screen === 'splash') return (
 <main className="h-screen bg-black flex flex-col items-center justify-center text-white text-center">
-<div className="w-40 h-40 bg-black rounded-full border-4 border-cyan-500 shadow-[0_0_60px_#06b6d4] overflow-hidden mb-8"><img src="/logo.png" className="w-full h-full object-cover" alt="Logo" /></div>
+<div className="w-40 h-40 bg-black rounded-full border-4 border-cyan-500 shadow-[0_0_60px_#06b6d4] overflow-hidden mb-8"><img src="/logo.png" className="w-full h-full object-cover" /></div>
 <h1 className="text-3xl font-black tracking-widest uppercase animate-pulse">AJ PORTAL</h1>
 </main>
 );
@@ -297,7 +215,7 @@ if (screen === 'auth' && !user) return (
 <main className="min-h-screen bg-black flex flex-col items-center justify-center p-6 text-white text-center">
 <div className="w-full max-sm:w-full max-w-sm bg-white/[0.03] border border-white/10 p-12 rounded-[3rem] shadow-2xl">
 <h2 className="text-6xl font-black mb-10 italic text-cyan-400 uppercase">AJ <span className="text-white">ID</span></h2>
-<button onClick={handleGoogleLogin} className="w-full py-5 bg-white text-black font-black text-xl rounded-2xl active:scale-95 transition-all shadow-xl">CONTINUE WITH GOOGLE</button>
+<button onClick={handleGoogleLogin} className="w-full py-5 bg-white text-black font-black text-xl rounded-2xl active:scale-95 transition-all">CONTINUE WITH GOOGLE</button>
 <p className="mt-8 text-yellow-500 font-bold tracking-widest">+500 COINS BONUS</p>
 </div>
 </main>
@@ -313,7 +231,7 @@ return (
 <div onClick={() => navigateWithAd('wallet')} className="flex items-center gap-3 bg-white/5 px-4 py-2 rounded-full border border-white/10 cursor-pointer transition-all hover:bg-white/10">
 <span className="text-xs font-black text-yellow-500">{displayBalance} 🪙</span>
 <span className="text-[10px] text-green-400 font-black ml-1">${displayUsdt}</span>
-{user && <img src={tempPhoto || (user as any).photoURL} className="w-8 h-8 rounded-full border border-cyan-500 shadow-[0_0_10px_#06b6d4]" />}
+{user && <img src={tempPhoto || user.photoURL} className="w-8 h-8 rounded-full border border-cyan-500 shadow-[0_0_10px_#06b6d4]" />}
 </div>
 <button onClick={() => signOut(auth)} className="p-2 bg-red-500/10 text-red-500 font-bold text-[8px] rounded-full uppercase">EXIT</button>
 </div>
@@ -346,7 +264,7 @@ return (
     </div>
 </section>
 
-{/* ARCADE MODAL - FULL SCREEN FIXED */}
+{/* ARCADE MODAL - FULL SCREEN */}
 {screen === 'arcade' && (
     <div className="fixed inset-0 z-[300] bg-black flex flex-col h-screen overflow-hidden">
         {!selectedGame ? (
@@ -355,7 +273,7 @@ return (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-6 max-w-5xl mx-auto pb-20">
                 {['Rider King', 'Pulse Racer', 'Subsea Surge', 'Neon Strike', 'Volcano Escape'].map((game) => (
                     <div key={game} onClick={() => setSelectedGame(game)} className="bg-white/5 border border-white/10 p-4 rounded-3xl text-center hover:border-cyan-400 cursor-pointer transition-all">
-                        <img src={`/games/${game.toLowerCase().replace(/ /g, '-')}/logo.png`} className="w-full aspect-square rounded-xl mb-4 object-cover shadow-lg" alt={game} onError={(e:any) => { (e.target as HTMLImageElement).src = "/logo.png"; }} />
+                        <img src={`/games/${game.toLowerCase().replace(/ /g, '-')}/logo.png`} className="w-full aspect-square rounded-xl mb-4 object-cover shadow-lg" alt={game} />
                         <h3 className="font-black text-sm uppercase">{game}</h3>
                         <button className="mt-4 w-full py-2 rounded-full font-black text-[10px] bg-cyan-500 text-black uppercase">PLAY NOW</button>
                     </div>
@@ -364,8 +282,8 @@ return (
             </div>
         ) : (
             <div className="flex-1 flex flex-col h-full w-full">
-                <div className="w-full bg-black h-12 flex items-center px-4 border-b border-white/10 shrink-0">
-                    <button onClick={() => setSelectedGame(null)} className="text-cyan-400 font-black text-[10px] uppercase tracking-widest hover:brightness-125 transition-all">← BACK TO GAMES</button>
+                <div className="h-12 bg-black border-b border-white/10 flex items-center px-4 shrink-0">
+                    <button onClick={() => setSelectedGame(null)} className="text-cyan-400 font-black text-[10px] uppercase tracking-widest hover:brightness-125">← BACK TO GAMES</button>
                     <div className="flex-1 text-center font-black uppercase text-[10px] opacity-40">{selectedGame}</div>
                 </div>
                 <iframe src={`/games/${selectedGame.toLowerCase().replace(/ /g, '-')}/index.html`} className="w-full h-full border-none flex-1" title="Game" />
@@ -377,13 +295,9 @@ return (
 {/* SOCIAL HUB */}
 {screen === 'social' && (
     <div className="fixed inset-0 z-[400] bg-slate-950 flex flex-col h-screen overflow-hidden">
-        <header className="sticky top-0 w-full p-4 bg-black/90 backdrop-blur-md border-b border-white/10 flex justify-between items-center z-[500] rounded-b-3xl shrink-0">
-            {socialScreen === 'hub' ? (
-                <button onClick={() => setScreen('hub')} className="text-pink-500 font-black text-xs uppercase hover:brightness-125">← HUB</button>
-            ) : (
-                <button onClick={() => setSocialScreen('hub')} className="text-pink-500 font-black text-xs uppercase hover:brightness-125">← BACK</button>
-            )}
-            <h2 className="text-4xl font-black italic text-pink-500 uppercase text-center flex-1 tracking-tighter drop-shadow-[0_0_15px_#ec4899] animate-pulse font-orbitron">Dashboard</h2>
+        <header className="sticky top-0 w-full p-4 bg-black/90 backdrop-blur-md border-b border-white/10 flex justify-between items-center z-[500] rounded-b-3xl shrink-0 shadow-2xl">
+            <button onClick={() => {setSocialScreen('hub'); setScreen('hub')}} className="text-pink-500 font-black text-xs uppercase hover:brightness-125">← HUB</button>
+            <h2 className="text-4xl font-black italic text-pink-500 uppercase text-center flex-1 tracking-tighter drop-shadow-[0_0_15px_#ec4899] animate-pulse">Dashboard</h2>
             <button onClick={() => setSocialScreen('settings_menu')} className="bg-white/10 p-2 rounded-full text-pink-500 hover:bg-white/20 shadow-lg"><Settings size={22}/></button>
         </header>
 
@@ -392,13 +306,12 @@ return (
           <div className="max-w-md mx-auto grid grid-cols-1 gap-6 p-8 text-center pb-24">
              <div className="flex items-center gap-3 bg-white/5 p-4 rounded-3xl border border-pink-500/20 mb-4 backdrop-blur-md">
                   <div className="relative"><img src={tempPhoto || (user as any)?.photoURL} className="w-14 h-14 rounded-full border-2 border-pink-500 shadow-xl" /><div className="absolute bottom-0 right-0 w-4 h-4 bg-green-500 rounded-full border-2 border-slate-950"></div></div>
-                  <div className="text-left"><p className="font-black text-white text-[10px] md:text-xs uppercase leading-tight tracking-wider">@AJ-PORTAL FOUNDER & CEO</p><p className="text-[8px] text-gray-500 uppercase font-bold tracking-widest">VERIFIED VVIP MEMBER</p></div>
+                  <div className="text-left"><p className="font-black text-white text-[10px] md:text-xs uppercase tracking-wider">@AJ-PORTAL FOUNDER & CEO</p><p className="text-[8px] text-gray-500 uppercase font-bold tracking-widest">VERIFIED VVIP MEMBER</p></div>
              </div>
-             {[{n:'AJ TikReels', i:Video, d:'TikTok Style Videos', s:'tikreels'}, {n:'AJ Pulse', i:Users, d:'Insta Style Feed', s:'pulse'}, {n:'AJ WeChat', i:MessageSquare, d:'VVIP Messenger', s:'chatlist'}, {n:'AJ Discover', i:Globe, d:'Crypto & Tech News', s:'discover'}].map((mod) => (
+             {[{n:'AJ TikReels', i:Video, d:'TikTok Style Scroll', s:'tikreels'}, {n:'AJ Pulse', i:Users, d:'Insta Style Feed', s:'pulse'}, {n:'AJ WeChat', i:MessageSquare, d:'VVIP Messenger', s:'chatlist'}, {n:'AJ Discover', i:Globe, d:'Crypto & Tech News', s:'discover'}].map((mod) => (
                 <div key={mod.n} onClick={() => enterSocialMode(mod.s)} className="p-8 bg-white/5 border border-white/10 rounded-[3rem] text-center hover:border-pink-500 transition-all cursor-pointer group shadow-lg backdrop-blur-sm">
-                    <div className="text-pink-500 mb-4 flex justify-center group-hover:scale-110 transition-transform"><mod.i size={36}/></div>
+                    <mod.i size={36} className="text-pink-500 mx-auto mb-4 group-hover:scale-110 transition-transform" />
                     <h3 className="text-2xl font-black uppercase italic text-white tracking-widest">{mod.n}</h3>
-                    <p className="text-[9px] text-gray-400 uppercase mt-2 font-bold tracking-widest">{mod.d}</p>
                 </div>
              ))}
           </div>
@@ -406,7 +319,7 @@ return (
           <div className="max-w-md mx-auto p-10 flex flex-col gap-6">
              <h2 className="text-3xl font-black text-cyan-400 italic mb-4 uppercase tracking-widest">Settings</h2>
              <button onClick={() => setSocialScreen('setup')} className="bg-white/5 border border-white/10 p-6 rounded-3xl flex items-center gap-4 hover:bg-white/10 transition-all shadow-xl">
-                <Edit3 className="text-pink-500" size={24}/><span className="font-black text-sm uppercase tracking-widest">Edit Profile</span>
+                <Edit3 className="text-pink-500" size={24}/><span className="font-black text-sm uppercase tracking-widest text-white">Edit Profile</span>
              </button>
              <button onClick={handleSignOut} className="bg-red-500/10 border border-red-500/20 p-6 rounded-3xl flex items-center gap-4 hover:bg-red-500/20 transition-all shadow-xl">
                 <LogOut className="text-red-500" size={24}/><span className="font-black text-sm uppercase tracking-widest text-red-500">Sign Out / Switch Account</span>
@@ -424,7 +337,7 @@ return (
                                     <Heart size={35} className={likedPosts[vid.id] ? "text-red-500 fill-red-500" : "text-white"}/>
                                     <span className="text-[10px] font-bold text-white">12k</span>
                                 </div>
-                                <div className="flex flex-col items-center cursor-pointer" onClick={() => setCommentBoardPostId(vid.id)}><MessageCircle size={35} className="text-white"/><span className="text-[10px] font-bold text-white">842</span></div>
+                                <div className="flex flex-col items-center cursor-pointer" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setCommentBoardPostId(vid.id); }}><MessageCircle size={35} className="text-white"/><span className="text-[10px] font-bold text-white">842</span></div>
                                 <div onClick={()=>handleShare('AJ TikReels')} className="flex flex-col items-center cursor-pointer text-white"><Share2 size={35}/><span className="text-[10px] font-bold">Share</span></div>
                             </div>
                             <div className="absolute bottom-10 left-6 text-white max-w-[70%]">
@@ -432,15 +345,15 @@ return (
                                 <div className="flex items-center gap-2 mt-3 bg-black/30 w-max p-1.5 rounded-full backdrop-blur-md border border-white/10"><Music size={12}/> <marquee className="text-[10px] w-24 uppercase font-bold">Original Sound - AJ Studio</marquee></div>
                             </div>
                         </div>
-                        {(i + 1) % 5 === 0 && <div onClick={()=>(window as any).AJ_SDK?.showAd()} className="h-[85vh] w-full snap-start flex items-center justify-center bg-gray-900 text-cyan-400 font-black flex-col gap-4 cursor-pointer border-y-2 border-cyan-500/20 shadow-2xl"><VideoIcon size={70} className="animate-pulse"/> <p className="uppercase tracking-[0.3em]">AJ VVIP VIDEO AD</p></div>}
+                        {(i + 1) % 5 === 0 && <div onClick={()=>(window as any).AJ_SDK?.showAd()} className="h-[85vh] w-full snap-start flex items-center justify-center bg-gray-900 text-cyan-400 font-black flex-col gap-4 cursor-pointer shadow-2xl border-y-2 border-cyan-500/20"><VideoIcon size={70} className="animate-pulse"/> <p className="uppercase tracking-[0.3em]">AJ VVIP VIDEO AD</p></div>}
                     </React.Fragment>
                 ))}
             </div>
         ) : socialScreen === 'pulse' ? (
             <div className="max-w-md mx-auto space-y-6 p-4 pb-24 relative">
                 <div className="bg-white/10 backdrop-blur-xl p-5 rounded-3xl border border-pink-500/20 shadow-2xl">
-                    <div className="flex gap-3"><img src={(user as any)?.photoURL || "/logo.png"} className="w-10 h-10 rounded-full border-2 border-pink-500 shadow-md"/><textarea value={postText} onChange={(e)=>setPostText(e.target.value)} placeholder="Share your CEO story..." className="flex-1 bg-white/5 rounded-2xl p-4 text-xs outline-none border border-white/10 h-20 text-white font-bold"/></div>
-                    <div className="flex justify-between mt-4 pt-3 border-t border-white/5"><button onClick={handleImageClick} className="flex items-center gap-2 text-[10px] font-black text-gray-400 hover:text-pink-500 uppercase"><Camera size={18}/> Add Media</button><button onClick={handleCreatePost} className="bg-pink-600 px-6 py-2 rounded-full text-xs font-black shadow-lg hover:scale-105 transition-all text-white">PUBLISH (+2.5🪙)</button></div>
+                    <div className="flex gap-3"><img src={user?.photoURL || "/logo.png"} className="w-10 h-10 rounded-full border-2 border-pink-500"/><textarea value={postText} onChange={(e)=>setPostText(e.target.value)} placeholder="Share your CEO story..." className="flex-1 bg-white/5 rounded-2xl p-4 text-xs outline-none border border-white/10 h-20 text-white font-bold"/></div>
+                    <div className="flex justify-between mt-4 pt-3 border-t border-white/5"><button onClick={handleImageClick} className="flex items-center gap-2 text-[10px] font-black text-gray-400 hover:text-pink-500 uppercase"><Camera size={18}/> Add Media</button><button onClick={handleCreatePost} className="bg-pink-600 px-6 py-2 rounded-full text-xs font-black shadow-lg text-white">PUBLISH (+2.5🪙)</button></div>
                 </div>
                 {userPosts.map((post:any) => (
                     <div key={post.id} className="bg-white/10 backdrop-blur-md border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl relative">
@@ -450,7 +363,7 @@ return (
                         <div className="p-6">
                             <div className="flex gap-6 mb-4">
                                 <Heart size={30} onClick={()=>handleLike(post.id)} className={likedPosts[post.id] ? "text-red-500 fill-red-500 cursor-pointer transition-all" : "text-white cursor-pointer transition-all"}/>
-                                <MessageSquare size={30} className="text-white cursor-pointer" onClick={() => setCommentBoardPostId(post.id)}/><Share2 size={30} className="text-white cursor-pointer" onClick={()=>handleShare(post.text)}/>
+                                <MessageSquare size={30} className="text-white cursor-pointer" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setCommentBoardPostId(post.id); }}/><Share2 size={30} className="text-white cursor-pointer" onClick={()=>handleShare(post.text)}/>
                             </div>
                             <p className="text-[12px] leading-relaxed text-gray-200 font-bold">{post.text}</p>
                         </div>
@@ -459,20 +372,35 @@ return (
             </div>
         ) : socialScreen === 'chatlist' ? (
             <div className="max-w-md mx-auto bg-[#111b21]/80 backdrop-blur-2xl h-screen border-x border-white/10 shadow-2xl overflow-y-auto">
-                <div className="bg-[#1f2c33]/90 backdrop-blur-md p-5 flex justify-between items-center border-b border-white/10"><h2 className="text-2xl font-black text-[#e9edef] tracking-widest italic font-orbitron">WeChat</h2><div className="flex gap-6 text-[#aebac1] relative"><Camera size={22}/><Search size={22} onClick={handleSearchFocus}/><MoreVertical size={22} onClick={() => setWechatMenuOpen(!wechatMenuOpen)}/></div></div>
-                {wechatMenuOpen && (<div className="absolute right-6 top-20 bg-slate-900 border border-white/10 p-4 rounded-xl z-[1000] shadow-2xl flex flex-col gap-3 text-[10px] font-black uppercase tracking-widest text-white backdrop-blur-xl"><p>Privacy</p><p>CEO VIP ACCESS</p></div>)}
-                <div className="p-4"><div className="bg-[#202c33] flex items-center gap-4 px-5 py-3 rounded-2xl text-gray-400 shadow-inner border border-white/5"><Search size={18}/><input ref={searchInputRef} type="text" placeholder="Search family & friends" className="bg-transparent border-none outline-none text-sm w-full text-white font-bold"/></div></div>
-                <div className="mt-2 space-y-1">{['AJ Global Support', 'Family WeChat Hub', 'CEO VIP Elite', 'Crypto News Daily'].map((contact, i) => (<div key={i} onClick={()=>{setActiveContact(contact); setSocialScreen('chat'); (window as any).AJ_SDK?.showAd();}} className="flex items-center gap-4 p-5 hover:bg-white/5 cursor-pointer border-b border-white/5 transition-all mx-2 rounded-[2rem]"><div className="w-14 h-14 rounded-full bg-cyan-600/30 flex items-center justify-center font-black border border-cyan-500/50 text-cyan-400 shadow-2xl text-lg">AJ</div><div className="flex-1 text-left"><div className="flex justify-between items-center mb-1"><p className="font-black text-[#e9edef] tracking-wider uppercase text-xs">{contact}</p><span className="text-[10px] text-[#8696a0]">11:0{i} PM</span></div><p className="text-[10px] text-[#8696a0] line-clamp-1 font-bold">Secure VVIP encrypted chat active.</p></div></div>))}</div>
+                <div className="bg-[#1f2c33]/90 backdrop-blur-md p-5 flex justify-between items-center border-b border-white/10"><h2 className="text-2xl font-black text-[#e9edef] tracking-widest italic font-orbitron text-center flex-1">WeChat</h2><div className="flex gap-6 text-[#aebac1] relative"><Camera size={22}/><Search size={22} onClick={handleSearchFocus}/><MoreVertical size={22} onClick={() => setWechatMenuOpen(!wechatMenuOpen)}/></div></div>
+                {wechatMenuOpen && (<div className="absolute right-6 top-20 bg-slate-900 border border-white/10 p-4 rounded-xl z-[1000] shadow-2xl flex flex-col gap-3 text-[10px] font-black uppercase tracking-widest text-white backdrop-blur-xl"><p>Privacy Settings</p><p>CEO Management</p></div>)}
+                <div className="p-4"><div className="bg-[#202c33] flex items-center gap-4 px-5 py-3 rounded-2xl text-gray-400 shadow-inner border border-white/5"><Search size={18}/><input ref={searchInputRef} type="text" placeholder="Search friends & family" className="bg-transparent border-none outline-none text-sm w-full text-white font-bold"/></div></div>
+                <div className="mt-2 space-y-1">{['AJ Global Support', 'CEO VIP Elite Hub', 'Family WeChat Hub'].map((contact, i) => (<div key={i} onClick={()=>{setActiveContact(contact); setSocialScreen('chat'); (window as any).AJ_SDK?.showAd();}} className="flex items-center gap-4 p-5 hover:bg-white/5 cursor-pointer border-b border-white/5 transition-all mx-2 rounded-[2rem]"><div className="w-14 h-14 rounded-full bg-cyan-600/30 flex items-center justify-center font-black border border-cyan-500/50 text-cyan-400 shadow-2xl text-lg">AJ</div><div className="flex-1 text-left"><div className="flex justify-between items-center mb-1"><p className="font-black text-[#e9edef] tracking-wider uppercase text-xs">{contact}</p><span className="text-[10px] text-[#8696a0]">11:0{i} PM</span></div><p className="text-[10px] text-[#8696a0] line-clamp-1 font-bold">Secure WeChat encryption active.</p></div></div>))}</div>
             </div>
         ) : socialScreen === 'chat' ? (
             <div className="max-w-md mx-auto h-[88vh] flex flex-col bg-[#0b141a] overflow-hidden m-2 rounded-[2.5rem] shadow-2xl border border-cyan-500/20">
-                <div className="bg-[#1f2c33]/95 backdrop-blur-md p-4 flex items-center gap-3 border-b border-white/10 shadow-lg"><button onClick={()=>setSocialScreen('chatlist')} className="text-cyan-500 p-2"><ChevronRight className="rotate-180"/></button><img src="/logo.png" className="w-11 h-11 rounded-full border-2 border-green-500 shadow-lg" /><div className="flex-1 text-left"><p className="font-bold text-sm text-white uppercase tracking-widest">{activeContact}</p><p className="text-[7px] text-green-500 font-black uppercase tracking-[0.3em] animate-pulse font-bold">Online • WeChat Encryption</p></div><div className="flex gap-5 text-[#aebac1] px-2"><VideoIcon size={20}/><Phone size={20}/></div></div>
-                <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-repeat bg-contain opacity-90">{chatMessages.map((m:any) => (<div key={m.id} className={`flex ${m.uid === (user as any).uid ? 'justify-end' : 'justify-start'}`}><div className={`p-3 max-w-[85%] rounded-2xl shadow-xl relative border ${m.uid === (user as any).uid ? 'bg-cyan-700/80 border-cyan-400 text-[#e9edef] rounded-tr-none' : 'bg-[#202c33]/90 border-white/5 text-[#e9edef] rounded-tl-none'} backdrop-blur-md`}><p className="font-black text-[9px] text-yellow-500 mb-1 opacity-70 uppercase">@{m.username}</p><p className="text-[12px] leading-relaxed mb-1 pr-6 font-medium text-white">{m.text}</p></div></div>))}</div>
-                <div className="p-4 bg-[#1f2c33]/95 backdrop-blur-md flex gap-3 items-center"><button className="text-[#aebac1] hover:text-white" onClick={handleImageClick}><PlusSquare size={26}/></button><input type="text" value={newMessage} onChange={(e)=>setNewMessage(e.target.value)} placeholder="Type a message" className="flex-1 bg-[#2a3942] border-none p-4 rounded-full text-xs text-white outline-none focus:ring-1 focus:ring-cyan-500 font-bold" /><button onClick={sendChatMessage} className="bg-cyan-600 p-4 rounded-full text-white shadow-2xl active:scale-90 transition-all border-b-2 border-cyan-800"><Send size={22}/></button></div>
+                <div className="bg-[#1f2c33]/95 backdrop-blur-md p-4 flex items-center gap-3 border-b border-white/10 shadow-lg"><button onClick={()=>setSocialScreen('chatlist')} className="text-cyan-500 p-2"><ChevronRight className="rotate-180"/></button><img src="/logo.png" className="w-11 h-11 rounded-full border-2 border-green-500 shadow-lg" /><div className="flex-1 text-left"><p className="font-bold text-sm text-white uppercase tracking-widest">@{activeContact}</p><p className="text-[7px] text-green-500 font-black uppercase tracking-[0.3em] animate-pulse">Online • WeChat Encryption</p></div><div className="flex gap-5 text-[#aebac1] px-2"><VideoIcon size={20}/><Phone size={20}/></div></div>
+                <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-repeat bg-contain opacity-90">{chatMessages.map((m:any) => (<div key={m.id} className={`flex ${m.uid === user.uid ? 'justify-end' : 'justify-start'}`}><div className={`p-3 max-w-[85%] rounded-2xl shadow-xl relative border ${m.uid === user.uid ? 'bg-cyan-700/80 border-cyan-400 text-[#e9edef] rounded-tr-none' : 'bg-[#202c33]/90 border-white/5 text-[#e9edef] rounded-tl-none'} backdrop-blur-md`}><p className="font-black text-[9px] text-yellow-500 mb-1 opacity-70 uppercase">@{m.username}</p><p className="text-[11px] leading-relaxed mb-1 pr-6 font-medium text-white">{m.text}</p></div></div>))}</div>
+                <div className="p-4 bg-[#1f2c33]/95 backdrop-blur-md flex gap-3 items-center"><button className="text-[#aebac1] hover:text-white" onClick={handleImageClick}><PlusSquare size={26}/></button><input type="text" value={newMessage} onChange={(e)=>setNewMessage(e.target.value)} placeholder="Type a message" className="flex-1 bg-[#2a3942] border-none p-3.5 rounded-full text-xs text-white outline-none focus:ring-1 focus:ring-cyan-500 font-bold" /><button onClick={sendChatMessage} className="bg-cyan-600 p-4 rounded-full text-white shadow-2xl active:scale-90 transition-all border-b-2 border-cyan-800"><Send size={22}/></button></div>
+            </div>
+        ) : socialScreen === 'discover' ? (
+            <div className="max-w-4xl mx-auto space-y-5 p-4 pb-24">
+                <h3 className="text-3xl font-black italic uppercase text-white tracking-widest flex items-center gap-4 mb-10"><Globe className="text-cyan-400" size={36}/> Tech Daily Hub</h3>
+                {newsData.map((art: any, i) => (
+                    <div key={i} className="bg-white/5 backdrop-blur-sm p-6 rounded-[2.5rem] border border-white/10 flex flex-col md:flex-row gap-8 hover:border-cyan-400 transition-all shadow-2xl group">
+                        {art.urlToImage && <img src={art.urlToImage} className="w-full md:w-56 h-56 object-cover rounded-[2.5rem] group-hover:scale-105 transition-transform shadow-2xl border border-white/5" />}
+                        <div className="flex-1 py-2 text-left">
+                            <div className="flex justify-between items-center mb-4"><span className="text-[10px] bg-cyan-500/20 text-cyan-400 px-5 py-2 rounded-full font-black uppercase border border-cyan-500/30 tracking-widest">{art.source?.name}</span><span className="text-[9px] text-gray-500 font-black">{new Date(art.publishedAt).toLocaleDateString()}</span></div>
+                            <h4 className="font-black text-xl text-white leading-tight mb-4 group-hover:text-cyan-400 transition-colors uppercase tracking-tight">{art.title}</h4>
+                            <p className="text-xs text-gray-400 line-clamp-3 mb-6 leading-relaxed font-bold italic">{art.description}</p>
+                            <a href={art.url} target="_blank" className="text-[11px] text-cyan-400 font-black uppercase flex items-center gap-3 border-b-2 border-cyan-400/20 w-max pb-1 hover:border-cyan-400 transition-all tracking-widest">Full Story <ArrowUpRight size={16}/></a>
+                        </div>
+                    </div>
+                ))}
             </div>
         ) : socialScreen === 'setup' ? (
           <div className="max-w-md mx-auto bg-white/5 backdrop-blur-xl border border-white/10 p-10 rounded-[3.5rem] text-center mt-4 shadow-2xl">
-              <div className="relative w-28 h-28 mx-auto mb-10 cursor-pointer group" onClick={handleImageClick}><img src={tempPhoto || (user as any)?.photoURL || "/logo.png"} className="w-full h-full rounded-full border-4 border-pink-500 p-1 object-cover shadow-2xl group-hover:brightness-50 transition-all" alt="Avatar" /><div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><Camera size={40} className="text-white"/></div><div className="absolute bottom-1 right-1 bg-pink-600 p-3 rounded-full border-2 border-black shadow-lg text-white"><Camera size={18}/></div></div>
+              <div className="relative w-28 h-28 mx-auto mb-10 cursor-pointer group" onClick={handleImageClick}><img src={tempPhoto || user?.photoURL || "/logo.png"} className="w-full h-full rounded-full border-4 border-pink-500 p-1 object-cover shadow-2xl group-hover:brightness-50 transition-all" /><div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><Camera size={40} className="text-white"/></div><div className="absolute bottom-1 right-1 bg-pink-600 p-3 rounded-full border-2 border-black shadow-lg text-white"><Camera size={18}/></div></div>
               <h2 className="text-2xl font-black text-white mb-8 uppercase tracking-widest italic">Identity Setup</h2>
               <div className="space-y-5 text-left"><label className="text-[10px] font-black text-pink-500 ml-1 uppercase tracking-widest">Username</label><input type="text" placeholder="@unique_name" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full bg-black/40 border border-white/10 p-4 rounded-2xl font-bold text-white outline-none focus:border-pink-500 shadow-inner" /><label className="text-[10px] font-black text-pink-500 ml-1 uppercase tracking-widest">About Me</label><textarea placeholder="Tell the WeChat world about you..." value={bio} onChange={(e) => setBio(e.target.value)} className="w-full bg-black/40 border border-white/10 p-4 rounded-2xl text-xs text-white outline-none h-32 focus:border-pink-500 shadow-inner" /><button onClick={handleCreateProfile} className="w-full mt-10 py-5 bg-pink-600 rounded-[1.5rem] font-black uppercase shadow-[0_10px_30px_rgba(236,72,153,0.3)] active:scale-95 transition-all text-white border-b-4 border-pink-800 tracking-[0.2em]">ACTIVATE WeChat PROFILE</button></div>
               <button onClick={() => setSocialScreen('hub')} className="mt-6 text-gray-500 uppercase text-[9px] font-black w-full text-center">Back</button>
@@ -523,11 +451,27 @@ return (
                  <p className="text-yellow-500 text-6xl font-black mb-6 drop-shadow-[0_0_10px_#eab308]">{(purchaseAmount * 100).toLocaleString()} 🪙</p>
                  <div className="flex items-center justify-center gap-3 bg-white/5 p-4 rounded-2xl border border-white/10">
                     <DollarSign className="text-green-400" size={30}/>
-                    <input type="number" value={purchaseAmount === 0 ? '' : purchaseAmount} onChange={(e)=>setPurchaseAmount(e.target.value === '' ? 0 : Number(e.target.value))} className="bg-transparent text-white text-3xl w-32 text-center font-black outline-none" />
+                    <input type="number" value={purchaseAmount === 0 ? '' : purchaseAmount} onChange={(e)=>setPurchaseAmount(e.target.value === '' ? 0 : Number(e.target.value))} className="bg-transparent text-white text-3xl w-32 text-center font-bold outline-none" />
                  </div>
               </div>
               <button onClick={handlePurchase} className="bg-cyan-500 py-5 rounded-2xl font-black uppercase shadow-xl hover:scale-[1.02] active:scale-95 transition-all text-black">Confirm Purchase</button>
               <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase font-black hover:text-white">Cancel</button>
+            </div>
+          )}
+          {walletTab === 'transfer' && (
+            <div className="flex flex-col gap-5 text-left">
+                <input type="text" placeholder="Recipient ID" value={transferId} onChange={(e)=>setTransferId(e.target.value)} className="w-full bg-black/40 border border-white/10 p-4 rounded-2xl font-bold text-white outline-none focus:border-cyan-500" />
+                <input type="number" placeholder="Amount Coins" value={transferAmount === 0 ? '' : transferAmount} onChange={(e)=>setTransferAmount(e.target.value === '' ? 0 : Number(e.target.value))} className="w-full bg-black/40 border border-white/10 p-4 rounded-2xl font-bold text-white outline-none focus:border-cyan-500" />
+                <button onClick={()=>alert("Transfer Initiated!")} className="bg-cyan-600 py-4 rounded-2xl font-black uppercase shadow-lg text-white">SEND NOW</button>
+                <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase">Cancel</button>
+            </div>
+          )}
+          {walletTab === 'withdraw' && (
+            <div className="flex flex-col gap-5 text-left">
+                <select value={payoutMethod} onChange={(e)=>setPayoutMethod(e.target.value)} className="w-full bg-gray-900 border border-white/10 p-4 rounded-xl text-white font-bold outline-none"><option>Binance Pay (USDT)</option><option>Airtm</option><option>EasyPaisa</option></select>
+                <input type="text" placeholder="Account Details" value={payoutId} onChange={(e)=>setPayoutId(e.target.value)} className="w-full bg-black/40 border border-white/10 p-4 rounded-2xl font-bold text-white outline-none focus:border-pink-500" />
+                <button onClick={()=>alert("Withdrawal Requested!")} className="bg-pink-600 py-4 rounded-2xl font-black uppercase shadow-lg text-white">REQUEST WITHDRAWAL</button>
+                <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase">Cancel</button>
             </div>
           )}
        </div>
@@ -538,12 +482,12 @@ return (
 {screen === 'ai' && (
     <div className="fixed inset-0 z-[600] bg-black flex flex-col items-center p-8 overflow-y-auto">
        <div className="w-full max-w-4xl pt-10"><button onClick={() => setScreen('hub')} className="text-green-400 font-bold text-sm mb-12 uppercase tracking-widest hover:brightness-125 transition-all">← Back</button></div>
-       <h2 className="text-5xl font-black mb-12 text-center uppercase text-white italic tracking-tighter">AJ AI BOT</h2>
+       <h2 className="text-5xl font-black mb-12 text-center uppercase text-white italic tracking-tighter font-orbitron">AJ AI BOT</h2>
        {botTier !== 'none' && (
          <div className="w-full max-w-2xl bg-white/5 border-2 border-green-500/40 p-8 rounded-[3.5rem] text-center mb-16 shadow-[0_0_50px_rgba(34,197,94,0.15)] backdrop-blur-md">
             <Activity size={60} className="mx-auto mb-6 text-green-500 animate-pulse" />
             <h2 className="text-4xl font-black text-white mb-2 uppercase tracking-tighter">{botTier} BOT RUNNING</h2>
-            <div className="w-full bg-black/50 border border-green-500/30 p-8 rounded-3xl font-mono text-left shadow-inner"><div className="flex justify-between items-center mb-6"><span className="text-green-400 font-black text-xs uppercase tracking-widest">Neural Profit:</span><span className="text-white font-black text-2xl">+{visualProfit.toFixed(4)} 🪙</span></div><div className="h-24 overflow-hidden text-green-500/60 mt-2 text-[10px] leading-relaxed italic">{tradeLogs.map((log, i) => ( <div key={i} className="mb-1">{log}</div> ))}</div></div>
+            <div className="w-full bg-black/50 border border-green-500/30 p-8 rounded-3xl font-mono text-left shadow-inner"><div className="flex justify-between items-center mb-6"><span className="text-green-400 font-black text-xs uppercase tracking-widest">Neural Profit:</span><span className="text-white font-black text-2xl">+{visualProfit.toFixed(4)} 🪙</span></div><div className="h-24 overflow-hidden text-green-500/60 mt-2 text-[10px] leading-relaxed italic">Neural data scanning... Market hedge active.</div></div>
          </div>
        )}
        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-4xl px-2 pb-20">
@@ -562,8 +506,8 @@ return (
             <a href="https://wa.me/96878994093" target="_blank" className="text-green-500 border-2 border-green-500 px-10 py-3 rounded-full font-black uppercase hover:bg-green-500 hover:text-black transition-all shadow-xl text-sm tracking-widest text-white">Whatsapp</a>
             <a href="https://x.com/Ali20352061" target="_blank" className="text-white border-2 border-white px-10 py-3 rounded-full font-black uppercase hover:bg-white hover:text-black transition-all shadow-xl text-sm tracking-widest text-white">X (Twitter)</a>
         </div>
-        <button onClick={() => { const link = document.createElement('a'); link.href = '/aj-portal.apk'; link.download = 'aj-portal.apk'; link.click(); }} className="group relative px-16 py-6 bg-cyan-500 text-black font-black uppercase rounded-full shadow-[0_0_60px_#06b6d4] animate-pulse transition-all hover:scale-110 relative z-10 mb-16">
-            <span className="relative z-20 flex items-center gap-3 font-black tracking-[0.4em] text-xl text-black"><Download size={28} /> Install AJ App</span>
+        <button onClick={() => { const link = document.createElement('a'); link.href = '/aj-portal.apk'; link.download = 'aj-portal.apk'; link.click(); }} className="group relative px-20 py-8 bg-cyan-500 text-black font-black uppercase rounded-full shadow-[0_0_60px_#06b6d4] animate-pulse transition-all hover:scale-110 relative z-10 mb-16">
+            <span className="relative z-20 flex items-center gap-4 font-black tracking-[0.4em] text-2xl text-black"><Download size={32} /> Install AJ App</span>
             <div className="absolute inset-0 bg-white/30 group-hover:translate-x-full transition-transform duration-700 -skew-x-12 z-10"></div>
         </button>
 
