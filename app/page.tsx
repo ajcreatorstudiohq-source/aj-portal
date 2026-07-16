@@ -2,20 +2,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { auth, db, googleProvider } from '../firebaseConfig';
 import { signInWithPopup, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc, onSnapshot, updateDoc, increment, collection, addDoc, getDoc, serverTimestamp, query, orderBy, limit } from 'firebase/firestore';
-import { MessageCircle, Trophy, Zap, Wallet, Bot, LogOut, Globe, ChevronRight, Send, CreditCard, ArrowUpRight, ShieldCheck, Crown, Activity, TrendingUp, X, CheckCircle2, Download, Copy, Video, Newspaper, Users, Heart, MessageSquare, Camera, Settings, Edit3, Mail, Lock, User, DollarSign, Share2, Music, Play, PlusSquare, MoreVertical, Search, Phone, Video as VideoIcon, ArrowLeft } from 'lucide-react';
+import { doc, setDoc, onSnapshot, updateDoc, increment, collection, addDoc, getDoc, serverTimestamp, query, orderBy, limit, deleteDoc } from 'firebase/firestore';
+import { MessageCircle, Trophy, Zap, Wallet, Bot, LogOut, Globe, ChevronRight, Send, CreditCard, ArrowUpRight, ShieldCheck, Crown, Activity, TrendingUp, X, CheckCircle2, Download, Copy, Video, Newspaper, Users, Heart, MessageSquare, Camera, Settings, Edit3, Mail, Lock, User, DollarSign, Share2, Music, Play, PlusSquare, MoreVertical, Search, Phone, Video as VideoIcon, ArrowLeft, Trash2, Edit } from 'lucide-react';
 import emailjs from 'emailjs-com';
 
 // --- CONFIGURATIONS ---
 const PIXABAY_KEY = "56712915-2297d0968e99520a1b3d80623";
 const NEWS_API_KEY = "6e79bcc161f047039bf1acab74da28ea";
-
-const EMAILJS_CONFIG = {
-  Service_ID: "service_6w1sols",
-  Template_ID: "template_o1c40nv",
-  Public_Key: "6JCPm9fo38ovnA5LG"
-};
-
 const NOWPAYMENTS_API_KEY = "3THXNSZ-AYVMTP6-HQ9KGKK-9J6CQD7";
 
 export default function AJSuperPortal() {
@@ -51,6 +44,10 @@ const [postText, setPostText] = useState('');
 const [newMessage, setNewMessage] = useState('');
 const [activeContact, setActiveContact] = useState(null);
 
+// --- INTERACTIVE STATES ---
+const [likedPosts, setLikedPosts] = useState({}); // Track likes locally
+const [activeMenuId, setActiveMenuId] = useState(null); // Track 3-dot menu
+
 // --- AI STATES ---
 const [visualProfit, setVisualProfit] = useState(0);
 const [tradeLogs, setTradeLogs] = useState(["Initialising Neural Link...", "Analysing Market Volatility...", "Connecting to AJ liquidity pool..."]);
@@ -63,10 +60,8 @@ const [transferId, setTransferId] = useState('');
 const [transferAmount, setTransferAmount] = useState(0);
 const [payoutMethod, setPayoutMethod] = useState('Binance Pay (USDT)');
 const [payoutId, setPayoutId] = useState('');
-const [cardName, setCardName] = useState('');
-const [cardNumber, setCardNumber] = useState('');
 
-// --- ALI BHAI MATH ---
+// --- CEO MATH (500:1) ---
 const displayBalance = (balance + visualProfit).toFixed(2);
 const displayUsdt = ((balance + visualProfit) / 500).toFixed(2);
 
@@ -81,7 +76,7 @@ const navigateWithAd = (toScreen: string) => {
 
 const fetchSocialAPIs = async () => {
     try {
-        const pRes = await fetch(`https://pixabay.com/api/?key=${PIXABAY_KEY}&q=fashion+lifestyle&image_type=photo&per_page=30`);
+        const pRes = await fetch(`https://pixabay.com/api/?key=${PIXABAY_KEY}&q=fashion+luxury+car&image_type=photo&per_page=30`);
         const pData = await pRes.json(); setPixaData(pData.hits || []);
         const vRes = await fetch(`https://pixabay.com/api/videos/?key=${PIXABAY_KEY}&q=travel+vlog&per_page=20`);
         const vData = await vRes.json(); setPixaVideos(vData.hits || []);
@@ -114,7 +109,7 @@ const sendChatMessage = async () => {
 };
 
 const handleCreatePost = async () => {
-    if (!postText.trim() && !tempPhoto) return alert("Add text or image!");
+    if (!postText.trim() && !tempPhoto) return alert("Empty Post!");
     if ((window as any).AJ_SDK) (window as any).AJ_SDK.showAd(); 
     await addDoc(collection(db, "user_posts"), {
         text: postText, image: tempPhoto, uid: (user as any).uid,
@@ -128,15 +123,26 @@ const handleCreatePost = async () => {
 
 // --- INTERACTION HANDLERS ---
 const handleLike = (id: any) => { 
-    // NO AD Triggered here as per CEO's request
-    alert("Post Liked! ❤️"); 
+    setLikedPosts(prev => ({ ...prev, [id]: !prev[id] }));
 };
 const handleShare = (msg: string) => { 
     if(navigator.share) navigator.share({title:'AJ Portal', text: msg}); 
     else alert("Link Copied!"); 
 };
+
+// --- DELETE POST LOGIC ---
+const handleDeletePost = async (id: string) => {
+    if (confirm("Delete this post permanently?")) {
+        try {
+            await deleteDoc(doc(db, "user_posts", id));
+            setActiveMenuId(null);
+            alert("Post Deleted.");
+        } catch (e) { alert("Error deleting post."); }
+    }
+};
+
 const handleSearchFocus = () => { searchInputRef.current?.focus(); };
-const handleMoreMenu = () => { alert("WeChat Profile Settings (CEO ACCESS ONLY)"); };
+const handleMoreMenu = () => { alert("WeChat Settings Active"); };
 
 const copyToClipboard = (id: string) => {
   if(!id) return;
@@ -158,14 +164,6 @@ const handleFileChange = (e: any) => {
 const handleGoogleLogin = async () => {
     googleProvider.setCustomParameters({ prompt: 'select_account' });
     await signInWithPopup(auth, googleProvider);
-};
-
-const handleManualSignup = async () => {
-    if(!manualEmail || !manualPass) return alert("Fill Email and Password");
-    try {
-        await createUserWithEmailAndPassword(auth, manualEmail, manualPass);
-        alert("Account Created! Setup profile.");
-    } catch (e: any) { alert(e.message); }
 };
 
 const handleSignOut = async () => {
@@ -194,58 +192,7 @@ const enterSocialMode = (mode: string) => {
     else { setSocialScreen(mode); }
 };
 
-// --- AUTH & PROFIT EFFECTS ---
-useEffect(() => {
-const handleSDKMessages = (event: any) => {
-if (!user) return;
-const data = event.detail || event.data;
-if (!data || !data.type) return;
-const rawReward = data.amount || data.coins || 0;
-const safeTotalValue = rawReward / 100; 
-
-const userRef = doc(db, "users", (user as any).uid);
-const adminRef = doc(db, "admin_ledger", "platform_stats");
-if (data.type === 'EARNED' || data.type === "ADD_AD_REVENUE") {
-    updateDoc(userRef, { balance: increment(safeTotalValue * 0.30) });
-    updateDoc(adminRef, { total_revenue: increment(safeTotalValue * 0.70) });
-  }
-};
-window.addEventListener("message", handleSDKMessages);
-return () => window.removeEventListener("message", handleSDKMessages);
-}, [user]);
-
-useEffect(() => {
-  let logInt: any, visualInt: any, dbSyncInt: any;
-  if (user && botTier !== 'none' && invested > 0) {
-    logInt = setInterval(() => {
-      const actions = ["Scalping BTC", "Neural Analysis", "Hedging SOL"];
-      setTradeLogs(prev => [`[${new Date().toLocaleTimeString()}] ${actions[Math.floor(Math.random()*3)]}...`, ...prev.slice(0, 3)]);
-    }, 7000);
-    const dailyRate = botTier === 'vvip' ? 0.05 : 0.02;
-    const profitPerSec = (invested * dailyRate) / 86400;
-    visualInt = setInterval(() => setVisualProfit(p => p + profitPerSec), 1000);
-    dbSyncInt = setInterval(async () => {
-      setVisualProfit(currValue => {
-        if (currValue >= 1) {
-          const syncAmt = Math.floor(currValue); 
-          updateDoc(doc(db, "users", (user as any)!.uid), { balance: increment(syncAmt), lastSync: serverTimestamp() });
-          return currValue - syncAmt;
-        }
-        return currValue;
-      });
-    }, 900000);
-  }
-  return () => { clearInterval(logInt); clearInterval(visualInt); clearInterval(dbSyncInt); };
-}, [user, botTier, invested]);
-
-useEffect(() => {
-if (screen === 'splash') {
-const interval = setInterval(() => { setLoading(prev => (prev >= 100 ? 100 : prev + 10)); }, 50);
-setTimeout(() => setScreen('hub'), 2000);
-return () => clearInterval(interval);
-}
-}, [screen]);
-
+// --- AUTH & SYNC ---
 useEffect(() => {
 const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
 if (currentUser) {
@@ -256,26 +203,18 @@ if (userSnap.exists()) {
   const data = userSnap.data();
   setHasSocialProfile(data.hasSocialProfile || false);
   setUsername(data.username || '');
-  setBio(data.bio || '');
   setTempPhoto(data.photo || currentUser.photoURL);
 } else {
   await setDoc(userRef, { name: currentUser.displayName, email: currentUser.email, balance: 500, botTier: 'none', invested: 0, uid: currentUser.uid, lastSync: serverTimestamp(), hasSocialProfile: false, photo: currentUser.photoURL });
 }
 onSnapshot(userRef, (snap) => {
-if (snap.exists()) { setBalance(snap.data().balance || 0); setBotTier(snap.data().botTier || 'none'); setInvested(snap.data().invested || 0); setHasSocialProfile(snap.data().hasSocialProfile || false); }
+if (snap.exists()) { setBalance(snap.data().balance || 0); setBotTier(snap.data().botTier || 'none'); setInvested(snap.data().invested || 0); }
 });
 setScreen('hub');
 } else { setUser(null); setScreen('auth'); }
 });
 return () => unsubscribe();
 }, []);
-
-const activateBot = async (tier: string, cost: number) => {
-    if (balance < cost) return alert("Insufficient Balance!");
-    const userRef = doc(db, "users", (user as any)!.uid);
-    await updateDoc(userRef, { balance: increment(-cost), botTier: tier, invested: cost, lastSync: serverTimestamp() });
-    alert(`${tier.toUpperCase()} BOT ACTIVATED!`);
-};
 
 if (screen === 'splash') return (
 <main className="h-screen bg-black flex flex-col items-center justify-center text-white text-center">
@@ -322,7 +261,7 @@ return (
          <span className="font-black text-xs md:text-3xl uppercase">Social</span>
       </div>
       <div onClick={() => navigateWithAd('wallet')} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center cursor-pointer shadow-xl active:scale-95 hover:border-yellow-500 relative z-30">
-         <img src="/gold.jpg" className="w-14 h-14 mb-2 rounded-full border-2 border-yellow-500" />
+         <img src="/gold.jpg" className="w-14 h-14 mb-2 rounded-full border-2 border-yellow-500 shadow-md" />
          <h2 className="font-black text-xs md:text-3xl uppercase text-yellow-500">Wallet</h2>
       </div>
       <div onClick={() => navigateWithAd('ai')} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center active:scale-95 shadow-xl cursor-pointer hover:border-green-500 relative z-30">
@@ -359,7 +298,7 @@ return (
         ) : (
             <div className="flex-1 flex flex-col h-full w-full">
                 <div className="w-full bg-black h-12 flex items-center px-4 border-b border-white/10 shrink-0">
-                    <button onClick={() => setSelectedGame(null)} className="text-cyan-400 font-black text-[10px] uppercase tracking-widest hover:brightness-125 transition-all">← BACK TO HUB</button>
+                    <button onClick={() => setSelectedGame(null)} className="text-cyan-400 font-black text-[10px] uppercase tracking-widest hover:brightness-125 transition-all">← BACK TO GAMES</button>
                     <div className="flex-1 text-center font-black uppercase text-[10px] opacity-40">{selectedGame}</div>
                 </div>
                 <iframe src={`/games/${selectedGame.toLowerCase().replace(/ /g, '-')}/index.html`} className="w-full h-full border-none flex-1" title="Game" />
@@ -371,7 +310,7 @@ return (
 {/* SOCIAL HUB - VVIP WeChat DESIGN */}
 {screen === 'social' && (
     <div className="fixed inset-0 z-[400] bg-slate-950 flex flex-col h-screen overflow-hidden">
-        <header className="sticky top-0 w-full p-4 bg-black/90 backdrop-blur-xl border-b border-white/10 flex justify-between items-center z-[500] rounded-b-3xl shrink-0">
+        <header className="sticky top-0 w-full p-4 bg-black/90 backdrop-blur-md border-b border-white/10 flex justify-between items-center z-[500] rounded-b-3xl shrink-0">
             {socialScreen === 'hub' ? (
                 <button onClick={() => setScreen('hub')} className="text-pink-500 font-black text-xs uppercase hover:brightness-125">← HUB</button>
             ) : (
@@ -409,18 +348,20 @@ return (
                         <div className="h-[85vh] w-full snap-start relative border-b border-white/5">
                             <video src={vid.videos.large.url} autoPlay loop muted playsInline className="w-full h-full object-cover" />
                             <div className="absolute right-4 bottom-32 flex flex-col gap-6 items-center">
-                                <div onClick={()=>{handleLike(vid.id);}} className="flex flex-col items-center cursor-pointer active:scale-125 transition-all"><Heart size={35} className="text-pink-500 drop-shadow-lg"/><span className="text-[10px] font-bold">12k</span></div>
-                                <div className="flex flex-col items-center cursor-pointer"><MessageCircle size={35} className="drop-shadow-lg text-white"/><span className="text-[10px] font-bold text-white">842</span></div>
-                                <div onClick={()=>handleShare('AJ TikReels')} className="flex flex-col items-center cursor-pointer active:scale-125 transition-all text-white"><Share2 size={35} className="drop-shadow-lg"/><span className="text-[10px] font-bold text-white">Share</span></div>
+                                <div onClick={()=>handleLike(vid.id)} className="flex flex-col items-center cursor-pointer active:scale-125 transition-all">
+                                    <Heart size={35} className={likedPosts[vid.id] ? "text-red-500 fill-red-500" : "text-white"}/>
+                                    <span className="text-[10px] font-bold text-white">12k</span>
+                                </div>
+                                <div className="flex flex-col items-center cursor-pointer"><MessageCircle size={35} className="text-white"/><span className="text-[10px] font-bold text-white">842</span></div>
+                                <div onClick={()=>handleShare('AJ TikReels')} className="flex flex-col items-center cursor-pointer text-white"><Share2 size={35}/><span className="text-[10px] font-bold">Share</span></div>
                             </div>
                             <div className="absolute bottom-10 left-6 text-white max-w-[70%]">
                                 <p className="font-black text-sm">@{vid.user} • LIVE</p>
-                                <p className="text-xs opacity-90 line-clamp-2">New travel visuals on AJ Super Portal! #Viral #TikReels #AJ</p>
                                 <div className="flex items-center gap-2 mt-3 bg-black/30 w-max p-1.5 rounded-full backdrop-blur-md border border-white/10"><Music size={12}/> <marquee className="text-[10px] w-24 font-bold uppercase tracking-widest">Original Sound - AJ Studio</marquee></div>
                             </div>
                         </div>
                         {(i + 1) % 5 === 0 && (
-                            <div onClick={()=>(window as any).AJ_SDK?.showAd()} className="h-[85vh] w-full snap-start flex items-center justify-center bg-gray-900 text-cyan-400 font-black flex-col gap-4 cursor-pointer border-y-2 border-cyan-500/30 shadow-[inset_0_0_50px_rgba(0,255,255,0.1)]">
+                            <div onClick={()=>(window as any).AJ_SDK?.showAd()} className="h-[85vh] w-full snap-start flex items-center justify-center bg-gray-900 text-cyan-400 font-black flex-col gap-4 cursor-pointer">
                                 <VideoIcon size={70} className="animate-bounce"/> <p className="uppercase tracking-[0.4em] text-sm text-center px-8">AJ VVIP SPONSOR BREAK</p>
                             </div>
                         )}
@@ -441,27 +382,41 @@ return (
                     </div>
                 </div>
                 {userPosts.map((post:any) => (
-                    <div key={post.id} className="bg-white/10 backdrop-blur-md border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl">
-                        <div className="flex items-center justify-between p-5"><div className="flex items-center gap-3"><img src={post.photo || "/logo.png"} className="w-10 h-10 rounded-full border-2 border-pink-500"/><p className="font-black text-xs text-white tracking-widest">@{post.username}</p></div><MoreVertical size={18} className="opacity-40 text-white"/></div>
+                    <div key={post.id} className="bg-white/10 backdrop-blur-md border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl relative">
+                        <div className="flex items-center justify-between p-5">
+                            <div className="flex items-center gap-3"><img src={post.photo || "/logo.png"} className="w-10 h-10 rounded-full border-2 border-pink-500"/><p className="font-black text-xs text-white tracking-widest">@{post.username}</p></div>
+                            <div className="relative">
+                                <MoreVertical size={18} className="cursor-pointer text-white" onClick={()=>setActiveMenuId(activeMenuId === post.id ? null : post.id)}/>
+                                {activeMenuId === post.id && (
+                                    <div className="absolute right-0 top-6 bg-slate-900/90 border border-white/10 rounded-xl p-2 z-[1000] w-32 backdrop-blur-md shadow-2xl">
+                                        <button onClick={()=>alert("Edit Mode")} className="flex items-center gap-2 w-full p-2 text-[10px] font-bold text-white hover:bg-white/10 rounded-lg"><Edit size={14}/> EDIT</button>
+                                        <button onClick={()=>handleDeletePost(post.id)} className="flex items-center gap-2 w-full p-2 text-[10px] font-bold text-red-500 hover:bg-red-500/10 rounded-lg"><Trash2 size={14}/> DELETE</button>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                         {post.image && <img src={post.image} className="w-full aspect-square object-cover" />}
                         <div className="p-6">
-                            <div className="flex gap-6 mb-4"><Heart size={30} onClick={()=>handleLike(post.id)} className="hover:text-pink-500 cursor-pointer transition-all text-white"/><MessageSquare size={30} className="text-white"/><Share2 size={30} className="text-white"/></div>
+                            <div className="flex gap-6 mb-4">
+                                <Heart size={30} onClick={()=>handleLike(post.id)} className={likedPosts[post.id] ? "text-red-500 fill-red-500 cursor-pointer" : "text-white cursor-pointer"}/>
+                                <MessageSquare size={30} className="text-white"/><Share2 size={30} className="text-white"/>
+                            </div>
                             <p className="text-[12px] leading-relaxed text-gray-200 font-bold">{post.text}</p>
                         </div>
                     </div>
                 ))}
             </div>
         ) : socialScreen === 'chatlist' ? (
-            <div className="max-w-md mx-auto bg-[#111b21]/80 backdrop-blur-2xl h-screen border-x border-white/10">
+            <div className="max-w-md mx-auto bg-[#111b21]/80 backdrop-blur-2xl h-screen border-x border-white/10 shadow-2xl overflow-y-auto">
                 <div className="bg-[#1f2c33]/90 backdrop-blur-md p-5 flex justify-between items-center border-b border-white/10 shadow-lg">
                     <h2 className="text-2xl font-black text-[#e9edef] tracking-widest italic">WeChat</h2>
                     <div className="flex gap-6 text-[#aebac1]">
-                        <Camera size={22} className="cursor-pointer hover:text-cyan-400 transition-colors" onClick={handleImageClick}/><Search size={22} className="cursor-pointer hover:text-cyan-400 transition-colors" onClick={handleSearchFocus}/><MoreVertical size={22} className="cursor-pointer hover:text-cyan-400 transition-colors" onClick={handleMoreMenu}/>
+                        <Camera size={22} className="cursor-pointer hover:text-white" onClick={handleImageClick}/><Search size={22} className="cursor-pointer hover:text-white" onClick={handleSearchFocus}/><MoreVertical size={22} className="cursor-pointer hover:text-white" onClick={handleMoreMenu}/>
                     </div>
                 </div>
                 <div className="p-4">
                     <div className="bg-[#202c33] flex items-center gap-4 px-5 py-3 rounded-2xl text-gray-400 shadow-inner border border-white/5">
-                        <Search size={18}/><input ref={searchInputRef} type="text" placeholder="Search friends & family" className="bg-transparent border-none outline-none text-sm w-full text-white font-bold"/>
+                        <Search size={18}/><input ref={searchInputRef} type="text" placeholder="Search family & friends" className="bg-transparent border-none outline-none text-sm w-full text-white font-bold"/>
                     </div>
                 </div>
                 <div className="mt-2 space-y-1">
@@ -469,7 +424,7 @@ return (
                         <div key={i} onClick={()=>{setActiveContact(contact); setSocialScreen('chat'); (window as any).AJ_SDK?.showAd();}} className="flex items-center gap-4 p-5 hover:bg-white/5 cursor-pointer border-b border-white/5 transition-all mx-2 rounded-[2rem]">
                             <div className="w-14 h-14 rounded-full bg-cyan-600/30 flex items-center justify-center font-black border border-cyan-500/50 text-cyan-400 shadow-2xl text-lg">AJ</div>
                             <div className="flex-1 text-left">
-                                <div className="flex justify-between items-center mb-1"><p className="font-black text-[#e9edef] tracking-wider uppercase text-xs">{contact}</p><span className="text-[9px] text-green-500 font-black">11:0{i} PM</span></div>
+                                <div className="flex justify-between items-center mb-1"><p className="font-black text-[#e9edef] tracking-wider uppercase text-xs">{contact}</p><span className="text-[10px] text-[#8696a0]">11:0{i} PM</span></div>
                                 <p className="text-[10px] text-[#8696a0] line-clamp-1 font-bold">Secure VVIP encrypted chat active.</p>
                             </div>
                         </div>
@@ -478,19 +433,18 @@ return (
             </div>
         ) : socialScreen === 'chat' ? (
             <div className="max-w-md mx-auto h-[88vh] flex flex-col bg-[#0b141a] overflow-hidden m-2 rounded-[2.5rem] shadow-2xl border border-cyan-500/20">
-                <div className="bg-[#1f2c33]/95 backdrop-blur-md p-4 flex items-center gap-3 border-b border-white/10 shadow-2xl">
+                <div className="bg-[#1f2c33]/95 backdrop-blur-md p-4 flex items-center gap-3 border-b border-white/10 shadow-lg">
                     <button onClick={()=>setSocialScreen('chatlist')} className="text-cyan-500 p-2"><ChevronRight className="rotate-180"/></button>
                     <img src="/logo.png" className="w-11 h-11 rounded-full border-2 border-green-500 shadow-lg" />
-                    <div className="flex-1 text-left"><p className="font-black text-sm text-white uppercase tracking-widest">{activeContact}</p><p className="text-[7px] text-green-500 font-black uppercase tracking-[0.3em] animate-pulse">Online • Secure Channel</p></div>
+                    <div className="flex-1 text-left"><p className="font-bold text-sm text-white uppercase tracking-widest">{activeContact}</p><p className="text-[7px] text-green-500 font-black uppercase tracking-[0.3em] animate-pulse">Online • Secure Channel</p></div>
                     <div className="flex gap-5 text-[#aebac1] px-2"><VideoIcon size={20} className="hover:text-cyan-400"/><Phone size={20} className="hover:text-cyan-400"/></div>
                 </div>
-                <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-repeat bg-contain opacity-80">
+                <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-repeat bg-contain opacity-90">
                     {chatMessages.map((m:any) => (
                         <div key={m.id} className={`flex ${m.uid === (user as any).uid ? 'justify-end' : 'justify-start'}`}>
                             <div className={`p-3 max-w-[85%] rounded-2xl shadow-2xl relative border ${m.uid === (user as any).uid ? 'bg-cyan-700/80 border-cyan-400 text-[#e9edef] rounded-tr-none' : 'bg-[#202c33]/90 border-white/5 text-[#e9edef] rounded-tl-none'} backdrop-blur-md`}>
-                                <p className="font-black text-[8px] text-yellow-500 mb-1 opacity-70 uppercase">@{m.username}</p>
-                                <p className="text-[11px] leading-relaxed mb-1 pr-6 font-medium">{m.text}</p>
-                                <p className="text-[7px] text-white/30 absolute bottom-1.5 right-2 uppercase font-black tracking-widest">Now</p>
+                                <p className="font-black text-[9px] text-yellow-500 mb-1 opacity-70 uppercase">@{m.username}</p>
+                                <p className="text-[12px] leading-relaxed mb-1 pr-6 font-medium">{m.text}</p>
                             </div>
                         </div>
                     ))}
@@ -508,7 +462,7 @@ return (
                     <div key={i} className="bg-white/5 backdrop-blur-sm p-6 rounded-[2.5rem] border border-white/10 flex flex-col md:flex-row gap-8 hover:border-cyan-400 transition-all shadow-2xl group">
                         {art.urlToImage && <img src={art.urlToImage} className="w-full md:w-56 h-56 object-cover rounded-[2.5rem] group-hover:scale-105 transition-transform shadow-2xl border border-white/5" />}
                         <div className="flex-1 py-2 text-left">
-                            <div className="flex justify-between items-center mb-4"><span className="text-[10px] bg-cyan-500/20 text-cyan-400 px-5 py-2 rounded-full font-black uppercase border border-cyan-500/30 tracking-widest">{art.source?.name}</span><span className="text-[9px] text-gray-500 font-black">{new Date(art.publishedAt).toLocaleDateString()}</span></div>
+                            <div className="flex justify-between items-center mb-4"><span className="text-[10px] bg-cyan-500/20 text-cyan-400 px-5 py-2 rounded-full font-black uppercase border border-cyan-500/30 tracking-widest">{art.source?.name}</span></div>
                             <h4 className="font-black text-xl text-white leading-tight mb-4 group-hover:text-cyan-400 transition-colors uppercase tracking-tight">{art.title}</h4>
                             <p className="text-xs text-gray-400 line-clamp-3 mb-6 leading-relaxed font-bold italic">{art.description}</p>
                             <a href={art.url} target="_blank" className="text-[11px] text-cyan-400 font-black uppercase flex items-center gap-3 border-b-2 border-cyan-400/20 w-max pb-1 hover:border-cyan-400 transition-all tracking-widest">Full Story <ArrowUpRight size={16}/></a>
@@ -533,7 +487,7 @@ return (
         <span className="relative z-20 flex items-center gap-4 font-black tracking-[0.4em] text-2xl"><Download size={32} /> Install AJ App</span>
         <div className="absolute inset-0 bg-white/30 group-hover:translate-x-full transition-transform duration-700 -skew-x-12 z-10"></div>
     </button>
-    <div className="mt-16 pt-16 border-t border-white/10 w-full relative z-10">
+    <div className="mt-16 pt-16 border-t border-white/10 w-full relative z-10 text-center">
         <p className="text-[10px] md:text-xs text-gray-500 font-black uppercase tracking-[0.5em] leading-loose max-w-3xl mx-auto opacity-60">
             © 2026 AJ CREATOR STUDIO. All Rights Reserved. 
             <br/> 
