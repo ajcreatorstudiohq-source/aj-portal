@@ -1,21 +1,13 @@
 "use client";
 import React, { useState, useEffect, useRef } from 'react';
 import { auth, db, googleProvider } from '../firebaseConfig';
-import { signInWithPopup, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithPopup, onAuthStateChanged, signOut, createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, updateDoc, increment, collection, addDoc, getDoc, serverTimestamp, query, orderBy, limit, deleteDoc } from 'firebase/firestore';
 import { MessageCircle, Trophy, Zap, Wallet, Bot, LogOut, Globe, ChevronRight, Send, CreditCard, ArrowUpRight, ShieldCheck, Crown, Activity, TrendingUp, X, CheckCircle2, Download, Copy, Video, Newspaper, Users, Heart, MessageSquare, Camera, Settings, Edit3, Mail, Lock, User, DollarSign, Share2, Music, Play, PlusSquare, MoreVertical, Search, Phone, Video as VideoIcon, ArrowLeft, Trash2, Edit } from 'lucide-react';
-import emailjs from 'emailjs-com';
 
 // --- CONFIGURATIONS ---
 const PIXABAY_KEY = "56712915-2297d0968e99520a1b3d80623";
 const NEWS_API_KEY = "6e79bcc161f047039bf1acab74da28ea";
-
-const EMAILJS_CONFIG = {
-  Service_ID: "service_6w1sols",
-  Template_ID: "template_o1c40nv",
-  Public_Key: "6JCPm9fo38ovnA5LG"
-};
-
 const NOWPAYMENTS_API_KEY = "3THXNSZ-AYVMTP6-HQ9KGKK-9J6CQD7";
 
 export default function AJSuperPortal() {
@@ -30,7 +22,6 @@ const [loading, setLoading] = useState(0);
 const [selectedGame, setSelectedGame] = useState<string | null>(null);
 const [copied, setCopied] = useState(false);
 
-// --- SOCIAL STATES ---
 const [hasSocialProfile, setHasSocialProfile] = useState(false);
 const [username, setUsername] = useState('');
 const [bio, setBio] = useState('');
@@ -41,7 +32,6 @@ const [manualPass, setManualPass] = useState('');
 const fileInputRef = useRef<HTMLInputElement>(null); 
 const searchInputRef = useRef<HTMLInputElement>(null);
 
-// --- NEW SOCIAL CONTENT STATES ---
 const [pixaData, setPixaData] = useState([]);
 const [pixaVideos, setPixaVideos] = useState([]);
 const [newsData, setNewsData] = useState([]);
@@ -51,7 +41,6 @@ const [postText, setPostText] = useState('');
 const [newMessage, setNewMessage] = useState('');
 const [activeContact, setActiveContact] = useState<any>(null);
 
-// --- INTERACTIVE STATES ---
 const [likedPosts, setLikedPosts] = useState({}); 
 const [activeMenuId, setActiveMenuId] = useState<string | null>(null); 
 const [wechatMenuOpen, setWechatMenuOpen] = useState(false); 
@@ -59,39 +48,27 @@ const [commentBoardPostId, setCommentBoardPostId] = useState<string | null>(null
 const [postComments, setPostComments] = useState<any[]>([]);
 const [newComment, setNewComment] = useState('');
 
-// --- AI STATES ---
 const [visualProfit, setVisualProfit] = useState(0);
-const [tradeLogs] = useState(["Initialising Neural Link...", "Analysing Market Volatility...", "Connecting to AJ liquidity pool..."]);
-
-// Input States
-const [purchaseAmount, setPurchaseAmount] = useState(20);
-const [purchaseMethod, setPurchaseMethod] = useState('Binance (TRC20)');
-const [purchaseTxId, setPurchaseTxId] = useState('');
-const [transferId, setTransferId] = useState('');
-const [transferAmount, setTransferAmount] = useState(0);
-const [payoutMethod, setPayoutMethod] = useState('Binance Pay (USDT)');
-const [payoutId, setPayoutId] = useState('');
-const [cardName, setCardName] = useState('');
-const [cardNumber, setCardNumber] = useState('');
+const [tradeLogs] = useState(["Neural Link Established...", "Scanning Muscat Market..."]);
 
 // --- CEO MATH (500:1) ---
 const displayBalance = (balance + visualProfit).toFixed(2);
 const displayUsdt = ((balance + visualProfit) / 500).toFixed(2);
 
-// --- AD NAVIGATION HELPER ---
+// --- NAVIGATION HANDLER ---
 const navigateWithAd = (toScreen: string) => {
     if (typeof window !== 'undefined' && (window as any).AJ_SDK) {
         (window as any).AJ_SDK.showAd();
     }
     if (toScreen === 'social') { fetchSocialAPIs(); setScreen('social'); setSocialScreen('hub'); }
     else if (toScreen === 'wallet') { setScreen('wallet'); setWalletTab('main'); }
-    else if (toScreen === 'ai') { setScreen('ai'); }
+    else if (toScreen === 'ai') setScreen('ai');
     else { setScreen(toScreen); }
 };
 
 const fetchSocialAPIs = async () => {
     try {
-        const pRes = await fetch(`https://pixabay.com/api/?key=${PIXABAY_KEY}&q=fashion+luxury+car&image_type=photo&per_page=30`);
+        const pRes = await fetch(`https://pixabay.com/api/?key=${PIXABAY_KEY}&q=luxury+lifestyle+cars&image_type=photo&per_page=30`);
         const pData = await pRes.json(); setPixaData(pData.hits || []);
         const vRes = await fetch(`https://pixabay.com/api/videos/?key=${PIXABAY_KEY}&q=travel+vlog&per_page=20`);
         const vData = await vRes.json(); setPixaVideos(vData.hits || []);
@@ -100,11 +77,10 @@ const fetchSocialAPIs = async () => {
     } catch (e) { console.log("API Error"); }
 };
 
-// --- FIREBASE LISTENERS ---
 useEffect(() => {
     if (socialScreen === 'chat' && activeContact && user) {
         const chatId = [user.uid, activeContact.id || activeContact].sort().join("_");
-        const q = query(collection(db, "global_chat"), orderBy("createdAt", "desc"), limit(40));
+        const q = query(collection(db, "chats", chatId, "messages"), orderBy("createdAt", "desc"), limit(50));
         return onSnapshot(q, (snap) => { setChatMessages(snap.docs.map(d => ({id: d.id, ...d.data()})).reverse()); });
     }
     if (socialScreen === 'pulse') {
@@ -125,13 +101,8 @@ const sendChatMessage = async () => {
 };
 
 const handleCreatePost = async () => {
-    if (!postText.trim() && !tempPhoto) return alert("Add text or image!");
-    if ((window as any).AJ_SDK) (window as any).AJ_SDK.showAd(); 
-    await addDoc(collection(db, "user_posts"), {
-        text: postText, image: tempPhoto, uid: user.uid,
-        username: username || "AJ_Member", photo: user.photoURL,
-        likes: 0, createdAt: serverTimestamp()
-    });
+    if (!postText.trim() && !tempPhoto) return alert("Post is empty!");
+    await addDoc(collection(db, "user_posts"), { text: postText, image: tempPhoto, uid: user.uid, username: username || "AJ_Member", photo: user.photoURL, likes: 0, createdAt: serverTimestamp() });
     await updateDoc(doc(db, "users", user.uid), { balance: increment(2.5) });
     setPostText(''); setTempPhoto('');
     alert("🚀 Post Published! +2.5 Coins Received.");
@@ -146,30 +117,31 @@ const submitComment = async (e: any) => {
 
 const handleLike = (id: any) => { setLikedPosts(prev => ({ ...prev, [id]: !prev[id] })); };
 const handleShare = (msg: string) => { if(navigator.share) navigator.share({title:'AJ Portal', text: msg}); else alert("Link Copied!"); };
-const handleDeletePost = async (id: string) => { if (confirm("Delete permanently?")) { await deleteDoc(doc(db, "user_posts", id)); setActiveMenuId(null); } };
+const handleDeletePost = async (id: string) => { if (confirm("Delete this post?")) { await deleteDoc(doc(db, "user_posts", id)); setActiveMenuId(null); } };
 const handleSearchFocus = () => { searchInputRef.current?.focus(); };
 
-// --- AUTH & SPLASH ---
+// --- AUTH CORE ---
 useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
         if (currentUser) {
             setUser(currentUser);
             const userRef = doc(db, "users", currentUser.uid);
-            onSnapshot(userRef, (snap) => {
-                if (snap.exists()) {
-                    const data = snap.data();
-                    setBalance(data.balance || 0);
-                    setBotTier(data.botTier || 'none');
-                    setInvested(data.invested || 0);
-                    setHasSocialProfile(data.hasSocialProfile || false);
-                    setUsername(data.username || '');
-                }
-            });
+            const userSnap = await getDoc(userRef);
+            if (!userSnap.exists()) {
+                await setDoc(userRef, { name: currentUser.displayName, email: currentUser.email, balance: 500, botTier: 'none', invested: 0, hasSocialProfile: false, photo: currentUser.photoURL, lastSync: serverTimestamp() });
+            } else {
+                const data = userSnap.data();
+                setHasSocialProfile(data.hasSocialProfile || false);
+                setUsername(data.username || '');
+                setTempPhoto(data.photo || currentUser.photoURL);
+            }
+            onSnapshot(userRef, (snap) => { if (snap.exists()) { setBalance(snap.data().balance || 0); setBotTier(snap.data().botTier || 'none'); setInvested(snap.data().invested || 0); } });
         } else { setUser(null); }
     });
     return () => unsubscribe();
 }, []);
 
+// --- NO-RELOAD SPLASH LOGIC ---
 useEffect(() => {
     if (screen === 'splash') {
         const interval = setInterval(() => { setLoading(prev => (prev >= 100 ? 100 : prev + 4)); }, 50);
@@ -177,14 +149,10 @@ useEffect(() => {
     }
 }, [screen]);
 
-// Separate effect to handle splash exit safely
 useEffect(() => {
     if (loading >= 100 && screen === 'splash') {
-        const timeout = setTimeout(() => {
-            if (user) setScreen('hub');
-            else setScreen('auth');
-        }, 500);
-        return () => clearTimeout(timeout);
+        if (user) setScreen('hub');
+        else setScreen('auth');
     }
 }, [loading, screen, user]);
 
@@ -198,7 +166,7 @@ useEffect(() => {
   return () => clearInterval(vInt);
 }, [user, botTier, invested]);
 
-const handleSignOut = async () => { await signOut(auth); setSocialScreen('hub'); setScreen('auth'); };
+const handleSignOut = async () => { await signOut(auth); setScreen('auth'); setSocialScreen('hub'); };
 const handleCreateProfile = async () => {
     if(username.length < 3) return alert("Username too short!");
     await updateDoc(doc(db, "users", user!.uid), { username: username.toLowerCase().trim(), bio, photo: tempPhoto || user!.photoURL, hasSocialProfile: true });
@@ -221,23 +189,24 @@ const handleFileChange = (e: any) => {
     }
 };
 
-const copyToClipboard = (id: string) => {
-  if(!id) return;
-  navigator.clipboard.writeText(id);
-  setCopied(true);
-  setTimeout(() => setCopied(false), 2000);
+const handlePurchase = async () => {
+    if (purchaseAmount < 20) return alert("Min $20!");
+    if (purchaseMethod === 'Binance (TRC20)') {
+        try {
+          const res = await fetch('https://api.nowpayments.io/v1/invoice', {
+            method: 'POST',
+            headers: { 'x-api-key': NOWPAYMENTS_API_KEY, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ price_amount: purchaseAmount, price_currency: "usd", pay_currency: "usdttrc20", order_id: `AJ_${Date.now()}` })
+          });
+          const data = await res.json();
+          if (data.invoice_url) window.open(data.invoice_url, '_blank');
+        } catch (e) { alert("Payment Error!"); }
+    }
 };
 
-const activateBot = async (tier: string, cost: number) => {
-    if (balance < cost) return alert("Insufficient Balance!");
-    await updateDoc(doc(db, "users", user!.uid), { balance: increment(-cost), botTier: tier, invested: cost, lastSync: serverTimestamp() });
-    alert(`${tier.toUpperCase()} BOT ACTIVATED!`);
-};
-
-// --- RENDER START ---
 if (screen === 'splash') return (
 <main className="h-screen bg-black flex flex-col items-center justify-center text-white text-center">
-<div className="w-40 h-40 bg-black rounded-full border-4 border-cyan-500 shadow-[0_0_60px_#06b6d4] overflow-hidden mb-8"><img src="/logo.png" className="w-full h-full object-cover" /></div>
+<div className="w-40 h-40 bg-black rounded-full border-4 border-cyan-500 shadow-[0_0_60px_#06b6d4] overflow-hidden mb-8"><img src="/logo.png" className="w-full h-full object-cover" alt="Logo" /></div>
 <h1 className="text-3xl font-black tracking-widest uppercase animate-pulse">AJ PORTAL</h1>
 </main>
 );
@@ -245,7 +214,7 @@ if (screen === 'splash') return (
 if (screen === 'auth' && !user) return (
 <main className="min-h-screen bg-black flex flex-col items-center justify-center p-6 text-white text-center">
 <div className="w-full max-sm:w-full max-w-sm bg-white/[0.03] border border-white/10 p-12 rounded-[3rem] shadow-2xl">
-<h2 className="text-6xl font-black mb-10 italic text-cyan-400 uppercase tracking-tighter">AJ <span className="text-white">ID</span></h2>
+<h2 className="text-6xl font-black mb-10 italic text-cyan-400 uppercase">AJ <span className="text-white">ID</span></h2>
 <button onClick={() => signInWithPopup(auth, googleProvider)} className="w-full py-5 bg-white text-black font-black text-xl rounded-2xl active:scale-95 shadow-xl transition-all">CONTINUE WITH GOOGLE</button>
 <p className="mt-8 text-yellow-500 font-bold tracking-widest">+500 COINS BONUS</p>
 </div>
@@ -256,15 +225,16 @@ return (
 <main className="min-h-screen bg-[#020617] text-white font-sans overflow-x-hidden relative">
 <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden" />
 
+{/* HEADER */}
 <header className="fixed top-0 w-full p-4 flex justify-between items-center z-[100] bg-black/80 backdrop-blur-xl border-b border-white/5 shadow-2xl">
 <div className="text-xl font-black italic text-cyan-400">AJ STUDIO</div>
 <div className="flex items-center gap-3">
 <div onClick={() => navigateWithAd('wallet')} className="flex items-center gap-3 bg-white/5 px-4 py-2 rounded-full border border-white/10 cursor-pointer transition-all hover:bg-white/10">
 <span className="text-xs font-black text-yellow-500">{displayBalance} 🪙</span>
 <span className="text-[10px] text-green-400 font-black ml-1">${displayUsdt}</span>
-{user && <img src={tempPhoto || user.photoURL} className="w-8 h-8 rounded-full border border-cyan-500" />}
+{user && <img src={tempPhoto || user.photoURL} className="w-8 h-8 rounded-full border border-cyan-500 shadow-md" />}
 </div>
-<button onClick={() => signOut(auth)} className="p-2 bg-red-500/10 text-red-500 font-bold text-[8px] rounded-full uppercase">EXIT</button>
+<button onClick={handleSignOut} className="p-2 bg-red-500/10 text-red-500 font-bold text-[8px] rounded-full uppercase">EXIT</button>
 </div>
 </header>
 
@@ -295,12 +265,12 @@ return (
     </div>
 </section>
 
-{/* ARCADE MODAL - FULL SCREEN FIXED */}
+{/* ARCADE */}
 {screen === 'arcade' && (
     <div className="fixed inset-0 z-[300] bg-black flex flex-col h-screen overflow-hidden">
         {!selectedGame ? (
-            <div className="p-8 overflow-y-auto flex-1">
-                <button onClick={() => {setScreen('hub'); setSelectedGame(null)}} className="text-cyan-400 font-bold mb-10 tracking-widest uppercase transition-all hover:brightness-125 flex items-center gap-2"><ArrowLeft size={20}/> BACK TO HUB</button>
+            <div className="p-8 overflow-y-auto flex-1 text-center">
+                <button onClick={() => setScreen('hub')} className="text-cyan-400 font-bold mb-10 tracking-widest uppercase transition-all flex items-center gap-2"><ArrowLeft size={20}/> BACK TO HUB</button>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-6 pb-20">
                 {['Rider King', 'Pulse Racer', 'Subsea Surge', 'Neon Strike', 'Volcano Escape'].map((game) => (
                     <div key={game} onClick={() => setSelectedGame(game)} className="bg-white/5 border border-white/10 p-4 rounded-3xl text-center hover:border-cyan-400 cursor-pointer transition-all">
@@ -313,8 +283,8 @@ return (
             </div>
         ) : (
             <div className="flex-1 flex flex-col h-full w-full">
-                <div className="w-full bg-black h-12 flex items-center px-4 border-b border-white/10 shrink-0">
-                    <button onClick={() => setSelectedGame(null)} className="text-cyan-400 font-black text-[10px] uppercase tracking-widest hover:brightness-125 transition-all">← BACK TO GAMES</button>
+                <div className="h-12 bg-black border-b border-white/10 flex items-center px-4 shrink-0">
+                    <button onClick={() => setSelectedGame(null)} className="text-cyan-400 font-black text-[10px] uppercase">← BACK TO GAMES</button>
                     <div className="flex-1 text-center font-black uppercase text-[10px] opacity-40">{selectedGame}</div>
                 </div>
                 <iframe src={`/games/${selectedGame.toLowerCase().replace(/ /g, '-')}/index.html`} className="w-full h-full border-none flex-1" title="Game" />
@@ -323,7 +293,7 @@ return (
     </div>
 )}
 
-{/* SOCIAL HUB - REAL DASHBOARD */}
+{/* SOCIAL HUB */}
 {screen === 'social' && (
     <div className="fixed inset-0 z-[400] bg-slate-950 flex flex-col h-screen overflow-hidden">
         <header className="sticky top-0 w-full p-4 bg-black/90 backdrop-blur-md border-b border-white/10 flex justify-between items-center z-[500] rounded-b-3xl shrink-0 shadow-2xl">
@@ -332,7 +302,7 @@ return (
             ) : (
                 <button onClick={() => setSocialScreen('hub')} className="text-pink-500 font-black text-xs uppercase hover:brightness-125">← BACK</button>
             )}
-            <h2 className="text-4xl font-black italic text-pink-500 uppercase text-center flex-1 tracking-tighter drop-shadow-[0_0_15px_#ec4899] animate-pulse font-orbitron">Dashboard</h2>
+            <h2 className="text-4xl font-black italic text-pink-500 uppercase text-center flex-1 tracking-tighter drop-shadow-[0_0_15px_#ec4899] animate-pulse font-orbitron text-shadow-[0_0_10px_#ec4899]">Dashboard</h2>
             <button onClick={() => setSocialScreen('settings_menu')} className="bg-white/10 p-2 rounded-full text-pink-500 hover:bg-white/20 shadow-lg"><Settings size={22}/></button>
         </header>
 
@@ -372,13 +342,14 @@ return (
                                 <div onClick={()=>handleShare('AJ TikReels')} className="flex flex-col items-center cursor-pointer text-white"><Share2 size={35}/><span className="text-[10px] font-bold">Share</span></div>
                             </div>
                         </div>
+                        {(i + 1) % 5 === 0 && <div onClick={()=>(window as any).AJ_SDK?.showAd()} className="h-[85vh] w-full snap-start flex items-center justify-center bg-gray-900 text-cyan-400 font-black flex-col gap-4 cursor-pointer shadow-2xl border-y-2 border-cyan-500/20"><VideoIcon size={70}/> <p className="uppercase tracking-[0.3em]">AJ VVIP VIDEO AD</p></div>}
                     </React.Fragment>
                 ))}
             </div>
         ) : socialScreen === 'pulse' ? (
             <div className="max-w-md mx-auto space-y-6 p-4 pb-24 relative">
                 <div className="bg-white/10 backdrop-blur-xl p-5 rounded-3xl border border-pink-500/20 shadow-2xl">
-                    <div className="flex gap-3"><img src={user?.photoURL || "/logo.png"} className="w-10 h-10 rounded-full border-2 border-pink-500"/><textarea value={postText} onChange={(e)=>setPostText(e.target.value)} placeholder="Share your story..." className="flex-1 bg-white/5 rounded-2xl p-4 text-xs outline-none border border-white/10 h-20 text-white font-bold"/></div>
+                    <div className="flex gap-3"><img src={user?.photoURL || "/logo.png"} className="w-10 h-10 rounded-full border-2 border-pink-500"/><textarea value={postText} onChange={(e)=>setPostText(e.target.value)} placeholder="Share your CEO story..." className="flex-1 bg-white/5 rounded-2xl p-4 text-xs outline-none border border-white/10 h-20 text-white font-bold"/></div>
                     <div className="flex justify-between mt-4 pt-3 border-t border-white/5"><button onClick={handleImageClick} className="flex items-center gap-2 text-[10px] font-black text-gray-400 hover:text-pink-500 uppercase"><Camera size={18}/> Add Media</button><button onClick={handleCreatePost} className="bg-pink-600 px-6 py-2 rounded-full text-xs font-black shadow-lg text-white">PUBLISH (+2.5🪙)</button></div>
                 </div>
                 {userPosts.map((post:any) => (
@@ -399,8 +370,9 @@ return (
         ) : socialScreen === 'chatlist' ? (
             <div className="max-w-md mx-auto bg-[#111b21]/80 backdrop-blur-2xl h-screen border-x border-white/10 shadow-2xl overflow-y-auto">
                 <div className="bg-[#1f2c33]/90 backdrop-blur-md p-5 flex justify-between items-center border-b border-white/10"><h2 className="text-2xl font-black text-[#e9edef] tracking-widest italic font-orbitron text-center flex-1">WeChat</h2><div className="flex gap-6 text-[#aebac1] relative"><Camera size={22} onClick={handleImageClick}/><Search size={22} onClick={handleSearchFocus}/><MoreVertical size={22} onClick={() => setWechatMenuOpen(!wechatMenuOpen)}/></div></div>
+                {wechatMenuOpen && (<div className="absolute right-6 top-20 bg-slate-900 border border-white/10 p-4 rounded-xl z-[1000] shadow-2xl flex flex-col gap-3 text-[10px] font-black uppercase tracking-widest text-white backdrop-blur-xl"><p>Privacy Settings</p><p>CEO VIP ACCESS</p></div>)}
                 <div className="p-4"><div className="bg-[#202c33] flex items-center gap-4 px-5 py-3 rounded-2xl text-gray-400 shadow-inner border border-white/5"><Search size={18}/><input ref={searchInputRef} type="text" placeholder="Search friends & family" className="bg-transparent border-none outline-none text-sm w-full text-white font-bold"/></div></div>
-                <div className="mt-2 space-y-1">{['AJ Support', 'VIP Elite Club', 'Family WeChat'].map((contact, i) => (<div key={i} onClick={()=>{setActiveContact(contact); setSocialScreen('chat'); (window as any).AJ_SDK?.showAd();}} className="flex items-center gap-4 p-5 hover:bg-white/5 cursor-pointer border-b border-white/5 mx-2 rounded-[2rem]"><div className="w-14 h-14 rounded-full bg-cyan-600/30 flex items-center justify-center font-black border border-cyan-500/50 text-cyan-400 shadow-xl">AJ</div><div className="flex-1 text-left"><p className="font-black text-[#e9edef] uppercase text-xs">{contact}</p><p className="text-[10px] text-[#8696a0]">Secure chat active.</p></div></div>))}</div>
+                <div className="mt-2 space-y-1">{['AJ Support', 'VIP Elite Club', 'Family WeChat'].map((contact, i) => (<div key={i} onClick={()=>{setActiveContact(contact); setSocialScreen('chat'); (window as any).AJ_SDK?.showAd();}} className="flex items-center gap-4 p-5 hover:bg-white/5 cursor-pointer border-b border-white/5 transition-all mx-2 rounded-[2rem]"><div className="w-14 h-14 rounded-full bg-cyan-600/30 flex items-center justify-center font-black border border-cyan-500/50 text-cyan-400 shadow-xl">AJ</div><div className="flex-1 text-left"><p className="font-black text-[#e9edef] uppercase text-xs">{contact}</p><p className="text-[10px] text-[#8696a0]">Secure chat active.</p></div></div>))}</div>
             </div>
         ) : socialScreen === 'chat' ? (
             <div className="max-w-md mx-auto h-[88vh] flex flex-col bg-[#0b141a] overflow-hidden m-2 rounded-[2.5rem] shadow-2xl border border-cyan-500/20">
@@ -482,7 +454,7 @@ return (
           {walletTab === 'withdraw' && (
             <div className="flex flex-col gap-5 text-left">
                 <select value={payoutMethod} onChange={(e)=>setPayoutMethod(e.target.value)} className="w-full bg-gray-900 border border-white/10 p-4 rounded-xl text-white font-bold outline-none focus:border-pink-500"><option>Binance Pay</option><option>EasyPaisa</option><option>JazzCash</option></select>
-                <input type="text" placeholder="Account Details (Phone/ID)" value={payoutId} onChange={(e)=>setPayoutId(e.target.value)} className="bg-black border border-white/10 p-4 rounded-2xl font-bold text-white outline-none focus:border-pink-500 shadow-inner" />
+                <input type="text" placeholder="Account Details (Phone/ID)" value={payoutId} onChange={(e)=>setPayoutId(e.target.value)} className="bg-black/40 border border-white/10 p-4 rounded-2xl font-bold text-white outline-none focus:border-pink-500 shadow-inner" />
                 <button onClick={()=>alert("Withdrawal Requested!")} className="bg-pink-600 py-4 rounded-2xl font-black uppercase shadow-lg text-white">REQUEST WITHDRAWAL</button>
                 <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase mt-2">Back</button>
             </div>
