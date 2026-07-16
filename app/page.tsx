@@ -9,6 +9,13 @@ import emailjs from 'emailjs-com';
 // --- CONFIGURATIONS ---
 const PIXABAY_KEY = "56712915-2297d0968e99520a1b3d80623";
 const NEWS_API_KEY = "6e79bcc161f047039bf1acab74da28ea";
+
+const EMAILJS_CONFIG = {
+  Service_ID: "service_6w1sols",
+  Template_ID: "template_o1c40nv",
+  Public_Key: "6JCPm9fo38ovnA5LG"
+};
+
 const NOWPAYMENTS_API_KEY = "3THXNSZ-AYVMTP6-HQ9KGKK-9J6CQD7";
 
 export default function AJSuperPortal() {
@@ -45,8 +52,9 @@ const [newMessage, setNewMessage] = useState('');
 const [activeContact, setActiveContact] = useState(null);
 
 // --- INTERACTIVE STATES ---
-const [likedPosts, setLikedPosts] = useState({}); // Track likes locally
-const [activeMenuId, setActiveMenuId] = useState(null); // Track 3-dot menu
+const [likedPosts, setLikedPosts] = useState({}); 
+const [activeMenuId, setActiveMenuId] = useState(null); 
+const [wechatMenuOpen, setWechatMenuOpen] = useState(false); 
 
 // --- AI STATES ---
 const [visualProfit, setVisualProfit] = useState(0);
@@ -129,20 +137,14 @@ const handleShare = (msg: string) => {
     if(navigator.share) navigator.share({title:'AJ Portal', text: msg}); 
     else alert("Link Copied!"); 
 };
-
-// --- DELETE POST LOGIC ---
 const handleDeletePost = async (id: string) => {
-    if (confirm("Delete this post permanently?")) {
-        try {
-            await deleteDoc(doc(db, "user_posts", id));
-            setActiveMenuId(null);
-            alert("Post Deleted.");
-        } catch (e) { alert("Error deleting post."); }
+    if (confirm("Delete permanently?")) {
+        await deleteDoc(doc(db, "user_posts", id));
+        setActiveMenuId(null);
     }
 };
 
 const handleSearchFocus = () => { searchInputRef.current?.focus(); };
-const handleMoreMenu = () => { alert("WeChat Settings Active"); };
 
 const copyToClipboard = (id: string) => {
   if(!id) return;
@@ -182,7 +184,8 @@ const handleCreateProfile = async () => {
             hasSocialProfile: true
         });
         setHasSocialProfile(true);
-        setSocialScreen(pendingMode || 'hub');
+        setSocialScreen('hub');
+        alert("🚀 Profile Active!");
     } catch (e) { alert("Setup Error!"); }
 };
 
@@ -192,7 +195,7 @@ const enterSocialMode = (mode: string) => {
     else { setSocialScreen(mode); }
 };
 
-// --- AUTH & SYNC ---
+// --- AUTH SYNC ---
 useEffect(() => {
 const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
 if (currentUser) {
@@ -218,7 +221,7 @@ return () => unsubscribe();
 
 if (screen === 'splash') return (
 <main className="h-screen bg-black flex flex-col items-center justify-center text-white text-center">
-<div className="w-40 h-40 bg-black rounded-full border-4 border-cyan-500 shadow-[0_0_60px_#06b6d4] overflow-hidden mb-8"><img src="/logo.png" className="w-full h-full object-cover" alt="Logo" /></div>
+<div className="w-40 h-40 bg-black rounded-full border-4 border-cyan-500 shadow-[0_0_60px_#06b6d4] overflow-hidden mb-8"><img src="/logo.png" className="w-full h-full object-cover" /></div>
 <h1 className="text-3xl font-black tracking-widest uppercase animate-pulse">AJ PORTAL</h1>
 </main>
 );
@@ -276,7 +279,7 @@ return (
     </div>
 </section>
 
-{/* ARCADE MODAL - FULL SCREEN FIXED */}
+{/* ARCADE MODAL - FULL SCREEN */}
 {screen === 'arcade' && (
     <div className="fixed inset-0 z-[300] bg-black flex flex-col h-screen overflow-hidden">
         {!selectedGame ? (
@@ -310,7 +313,7 @@ return (
 {/* SOCIAL HUB - VVIP WeChat DESIGN */}
 {screen === 'social' && (
     <div className="fixed inset-0 z-[400] bg-slate-950 flex flex-col h-screen overflow-hidden">
-        <header className="sticky top-0 w-full p-4 bg-black/90 backdrop-blur-md border-b border-white/10 flex justify-between items-center z-[500] rounded-b-3xl shrink-0">
+        <header className="sticky top-0 w-full p-4 bg-black/90 backdrop-blur-xl border-b border-white/10 flex justify-between items-center z-[500] rounded-b-3xl shrink-0">
             {socialScreen === 'hub' ? (
                 <button onClick={() => setScreen('hub')} className="text-pink-500 font-black text-xs uppercase hover:brightness-125">← HUB</button>
             ) : (
@@ -352,8 +355,8 @@ return (
                                     <Heart size={35} className={likedPosts[vid.id] ? "text-red-500 fill-red-500" : "text-white"}/>
                                     <span className="text-[10px] font-bold text-white">12k</span>
                                 </div>
-                                <div className="flex flex-col items-center cursor-pointer"><MessageCircle size={35} className="text-white"/><span className="text-[10px] font-bold text-white">842</span></div>
-                                <div onClick={()=>handleShare('AJ TikReels')} className="flex flex-col items-center cursor-pointer text-white"><Share2 size={35}/><span className="text-[10px] font-bold">Share</span></div>
+                                <div className="flex flex-col items-center cursor-pointer"><MessageCircle size={35} className="drop-shadow-lg text-white"/><span className="text-[10px] font-bold text-white">842</span></div>
+                                <div onClick={()=>handleShare('AJ TikReels')} className="flex flex-col items-center cursor-pointer active:scale-125 transition-all text-white"><Share2 size={35} className="drop-shadow-lg"/><span className="text-[10px] font-bold text-white">Share</span></div>
                             </div>
                             <div className="absolute bottom-10 left-6 text-white max-w-[70%]">
                                 <p className="font-black text-sm">@{vid.user} • LIVE</p>
@@ -370,15 +373,16 @@ return (
             </div>
         ) : socialScreen === 'pulse' ? (
             <div className="max-w-md mx-auto space-y-6 p-4 pb-24">
+                <button onClick={()=>setSocialScreen('hub')} className="text-pink-500 font-bold mb-4 flex items-center gap-2"><ChevronRight className="rotate-180"/> DISCOVER PULSE</button>
                 <div className="bg-white/10 backdrop-blur-xl p-5 rounded-3xl border border-pink-500/20 shadow-2xl">
                     <div className="flex gap-3">
                         <img src={(user as any)?.photoURL || "/logo.png"} className="w-10 h-10 rounded-full border-2 border-pink-500 shadow-md"/>
                         <textarea value={postText} onChange={(e)=>setPostText(e.target.value)} placeholder="Share your CEO story..." className="flex-1 bg-white/5 rounded-2xl p-4 text-xs outline-none border border-white/10 h-20 text-white font-bold"/>
                     </div>
-                    {tempPhoto && <img src={tempPhoto} className="mt-4 rounded-xl w-full h-44 object-cover border border-white/10 shadow-2xl" />}
+                    {tempPhoto && <img src={tempPhoto} className="mt-4 rounded-xl w-full h-40 object-cover border border-white/10 shadow-2xl" />}
                     <div className="flex justify-between mt-4 border-t border-white/5 pt-3">
-                        <button onClick={handleImageClick} className="flex items-center gap-2 text-[10px] font-black text-gray-400 hover:text-pink-500 transition-all uppercase tracking-widest"><Camera size={18}/> Add Media</button>
-                        <button onClick={handleCreatePost} className="bg-pink-600 px-6 py-2 rounded-full text-xs font-black shadow-[0_0_15px_#ec4899] uppercase tracking-widest text-white">PUBLISH (+2.5🪙)</button>
+                        <button onClick={handleImageClick} className="flex items-center gap-2 text-[10px] font-bold text-gray-400 hover:text-pink-500 transition-all uppercase tracking-widest"><Camera size={18}/> Add Media</button>
+                        <button onClick={handleCreatePost} className="bg-pink-600 px-6 py-1.5 rounded-full text-xs font-black shadow-lg hover:scale-105 active:scale-95 transition-all text-white">PUBLISH (+2.5🪙)</button>
                     </div>
                 </div>
                 {userPosts.map((post:any) => (
@@ -399,7 +403,7 @@ return (
                         <div className="p-6">
                             <div className="flex gap-6 mb-4">
                                 <Heart size={30} onClick={()=>handleLike(post.id)} className={likedPosts[post.id] ? "text-red-500 fill-red-500 cursor-pointer" : "text-white cursor-pointer"}/>
-                                <MessageSquare size={30} className="text-white"/><Share2 size={30} className="text-white"/>
+                                <MessageSquare size={30} className="text-white cursor-pointer" onClick={() => alert("Comment Logic Active")}/><Share2 size={30} className="text-white cursor-pointer" onClick={()=>handleShare(post.text)}/>
                             </div>
                             <p className="text-[12px] leading-relaxed text-gray-200 font-bold">{post.text}</p>
                         </div>
@@ -407,11 +411,21 @@ return (
                 ))}
             </div>
         ) : socialScreen === 'chatlist' ? (
-            <div className="max-w-md mx-auto bg-[#111b21]/80 backdrop-blur-2xl h-screen border-x border-white/10 shadow-2xl overflow-y-auto">
+            <div className="max-w-md mx-auto bg-[#111b21]/80 backdrop-blur-2xl h-screen border-x border-white/10">
                 <div className="bg-[#1f2c33]/90 backdrop-blur-md p-5 flex justify-between items-center border-b border-white/10 shadow-lg">
                     <h2 className="text-2xl font-black text-[#e9edef] tracking-widest italic">WeChat</h2>
-                    <div className="flex gap-6 text-[#aebac1]">
-                        <Camera size={22} className="cursor-pointer hover:text-white" onClick={handleImageClick}/><Search size={22} className="cursor-pointer hover:text-white" onClick={handleSearchFocus}/><MoreVertical size={22} className="cursor-pointer hover:text-white" onClick={handleMoreMenu}/>
+                    <div className="flex gap-6 text-[#aebac1] relative">
+                        <Camera size={22} className="cursor-pointer hover:text-cyan-400 transition-colors" onClick={handleImageClick}/><Search size={22} className="cursor-pointer hover:text-cyan-400 transition-colors" onClick={handleSearchFocus}/>
+                        <div className="relative">
+                            <MoreVertical size={22} className="cursor-pointer hover:text-cyan-400 transition-colors" onClick={()=>setWechatMenuOpen(!wechatMenuOpen)}/>
+                            {wechatMenuOpen && (
+                                <div className="absolute right-0 top-8 bg-slate-900/95 border border-cyan-500/30 rounded-xl p-3 z-[1000] w-40 backdrop-blur-xl shadow-2xl">
+                                    <button className="w-full text-left text-[10px] font-bold text-white p-2 hover:bg-white/10 rounded-lg uppercase">CEO Settings</button>
+                                    <button className="w-full text-left text-[10px] font-bold text-white p-2 hover:bg-white/10 rounded-lg uppercase border-t border-white/5">Archive</button>
+                                    <button className="w-full text-left text-[10px] font-bold text-red-400 p-2 hover:bg-red-400/10 rounded-lg uppercase">Clear All</button>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
                 <div className="p-4">
@@ -419,12 +433,12 @@ return (
                         <Search size={18}/><input ref={searchInputRef} type="text" placeholder="Search family & friends" className="bg-transparent border-none outline-none text-sm w-full text-white font-bold"/>
                     </div>
                 </div>
-                <div className="mt-2 space-y-1">
+                <div className="mt-2">
                     {['AJ Global Support', 'Family WeChat Hub', 'CEO VIP Elite', 'Crypto News Daily'].map((contact, i) => (
                         <div key={i} onClick={()=>{setActiveContact(contact); setSocialScreen('chat'); (window as any).AJ_SDK?.showAd();}} className="flex items-center gap-4 p-5 hover:bg-white/5 cursor-pointer border-b border-white/5 transition-all mx-2 rounded-[2rem]">
                             <div className="w-14 h-14 rounded-full bg-cyan-600/30 flex items-center justify-center font-black border border-cyan-500/50 text-cyan-400 shadow-2xl text-lg">AJ</div>
                             <div className="flex-1 text-left">
-                                <div className="flex justify-between items-center mb-1"><p className="font-black text-[#e9edef] tracking-wider uppercase text-xs">{contact}</p><span className="text-[10px] text-[#8696a0]">11:0{i} PM</span></div>
+                                <div className="flex justify-between items-center mb-1"><p className="font-black text-[#e9edef] tracking-wider uppercase text-xs">{contact}</p><span className="text-[10px] text-green-500 font-black">11:0{i} PM</span></div>
                                 <p className="text-[10px] text-[#8696a0] line-clamp-1 font-bold">Secure VVIP encrypted chat active.</p>
                             </div>
                         </div>
@@ -443,8 +457,9 @@ return (
                     {chatMessages.map((m:any) => (
                         <div key={m.id} className={`flex ${m.uid === (user as any).uid ? 'justify-end' : 'justify-start'}`}>
                             <div className={`p-3 max-w-[85%] rounded-2xl shadow-2xl relative border ${m.uid === (user as any).uid ? 'bg-cyan-700/80 border-cyan-400 text-[#e9edef] rounded-tr-none' : 'bg-[#202c33]/90 border-white/5 text-[#e9edef] rounded-tl-none'} backdrop-blur-md`}>
-                                <p className="font-black text-[9px] text-yellow-500 mb-1 opacity-70 uppercase">@{m.username}</p>
-                                <p className="text-[12px] leading-relaxed mb-1 pr-6 font-medium">{m.text}</p>
+                                <p className="font-black text-[8px] text-yellow-500 mb-1 opacity-70 uppercase">@{m.username}</p>
+                                <p className="text-[11px] leading-relaxed mb-1 pr-6 font-medium">{m.text}</p>
+                                <p className="text-[7px] text-white/30 absolute bottom-1.5 right-2 uppercase font-black tracking-widest">Now</p>
                             </div>
                         </div>
                     ))}
@@ -462,7 +477,7 @@ return (
                     <div key={i} className="bg-white/5 backdrop-blur-sm p-6 rounded-[2.5rem] border border-white/10 flex flex-col md:flex-row gap-8 hover:border-cyan-400 transition-all shadow-2xl group">
                         {art.urlToImage && <img src={art.urlToImage} className="w-full md:w-56 h-56 object-cover rounded-[2.5rem] group-hover:scale-105 transition-transform shadow-2xl border border-white/5" />}
                         <div className="flex-1 py-2 text-left">
-                            <div className="flex justify-between items-center mb-4"><span className="text-[10px] bg-cyan-500/20 text-cyan-400 px-5 py-2 rounded-full font-black uppercase border border-cyan-500/30 tracking-widest">{art.source?.name}</span></div>
+                            <div className="flex justify-between items-center mb-4"><span className="text-[10px] bg-cyan-500/20 text-cyan-400 px-5 py-2 rounded-full font-black uppercase border border-cyan-500/30 tracking-widest">{art.source?.name}</span><span className="text-[9px] text-gray-500 font-black">{new Date(art.publishedAt).toLocaleDateString()}</span></div>
                             <h4 className="font-black text-xl text-white leading-tight mb-4 group-hover:text-cyan-400 transition-colors uppercase tracking-tight">{art.title}</h4>
                             <p className="text-xs text-gray-400 line-clamp-3 mb-6 leading-relaxed font-bold italic">{art.description}</p>
                             <a href={art.url} target="_blank" className="text-[11px] text-cyan-400 font-black uppercase flex items-center gap-3 border-b-2 border-cyan-400/20 w-max pb-1 hover:border-cyan-400 transition-all tracking-widest">Full Story <ArrowUpRight size={16}/></a>
@@ -470,6 +485,22 @@ return (
                     </div>
                 ))}
             </div>
+        ) : socialScreen === 'setup' ? (
+          <div className="max-w-md mx-auto bg-white/5 backdrop-blur-xl border border-white/10 p-10 rounded-[3.5rem] text-center mt-4 shadow-2xl">
+              <div className="relative w-28 h-28 mx-auto mb-10 cursor-pointer group" onClick={handleImageClick}>
+                <img src={tempPhoto || (user as any)?.photoURL || "/logo.png"} className="w-full h-full rounded-full border-4 border-pink-500 p-1 object-cover shadow-2xl group-hover:brightness-50 transition-all" alt="Avatar" />
+                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><Camera size={40} className="text-white"/></div>
+                <div className="absolute bottom-1 right-1 bg-pink-600 p-3 rounded-full border-2 border-black shadow-lg text-white"><Camera size={18}/></div>
+              </div>
+              <h2 className="text-2xl font-black text-white mb-8 uppercase tracking-widest italic">Identity Setup</h2>
+              <div className="space-y-5 text-left">
+                  <label className="text-[10px] font-black text-pink-500 ml-1 uppercase tracking-widest">Username</label>
+                  <input type="text" placeholder="@unique_name" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full bg-black/40 border border-white/10 p-4 rounded-2xl font-bold text-white outline-none focus:border-pink-500 shadow-inner" />
+                  <label className="text-[10px] font-black text-pink-500 ml-1 uppercase tracking-widest">About Me</label>
+                  <textarea placeholder="Tell the WeChat world about you..." value={bio} onChange={(e) => setBio(e.target.value)} className="w-full bg-black/40 border border-white/10 p-4 rounded-2xl text-xs text-white outline-none h-32 focus:border-pink-500 shadow-inner" />
+                  <button onClick={handleCreateProfile} className="w-full mt-10 py-5 bg-pink-600 rounded-[1.5rem] font-black uppercase shadow-[0_10px_30px_rgba(236,72,153,0.3)] active:scale-95 transition-all text-white border-b-4 border-pink-800 tracking-[0.2em]">ACTIVATE WeChat PROFILE</button>
+              </div>
+          </div>
         ) : null}
         </div>
     </div>
@@ -488,7 +519,7 @@ return (
         <div className="absolute inset-0 bg-white/30 group-hover:translate-x-full transition-transform duration-700 -skew-x-12 z-10"></div>
     </button>
     <div className="mt-16 pt-16 border-t border-white/10 w-full relative z-10 text-center">
-        <p className="text-[10px] md:text-xs text-gray-500 font-black uppercase tracking-[0.5em] leading-loose max-w-3xl mx-auto opacity-60">
+        <p className="text-[10px] md:text-xs text-cyan-400 font-black uppercase tracking-[0.4em] leading-relaxed max-w-2xl mx-auto drop-shadow-[0_0_8px_#06b6d4] animate-pulse">
             © 2026 AJ CREATOR STUDIO. All Rights Reserved. 
             <br/> 
             Unauthorized copying, distribution, or decompilation of this portal and its games is strictly prohibited and subject to legal action globally.
