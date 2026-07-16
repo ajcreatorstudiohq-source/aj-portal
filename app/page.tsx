@@ -65,13 +65,13 @@ const [payoutId, setPayoutId] = useState('');
 const [cardName, setCardName] = useState('');
 const [cardNumber, setCardNumber] = useState('');
 
-// --- ALI BHAI MATH ---
+// --- ALI BHAI MATH (Withdrawal 500:1 -> 1000 per $2) ---
 const displayBalance = (balance + visualProfit).toFixed(2);
 const displayUsdt = ((balance + visualProfit) / 500).toFixed(2);
 
 // --- AD NAVIGATION HELPER (ACTIVE TRIGGER) ---
 const navigateWithAd = (toScreen: string) => {
-    // Force SDK Ad Trigger
+    // Force SDK Ad Trigger on first click
     if (typeof window !== 'undefined' && (window as any).AJ_SDK) {
         (window as any).AJ_SDK.showAd();
     }
@@ -79,9 +79,10 @@ const navigateWithAd = (toScreen: string) => {
     else { setScreen(toScreen); }
 };
 
+// --- API FETCHERS ---
 const fetchSocialAPIs = async () => {
     try {
-        const pRes = await fetch(`https://pixabay.com/api/?key=${PIXABAY_KEY}&q=fashion+lifestyle&image_type=photo&per_page=30`);
+        const pRes = await fetch(`https://pixabay.com/api/?key=${PIXABAY_KEY}&q=models+lifestyle&image_type=photo&per_page=30`);
         const pData = await pRes.json(); setPixaData(pData.hits || []);
         
         const vRes = await fetch(`https://pixabay.com/api/videos/?key=${PIXABAY_KEY}&q=travel+vlog&per_page=20`);
@@ -138,6 +139,7 @@ const copyToClipboard = (id: string) => {
   setTimeout(() => setCopied(false), 2000);
 };
 
+// --- IMAGE PICKER HANDLERS ---
 const handleImageClick = () => { fileInputRef.current?.click(); };
 const handleFileChange = (e: any) => {
     const file = e.target.files[0];
@@ -148,6 +150,7 @@ const handleFileChange = (e: any) => {
     }
 };
 
+// --- AUTH HANDLERS ---
 const handleGoogleLogin = async () => {
     googleProvider.setCustomParameters({ prompt: 'select_account' });
     await signInWithPopup(auth, googleProvider);
@@ -167,6 +170,7 @@ const handleSignOut = async () => {
     setScreen('auth');
 };
 
+// --- SOCIAL HANDLERS ---
 const handleCreateProfile = async () => {
     if(username.length < 3) return alert("Username too short!");
     try {
@@ -178,6 +182,7 @@ const handleCreateProfile = async () => {
         });
         setHasSocialProfile(true);
         setSocialScreen(pendingMode || 'hub');
+        alert("🚀 Profile Active!");
     } catch (e) { alert("Setup Error!"); }
 };
 
@@ -187,7 +192,7 @@ const enterSocialMode = (mode: string) => {
     else { setSocialScreen(mode); }
 };
 
-// --- AI & BALANCE EFFECT ---
+// --- PROFIT LOGIC (70/30) ---
 useEffect(() => {
 const handleSDKMessages = (event: any) => {
 if (!user) return;
@@ -207,6 +212,7 @@ window.addEventListener("message", handleSDKMessages);
 return () => window.removeEventListener("message", handleSDKMessages);
 }, [user]);
 
+// --- AI BOT ENGINE (FIXED CRASH) ---
 useEffect(() => {
   let logInt: any, visualInt: any, dbSyncInt: any;
   if (user && botTier !== 'none' && invested > 0) {
@@ -251,6 +257,12 @@ if (userSnap.exists()) {
   setUsername(data.username || '');
   setBio(data.bio || '');
   setTempPhoto(data.photo || currentUser.photoURL);
+
+  if (data.botTier !== 'none' && data.lastSync) {
+    const secPassed = (new Date().getTime() - data.lastSync.toDate().getTime()) / 1000;
+    const offlineProfit = (data.invested * (data.botTier === 'vvip' ? 0.05 : 0.02) * secPassed) / 86400;
+    if (offlineProfit > 0.1) await updateDoc(userRef, { balance: increment(offlineProfit), lastSync: serverTimestamp() });
+  }
 } else {
   await setDoc(userRef, { name: currentUser.displayName, email: currentUser.email, balance: 500, botTier: 'none', invested: 0, uid: currentUser.uid, lastSync: serverTimestamp(), hasSocialProfile: false, photo: currentUser.photoURL });
 }
@@ -280,6 +292,25 @@ const handlePurchase = async () => {
       await addDoc(collection(db, "manual_deposits"), { uid: (user as any)!.uid, email: (user as any)!.email, amount: purchaseAmount, method: "Airtm", txId: purchaseTxId, status: "pending", date: serverTimestamp() });
       alert("✅ Request Sent!"); setWalletTab('main');
   }
+};
+
+const handleTransfer = async () => {
+if (!transferId || transferAmount <= 0 || transferAmount > balance) return alert("Invalid Data or Balance!");
+const recipientRef = doc(db, "users", transferId);
+const recipientSnap = await getDoc(recipientRef);
+if (recipientSnap.exists()) {
+await updateDoc(doc(db, "users", (user as any)!.uid), { balance: increment(-transferAmount) });
+await updateDoc(recipientRef, { balance: increment(transferAmount) });
+alert("✅ Success!"); setWalletTab('main');
+} else { alert("ID Not Found!"); }
+};
+
+const handleWithdraw = async () => {
+if (balance < 12500) return alert("Min 12,500 Coins ($25)!");
+let details = payoutId;
+if (payoutMethod.includes('Visa')) details = `Name: ${cardName} | Card: ${cardNumber}`;
+await addDoc(collection(db, "withdraw_requests"), { uid: (user as any)!.uid, email: (user as any)!.email, amount_coins: balance, amount_usd: (balance/500), method: payoutMethod, details: details, status: "pending", date: serverTimestamp() });
+alert("✅ Request Sent!"); setWalletTab('main');
 };
 
 const activateBot = async (tier: string, cost: number) => {
@@ -334,7 +365,7 @@ return (
          <span className="font-black text-xs md:text-3xl uppercase">Social</span>
       </div>
       <div onClick={() => navigateWithAd('wallet')} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center cursor-pointer shadow-xl active:scale-95 hover:border-yellow-500 relative z-30">
-         <img src="/gold.jpg" className="w-14 h-14 mb-2" />
+         <img src="/gold.jpg" className="w-14 h-14 mb-2 rounded-full border-2 border-yellow-500" />
          <h2 className="font-black text-xs md:text-3xl uppercase text-yellow-500">Wallet</h2>
       </div>
       <div onClick={() => navigateWithAd('ai')} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center active:scale-95 shadow-xl cursor-pointer hover:border-green-500 relative z-30">
@@ -349,9 +380,9 @@ return (
     </div>
 </section>
 
-{/* ARCADE MODAL - FULL SCREEN */}
+{/* ARCADE MODAL - FULL SCREEN FIXED */}
 {screen === 'arcade' && (
-    <div className="fixed inset-0 z-[300] bg-black flex flex-col">
+    <div className="fixed inset-0 z-[300] bg-black flex flex-col h-screen">
         {!selectedGame ? (
             <div className="p-8 overflow-y-auto flex-1">
                 <button onClick={() => {setScreen('hub'); setSelectedGame(null)}} className="text-cyan-400 font-bold mb-10 tracking-widest uppercase transition-all hover:brightness-125">← BACK TO HUB</button>
@@ -369,23 +400,23 @@ return (
                 </div>
             </div>
         ) : (
-            <div className="flex-1 flex flex-col">
-                <div className="h-12 bg-black border-b border-white/10 flex items-center px-6">
-                    <button onClick={() => setSelectedGame(null)} className="text-cyan-400 font-black text-[10px] uppercase">← BACK TO GAMES</button>
+            <div className="flex-1 flex flex-col h-full w-full">
+                <div className="w-full bg-black h-12 flex items-center px-4 border-b border-white/10 shrink-0">
+                    <button onClick={() => setSelectedGame(null)} className="text-cyan-400 font-black text-[10px] uppercase tracking-widest hover:brightness-125 transition-all">← BACK TO GAMES</button>
                     <div className="flex-1 text-center font-black uppercase text-[10px] opacity-40">{selectedGame}</div>
                 </div>
-                <iframe src={`/games/${selectedGame.toLowerCase().replace(/ elite royal/g, '').replace(/ elite/g, '').replace(/ /g, '-')}/index.html`} className="w-full flex-1 border-none" title="Game" />
+                <iframe src={`/games/${selectedGame.toLowerCase().replace(/ elite royal/g, '').replace(/ elite/g, '').replace(/ /g, '-')}/index.html`} className="w-full h-full border-none flex-1" title="Game" />
             </div>
         )}
     </div>
 )}
 
-{/* SOCIAL HUB - TIKTOK, INSTA, WHATSAPP DESIGNED */}
+{/* SOCIAL HUB - HEAVY DESIGNED */}
 {screen === 'social' && (
-    <div className="fixed inset-0 z-[400] bg-slate-950 flex flex-col">
-        <header className="sticky top-0 w-full p-4 bg-black/90 backdrop-blur-md border-b border-white/5 flex justify-between items-center z-[500] rounded-b-3xl">
+    <div className="fixed inset-0 z-[400] bg-slate-950 flex flex-col h-screen">
+        <header className="sticky top-0 w-full p-4 bg-black/90 backdrop-blur-md border-b border-white/5 flex justify-between items-center z-[500] rounded-b-3xl shrink-0">
             <button onClick={() => {setSocialScreen('hub'); setScreen('hub')}} className="text-pink-500 font-black text-xs uppercase hover:brightness-125">← HUB</button>
-            <h2 className="text-xl font-black italic text-pink-500 uppercase text-center flex-1">AJ Social</h2>
+            <h2 className="text-xl font-black italic text-pink-500 uppercase text-center flex-1 font-orbitron tracking-widest">WeChat</h2>
             <button onClick={() => setSocialScreen('setup')} className="bg-white/10 p-2 rounded-full text-pink-500 hover:bg-white/20"><Settings size={18}/></button>
         </header>
 
@@ -399,7 +430,7 @@ return (
                     <p className="text-[9px] text-gray-500 uppercase tracking-widest">{hasSocialProfile ? "Verified Member" : "Profile Not Set"}</p>
                   </div>
              </div>
-             {[{n:'AJ TikReels', i:Video, d:'TikTok Style Videos', s:'tikreels'}, {n:'AJ Pulse', i:Users, d:'Insta Style Feed', s:'pulse'}, {n:'AJ Live Chat', i:MessageSquare, d:'WhatsApp Clone', s:'chatlist'}, {n:'AJ Discover', i:Globe, d:'Crypto & Tech News', s:'discover'}].map((mod) => (
+             {[{n:'AJ TikReels', i:Video, d:'TikTok Style Videos', s:'tikreels'}, {n:'AJ Pulse', i:Users, d:'Insta Style Feed', s:'pulse'}, {n:'AJ WeChat', i:MessageSquare, d:'WhatsApp Clone Style', s:'chatlist'}, {n:'AJ Discover', i:Globe, d:'Crypto & Tech News', s:'discover'}].map((mod) => (
                 <div key={mod.n} onClick={() => enterSocialMode(mod.s)} className="p-8 bg-white/5 border border-white/10 rounded-[3rem] text-center hover:border-pink-500 transition-all cursor-pointer group shadow-lg">
                     <div className="text-pink-500 mb-4 flex justify-center group-hover:scale-110 transition-transform"><mod.i size={36}/></div>
                     <h3 className="text-2xl font-black uppercase italic text-white">{mod.n}</h3>
@@ -480,13 +511,13 @@ return (
             </div>
         ) : socialScreen === 'chatlist' ? (
             <div className="max-w-md mx-auto bg-[#111b21] h-screen border-x border-white/5">
-                <div className="bg-[#1f2c33] p-4 flex justify-between items-center"><h2 className="text-xl font-bold text-[#e9edef]">Chats</h2><div className="flex gap-4"><MessageSquare size={20}/><MoreVertical size={20}/></div></div>
+                <div className="bg-[#1f2c33] p-4 flex justify-between items-center"><h2 className="text-xl font-bold text-[#e9edef]">WeChat</h2><div className="flex gap-4"><MessageSquare size={20}/><MoreVertical size={20}/></div></div>
                 <div className="p-3"><div className="bg-[#202c33] flex items-center gap-4 px-4 py-2 rounded-xl text-gray-400"><Search size={18}/><input type="text" placeholder="Search chats" className="bg-transparent border-none outline-none text-sm w-full"/></div></div>
                 <div className="mt-2">
                     {['AJ Global Support', 'Crypto Whale Group', 'Ali Bhai VIP Elite', 'Tech News Hub'].map((contact, i) => (
-                        <div key={i} onClick={()=>{setActiveContact(contact); setSocialScreen('chat')}} className="flex items-center gap-4 p-4 hover:bg-[#202c33] cursor-pointer border-b border-white/5">
-                            <div className="w-12 h-12 rounded-full bg-[#00a884] flex items-center justify-center font-black">AJ</div>
-                            <div className="flex-1"><div className="flex justify-between items-center"><p className="font-bold text-[#e9edef]">{contact}</p><span className="text-[10px] text-green-500 font-bold">11:0{i} PM</span></div><p className="text-xs text-gray-400 line-clamp-1">Welcome to AJ Live! How can we help?</p></div>
+                        <div key={i} onClick={()=>{setActiveContact(contact); setSocialScreen('chat'); (window as any).AJ_SDK?.showAd();}} className="flex items-center gap-4 p-4 hover:bg-[#202c33] cursor-pointer border-b border-white/5">
+                            <div className="w-12 h-12 rounded-full bg-cyan-500 flex items-center justify-center font-black">AJ</div>
+                            <div className="flex-1"><div className="flex justify-between items-center"><p className="font-bold text-[#e9edef]">{contact}</p><span className="text-[10px] text-green-500 font-bold">11:0{i} PM</span></div><p className="text-xs text-gray-400 line-clamp-1">Welcome to WeChat! Secure AI messaging.</p></div>
                         </div>
                     ))}
                 </div>
@@ -494,26 +525,26 @@ return (
         ) : socialScreen === 'chat' ? (
             <div className="max-w-md mx-auto h-[88vh] flex flex-col bg-[#0b141a] overflow-hidden m-2 rounded-3xl shadow-2xl">
                 <div className="bg-[#1f2c33] p-4 flex items-center gap-3 border-b border-white/5">
-                    <button onClick={()=>setSocialScreen('chatlist')} className="text-green-500"><ChevronRight className="rotate-180"/></button>
-                    <img src="/logo.png" className="w-10 h-10 rounded-full border-2 border-green-500 shadow-md" />
-                    <div className="flex-1"><p className="font-bold text-sm text-white">{activeContact}</p><p className="text-[8px] text-green-500 font-bold uppercase animate-pulse">Online • WhatsApp Setup</p></div>
+                    <button onClick={()=>setSocialScreen('chatlist')} className="text-cyan-500"><ChevronRight className="rotate-180"/></button>
+                    <img src="/logo.png" className="w-10 h-10 rounded-full border-2 border-cyan-500 shadow-md" />
+                    <div className="flex-1"><p className="font-bold text-sm text-white">{activeContact}</p><p className="text-[8px] text-cyan-500 font-bold uppercase animate-pulse">Online • WeChat Encryption</p></div>
                     <div className="flex gap-4"><VideoIcon size={20}/><Phone size={20}/></div>
                 </div>
                 <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-repeat bg-contain">
                     {chatMessages.map((m:any) => (
                         <div key={m.id} className={`flex ${m.uid === (user as any).uid ? 'justify-end' : 'justify-start'}`}>
-                            <div className={`p-2.5 max-w-[85%] rounded-xl shadow-lg relative ${m.uid === (user as any).uid ? 'bg-[#005c4b] text-[#e9edef] rounded-tr-none' : 'bg-[#202c33] text-[#e9edef] rounded-tl-none'}`}>
+                            <div className={`p-2.5 max-w-[85%] rounded-xl shadow-lg relative ${m.uid === (user as any).uid ? 'bg-cyan-700 text-[#e9edef] rounded-tr-none' : 'bg-[#202c33] text-[#e9edef] rounded-tl-none'}`}>
                                 <p className="font-black text-[9px] text-yellow-500 mb-1 opacity-70">@{m.username}</p>
                                 <p className="text-[11px] leading-relaxed mb-1 pr-6">{m.text}</p>
-                                <p className="text-[7px] text-white/40 absolute bottom-1 right-2 uppercase">Just now</p>
+                                <p className="text-[7px] text-white/40 absolute bottom-1 right-2 uppercase">Now</p>
                             </div>
                         </div>
                     ))}
                 </div>
                 <div className="p-3 bg-[#1f2c33] flex gap-2 items-center">
                     <button className="text-gray-400"><PlusSquare size={24}/></button>
-                    <input type="text" value={newMessage} onChange={(e)=>setNewMessage(e.target.value)} placeholder="Type a message" className="flex-1 bg-[#2a3942] border-none p-3 rounded-full text-xs text-white outline-none focus:ring-1 focus:ring-green-500" />
-                    <button onClick={sendChatMessage} className="bg-[#00a884] p-3 rounded-full text-white shadow-xl active:scale-90 transition-all"><Send size={20}/></button>
+                    <input type="text" value={newMessage} onChange={(e)=>setNewMessage(e.target.value)} placeholder="Type a message" className="flex-1 bg-[#2a3942] border-none p-3 rounded-full text-xs text-white outline-none focus:ring-1 focus:ring-cyan-500" />
+                    <button onClick={sendChatMessage} className="bg-cyan-600 p-3 rounded-full text-white shadow-xl active:scale-90 transition-all"><Send size={20}/></button>
                 </div>
             </div>
         ) : socialScreen === 'discover' ? (
@@ -639,37 +670,27 @@ return (
     </div>
 )}
 
-{/* AI BOT */}
-{screen === 'ai' && (
-    <div className="fixed inset-0 z-[600] bg-black flex flex-col items-center p-8 overflow-y-auto">
-       <div className="w-full max-w-4xl pt-10"><button onClick={() => setScreen('hub')} className="text-green-400 font-bold text-sm mb-12 uppercase tracking-widest hover:brightness-125">← Back</button></div>
-       <h2 className="text-5xl font-black mb-12 text-center uppercase text-white italic">AJ AI BOT</h2>
-       {botTier !== 'none' && (
-         <div className="w-full max-w-2xl bg-white/5 border-2 border-green-500/40 p-8 rounded-[3rem] text-center mb-16 shadow-[0_0_30px_rgba(34,197,94,0.2)]">
-            <Activity size={60} className="mx-auto mb-6 text-green-500 animate-pulse" />
-            <h2 className="text-4xl font-black text-white mb-2 uppercase tracking-tighter">{botTier} BOT RUNNING</h2>
-            <div className="w-full bg-black/50 border border-green-500/30 p-6 rounded-2xl font-mono text-left shadow-inner"><div className="flex justify-between items-center mb-4"><span className="text-green-400 font-black text-xs uppercase">Neural Profit:</span><span className="text-white font-black text-lg">+{visualProfit.toFixed(4)} 🪙</span></div><div className="h-20 overflow-hidden text-green-500/70 mt-2 text-[10px] leading-relaxed">{tradeLogs.map((log, i) => ( <div key={i} className="mb-1">{log}</div> ))}</div></div>
-         </div>
-       )}
-       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-4xl px-2 pb-20">
-          <div className={`p-10 rounded-3xl text-center border-2 transition-all ${botTier === 'basic' ? 'border-green-500 bg-green-500/10' : 'border-white/10 bg-white/5'}`}><h3 className="text-xl font-black text-cyan-400 uppercase">Basic (25k Coins)</h3><p className="text-sm text-gray-400 mt-2">Earn 2% Daily</p><button onClick={() => activateBot('basic', 25000)} className={`mt-6 w-full py-4 rounded-xl font-black uppercase ${botTier === 'basic' ? 'bg-green-500 text-black cursor-not-allowed' : 'bg-cyan-600'}`}>{botTier === 'basic' ? "RUNNING" : "ACTIVATE"}</button></div>
-          <div className={`p-10 rounded-3xl text-center border-2 transition-all ${botTier === 'vvip' ? 'border-yellow-500 bg-yellow-500/10' : 'border-white/10 bg-white/5'}`}><h3 className="text-xl font-black text-yellow-500 uppercase">VVIP (75k Coins)</h3><p className="text-sm text-gray-400 mt-2">Earn 5% Daily</p><button onClick={() => activateBot('vvip', 75000)} className={`mt-6 w-full py-4 rounded-xl font-black uppercase ${botTier === 'vvip' ? 'bg-yellow-500 text-black cursor-not-allowed' : 'bg-yellow-600'}`}>{botTier === 'vvip' ? "RUNNING" : "ACTIVATE"}</button></div>
-       </div>
-    </div>
-)}
-
 <section className="py-20 bg-black flex justify-center px-4 border-y border-white/5 transition-all"><img src="/founder_card.jpg" className="w-full max-w-4xl rounded-3xl shadow-2xl hover:scale-[1.01] transition-all" alt="Founder" /></section>
 
-    <footer className="bg-black py-24 px-10 border-t border-white/5 text-center flex flex-col items-center">
+    <footer className="bg-black py-24 px-10 border-t border-white/5 text-center flex flex-col items-center relative">
         <div className="text-7xl md:text-[10rem] font-black italic text-cyan-400 drop-shadow-[0_0_30px_#06b6d4] mb-12 uppercase">AJ STUDIO</div>
         <div className="flex justify-center gap-10 mb-16">
             <a href="https://wa.me/96878994093" target="_blank" className="text-green-500 border border-green-500 px-6 py-2 rounded-full font-bold uppercase hover:bg-green-500 hover:text-black transition-all">Whatsapp</a>
             <a href="https://x.com/Ali20352061" target="_blank" className="text-white border border-white px-6 py-2 rounded-full font-bold uppercase hover:bg-white hover:text-black transition-all">X (Twitter)</a>
         </div>
-        <button onClick={() => { const link = document.createElement('a'); link.href = '/aj-portal.apk'; link.download = 'aj-portal.apk'; link.click(); }} className="group relative px-12 py-4 bg-cyan-500 text-black font-black uppercase rounded-full shadow-[0_0_40px_#06b6d4] animate-pulse transition-all hover:scale-105">
+        <button onClick={() => { const link = document.createElement('a'); link.href = '/aj-portal.apk'; link.download = 'aj-portal.apk'; link.click(); }} className="group relative px-12 py-4 bg-cyan-500 text-black font-black uppercase rounded-full shadow-[0_0_40px_#06b6d4] animate-pulse transition-all hover:scale-105 mb-10">
            <span className="relative z-10 flex items-center gap-2 font-black tracking-widest"><Download size={22} /> Install AJ App</span>
            <div className="absolute inset-0 bg-white/20 group-hover:translate-x-full transition-transform duration-500 -skew-x-12"></div>
         </button>
+
+        {/* OFFICIAL COPYRIGHT FOOTER NOTICE */}
+        <div className="mt-8 pt-8 border-t border-white/10 w-full text-center">
+            <p className="text-[10px] md:text-xs text-gray-500 font-bold uppercase tracking-[0.2em]">
+                © 2026 AJ CREATOR STUDIO. All Rights Reserved. 
+                <br/> 
+                Unauthorized copying, distribution, or decompilation of this portal and its games is strictly prohibited.
+            </p>
+        </div>
     </footer>
 </main>
 );
