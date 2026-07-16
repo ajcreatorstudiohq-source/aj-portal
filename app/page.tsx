@@ -1,581 +1,480 @@
 "use client";
 import React, { useState, useEffect, useRef } from 'react';
 import { auth, db, googleProvider } from '../firebaseConfig';
-import { signInWithPopup, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc, onSnapshot, updateDoc, increment, collection, addDoc, getDoc, serverTimestamp, query, orderBy, limit, deleteDoc } from 'firebase/firestore';
-import { MessageCircle, Trophy, Zap, Wallet, Bot, LogOut, Globe, ChevronRight, Send, CreditCard, ArrowUpRight, ShieldCheck, Crown, Activity, TrendingUp, X, CheckCircle2, Download, Copy, Video, Newspaper, Users, Heart, MessageSquare, Camera, Settings, Edit3, Mail, Lock, User, DollarSign, Share2, Music, Play, PlusSquare, MoreVertical, Search, Phone, Video as VideoIcon, ArrowLeft, Trash2, Edit } from 'lucide-react';
-import emailjs from 'emailjs-com';
+import { signInWithPopup, onAuthStateChanged, signOut } from 'firebase/auth';
+import { doc, setDoc, onSnapshot, updateDoc, increment, collection, addDoc, getDoc, serverTimestamp, query, orderBy, limit, where } from 'firebase/firestore';
+import { MessageCircle, Trophy, Zap, Wallet, Bot, LogOut, Globe, ChevronRight, Send, CreditCard, X, Download, Copy, Video, Users, Heart, MessageSquare, Camera, Settings, Edit3, DollarSign, Share2, Music, Play, PlusSquare, MoreVertical, Search, Phone, Video as VideoIcon, ArrowLeft, Trash2, Mail, Bell, Gift, UserPlus } from 'lucide-react';
+import { ZegoUIKitPrebuilt } from '@zegocloud/zego-uikit-prebuilt';
 
-// --- CONFIGURATIONS ---
-const PIXABAY_KEY = "56712915-2297d0968e99520a1b3d80623";
+// --- ALL REAL KEYS INTEGRATED (Verified by AJ) ---
+const YT_API_KEY = "AIzaSyD9vR3hNLt7pBNlm6PMaZWbJOB9QGcrD1Y"; 
+const UNSPLASH_KEY = "W4x76VphkyY9fzP3DbJPfXLhdD6x063gW--Voifn_UE";
 const NEWS_API_KEY = "6e79bcc161f047039bf1acab74da28ea";
-
-const EMAILJS_CONFIG = {
-  Service_ID: "service_6w1sols",
-  Template_ID: "template_o1c40nv",
-  Public_Key: "6JCPm9fo38ovnA5LG"
-};
-
-const NOWPAYMENTS_API_KEY = "3THXNSZ-AYVMTP6-HQ9KGKK-9J6CQD7";
+const CLOUDINARY_NAME = "atm28akz";
+const CLOUDINARY_PRESET = "aj_portal";
+const ZEGO_APP_ID = 242898579;
+const ZEGO_SERVER_SECRET = "1301f078a6687c7cba1da329dbacdfbc30ccbe5eff5c7ec069d4c02e1b2ad0e5";
 
 export default function AJSuperPortal() {
+// --- MAIN STATES ---
 const [screen, setScreen] = useState('splash');
 const [walletTab, setWalletTab] = useState('main');
 const [socialScreen, setSocialScreen] = useState('hub'); 
 const [user, setUser] = useState(null);
 const [balance, setBalance] = useState(0);
 const [botTier, setBotTier] = useState('none');
-const [invested, setInvested] = useState(0);
-const [loading, setLoading] = useState(0);
 const [selectedGame, setSelectedGame] = useState(null);
-const [copied, setCopied] = useState(false);
 
-// --- SOCIAL STATES ---
-const [hasSocialProfile, setHasSocialProfile] = useState(false);
+// --- NOTIFICATION & REFERRAL ---
+const [notifications, setNotifications] = useState([]);
+const [showNotifModal, setShowNotifModal] = useState(false);
+const [hasNewNotif, setHasNewNotif] = useState(false);
+const [referralInput, setReferralInput] = useState('');
+
+// --- CONTENT & SOCIAL ---
+const [reels, setReels] = useState([]); 
+const [pulse, setPulse] = useState([]); 
+const [news, setNews] = useState([]);
 const [username, setUsername] = useState('');
-const [bio, setBio] = useState('');
 const [tempPhoto, setTempPhoto] = useState('');
-const [pendingMode, setPendingMode] = useState(''); 
-const [manualEmail, setManualEmail] = useState('');
-const [manualPass, setManualPass] = useState('');
-const fileInputRef = useRef<HTMLInputElement>(null); 
-const searchInputRef = useRef<HTMLInputElement>(null);
 
-// --- NEW SOCIAL CONTENT STATES ---
-const [pixaData, setPixaData] = useState([]);
-const [pixaVideos, setPixaVideos] = useState([]);
-const [newsData, setNewsData] = useState([]);
-const [chatMessages, setChatMessages] = useState([]);
-const [userPosts, setUserPosts] = useState([]); 
-const [postText, setPostText] = useState('');
-const [newMessage, setNewMessage] = useState('');
-const [activeContact, setActiveContact] = useState(null);
+// --- AI BOT ---
+const [aiInput, setAiInput] = useState('');
+const [aiChat, setAiChat] = useState([{role:'bot', text:'Hello! Main AJ ka AI Assistant hoon. Main CEO ke behalf par aapki madad karunga.'}]);
 
-// --- INTERACTIVE STATES ---
-const [likedPosts, setLikedPosts] = useState({}); 
-const [activeMenuId, setActiveMenuId] = useState(null); 
-const [wechatMenuOpen, setWechatMenuOpen] = useState(false); 
-const [commentBoardPostId, setCommentBoardPostId] = useState(null); 
-const [postComments, setPostComments] = useState([]);
+// --- INTERACTION ---
+const [commentPostId, setCommentPostId] = useState(null);
+const [comments, setComments] = useState([]);
 const [newComment, setNewComment] = useState('');
+const [showGiftModal, setShowGiftModal] = useState(null);
 
-// --- AI STATES ---
-const [visualProfit, setVisualProfit] = useState(0);
-const [tradeLogs, setTradeLogs] = useState(["Initialising Neural Link...", "Analysing Market Volatility...", "Connecting to AJ liquidity pool..."]);
-
-// Input States
-const [purchaseAmount, setPurchaseAmount] = useState(20);
-const [purchaseMethod, setPurchaseMethod] = useState('Binance (TRC20)');
-const [purchaseTxId, setPurchaseTxId] = useState('');
+// --- WALLET ---
 const [transferId, setTransferId] = useState('');
-const [transferAmount, setTransferAmount] = useState(0);
-const [payoutMethod, setPayoutMethod] = useState('Binance Pay (USDT)');
+const [transferAmt, setTransferAmt] = useState(0);
+const [withdrawHistory, setWithdrawHistory] = useState([]);
 const [payoutId, setPayoutId] = useState('');
-const [cardName, setCardName] = useState('');
-const [cardNumber, setCardNumber] = useState('');
 
-// --- CEO MATH (500:1 -> 1000 per $2) ---
-const displayBalance = (balance + visualProfit).toFixed(2);
-const displayUsdt = ((balance + visualProfit) / 500).toFixed(2);
+// --- CEO MATH (1000 : $2) ---
+const displayBalance = balance.toFixed(2);
+const displayUsdt = (balance / 500).toFixed(2);
 
-// --- AD NAVIGATION HELPER ---
-const navigateWithAd = (toScreen: string) => {
-    if (typeof window !== 'undefined' && (window as any).AJ_SDK) {
-        (window as any).AJ_SDK.showAd();
-    }
-    if (toScreen === 'social') { fetchSocialAPIs(); setScreen('social'); setSocialScreen('hub'); }
-    else if (toScreen === 'wallet') { setScreen('wallet'); setWalletTab('main'); }
-    else { setScreen(toScreen); }
+// --- NOTIFICATION LISTENER ---
+useEffect(() => {
+    const q = query(collection(db, "notifications"), orderBy("date", "desc"), limit(5));
+    return onSnapshot(q, (snap) => {
+        setNotifications(snap.docs.map(d => d.data()));
+        if (!snap.empty) setHasNewNotif(true);
+    });
+}, []);
+
+// --- ZEGO CALLING ---
+const startCall = async (isVideo = true) => {
+    const roomId = "aj_room_" + user.uid.substring(0,5);
+    const kitToken = ZegoUIKitPrebuilt.generateKitTokenForTest(ZEGO_APP_ID, ZEGO_SERVER_SECRET, roomId, user.uid, username || "AJ_User");
+    const zp = ZegoUIKitPrebuilt.create(kitToken);
+    zp.joinRoom({
+        container: document.getElementById('call-container'),
+        mode: isVideo ? ZegoUIKitPrebuilt.OneONoneCall : ZegoUIKitPrebuilt.GroupCall,
+        showPreJoinView: false,
+    });
+    setSocialScreen('in_call');
 };
 
-const fetchSocialAPIs = async () => {
+// --- AI BOT REPRESENTATIVE LOGIC ---
+const handleAiAssistant = () => {
+    if(!aiInput.trim()) return;
+    const msg = aiInput.toLowerCase();
+    let res = "Main is sawal ka jawab nahi dhoond saka. Please niche diye gaye 'Talk with CEO' link par click karein.";
+    
+    if(msg.includes('coin') || msg.includes('buy')) res = "Aap Wallet mein ja kar coins khareed sakte hain. 1000 coins $2 ke hain.";
+    if(msg.includes('refer') || msg.includes('dost')) res = "Hub par apna Referral ID copy karein aur dost ko dein. Dost ke join karne par aapko 50 coins milenge!";
+    if(msg.includes('withdraw')) res = "Withdrawal ke liye Binance Pay ya Airtm ka use karein. Minimum 5000 coins hone chahiye.";
+    if(msg.includes('gift')) res = "Gifting se aap creators ko support kar sakte hain. Coffee se lekar Mansion tak 6 options hain.";
+
+    setAiChat([...aiChat, {role:'user', text:aiInput}, {role:'bot', text:res}]);
+    setAiInput('');
+};
+
+// --- CONTENT FETCHERS ---
+const fetchContent = async () => {
     try {
-        const pRes = await fetch(`https://pixabay.com/api/?key=${PIXABAY_KEY}&q=fashion+luxury+car&image_type=photo&per_page=30`);
-        const pData = await pRes.json(); setPixaData(pData.hits || []);
-        const vRes = await fetch(`https://pixabay.com/api/videos/?key=${PIXABAY_KEY}&q=travel+vlog&per_page=20`);
-        const vData = await vRes.json(); setPixaVideos(vData.hits || []);
-        const nRes = await fetch(`https://newsapi.org/v2/everything?q=crypto+tech&apiKey=${NEWS_API_KEY}`);
-        const nData = await nRes.json(); setNewsData(nData.articles?.slice(0, 15) || []);
+        const yt = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=10&q=shorts+trending&type=video&videoDuration=short&key=${YT_API_KEY}`);
+        const ytData = await yt.json(); setReels(ytData.items || []);
+
+        const un = await fetch(`https://api.unsplash.com/photos/random?count=10&client_id=${UNSPLASH_KEY}&query=luxury,lifestyle`);
+        const unData = await un.json(); setPulse(unData || []);
+
+        const nw = await fetch(`https://newsapi.org/v2/everything?q=AI+Technology+Future&apiKey=${NEWS_API_KEY}`);
+        const nwData = await nw.json(); setNews(nwData.articles?.slice(0, 8) || []);
     } catch (e) { console.log("API Error"); }
 };
 
-// --- FIREBASE LISTENERS ---
+// --- AUTH & DATA SYNC & REFERRAL CHECK ---
 useEffect(() => {
-    if (socialScreen === 'chat' && activeContact) {
-        const q = query(collection(db, "global_chat"), orderBy("createdAt", "desc"), limit(40));
-        return onSnapshot(q, (snap) => { setChatMessages(snap.docs.map(d => ({id: d.id, ...d.data()})).reverse()); });
-    }
-    if (socialScreen === 'pulse') {
-        const q = query(collection(db, "user_posts"), orderBy("createdAt", "desc"), limit(20));
-        return onSnapshot(q, (snap) => { setUserPosts(snap.docs.map(d => ({id: d.id, ...d.data()}))); });
-    }
-    if (commentBoardPostId) {
-        const q = query(collection(db, "user_posts", commentBoardPostId, "comments"), orderBy("createdAt", "asc"));
-        return onSnapshot(q, (snap) => { setPostComments(snap.docs.map(d => ({id: d.id, ...d.data()}))); });
-    }
-}, [socialScreen, activeContact, commentBoardPostId]);
-
-const sendChatMessage = async () => {
-    if (!newMessage.trim() || !user) return;
-    await addDoc(collection(db, "global_chat"), {
-        text: newMessage, uid: (user as any).uid,
-        username: username || "AJ_Member",
-        photo: tempPhoto || (user as any).photoURL,
-        createdAt: serverTimestamp()
+    const unsubscribe = onAuthStateChanged(auth, async (u) => {
+        if (u) {
+            setUser(u);
+            const userRef = doc(db, "users", u.uid);
+            const userSnap = await getDoc(userRef);
+            
+            if (!userSnap.exists()) {
+                // New User Signup - Check Referral
+                await setDoc(userRef, { 
+                    username: u.displayName.replace(/\s+/g, '').toLowerCase(), 
+                    balance: 500, uid: u.uid, photo: u.photoURL, date: serverTimestamp() 
+                });
+                alert("🎁 Welcome! +500 Welcome Bonus Received.");
+            }
+            
+            onSnapshot(userRef, (s) => { 
+                if(s.exists()){ 
+                    setBalance(s.data().balance || 0); 
+                    setUsername(s.data().username || ''); 
+                    setTempPhoto(s.data().photo || u.photoURL); 
+                }
+            });
+            setScreen('hub');
+        } else { setScreen('auth'); }
     });
-    setNewMessage('');
-};
-
-const handleCreatePost = async () => {
-    if (!postText.trim() && !tempPhoto) return alert("Empty Post!");
-    if ((window as any).AJ_SDK) (window as any).AJ_SDK.showAd(); 
-    await addDoc(collection(db, "user_posts"), {
-        text: postText, image: tempPhoto, uid: (user as any).uid,
-        username: username || "AJ_Member", photo: (user as any).photoURL,
-        likes: 0, createdAt: serverTimestamp()
-    });
-    await updateDoc(doc(db, "users", (user as any).uid), { balance: increment(2.5) });
-    setPostText(''); setTempPhoto('');
-    alert("🚀 Post Published! +2.5 Coins Received.");
-};
-
-const submitComment = async () => {
-    if (!newComment.trim() || !commentBoardPostId) return;
-    await addDoc(collection(db, "user_posts", commentBoardPostId, "comments"), {
-        text: newComment,
-        username: username || "AJ_Member",
-        photo: (user as any)?.photoURL,
-        createdAt: serverTimestamp()
-    });
-    setNewComment('');
-};
-
-// --- INTERACTION HANDLERS ---
-const handleLike = (id: any) => { 
-    setLikedPosts(prev => ({ ...prev, [id]: !prev[id] }));
-};
-const handleShare = (msg: string) => { 
-    if(navigator.share) navigator.share({title:'AJ Portal', text: msg}); 
-    else alert("Link Copied!"); 
-};
-const handleDeletePost = async (id: string) => {
-    if (confirm("Delete permanently?")) {
-        await deleteDoc(doc(db, "user_posts", id));
-        setActiveMenuId(null);
-    }
-};
-
-const handleSearchFocus = () => { searchInputRef.current?.focus(); };
-
-const copyToClipboard = (id: string) => {
-  if(!id) return;
-  navigator.clipboard.writeText(id);
-  setCopied(true);
-  setTimeout(() => setCopied(false), 2000);
-};
-
-const handleImageClick = () => { fileInputRef.current?.click(); };
-const handleFileChange = (e: any) => {
-    const file = e.target.files[0];
-    if (file) {
-        const reader = new FileReader();
-        reader.onloadend = () => { setTempPhoto(reader.result as string); };
-        reader.readAsDataURL(file);
-    }
-};
-
-const handleGoogleLogin = async () => {
-    googleProvider.setCustomParameters({ prompt: 'select_account' });
-    await signInWithPopup(auth, googleProvider);
-};
-
-const handleSignOut = async () => {
-    await signOut(auth);
-    setSocialScreen('hub');
-    setScreen('auth');
-};
-
-const handleCreateProfile = async () => {
-    if(username.length < 3) return alert("Username too short!");
-    try {
-        await updateDoc(doc(db, "users", (user as any)!.uid), {
-            username: username.toLowerCase().trim(),
-            bio: bio,
-            photo: tempPhoto || (user as any)!.photoURL || "/logo.png",
-            hasSocialProfile: true
-        });
-        setHasSocialProfile(true);
-        setSocialScreen('hub');
-        alert("🚀 Profile Active!");
-    } catch (e) { alert("Setup Error!"); }
-};
-
-const enterSocialMode = (mode: string) => {
-    setPendingMode(mode);
-    if (!user || !hasSocialProfile) { setSocialScreen('setup'); } 
-    else { setSocialScreen(mode); }
-};
-
-// --- AUTH SYNC ---
-useEffect(() => {
-const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-if (currentUser) {
-setUser(currentUser as any);
-const userRef = doc(db, "users", currentUser.uid);
-const userSnap = await getDoc(userRef);
-if (userSnap.exists()) {
-  const data = userSnap.data();
-  setHasSocialProfile(data.hasSocialProfile || false);
-  setUsername(data.username || '');
-  setBio(data.bio || '');
-  setTempPhoto(data.photo || currentUser.photoURL);
-} else {
-  await setDoc(userRef, { name: currentUser.displayName, email: currentUser.email, balance: 500, botTier: 'none', invested: 0, uid: currentUser.uid, lastSync: serverTimestamp(), hasSocialProfile: false, photo: currentUser.photoURL });
-}
-onSnapshot(userRef, (snap) => {
-if (snap.exists()) { setBalance(snap.data().balance || 0); setBotTier(snap.data().botTier || 'none'); setInvested(snap.data().invested || 0); }
-});
-setScreen('hub');
-} else { setUser(null); setScreen('auth'); }
-});
-return () => unsubscribe();
+    return () => unsubscribe();
 }, []);
 
-// --- AI PROFIT ---
-useEffect(() => {
-  let vInt: any;
-  if (user && botTier !== 'none' && invested > 0) {
-    const dailyRate = botTier === 'vvip' ? 0.05 : 0.02;
-    const profitPerSec = (invested * dailyRate) / 86400;
-    vInt = setInterval(() => setVisualProfit(p => p + profitPerSec), 1000);
-  }
-  return () => clearInterval(vInt);
-}, [user, botTier, invested]);
-
-const activateBot = async (tier: string, cost: number) => {
-    if (balance < cost) return alert("Insufficient Balance!");
-    const userRef = doc(db, "users", (user as any)!.uid);
-    await updateDoc(userRef, { balance: increment(-cost), botTier: tier, invested: cost, lastSync: serverTimestamp() });
-    alert(`${tier.toUpperCase()} BOT ACTIVATED!`);
+// --- APPLY REFERRAL CODE ---
+const handleApplyReferral = async () => {
+    if(!referralInput.trim()) return;
+    const refUserRef = doc(db, "users", referralInput);
+    const refSnap = await getDoc(refUserRef);
+    if(refSnap.exists()){
+        await updateDoc(refUserRef, { balance: increment(50) });
+        alert("✅ Referral Applied! Your friend received 50 coins.");
+        setReferralInput('');
+    } else {
+        alert("❌ Invalid Referral ID");
+    }
 };
 
-useEffect(() => {
-if (screen === 'splash') {
-const interval = setInterval(() => { setLoading(prev => (prev >= 100 ? 100 : prev + 10)); }, 50);
-setTimeout(() => setScreen('hub'), 2000);
-return () => clearInterval(interval);
-}
-}, [screen]);
-
-const handlePurchase = async () => {
-  if (purchaseAmount < 20) return alert("Minimum purchase is $20!");
-  if (purchaseMethod === 'Binance (TRC20)') {
-      try {
-        const res = await fetch('https://api.nowpayments.io/v1/invoice', {
-          method: 'POST',
-          headers: { 'x-api-key': NOWPAYMENTS_API_KEY, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ price_amount: purchaseAmount, price_currency: "usd", pay_currency: "usdttrc20", order_id: `AJ_${Date.now()}` })
-        });
-        const data = await res.json();
-        if (data.invoice_url) window.open(data.invoice_url, '_blank');
-      } catch (e) { alert("Payment Error!"); }
-  } else {
-      if(!purchaseTxId) return alert("Enter Airtm TX ID.");
-      await addDoc(collection(db, "manual_deposits"), { uid: (user as any)!.uid, email: (user as any)!.email, amount: purchaseAmount, method: "Airtm", txId: purchaseTxId, status: "pending", date: serverTimestamp() });
-      alert("✅ Request Sent!"); setWalletTab('main');
-  }
+// --- GIFTING LOGIC (60/40) ---
+const sendGift = async (creatorId, giftName, cost) => {
+    if (balance < cost) return alert("Not enough coins! Go to Wallet to Recharge.");
+    const creatorRef = doc(db, "users", creatorId);
+    await updateDoc(doc(db, "users", user.uid), { balance: increment(-cost) });
+    await updateDoc(creatorRef, { balance: increment(cost * 0.6) });
+    await addDoc(collection(db, "transactions"), { sender: user.uid, receiver: creatorId, gift: giftName, amount: cost, date: serverTimestamp() });
+    alert(`🎁 ${giftName} Sent!`);
+    setShowGiftModal(null);
 };
 
-if (screen === 'splash') return (
-<main className="h-screen bg-black flex flex-col items-center justify-center text-white text-center">
-<div className="w-40 h-40 bg-black rounded-full border-4 border-cyan-500 shadow-[0_0_60px_#06b6d4] overflow-hidden mb-8"><img src="/logo.png" className="w-full h-full object-cover" alt="Logo" /></div>
-<h1 className="text-3xl font-black tracking-widest uppercase animate-pulse">AJ PORTAL</h1>
-</main>
-);
-
-if (screen === 'auth' && !user) return (
-<main className="min-h-screen bg-black flex flex-col items-center justify-center p-6 text-white text-center">
-<div className="w-full max-sm:w-full max-w-sm bg-white/[0.03] border border-white/10 p-12 rounded-[3rem] shadow-2xl">
-<h2 className="text-6xl font-black mb-10 italic text-cyan-400 uppercase">AJ <span className="text-white">ID</span></h2>
-<button onClick={handleGoogleLogin} className="w-full py-5 bg-white text-black font-black text-xl rounded-2xl active:scale-95 transition-all shadow-xl">CONTINUE WITH GOOGLE</button>
-<p className="mt-8 text-yellow-500 font-bold tracking-widest">+500 COINS BONUS</p>
-</div>
-</main>
-);
+// --- UI HELPERS ---
+if (screen === 'splash') return <div className="h-screen bg-black flex flex-col items-center justify-center"><img src="/logo.png" className="w-32 animate-bounce" /><h1 className="text-cyan-400 font-black mt-4 tracking-widest uppercase">AJ PORTAL</h1></div>;
+if (screen === 'auth') return <div className="h-screen bg-black flex flex-col items-center justify-center p-10"><h1 className="text-6xl font-black italic text-cyan-400 mb-10">AJ ID</h1><button onClick={() => signInWithPopup(auth, googleProvider)} className="bg-white text-black px-12 py-5 rounded-3xl font-black text-xl shadow-2xl transition-transform active:scale-90">CONTINUE WITH GOOGLE</button></div>;
 
 return (
-<main className="min-h-screen bg-[#020617] text-white font-sans overflow-x-hidden relative">
-<input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden" />
-
-<header className="fixed top-0 w-full p-4 flex justify-between items-center z-[100] bg-black/80 backdrop-blur-xl border-b border-white/5 shadow-2xl">
-<div className="text-xl font-black italic text-cyan-400">AJ STUDIO</div>
-<div className="flex items-center gap-3">
-<div onClick={() => navigateWithAd('wallet')} className="flex items-center gap-3 bg-white/5 px-4 py-2 rounded-full border border-white/10 cursor-pointer transition-all hover:bg-white/10">
-<span className="text-xs font-black text-yellow-500">{displayBalance} 🪙</span>
-<span className="text-[10px] text-green-400 font-black ml-1">${displayUsdt}</span>
-{user && <img src={tempPhoto || (user as any).photoURL} className="w-8 h-8 rounded-full border border-cyan-500 shadow-[0_0_10px_#06b6d4]" />}
-</div>
-<button onClick={() => signOut(auth)} className="p-2 bg-red-500/10 text-red-500 font-bold text-[8px] rounded-full uppercase">EXIT</button>
-</div>
-</header>
-
-<section className="min-h-screen flex flex-col items-center justify-center p-4 pt-24 relative">
-    <h1 className="text-4xl md:text-8xl font-black text-center mb-12 uppercase drop-shadow-[0_0_20px_#22d3ee]">AJ SUPER PORTAL</h1>
-    <div className="grid grid-cols-2 gap-4 md:gap-16 w-full max-w-4xl relative z-30">
-      <div onClick={() => navigateWithAd('arcade')} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center cursor-pointer shadow-xl active:scale-95 transition-all hover:border-cyan-400">
-         <Trophy className="text-cyan-400 w-10 h-10 md:w-20 md:h-20 mb-2" />
-         <span className="font-black text-xs md:text-3xl uppercase tracking-tighter">Gaming</span>
-      </div>
-      <div onClick={() => navigateWithAd('social')} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center active:scale-95 shadow-xl relative z-50 cursor-pointer hover:border-pink-500">
-         <Zap className="text-pink-500 w-10 h-10 md:w-20 md:h-20 mb-2" />
-         <span className="font-black text-xs md:text-3xl uppercase tracking-tighter">Social</span>
-      </div>
-      <div onClick={() => navigateWithAd('wallet')} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center cursor-pointer shadow-xl active:scale-95 hover:border-yellow-500 relative z-30">
-         <img src="/gold.jpg" className="w-14 h-14 mb-2 rounded-full border-2 border-yellow-500 shadow-md" />
-         <h2 className="font-black text-xs md:text-3xl uppercase text-yellow-500 tracking-tighter">Wallet</h2>
-      </div>
-      <div onClick={() => navigateWithAd('ai')} className="bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center active:scale-95 shadow-xl cursor-pointer hover:border-green-500 relative z-30">
-         <Bot className="text-green-400 w-10 h-10 md:w-20 md:h-20 mb-2" />
-         <span className="font-black text-xs md:text-3xl uppercase tracking-tighter">AJ AI</span>
-      </div>
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
-        <div className="w-24 h-24 md:w-96 md:h-96 bg-black border-[15px] border-cyan-500 rounded-full flex items-center justify-center shadow-[0_0_100px_#06b6d4] overflow-hidden">
-           <img src="/logo.png" className="w-full h-full object-cover opacity-60 animate-pulse" alt="Logo" />
+<main className="min-h-screen bg-[#020617] text-white overflow-x-hidden relative font-sans">
+    {/* HEADER */}
+    <header className="fixed top-0 w-full p-4 flex justify-between items-center z-[100] bg-black/90 backdrop-blur-xl border-b border-white/5">
+        <div className="text-2xl font-black italic text-cyan-400">AJ STUDIO</div>
+        <div className="flex items-center gap-4">
+            <div className="relative cursor-pointer" onClick={() => {setShowNotifModal(true); setHasNewNotif(false);}}>
+                <Bell size={24} className="text-white hover:text-cyan-400" />
+                {hasNewNotif && <div className="absolute -top-1 -right-1 w-2.5 h-3 bg-red-600 rounded-full animate-pulse"></div>}
+            </div>
+            <div onClick={() => setScreen('wallet')} className="flex items-center gap-3 bg-white/5 px-4 py-2 rounded-full border border-white/10 cursor-pointer hover:bg-white/10">
+                <span className="text-xs font-black text-yellow-500">{displayBalance} 🪙</span>
+                {user && <img src={tempPhoto || user.photoURL} className="w-8 h-8 rounded-full border-2 border-cyan-500 shadow-[0_0_10px_#06b6d4]" />}
+            </div>
         </div>
-      </div>
-    </div>
-</section>
+    </header>
 
-{/* ARCADE MODAL - FULL SCREEN FIXED */}
-{screen === 'arcade' && (
-    <div className="fixed inset-0 z-[300] bg-black flex flex-col h-screen overflow-hidden">
-        {!selectedGame ? (
-            <div className="p-8 overflow-y-auto flex-1">
-                <button onClick={() => {setScreen('hub'); setSelectedGame(null)}} className="text-cyan-400 font-bold mb-10 tracking-widest uppercase transition-all hover:brightness-125 flex items-center gap-2"><ArrowLeft size={20}/> BACK TO HUB</button>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-6 max-w-5xl mx-auto pb-20">
-                {['Rider King', 'Pulse Racer', 'Subsea Surge', 'Neon Strike', 'Volcano Escape'].map((game) => (
-                    <div key={game} onClick={() => setSelectedGame(game)} className="bg-white/5 border border-white/10 p-4 rounded-3xl text-center hover:border-cyan-400 cursor-pointer transition-all">
-                        <img src={`/games/${game.toLowerCase().replace(/ /g, '-')}/logo.png`} className="w-full aspect-square rounded-xl mb-4 object-cover shadow-lg" alt={game} onError={(e:any) => { (e.target as HTMLImageElement).src = "/logo.png"; }} />
-                        <h3 className="font-black text-sm uppercase">{game}</h3>
-                        <button className="mt-4 w-full py-2 rounded-full font-black text-[10px] bg-cyan-500 text-black uppercase">PLAY NOW</button>
+    {/* HUB GRID */}
+    {screen === 'hub' && (
+        <section className="min-h-screen flex flex-col items-center p-6 pt-32 pb-40">
+            <h1 className="text-5xl md:text-8xl font-black text-center mb-10 uppercase drop-shadow-[0_0_30px_#22d3ee] italic">AJ SUPER PORTAL</h1>
+            
+            {/* REFERRAL CARD ON HUB */}
+            <div className="w-full max-w-2xl bg-gradient-to-r from-cyan-900/20 to-blue-900/20 border border-cyan-500/30 p-6 rounded-[2.5rem] mb-12 flex flex-col md:flex-row items-center justify-between gap-6 shadow-2xl backdrop-blur-md">
+                <div className="flex items-center gap-4 text-left">
+                    <div className="p-4 bg-cyan-500/20 rounded-2xl"><UserPlus className="text-cyan-400" size={32}/></div>
+                    <div>
+                        <h3 className="font-black text-lg uppercase tracking-tight">Refer & Earn 50 🪙</h3>
+                        <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Share your AJ ID with friends</p>
                     </div>
-                ))}
+                </div>
+                <div className="flex items-center gap-3 bg-black/40 px-6 py-3 rounded-full border border-white/10">
+                    <span className="text-[10px] font-mono text-cyan-400 truncate max-w-[100px]">{user?.uid}</span>
+                    <button onClick={() => {navigator.clipboard.writeText(user.uid); alert("ID Copied!");}} className="text-white hover:text-cyan-400"><Copy size={16}/></button>
                 </div>
             </div>
-        ) : (
-            <div className="flex-1 flex flex-col h-full w-full">
-                <div className="w-full bg-black h-12 flex items-center px-4 border-b border-white/10 shrink-0">
-                    <button onClick={() => setSelectedGame(null)} className="text-cyan-400 font-black text-[10px] uppercase tracking-widest hover:brightness-125 transition-all">← BACK TO GAMES</button>
-                    <div className="flex-1 text-center font-black uppercase text-[10px] opacity-40">{selectedGame}</div>
+
+            <div className="grid grid-cols-2 gap-6 md:gap-16 w-full max-w-5xl z-30">
+                <div onClick={() => setScreen('arcade')} className="bg-white/5 border border-white/10 rounded-[3rem] h-56 md:h-96 flex flex-col items-center justify-center cursor-pointer shadow-2xl hover:border-cyan-400 transition-all active:scale-95">
+                    <Trophy className="text-cyan-400 w-12 h-12 md:w-24 md:h-24 mb-4" />
+                    <span className="font-black text-sm md:text-4xl uppercase italic">Gaming</span>
                 </div>
-                <iframe src={`/games/${selectedGame.toLowerCase().replace(/ /g, '-')}/index.html`} className="w-full h-full border-none flex-1" title="Game" />
+                <div onClick={() => { fetchContent(); setScreen('social'); }} className="bg-white/5 border border-white/10 rounded-[3rem] h-56 md:h-96 flex flex-col items-center justify-center cursor-pointer shadow-2xl hover:border-pink-500 transition-all active:scale-95">
+                    <Zap className="text-pink-500 w-12 h-12 md:w-24 md:h-24 mb-4" />
+                    <span className="font-black text-sm md:text-4xl uppercase italic">Social</span>
+                </div>
+                <div onClick={() => setScreen('wallet')} className="bg-white/5 border border-white/10 rounded-[3rem] h-56 md:h-96 flex flex-col items-center justify-center cursor-pointer shadow-2xl hover:border-yellow-500 transition-all active:scale-95">
+                    <Wallet className="text-yellow-500 w-12 h-12 md:w-24 md:h-24 mb-4" />
+                    <span className="font-black text-sm md:text-4xl uppercase italic">Wallet</span>
+                </div>
+                <div onClick={() => setSocialScreen('ai_bot')} className="bg-white/5 border border-white/10 rounded-[3rem] h-56 md:h-96 flex flex-col items-center justify-center cursor-pointer shadow-2xl hover:border-green-500 transition-all active:scale-95">
+                    <Bot className="text-green-400 w-12 h-12 md:w-24 md:h-24 mb-4" />
+                    <span className="font-black text-sm md:text-4xl uppercase italic">AJ AI</span>
+                </div>
             </div>
-        )}
-    </div>
-)}
+        </section>
+    )}
 
-{/* SOCIAL HUB */}
-{screen === 'social' && (
-    <div className="fixed inset-0 z-[400] bg-slate-950 flex flex-col h-screen overflow-hidden">
-        <header className="sticky top-0 w-full p-4 bg-black/90 backdrop-blur-md border-b border-white/10 flex justify-between items-center z-[500] rounded-b-3xl shrink-0">
-            {socialScreen === 'hub' ? (
-                <button onClick={() => setScreen('hub')} className="text-pink-500 font-black text-xs uppercase hover:brightness-125">← HUB</button>
-            ) : (
-                <button onClick={() => setSocialScreen('hub')} className="text-pink-500 font-black text-xs uppercase hover:brightness-125">← BACK</button>
-            )}
-            <h2 className="text-4xl font-black italic text-pink-500 uppercase text-center flex-1 tracking-tighter drop-shadow-[0_0_15px_#ec4899] animate-pulse font-orbitron">Dashboard</h2>
-            <button onClick={() => setSocialScreen('settings_menu')} className="bg-white/10 p-2 rounded-full text-pink-500 hover:bg-white/20 shadow-lg"><Settings size={22}/></button>
-        </header>
+    {/* SOCIAL MODAL (TikReels, Pulse, WeChat, Discover) */}
+    {screen === 'social' && (
+        <div className="fixed inset-0 z-[400] bg-slate-950 flex flex-col h-screen overflow-hidden">
+            <header className="p-4 bg-black/95 backdrop-blur-md border-b border-white/10 flex justify-between items-center shadow-2xl">
+                <button onClick={() => setScreen('hub')} className="text-pink-500 font-black text-xs uppercase tracking-[0.2em]">← EXIT</button>
+                <h2 className="text-2xl font-black italic text-pink-500 uppercase tracking-tighter animate-pulse">AJ SOCIAL</h2>
+                <div className="w-10"></div>
+            </header>
 
-        <div className="flex-1 overflow-y-auto">
-        {socialScreen === 'hub' ? (
-          <div className="max-w-md mx-auto grid grid-cols-1 gap-6 p-8 text-center pb-24">
-             <div className="flex items-center gap-3 bg-white/5 p-4 rounded-3xl border border-pink-500/20 mb-4 backdrop-blur-md">
-                  <div className="relative"><img src={tempPhoto || (user as any)?.photoURL} className="w-14 h-14 rounded-full border-2 border-pink-500 shadow-xl" /><div className="absolute bottom-0 right-0 w-4 h-4 bg-green-500 rounded-full border-2 border-slate-950"></div></div>
-                  <div className="text-left"><p className="font-black text-white text-[10px] md:text-xs uppercase leading-tight tracking-wider">@AJ-PORTAL FOUNDER & CEO</p><p className="text-[8px] text-gray-500 uppercase font-bold tracking-widest">VERIFIED VVIP MEMBER</p></div>
-             </div>
-             {[{n:'AJ TikReels', i:Video, d:'TikTok Style Videos', s:'tikreels'}, {n:'AJ Pulse', i:Users, d:'Insta Style Feed', s:'pulse'}, {n:'AJ WeChat', i:MessageSquare, d:'VVIP Messenger', s:'chatlist'}, {n:'AJ Discover', i:Globe, d:'Crypto & Tech News', s:'discover'}].map((mod) => (
-                <div key={mod.n} onClick={() => enterSocialMode(mod.s)} className="p-8 bg-white/5 border border-white/10 rounded-[3rem] text-center hover:border-pink-500 transition-all cursor-pointer group shadow-lg backdrop-blur-sm">
-                    <div className="text-pink-500 mb-4 flex justify-center group-hover:scale-110 transition-transform"><mod.i size={36}/></div>
-                    <h3 className="text-2xl font-black uppercase italic text-white tracking-widest">{mod.n}</h3>
-                    <p className="text-[9px] text-gray-400 uppercase mt-2 font-bold tracking-widest">{mod.d}</p>
-                </div>
-             ))}
-          </div>
-        ) : socialScreen === 'settings_menu' ? (
-          <div className="max-w-md mx-auto p-10 flex flex-col gap-6">
-             <h2 className="text-3xl font-black text-cyan-400 italic mb-4 uppercase tracking-widest">Settings</h2>
-             <button onClick={() => setSocialScreen('setup')} className="bg-white/5 border border-white/10 p-6 rounded-3xl flex items-center gap-4 hover:bg-white/10 transition-all shadow-xl">
-                <Edit3 className="text-pink-500" size={24}/><span className="font-black text-sm uppercase tracking-widest">Edit Profile</span>
-             </button>
-             <button onClick={handleSignOut} className="bg-red-500/10 border border-red-500/20 p-6 rounded-3xl flex items-center gap-4 hover:bg-red-500/20 transition-all shadow-xl">
-                <LogOut className="text-red-500" size={24}/><span className="font-black text-sm uppercase tracking-widest text-red-500">Sign Out / Switch Account</span>
-             </button>
-             <button onClick={() => setSocialScreen('hub')} className="text-gray-500 uppercase text-[10px] font-black mt-10">Back to Dashboard</button>
-          </div>
-        ) : socialScreen === 'tikreels' ? (
-            <div className="h-full w-full max-w-md mx-auto snap-y snap-mandatory overflow-y-auto bg-black">
-                {pixaVideos.map((vid:any, i) => (
-                    <React.Fragment key={i}>
-                        <div className="h-[85vh] w-full snap-start relative border-b border-white/5">
-                            <video src={vid.videos.large.url} autoPlay loop muted playsInline className="w-full h-full object-cover" />
-                            <div className="absolute right-4 bottom-32 flex flex-col gap-6 items-center">
-                                <div onClick={()=>handleLike(vid.id)} className="flex flex-col items-center cursor-pointer active:scale-125 transition-all">
-                                    <Heart size={35} className={likedPosts[vid.id] ? "text-red-500 fill-red-500" : "text-white"}/>
-                                    <span className="text-[10px] font-bold text-white">12k</span>
+            <div className="flex-1 overflow-y-auto">
+                {socialScreen === 'hub' ? (
+                    <div className="max-w-md mx-auto grid grid-cols-1 gap-6 p-8 pb-32">
+                        {[{n:'AJ TikReels', i:Video, s:'tikreels', d:'Viral YouTube Shorts'}, {n:'AJ Pulse', i:Users, s:'pulse', d:'Premium Lifestyle Feed'}, {n:'AJ WeChat', i:MessageSquare, s:'chatlist', d:'WhatsApp Style Messaging'}, {n:'AJ Discover', i:Globe, s:'discover', d:'Latest AI & Future Tech'}].map((mod) => (
+                            <div key={mod.n} onClick={() => setSocialScreen(mod.s)} className="p-10 bg-white/5 border border-white/10 rounded-[3rem] text-center hover:border-pink-500 transition-all cursor-pointer shadow-2xl">
+                                <mod.i size={44} className="text-pink-500 mx-auto mb-4" />
+                                <h3 className="text-2xl font-black uppercase italic tracking-widest">{mod.n}</h3>
+                                <p className="text-[10px] text-gray-400 uppercase mt-2 font-bold tracking-[0.2em]">{mod.d}</p>
+                            </div>
+                        ))}
+                    </div>
+                ) : socialScreen === 'tikreels' ? (
+                    <div className="h-full w-full max-w-md mx-auto snap-y snap-mandatory overflow-y-auto bg-black">
+                        {reels.map((vid, i) => (
+                            <div key={i} className="h-[88vh] w-full snap-start relative border-b border-white/5 bg-black">
+                                <iframe src={`https://www.youtube.com/embed/${vid.id.videoId}?autoplay=1&mute=0&controls=0&modestbranding=1&loop=1&playlist=${vid.id.videoId}`} className="w-full h-full border-none pointer-events-none" allow="autoplay" />
+                                <div className="absolute right-4 bottom-32 flex flex-col gap-8 items-center z-50">
+                                    <Heart size={38} className="text-white shadow-xl hover:text-red-500 cursor-pointer transition-all active:scale-125" />
+                                    <MessageCircle size={38} className="text-white cursor-pointer" onClick={() => setCommentPostId(vid.id.videoId)}/>
+                                    <Zap size={38} className="text-yellow-500 cursor-pointer" onClick={() => setShowGiftModal(vid.snippet.channelId)}/>
+                                    <Share2 size={38} className="text-white cursor-pointer" onClick={() => {if(navigator.share) navigator.share({title:'AJ TikReels', url:window.location.href});}}/>
                                 </div>
-                                <div className="flex flex-col items-center cursor-pointer" onClick={() => setCommentBoardPostId(vid.id)}><MessageCircle size={35} className="text-white"/><span className="text-[10px] font-bold text-white">842</span></div>
-                                <div onClick={()=>handleShare('AJ TikReels')} className="flex flex-col items-center cursor-pointer text-white"><Share2 size={35}/><span className="text-[10px] font-bold">Share</span></div>
+                                <div className="absolute bottom-10 left-6 text-white z-50 max-w-[75%]">
+                                    <p className="font-black text-sm uppercase tracking-widest">@{vid.snippet.channelTitle}</p>
+                                    <p className="text-[10px] opacity-70 mt-1 line-clamp-1 italic">{vid.snippet.title}</p>
+                                </div>
                             </div>
-                            <div className="absolute bottom-10 left-6 text-white max-w-[70%]">
-                                <p className="font-black text-sm">@{vid.user} • LIVE</p>
-                                <div className="flex items-center gap-2 mt-3 bg-black/30 w-max p-1.5 rounded-full backdrop-blur-md border border-white/10"><Music size={12}/> <marquee className="text-[10px] w-24 uppercase font-bold">Original Sound - AJ Studio</marquee></div>
+                        ))}
+                    </div>
+                ) : socialScreen === 'chatlist' ? (
+                    <div className="max-w-md mx-auto bg-[#111b21] h-screen border-x border-white/10">
+                        <div className="bg-[#1f2c33] p-5 flex justify-between items-center shadow-lg"><h2 className="text-2xl font-black text-white italic tracking-widest">WeChat</h2><div className="flex gap-6 text-gray-400"><Camera size={24}/><Search size={24}/><MoreVertical size={24}/></div></div>
+                        {['AJ Support Center', 'CEO VIP Room', 'Global AJ Community'].map((name, i) => (
+                            <div key={i} onClick={() => setSocialScreen('chat')} className="flex items-center gap-4 p-5 hover:bg-white/5 cursor-pointer border-b border-white/5 rounded-[2rem] mx-2 transition-all">
+                                <div className="w-14 h-14 rounded-full bg-cyan-600/30 flex items-center justify-center font-black border border-cyan-500/50 text-cyan-400 text-lg shadow-xl">AJ</div>
+                                <div className="flex-1 text-left">
+                                    <div className="flex justify-between mb-1"><p className="font-black text-white text-xs uppercase tracking-wider">{name}</p><span className="text-[10px] text-gray-500">Online</span></div>
+                                    <p className="text-[10px] text-gray-500 line-clamp-1 italic font-medium">Encrypted WeChat session active...</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : socialScreen === 'chat' ? (
+                    <div className="max-w-md mx-auto h-[88vh] flex flex-col bg-[#0b141a] m-2 rounded-[3.5rem] overflow-hidden shadow-2xl border border-cyan-500/20">
+                        <div className="bg-[#1f2c33] p-5 flex items-center gap-3 border-b border-white/10 shadow-lg">
+                            <button onClick={()=>setSocialScreen('chatlist')} className="text-cyan-500"><ChevronRight className="rotate-180"/></button>
+                            <img src="/logo.png" className="w-11 h-11 rounded-full border-2 border-green-500 shadow-md" />
+                            <div className="flex-1 text-left"><p className="font-black text-white text-sm uppercase tracking-widest">AJ SUPPORT</p><p className="text-[8px] text-green-500 font-black animate-pulse tracking-[0.3em] uppercase">VVIP SECURE</p></div>
+                            <div className="flex gap-6 text-[#aebac1] px-2"><VideoIcon size={24} className="cursor-pointer hover:text-white" onClick={() => startCall(true)} /><Phone size={24} className="cursor-pointer hover:text-white" onClick={() => startCall(false)} /></div>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-contain">
+                             <div className="flex justify-start"><div className="p-4 max-w-[80%] bg-[#202c33] text-white rounded-2xl rounded-tl-none border border-white/5 shadow-xl text-xs leading-relaxed">Assalamu Alaikum! AJ Portal mein aapka swagat hai. Main AJ AI Assistant hoon. Main aapki kya madad kar sakta hoon?</div></div>
+                        </div>
+                        <div className="p-4 bg-[#1f2c33] flex gap-3 items-center shadow-inner"><PlusSquare size={28} className="text-[#aebac1] cursor-pointer hover:text-white" /><input type="text" placeholder="Type a message" className="flex-1 bg-[#2a3942] border-none p-4 rounded-full text-xs text-white outline-none font-bold" /><button className="bg-cyan-600 p-4 rounded-full text-white shadow-xl active:scale-90 transition-all"><Send size={22}/></button></div>
+                    </div>
+                ) : socialScreen === 'discover' ? (
+                    <div className="max-w-md mx-auto p-5 pb-32 space-y-8">
+                        <h2 className="text-3xl font-black text-cyan-400 italic mb-8 uppercase tracking-widest border-b-2 border-cyan-500 pb-2">AI Discovery Feed</h2>
+                        {news.map((item, i) => (
+                            <div key={i} className="bg-white/5 border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl">
+                                {item.urlToImage && <img src={item.urlToImage} className="w-full h-48 object-cover" />}
+                                <div className="p-6"><h3 className="font-black text-sm text-white mb-3 uppercase tracking-tight italic">{item.title}</h3><p className="text-[10px] text-gray-400 line-clamp-3 mb-4 font-medium italic">{item.description}</p><a href={item.url} target="_blank" className="text-cyan-400 text-[10px] font-black uppercase tracking-[0.2em] border-2 border-cyan-500/20 px-6 py-3 rounded-full inline-block hover:bg-cyan-500 hover:text-black transition-all">Read Story</a></div>
+                            </div>
+                        ))}
+                    </div>
+                ) : socialScreen === 'ai_bot' ? (
+                    <div className="max-w-md mx-auto h-[85vh] bg-black flex flex-col p-6 rounded-[3.5rem] border-2 border-green-500/20 shadow-2xl">
+                         <div className="flex items-center gap-4 mb-8 border-b-2 border-green-500/10 pb-4"><Bot size={44} className="text-green-500 animate-pulse"/><div className="text-left"><p className="font-black text-white uppercase tracking-widest">AJ AI Representative</p><p className="text-[8px] text-green-500 font-black animate-pulse">Online Support</p></div></div>
+                         <div className="flex-1 overflow-y-auto space-y-5 mb-6 pr-2">
+                             {aiChat.map((m, i) => (<div key={i} className={`flex ${m.role==='user'?'justify-end':'justify-start'}`}><div className={`p-4 max-w-[85%] rounded-2xl text-xs font-bold shadow-xl ${m.role==='user'?'bg-cyan-700 text-white rounded-tr-none':'bg-green-900/30 text-green-400 border border-green-500/20 rounded-tl-none'}`}>{m.text}</div></div>))}
+                         </div>
+                         <div className="bg-white/5 p-5 rounded-[2rem] flex gap-3 shadow-inner border border-white/10"><input type="text" value={aiInput} onChange={(e)=>setAiInput(e.target.value)} placeholder="Ask AJ AI anything..." className="flex-1 bg-transparent border-none outline-none text-xs text-white font-bold" /><button onClick={handleAiAssistant} className="bg-green-600 p-4 rounded-2xl shadow-xl text-white active:scale-90 transition-all"><Send size={22}/></button></div>
+                         <a href="https://wa.me/96878994093" target="_blank" className="mt-8 text-center text-[10px] font-black text-yellow-500 uppercase tracking-[0.4em] animate-pulse">Problem not solved? Talk with CEO</a>
+                    </div>
+                ) : socialScreen === 'in_call' ? (
+                    <div className="h-full w-full bg-black relative"><div id="call-container" className="w-full h-full"></div><button onClick={()=>setSocialScreen('hub')} className="absolute bottom-10 left-1/2 -translate-x-1/2 bg-red-600 px-12 py-5 rounded-full font-black uppercase text-sm z-[2000] border-4 border-white/10 shadow-2xl">Hang Up</button></div>
+                ) : null}
+            </div>
+
+            {/* GIFTING MODAL (TikTok Style) */}
+            {showGiftModal && (
+                <div className="fixed inset-0 z-[1000] bg-black/80 backdrop-blur-md flex items-center justify-center p-6">
+                    <div className="w-full max-w-sm bg-[#111] border-2 border-yellow-500/30 rounded-[3.5rem] p-10 text-center shadow-[0_0_80px_rgba(234,179,8,0.2)]">
+                        <h2 className="text-3xl font-black text-yellow-500 mb-8 italic uppercase tracking-tighter">AJ Rewards</h2>
+                        <div className="grid grid-cols-2 gap-6">
+                            {[{n:'Coffee', c:2500, i:'☕'}, {n:'Pizza', c:5000, i:'🍕'}, {n:'Heart', c:10000, i:'❤️'}, {n:'SuperCar', c:25000, i:'🏎️'}, {n:'Jet', c:40000, i:'🛩️'}, {n:'Mansion', c:50000, i:'🏰'}].map((g) => (
+                                <div key={g.n} onClick={()=>sendGift(showGiftModal, g.n, g.c)} className="bg-white/5 border border-white/10 p-5 rounded-3xl hover:border-yellow-500 transition-all cursor-pointer group active:scale-95 shadow-xl">
+                                    <div className="text-4xl mb-3 group-hover:scale-125 transition-transform">{g.i}</div>
+                                    <p className="text-[10px] font-black uppercase text-white tracking-widest">{g.n}</p>
+                                    <p className="text-[10px] text-yellow-500 font-black mt-1 tracking-widest">{g.c.toLocaleString()} 🪙</p>
+                                </div>
+                            ))}
+                        </div>
+                        <div onClick={() => {setShowGiftModal(null); setScreen('wallet'); setWalletTab('purchase');}} className="mt-10 bg-yellow-600/10 border border-yellow-600/30 py-3 rounded-full text-[10px] font-black text-yellow-500 uppercase tracking-[0.3em] cursor-pointer animate-pulse">Recharge 🪙 &gt;</div>
+                        <button onClick={()=>setShowGiftModal(null)} className="mt-6 text-gray-500 text-[10px] font-black uppercase">Cancel</button>
+                    </div>
+                </div>
+            )}
+
+            {/* COMMENT BOARD */}
+            {commentPostId && (
+                <div className="fixed inset-0 z-[1000] bg-black/70 backdrop-blur-md flex items-end">
+                    <div className="w-full h-[65vh] bg-[#111b21] rounded-t-[3rem] border-t-2 border-pink-500 p-8 flex flex-col shadow-2xl overflow-hidden">
+                        <div className="flex justify-between items-center mb-8 shrink-0"><h3 className="text-xl font-black text-pink-500 uppercase tracking-widest italic">Comments</h3><X className="cursor-pointer text-gray-500" onClick={()=>setCommentPostId(null)} size={30}/></div>
+                        <div className="flex-1 overflow-y-auto space-y-5 pr-2">
+                             {comments.length > 0 ? comments.map((c, i) => (
+                                <div key={i} className="flex gap-4 p-4 bg-white/5 rounded-2xl border border-white/5 shadow-md"><img src={c.photo || "/logo.png"} className="w-9 h-9 rounded-full border border-pink-500" /><div><p className="font-black text-[10px] text-pink-400 uppercase">@{c.username}</p><p className="text-xs text-gray-300 mt-1 font-medium italic">"{c.text}"</p></div></div>
+                             )) : <p className="text-center text-gray-600 text-xs mt-10 italic uppercase font-bold tracking-widest">No comments yet</p>}
+                        </div>
+                        <div className="mt-4 pt-4 border-t border-white/10 flex gap-3 shrink-0"><input type="text" value={newComment} onChange={(e)=>setNewComment(e.target.value)} placeholder="Type a comment..." className="flex-1 bg-black/50 border border-white/10 rounded-2xl p-4 text-xs outline-none text-white font-bold" /><button onClick={async () => { if(!newComment.trim()) return; await addDoc(collection(db,"social_comments"),{postId:commentPostId, text:newComment, username:username||"AJ_Member", photo:tempPhoto||user.photoURL, date:serverTimestamp()}); setNewComment(''); }} className="bg-pink-600 p-4 rounded-2xl shadow-xl text-white active:scale-90 transition-all"><Send size={22}/></button></div>
+                    </div>
+                </div>
+            )}
+        </div>
+    )}
+
+    {/* WALLET MODAL */}
+    {screen === 'wallet' && (
+        <div className="fixed inset-0 z-[500] bg-black flex flex-col items-center p-8 overflow-y-auto">
+            <button onClick={() => { setScreen('hub'); setWalletTab('main'); }} className="self-start text-cyan-400 mb-12 font-black uppercase tracking-widest flex items-center gap-2">← BACK</button>
+            <div className="w-full max-w-md bg-[#111] border-2 border-white/10 p-12 rounded-[3.5rem] text-center shadow-2xl relative overflow-hidden">
+                <h2 className="text-6xl font-black text-yellow-500 mb-2 tracking-tighter drop-shadow-[0_0_20px_rgba(234,179,8,0.4)]">{displayBalance} 🪙</h2>
+                <p className="text-green-400 font-black text-2xl mb-12 tracking-widest uppercase italic shadow-sm">${displayUsdt}</p>
+
+                {walletTab === 'main' ? (
+                    <div className="flex flex-col gap-6">
+                        <div className="flex items-center justify-between bg-white/5 p-5 rounded-[2rem] border border-white/5 mb-6">
+                            <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">My AJ ID:</span>
+                            <div className="flex items-center gap-3">
+                                <span className="text-xs font-black text-white truncate max-w-[120px]">{user?.uid}</span>
+                                <button onClick={() => {navigator.clipboard.writeText(user.uid); alert("ID Copied!");}} className="p-2.5 bg-white/10 rounded-xl text-cyan-400 active:scale-90 transition-all border border-cyan-500/20"><Copy size={16}/></button>
                             </div>
                         </div>
-                        {(i + 1) % 5 === 0 && <div onClick={()=>(window as any).AJ_SDK?.showAd()} className="h-[85vh] w-full snap-start flex items-center justify-center bg-gray-900 text-cyan-400 font-black flex-col gap-4 cursor-pointer border-y-2 border-cyan-500/20 shadow-2xl"><VideoIcon size={70} className="animate-pulse"/> <p className="uppercase tracking-[0.3em]">AJ VVIP VIDEO AD</p></div>}
-                    </React.Fragment>
-                ))}
-            </div>
-        ) : socialScreen === 'pulse' ? (
-            <div className="max-w-md mx-auto space-y-6 p-4 pb-24 relative">
-                <div className="bg-white/10 backdrop-blur-xl p-5 rounded-3xl border border-pink-500/20 shadow-2xl">
-                    <div className="flex gap-3"><img src={(user as any)?.photoURL || "/logo.png"} className="w-10 h-10 rounded-full border-2 border-pink-500 shadow-md"/><textarea value={postText} onChange={(e)=>setPostText(e.target.value)} placeholder="Share your CEO story..." className="flex-1 bg-white/5 rounded-2xl p-4 text-xs outline-none border border-white/10 h-20 text-white font-bold"/></div>
-                    <div className="flex justify-between mt-4 pt-3 border-t border-white/5"><button onClick={handleImageClick} className="flex items-center gap-2 text-[10px] font-black text-gray-400 hover:text-pink-500 uppercase"><Camera size={18}/> Add Media</button><button onClick={handleCreatePost} className="bg-pink-600 px-6 py-2 rounded-full text-xs font-black shadow-lg hover:scale-105 transition-all text-white">PUBLISH (+2.5🪙)</button></div>
-                </div>
-                {userPosts.map((post:any) => (
-                    <div key={post.id} className="bg-white/10 backdrop-blur-md border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl relative">
-                        <div className="flex items-center justify-between p-5"><div className="flex items-center gap-3"><img src={post.photo || "/logo.png"} className="w-10 h-10 rounded-full border-2 border-pink-500 shadow-md"/><p className="font-black text-xs text-white tracking-widest">@{post.username}</p></div><MoreVertical size={18} className="opacity-40 text-white cursor-pointer" onClick={()=>setActiveMenuId(activeMenuId === post.id ? null : post.id)}/></div>
-                        {activeMenuId === post.id && (<div className="absolute right-6 top-16 bg-slate-900 border border-white/10 p-3 rounded-xl z-[1000] shadow-2xl flex flex-col gap-2"><button onClick={()=>handleDeletePost(post.id)} className="text-red-500 text-[10px] font-black flex items-center gap-2 uppercase tracking-widest"><Trash2 size={14}/> Delete</button></div>)}
-                        {post.image && <img src={post.image} className="w-full aspect-square object-cover" />}
-                        <div className="p-6">
-                            <div className="flex gap-6 mb-4">
-                                <Heart size={30} onClick={()=>handleLike(post.id)} className={likedPosts[post.id] ? "text-red-500 fill-red-500 cursor-pointer transition-all" : "text-white cursor-pointer transition-all"}/>
-                                <MessageSquare size={30} className="text-white cursor-pointer" onClick={() => setCommentBoardPostId(post.id)}/><Share2 size={30} className="text-white cursor-pointer" onClick={()=>handleShare(post.text)}/>
-                            </div>
-                            <p className="text-[12px] leading-relaxed text-gray-200 font-bold">{post.text}</p>
+                        <button onClick={()=>setWalletTab('transfer')} className="bg-white/10 text-cyan-400 py-6 rounded-[2.5rem] font-black border-2 border-cyan-500/30 uppercase tracking-[0.2em] shadow-xl hover:bg-cyan-600 hover:text-black transition-all">Send Coins</button>
+                        <button onClick={()=>setWalletTab('withdraw')} className="bg-white/10 text-pink-500 py-6 rounded-[2.5rem] font-black border-2 border-pink-500/30 uppercase tracking-[0.2em] shadow-xl hover:bg-pink-600 hover:text-white transition-all">Request Payout</button>
+                    </div>
+                ) : walletTab === 'transfer' ? (
+                    <div className="flex flex-col gap-8 text-left">
+                        <div className="space-y-4"><label className="text-[10px] font-black text-cyan-400 uppercase tracking-[0.4em] ml-2">Recipient ID</label><input type="text" value={transferId} onChange={(e)=>setTransferId(e.target.value)} placeholder="Paste Receiver AJ ID" className="w-full bg-black/60 border-2 border-white/10 p-6 rounded-[2rem] text-white outline-none focus:border-cyan-500 font-bold shadow-inner" /></div>
+                        <div className="space-y-4"><label className="text-[10px] font-black text-cyan-400 uppercase tracking-[0.4em] ml-2">Amount (Coins)</label><input type="number" value={transferAmt} onChange={(e)=>setTransferAmt(Number(e.target.value))} className="w-full bg-black/60 border-2 border-white/10 p-6 rounded-[2rem] text-white outline-none font-black text-3xl text-center shadow-inner" /></div>
+                        <button onClick={async () => { if(balance < transferAmt || transferAmt < 1) return alert("Invalid Amount!"); await updateDoc(doc(db,"users",user.uid),{balance:increment(-transferAmt)}); await updateDoc(doc(db,"users",transferId),{balance:increment(transferAmt)}); alert("Transfer Success! 🪙"); setWalletTab('main'); }} className="bg-cyan-500 py-7 rounded-[2.5rem] font-black uppercase text-black shadow-[0_15px_40px_rgba(6,182,212,0.3)] active:scale-95 transition-all text-xl">SEND COINS</button>
+                        <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-center uppercase font-black text-[10px]">Cancel Transaction</button>
+                    </div>
+                ) : walletTab === 'withdraw' ? (
+                    <div className="flex flex-col gap-8 text-left">
+                        <div className="space-y-4"><label className="text-[10px] font-black text-pink-500 uppercase tracking-[0.4em] ml-2">Payout Method</label><select value={payoutId} onChange={(e)=>setPayoutId(e.target.value)} className="w-full bg-black/60 border-2 border-white/5 p-6 rounded-[2rem] text-white font-black outline-none shadow-inner"><option>Binance Pay (USDT)</option><option>Airtm (USDT)</option></select></div>
+                        <button onClick={async () => { if(balance < 5000) return alert("Min Withdraw: 5000 Coins"); await addDoc(collection(db,"withdrawals"),{uid:user.uid, amount:balance, status:"pending", date:serverTimestamp()}); await updateDoc(doc(db,"users",user.uid),{balance:0}); alert("Payout Requested! 🏦"); setWalletTab('main'); }} className="bg-pink-600 py-7 rounded-[2.5rem] font-black uppercase text-white shadow-[0_15px_40px_rgba(236,72,153,0.3)] active:scale-95 transition-all text-xl">SUBMIT WITHDRAWAL</button>
+                        <div className="mt-8 border-t-2 border-white/5 pt-8">
+                             <p className="text-[10px] font-black text-gray-500 uppercase text-center mb-6 tracking-[0.4em] italic decoration-pink-500 underline">Recent Activity</p>
+                             <div className="space-y-4 max-h-48 overflow-y-auto pr-2">
+                                {withdrawHistory.length > 0 ? withdrawHistory.map((w, i) => (
+                                    <div key={i} className="flex justify-between items-center bg-white/5 p-5 rounded-2xl border border-white/5 shadow-md"><div className="text-left"><p className="text-xs font-black text-white">{w.amount} 🪙</p><p className="text-[8px] text-gray-500 font-bold uppercase tracking-widest">{new Date(w.date?.seconds*1000).toLocaleDateString()}</p></div><span className={`text-[8px] font-black uppercase px-4 py-2 rounded-full shadow-sm ${w.status==='pending'?'bg-yellow-500/10 text-yellow-500 border border-yellow-500/30':'bg-green-500/10 text-green-500 border border-green-500/30'}`}>{w.status}</span></div>
+                                )) : <p className="text-[10px] text-gray-600 text-center italic font-black uppercase tracking-widest">No history found</p>}
+                             </div>
                         </div>
+                        <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-center uppercase font-black text-[10px] mt-4">Close Wallet</button>
                     </div>
-                ))}
+                ) : null}
             </div>
-        ) : socialScreen === 'chatlist' ? (
-            <div className="max-w-md mx-auto bg-[#111b21]/80 backdrop-blur-2xl h-screen border-x border-white/10 shadow-2xl overflow-y-auto">
-                <div className="bg-[#1f2c33]/90 backdrop-blur-md p-5 flex justify-between items-center border-b border-white/10"><h2 className="text-2xl font-black text-[#e9edef] tracking-widest italic font-orbitron">WeChat</h2><div className="flex gap-6 text-[#aebac1] relative"><Camera size={22}/><Search size={22} onClick={handleSearchFocus}/><MoreVertical size={22} onClick={() => setWechatMenuOpen(!wechatMenuOpen)}/></div></div>
-                {wechatMenuOpen && (<div className="absolute right-6 top-20 bg-slate-900 border border-white/10 p-4 rounded-xl z-[1000] shadow-2xl flex flex-col gap-3 text-[10px] font-black uppercase tracking-widest text-white backdrop-blur-xl"><p>Privacy</p><p>CEO VIP ACCESS</p></div>)}
-                <div className="p-4"><div className="bg-[#202c33] flex items-center gap-4 px-5 py-3 rounded-2xl text-gray-400 shadow-inner border border-white/5"><Search size={18}/><input ref={searchInputRef} type="text" placeholder="Search family & friends" className="bg-transparent border-none outline-none text-sm w-full text-white font-bold"/></div></div>
-                <div className="mt-2 space-y-1">{['AJ Global Support', 'Family WeChat Hub', 'CEO VIP Elite', 'Crypto News Daily'].map((contact, i) => (<div key={i} onClick={()=>{setActiveContact(contact); setSocialScreen('chat'); (window as any).AJ_SDK?.showAd();}} className="flex items-center gap-4 p-5 hover:bg-white/5 cursor-pointer border-b border-white/5 transition-all mx-2 rounded-[2rem]"><div className="w-14 h-14 rounded-full bg-cyan-600/30 flex items-center justify-center font-black border border-cyan-500/50 text-cyan-400 shadow-2xl text-lg">AJ</div><div className="flex-1 text-left"><div className="flex justify-between items-center mb-1"><p className="font-black text-[#e9edef] tracking-wider uppercase text-xs">{contact}</p><span className="text-[10px] text-[#8696a0]">11:0{i} PM</span></div><p className="text-[10px] text-[#8696a0] line-clamp-1 font-bold">Secure VVIP encrypted chat active.</p></div></div>))}</div>
-            </div>
-        ) : socialScreen === 'chat' ? (
-            <div className="max-w-md mx-auto h-[88vh] flex flex-col bg-[#0b141a] overflow-hidden m-2 rounded-[2.5rem] shadow-2xl border border-cyan-500/20">
-                <div className="bg-[#1f2c33]/95 backdrop-blur-md p-4 flex items-center gap-3 border-b border-white/10 shadow-lg"><button onClick={()=>setSocialScreen('chatlist')} className="text-cyan-500 p-2"><ChevronRight className="rotate-180"/></button><img src="/logo.png" className="w-11 h-11 rounded-full border-2 border-green-500 shadow-lg" /><div className="flex-1 text-left"><p className="font-bold text-sm text-white uppercase tracking-widest">{activeContact}</p><p className="text-[7px] text-green-500 font-black uppercase tracking-[0.3em] animate-pulse font-bold">Online • WeChat Encryption</p></div><div className="flex gap-5 text-[#aebac1] px-2"><VideoIcon size={20}/><Phone size={20}/></div></div>
-                <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-repeat bg-contain opacity-90">{chatMessages.map((m:any) => (<div key={m.id} className={`flex ${m.uid === (user as any).uid ? 'justify-end' : 'justify-start'}`}><div className={`p-3 max-w-[85%] rounded-2xl shadow-xl relative border ${m.uid === (user as any).uid ? 'bg-cyan-700/80 border-cyan-400 text-[#e9edef] rounded-tr-none' : 'bg-[#202c33]/90 border-white/5 text-[#e9edef] rounded-tl-none'} backdrop-blur-md`}><p className="font-black text-[9px] text-yellow-500 mb-1 opacity-70 uppercase">@{m.username}</p><p className="text-[12px] leading-relaxed mb-1 pr-6 font-medium text-white">{m.text}</p></div></div>))}</div>
-                <div className="p-4 bg-[#1f2c33]/95 backdrop-blur-md flex gap-3 items-center"><button className="text-[#aebac1] hover:text-white" onClick={handleImageClick}><PlusSquare size={26}/></button><input type="text" value={newMessage} onChange={(e)=>setNewMessage(e.target.value)} placeholder="Type a message" className="flex-1 bg-[#2a3942] border-none p-4 rounded-full text-xs text-white outline-none focus:ring-1 focus:ring-cyan-500 font-bold" /><button onClick={sendChatMessage} className="bg-cyan-600 p-4 rounded-full text-white shadow-2xl active:scale-90 transition-all border-b-2 border-cyan-800"><Send size={22}/></button></div>
-            </div>
-        ) : socialScreen === 'setup' ? (
-          <div className="max-w-md mx-auto bg-white/5 backdrop-blur-xl border border-white/10 p-10 rounded-[3.5rem] text-center mt-4 shadow-2xl">
-              <div className="relative w-28 h-28 mx-auto mb-10 cursor-pointer group" onClick={handleImageClick}><img src={tempPhoto || (user as any)?.photoURL || "/logo.png"} className="w-full h-full rounded-full border-4 border-pink-500 p-1 object-cover shadow-2xl group-hover:brightness-50 transition-all" alt="Avatar" /><div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><Camera size={40} className="text-white"/></div><div className="absolute bottom-1 right-1 bg-pink-600 p-3 rounded-full border-2 border-black shadow-lg text-white"><Camera size={18}/></div></div>
-              <h2 className="text-2xl font-black text-white mb-8 uppercase tracking-widest italic">Identity Setup</h2>
-              <div className="space-y-5 text-left"><label className="text-[10px] font-black text-pink-500 ml-1 uppercase tracking-widest">Username</label><input type="text" placeholder="@unique_name" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full bg-black/40 border border-white/10 p-4 rounded-2xl font-bold text-white outline-none focus:border-pink-500 shadow-inner" /><label className="text-[10px] font-black text-pink-500 ml-1 uppercase tracking-widest">About Me</label><textarea placeholder="Tell the WeChat world about you..." value={bio} onChange={(e) => setBio(e.target.value)} className="w-full bg-black/40 border border-white/10 p-4 rounded-2xl text-xs text-white outline-none h-32 focus:border-pink-500 shadow-inner" /><button onClick={handleCreateProfile} className="w-full mt-10 py-5 bg-pink-600 rounded-[1.5rem] font-black uppercase shadow-[0_10px_30px_rgba(236,72,153,0.3)] active:scale-95 transition-all text-white border-b-4 border-pink-800 tracking-[0.2em]">ACTIVATE WeChat PROFILE</button></div>
-              <button onClick={() => setSocialScreen('hub')} className="mt-6 text-gray-500 uppercase text-[9px] font-black w-full text-center">Back</button>
-          </div>
-        ) : null}
         </div>
+    )}
 
-        {/* --- DYNAMIC COMMENT BOARD --- */}
-        {commentBoardPostId && (
-            <div className="fixed inset-0 z-[1000] bg-black/70 backdrop-blur-md flex items-end">
-                <div className="w-full h-[65vh] bg-[#111b21] rounded-t-[3rem] border-t-2 border-pink-500 p-6 flex flex-col shadow-[0_-20px_50px_rgba(236,72,153,0.3)]">
-                    <div className="flex justify-between items-center mb-6"><h3 className="text-lg font-black text-pink-500 uppercase tracking-widest">Post Comments</h3><X className="cursor-pointer text-gray-500" onClick={()=>setCommentBoardPostId(null)}/></div>
-                    <div className="flex-1 overflow-y-auto space-y-4 pr-2">
-                        {postComments.length > 0 ? postComments.map((c:any) => (
-                            <div key={c.id} className="flex gap-4 p-3 bg-white/5 rounded-2xl border border-white/5">
-                                <img src={c.photo || "/logo.png"} className="w-8 h-8 rounded-full border border-pink-500 shadow-sm" />
-                                <div><p className="font-black text-[10px] text-pink-400 uppercase tracking-widest">@{c.username}</p><p className="text-xs text-gray-300 mt-1">{c.text}</p></div>
+    {/* ARCADE MODAL */}
+    {screen === 'arcade' && (
+        <div className="fixed inset-0 z-[600] bg-black flex flex-col h-screen overflow-hidden">
+            {!selectedGame ? (
+                <div className="p-10 overflow-y-auto flex-1 pb-32">
+                    <button onClick={() => setScreen('hub')} className="text-cyan-400 font-black mb-12 tracking-[0.3em] uppercase flex items-center gap-4 transition-all hover:brightness-125 italic">← RETURN TO HUB</button>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-10 max-w-6xl mx-auto">
+                        {['Rider King', 'Pulse Racer', 'Subsea Surge', 'Neon Strike', 'Volcano Escape'].map((game) => (
+                            <div key={game} onClick={() => setSelectedGame(game)} className="bg-white/5 border-2 border-white/5 p-6 rounded-[3rem] text-center hover:border-cyan-400 cursor-pointer shadow-2xl transition-all group active:scale-95">
+                                <div className="relative overflow-hidden rounded-[2rem] mb-6 shadow-2xl border-2 border-white/5"><img src={`/games/${game.toLowerCase().replace(/ /g, '-')}/logo.png`} className="w-full aspect-square object-cover transition-transform group-hover:scale-110 duration-700" onError={(e)=>{e.target.src="/logo.png"}} /><div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-500"><Play size={50} className="text-cyan-400 drop-shadow-xl" /></div></div>
+                                <h3 className="font-black text-sm md:text-xl uppercase italic tracking-widest text-white">{game}</h3>
+                                <button className="mt-5 w-full py-3 bg-cyan-600/10 border border-cyan-500/20 rounded-full font-black text-[10px] text-cyan-400 uppercase tracking-[0.3em] group-hover:bg-cyan-500 group-hover:text-black transition-all">Play Now</button>
                             </div>
-                        )) : <p className="text-center text-gray-600 text-xs mt-10 italic">No comments yet. Be the first!</p>}
+                        ))}
                     </div>
-                    <div className="mt-4 pt-4 border-t border-white/10 flex gap-3"><input type="text" value={newComment} onChange={(e)=>setNewComment(e.target.value)} placeholder="Write a comment..." className="flex-1 bg-black/40 border border-white/10 rounded-xl p-4 text-xs outline-none focus:ring-1 focus:ring-pink-500 text-white font-bold" /><button onClick={submitComment} className="bg-pink-600 p-4 rounded-xl shadow-lg active:scale-90 transition-all text-white"><Send size={18}/></button></div>
                 </div>
-            </div>
-        )}
-    </div>
-)}
-
-{/* WALLET MODAL */}
-{screen === 'wallet' && (
-    <div className="fixed inset-0 z-[300] bg-black/98 flex flex-col items-center p-8 overflow-y-auto">
-       <button onClick={() => {setScreen('hub'); setWalletTab('main')}} className="self-start text-cyan-400 mb-8 font-bold uppercase tracking-widest transition-all hover:brightness-125 flex items-center gap-2"><ArrowLeft size={18}/> BACK</button>
-       <div className="w-full max-w-md bg-[#111] border border-white/10 p-10 rounded-3xl text-center shadow-2xl">
-          <h2 className="text-5xl font-black text-yellow-500 mb-2 tracking-tighter">{displayBalance} 🪙</h2>
-          <p className="text-green-400 font-black text-xl mb-10 tracking-[0.2em]">${displayUsdt}</p>
-          {walletTab === 'main' && (
-            <div className="flex flex-col gap-4">
-               <button onClick={()=>setWalletTab('purchase')} className="bg-white text-black py-4 rounded-[1.5rem] font-black uppercase shadow-lg hover:scale-105 transition-all">Purchase</button>
-               <button onClick={()=>setWalletTab('transfer')} className="bg-white/10 text-cyan-400 py-4 rounded-[1.5rem] font-black border border-cyan-500/30 uppercase hover:bg-white/5 transition-all">Transfer</button>
-               <button onClick={()=>setWalletTab('withdraw')} className="bg-white/10 text-pink-500 py-4 rounded-[1.5rem] font-black border border-pink-500/30 uppercase hover:bg-white/5 transition-all">Withdraw</button>
-            </div>
-          )}
-          {walletTab === 'purchase' && (
-            <div className="flex flex-col gap-6 text-left">
-              <label className="text-[10px] font-black text-cyan-400 uppercase tracking-[0.3em]">Payment Method</label>
-              <select value={purchaseMethod} onChange={(e)=>setPurchaseMethod(e.target.value)} className="w-full bg-gray-900 border border-white/10 p-4 rounded-xl text-white font-bold outline-none"><option>Binance (TRC20)</option><option>Airtm (Gmail Account)</option></select>
-              <div className="bg-black border-2 border-white/10 p-8 rounded-[2.5rem] text-center shadow-[inset_0_0_30px_rgba(0,255,255,0.05)]">
-                 <p className="text-[10px] text-gray-500 uppercase font-black mb-4 tracking-[0.3em]">You will receive</p>
-                 <p className="text-yellow-500 text-6xl font-black mb-6 drop-shadow-[0_0_10px_#eab308]">{(purchaseAmount * 100).toLocaleString()} 🪙</p>
-                 <div className="flex items-center justify-center gap-3 bg-white/5 p-4 rounded-2xl border border-white/10">
-                    <DollarSign className="text-green-400" size={30}/>
-                    <input type="number" value={purchaseAmount === 0 ? '' : purchaseAmount} onChange={(e)=>setPurchaseAmount(e.target.value === '' ? 0 : Number(e.target.value))} className="bg-transparent text-white text-3xl w-32 text-center font-black outline-none" />
-                 </div>
-              </div>
-              <button onClick={handlePurchase} className="bg-cyan-500 py-5 rounded-2xl font-black uppercase shadow-xl hover:scale-[1.02] active:scale-95 transition-all text-black">Confirm Purchase</button>
-              <button onClick={()=>setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase font-black hover:text-white">Cancel</button>
-            </div>
-          )}
-       </div>
-    </div>
-)}
-
-{/* AI BOT */}
-{screen === 'ai' && (
-    <div className="fixed inset-0 z-[600] bg-black flex flex-col items-center p-8 overflow-y-auto">
-       <div className="w-full max-w-4xl pt-10"><button onClick={() => setScreen('hub')} className="text-green-400 font-bold text-sm mb-12 uppercase tracking-widest hover:brightness-125 transition-all">← Back</button></div>
-       <h2 className="text-5xl font-black mb-12 text-center uppercase text-white italic tracking-tighter">AJ AI BOT</h2>
-       {botTier !== 'none' && (
-         <div className="w-full max-w-2xl bg-white/5 border-2 border-green-500/40 p-8 rounded-[3.5rem] text-center mb-16 shadow-[0_0_50px_rgba(34,197,94,0.15)] backdrop-blur-md">
-            <Activity size={60} className="mx-auto mb-6 text-green-500 animate-pulse" />
-            <h2 className="text-4xl font-black text-white mb-2 uppercase tracking-tighter">{botTier} BOT RUNNING</h2>
-            <div className="w-full bg-black/50 border border-green-500/30 p-8 rounded-3xl font-mono text-left shadow-inner"><div className="flex justify-between items-center mb-6"><span className="text-green-400 font-black text-xs uppercase tracking-widest">Neural Profit:</span><span className="text-white font-black text-2xl">+{visualProfit.toFixed(4)} 🪙</span></div><div className="h-24 overflow-hidden text-green-500/60 mt-2 text-[10px] leading-relaxed italic">{tradeLogs.map((log, i) => ( <div key={i} className="mb-1">{log}</div> ))}</div></div>
-         </div>
-       )}
-       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-4xl px-2 pb-20">
-          <div className={`p-10 rounded-[2.5rem] text-center border-2 transition-all backdrop-blur-sm ${botTier === 'basic' ? 'border-green-500 bg-green-500/10' : 'border-white/10 bg-white/5'}`}><h3 className="text-2xl font-black text-cyan-400 uppercase tracking-widest">Basic (25k Coins)</h3><p className="text-sm text-gray-400 mt-3 font-bold">Earn 2% Daily Passive Income</p><button onClick={() => activateBot('basic', 25000)} className={`mt-8 w-full py-5 rounded-2xl font-black uppercase tracking-widest transition-all ${botTier === 'basic' ? 'bg-green-500 text-black cursor-not-allowed shadow-[0_0_20px_#22c55e]' : 'bg-cyan-600 text-white shadow-xl hover:scale-105'}`}>{botTier === 'basic' ? "RUNNING" : "ACTIVATE"}</button></div>
-          <div className={`p-10 rounded-[2.5rem] text-center border-2 transition-all backdrop-blur-sm ${botTier === 'vvip' ? 'border-yellow-500 bg-yellow-500/10' : 'border-white/10 bg-white/5'}`}><h3 className="text-2xl font-black text-yellow-500 uppercase tracking-widest">VVIP (75k Coins)</h3><p className="text-sm text-gray-400 mt-3 font-bold">Earn 5% Daily Premium Profit</p><button onClick={() => activateBot('vvip', 75000)} className={`mt-8 w-full py-5 rounded-2xl font-black uppercase tracking-widest transition-all ${botTier === 'vvip' ? 'bg-yellow-500 text-black cursor-not-allowed shadow-[0_0_20px_#eab308]' : 'bg-yellow-600 text-white shadow-xl hover:scale-105'}`}>{botTier === 'vvip' ? "RUNNING" : "ACTIVATE"}</button></div>
-       </div>
-    </div>
-)}
-
-<section className="py-20 bg-black flex justify-center px-4 border-y border-white/5 transition-all backdrop-blur-md"><img src="/founder_card.jpg" className="w-full max-w-4xl rounded-[3rem] shadow-[0_20px_60px_rgba(0,0,0,0.9)] hover:scale-[1.01] transition-all border border-white/5" alt="Founder" /></section>
-
-    <footer className="bg-black py-24 px-10 border-t border-white/5 text-center flex flex-col items-center relative overflow-hidden">
-        <div className="absolute inset-0 opacity-10 bg-[url('/logo.png')] bg-center bg-no-repeat bg-contain pointer-events-none scale-150"></div>
-        <div className="text-7xl md:text-[10rem] font-black italic text-cyan-400 drop-shadow-[0_0_50px_rgba(6,182,212,0.3)] mb-12 uppercase tracking-tighter relative z-10">AJ STUDIO</div>
-        <div className="flex justify-center gap-12 mb-20 relative z-10">
-            <a href="https://wa.me/96878994093" target="_blank" className="text-green-500 border-2 border-green-500 px-10 py-3 rounded-full font-black uppercase hover:bg-green-500 hover:text-black transition-all shadow-xl text-sm tracking-widest text-white">Whatsapp</a>
-            <a href="https://x.com/Ali20352061" target="_blank" className="text-white border-2 border-white px-10 py-3 rounded-full font-black uppercase hover:bg-white hover:text-black transition-all shadow-xl text-sm tracking-widest text-white">X (Twitter)</a>
+            ) : (
+                <div className="flex-1 flex flex-col h-full w-full">
+                    <div className="w-full bg-black h-16 flex items-center px-8 border-b border-white/10 shrink-0 shadow-2xl relative z-10">
+                        <button onClick={() => setSelectedGame(null)} className="text-cyan-400 font-black text-xs uppercase tracking-[0.3em] hover:brightness-150 transition-all italic">← TERMINATE SESSION</button>
+                        <div className="flex-1 text-center font-black uppercase text-[10px] text-white/30 italic tracking-[0.5em]">{selectedGame} • SECURE PROTOCOL ACTIVE</div>
+                    </div>
+                    <iframe src={`/games/${selectedGame.toLowerCase().replace(/ /g, '-')}/index.html`} className="w-full h-full border-none flex-1 bg-black" title="Game" />
+                </div>
+            )}
         </div>
-        <button onClick={() => { const link = document.createElement('a'); link.href = '/aj-portal.apk'; link.download = 'aj-portal.apk'; link.click(); }} className="group relative px-16 py-6 bg-cyan-500 text-black font-black uppercase rounded-full shadow-[0_0_60px_#06b6d4] animate-pulse transition-all hover:scale-110 relative z-10 mb-16">
-            <span className="relative z-20 flex items-center gap-3 font-black tracking-[0.4em] text-xl text-black"><Download size={28} /> Install AJ App</span>
-            <div className="absolute inset-0 bg-white/30 group-hover:translate-x-full transition-transform duration-700 -skew-x-12 z-10"></div>
+    )}
+
+    {/* FOOTER */}
+    <footer className="bg-black py-40 px-10 border-t-2 border-white/5 text-center flex flex-col items-center relative overflow-hidden mt-10">
+        <div className="absolute inset-0 opacity-10 bg-[url('/logo.png')] bg-center bg-no-repeat bg-contain pointer-events-none scale-150 grayscale"></div>
+        <div className="text-7xl md:text-[11rem] font-black italic text-cyan-400 drop-shadow-[0_0_60px_rgba(6,182,212,0.4)] mb-16 uppercase tracking-tighter relative z-10 select-none">AJ STUDIO</div>
+        
+        <div className="flex flex-col items-center gap-8 mb-24 relative z-10">
+            {/* CEO GMAIL LINK */}
+            <a href="mailto:ajcreatorstudio.hq@gmail.com" className="flex items-center gap-5 bg-white/5 px-12 py-5 rounded-[2rem] border-2 border-cyan-500/20 hover:border-cyan-500 transition-all group shadow-2xl backdrop-blur-md">
+                <Mail className="text-cyan-400 group-hover:scale-125 transition-transform" size={30} />
+                <span className="font-black text-sm md:text-lg tracking-widest text-white uppercase italic">ajcreatorstudio.hq@gmail.com</span>
+            </a>
+            <div className="flex justify-center gap-10">
+                <a href="https://wa.me/96878994093" target="_blank" className="text-green-500 border-2 border-green-500/30 px-10 py-4 rounded-full font-black uppercase hover:bg-green-500 hover:text-black transition-all shadow-xl text-xs tracking-[0.2em]">WhatsApp</a>
+                <a href="https://x.com/Ali20352061" target="_blank" className="text-white border-2 border-white/30 px-10 py-4 rounded-full font-black uppercase hover:bg-white hover:text-black transition-all shadow-xl text-xs tracking-[0.2em]">Twitter (X)</a>
+            </div>
+        </div>
+
+        <button onClick={() => { const link = document.createElement('a'); link.href = '/aj-portal.apk'; link.download = 'aj-portal.apk'; link.click(); }} className="group relative px-20 py-8 bg-cyan-500 text-black font-black uppercase rounded-full shadow-[0_0_80px_#06b6d4] animate-pulse transition-all hover:scale-110 relative z-10 mb-20 border-b-8 border-cyan-800">
+            <span className="relative z-20 flex items-center gap-4 font-black tracking-[0.4em] text-2xl"><Download size={32} /> Install AJ App</span>
         </button>
 
-        <div className="mt-12 pt-12 border-t border-white/10 w-full relative z-10 text-center">
-            {/* GLOWING COPYRIGHT NOTICE */}
-            <p className="text-[10px] md:text-xs text-cyan-400 font-black uppercase tracking-[0.4em] leading-relaxed max-w-3xl mx-auto drop-shadow-[0_0_8px_#06b6d4] animate-pulse">
-                © 2026 AJ CREATOR STUDIO. All Rights Reserved. 
+        <div className="mt-12 pt-12 border-t-2 border-white/5 w-full relative z-10 text-center">
+            <p className="text-[10px] md:text-xs text-cyan-400 font-black uppercase tracking-[0.5em] leading-relaxed max-w-4xl mx-auto drop-shadow-[0_0_10px_#06b6d4] animate-pulse italic">
+                © 2026 AJ CREATOR STUDIO. ALL RIGHTS RESERVED. 
                 <br/> 
-                Unauthorized copying, distribution, or decompilation of this portal and its games is strictly prohibited and subject to legal action globally.
+                UNAUTHORIZED COPYING OR DECOMPILATION IS STRICTLY PROHIBITED.
             </p>
         </div>
     </footer>
+
+    {/* CALL CONTAINER */}
+    {socialScreen === 'in_call' && <div id="call-container" className="fixed inset-0 z-[3000] bg-black"></div>}
+    
+    {/* NOTIFICATION MODAL */}
+    {showNotifModal && (
+        <div className="fixed inset-0 z-[2000] bg-black/80 backdrop-blur-md flex items-center justify-center p-6">
+            <div className="w-full max-w-sm bg-[#111] border-2 border-cyan-500/30 rounded-[3rem] p-8 shadow-2xl">
+                <div className="flex justify-between items-center mb-8"><h3 className="text-xl font-black text-cyan-400 uppercase italic">Notifications</h3><X className="text-gray-500 cursor-pointer" onClick={() => setShowNotifModal(false)}/></div>
+                <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
+                    {notifications.map((n, i) => (
+                        <div key={i} className="bg-white/5 p-4 rounded-2xl border border-white/5">
+                            <p className="text-xs font-black text-white uppercase mb-1 tracking-tight">{n.title || "Portal Update"}</p>
+                            <p className="text-[10px] text-gray-400 font-medium italic">{n.message || "New content added to AJ Super Portal!"}</p>
+                        </div>
+                    ))}
+                    {notifications.length === 0 && <p className="text-center text-gray-600 text-[10px] italic py-10 uppercase tracking-widest">No new notifications</p>}
+                </div>
+            </div>
+        </div>
+    )}
 </main>
 );
 }
