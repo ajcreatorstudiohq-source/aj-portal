@@ -269,7 +269,7 @@
     }
 
     function updateUIDisplays() {
-        const ajVal = (totalCrystals * 0.003).toFixed(3);
+        const ajVal = (totalCrystals * 0.01 ).toFixed(3);
         if(document.getElementById('bestRecord')) document.getElementById('bestRecord').innerText = bestScore;
         if(document.getElementById('mainAJDisplay')) document.getElementById('mainAJDisplay').innerText = ajVal;
         if(document.getElementById('shopCrystals')) document.getElementById('shopCrystals').innerText = totalCrystals;
@@ -282,7 +282,7 @@
         if(window.AJ_SDK) {
             window.AJ_SDK.addBalance({
                 game_coins: totalCrystals,
-                aj_net: (totalCrystals * 0.003),
+                aj_net: (totalCrystals * 0.01),
                 source: "Volcano Escape Sync"
             });
         }
@@ -446,7 +446,7 @@
         if(window.AJ_SDK) window.AJ_SDK.showAd(); 
         gameActive = false; if(typeof sounds !== 'undefined'){ sounds.bg.pause(); sounds.lavaBg.pause(); }
         document.getElementById('finalHeight').innerText = score;
-        document.getElementById('finalAJ').innerText = (totalCrystals * 0.003).toFixed(3);
+        document.getElementById('finalAJ').innerText = (totalCrystals * 0.01).toFixed(3);
         document.getElementById('reviveBtn').style.display = canRevive ? "block" : "none";
         document.getElementById('gameOver').classList.add('active-screen'); document.getElementById('hud').style.display = 'none';
         localStorage.setItem('volcano_crystals', totalCrystals);

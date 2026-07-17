@@ -310,7 +310,7 @@
         if(window.AJ_SDK) {
             window.AJ_SDK.addBalance({
                 game_coins: totalCoins,
-                aj_net: (totalCoins * 0.003),
+                aj_net: (totalCoins * 0.01),
                 source: "Subsea Surge Sync"
             });
         }
@@ -438,7 +438,7 @@
             if (Math.sqrt(Math.pow((sub.x+sub.w/2)-(c.x+c.s/2), 2) + Math.pow((sub.y+sub.h/2)-(c.y+c.s/2), 2)) < 65) {
                 coinsCollected++; totalCoins++; oxygen = Math.min(100, oxygen + 25);
                 document.getElementById('coinCount').innerText = coinsCollected; 
-                document.getElementById('liveAJ').innerText = (coinsCollected * 0.003).toFixed(3);
+                document.getElementById('liveAJ').innerText = (coinsCollected * 0.01).toFixed(3);
                 playSfx('coin');
                 floatTexts.push({ x: c.x, y: c.y, text: "O2 REFILL", color: "#ffd700", o: 1, isPulse: true, speed: 1 });
                 coins.splice(i, 1);
@@ -453,7 +453,7 @@
         document.getElementById('pauseBtn').style.display = 'none'; 
         document.getElementById('finalScore').innerText = coinsCollected; 
         document.getElementById('finalDepth').innerText = depth; 
-        document.getElementById('finalAJ').innerText = (coinsCollected * 0.003).toFixed(3);
+        document.getElementById('finalAJ').innerText = (coinsCollected * 0.01).toFixed(3);
         if(depth > bestDepth) { bestDepth = depth; localStorage.setItem('aj_sub_depth', bestDepth); } 
         localStorage.setItem('aj_sub_coins', totalCoins); 
         syncWithPortal();

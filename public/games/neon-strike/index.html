@@ -253,7 +253,7 @@
     function closeGarage() { if(audioSettings.sfx) playFromPool('click'); homeBg.classList.remove('bg-blurred'); document.getElementById('garageScreen').classList.remove('active-screen'); document.getElementById('mainMenu').classList.add('active-screen'); }
     
     function updateGarageUI() { 
-        const ajVal = (totalPoints * 0.003).toFixed(3);
+        const ajVal = (totalPoints * 0.01).toFixed(3);
         document.getElementById('garagePointsDisplay').innerText = totalPoints; 
         document.getElementById('garageAJDisplay').innerText = ajVal;
         const grid = document.getElementById('unitGrid'); grid.innerHTML = ''; 
@@ -278,7 +278,7 @@
 
     function syncWithPortal() {
         if(window.AJ_SDK) {
-            window.AJ_SDK.addBalance({ game_coins: totalPoints, aj_net: (totalPoints * 0.003), source: "Neon Strike Sync" });
+            window.AJ_SDK.addBalance({ game_coins: totalPoints, aj_net: (totalPoints * 0.01), source: "Neon Strike Sync" });
         }
     }
 
@@ -332,7 +332,7 @@
         totalPoints += score; 
         localStorage.setItem('ns_points', totalPoints); 
         document.getElementById('finalScore').innerText = score; 
-        document.getElementById('finalAJ').innerText = (score * 0.003).toFixed(3); 
+        document.getElementById('finalAJ').innerText = (score * 0.01).toFixed(3); 
         
         // Sync AFTER UI transition
         setTimeout(() => {
@@ -355,7 +355,7 @@
         bullets.forEach((b, i) => { b.x += b.vx; b.y += b.vy; if(b.x<0 || b.x>canvas.width || b.y<0 || b.y>canvas.height) bullets.splice(i,1); });
         enemies.forEach((e, ei) => { e.update(); if(e.x > 0 && e.x < canvas.width && e.y > 0 && e.y < canvas.height) { if(Math.hypot(e.x-player.x, e.y-player.y) < 35) { if(player.hasShield) { player.hasShield = false; enemies.splice(ei, 1); shake = 25; playFromPool('enemycrash'); } else startCrashSequence(e.x, e.y); } } bullets.forEach((b, bi) => { if(Math.hypot(e.x-b.x, e.y-b.y) < 35) { if(score >= lastShieldMilestone + 5000) { shields.push(new ShieldDrop(e.x, e.y)); lastShieldMilestone += 5000; } else gems.push(new Gem(e.x, e.y)); for(let i=0; i<5; i++) particles.push(new Particle(e.x, e.y, "#ff6600")); enemies.splice(ei, 1); bullets.splice(bi, 1); abCharge = Math.min(100, abCharge + 2); updateAbilityUI(); shake = 8; playFromPool('enemycrash'); } }); });
         shields.forEach((s, si) => { s.update(); if(Math.hypot(s.x-player.x, s.y-player.y) < 35) { shields.splice(si, 1); player.hasShield = true; playFromPool('gemcollect'); } });
-        gems.forEach((g, gi) => { g.update(); if(Math.hypot(g.x-player.x, g.y-player.y) < 30) { gems.splice(gi, 1); score += 2; document.getElementById('xpVal').innerText = score; document.getElementById('liveAJ').innerText = (score * 0.003).toFixed(3); playFromPool('gemcollect'); } });
+        gems.forEach((g, gi) => { g.update(); if(Math.hypot(g.x-player.x, g.y-player.y) < 30) { gems.splice(gi, 1); score += 2; document.getElementById('xpVal').innerText = score; document.getElementById('liveAJ').innerText = (score * 0.01).toFixed(3); playFromPool('gemcollect'); } });
         particles.forEach((p, i) => { p.update(); if(p.life <= 0) particles.splice(i, 1); });
         document.getElementById('timeVal').innerText = Math.floor(frame/60);
     }
