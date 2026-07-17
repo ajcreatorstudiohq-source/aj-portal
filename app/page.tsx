@@ -247,6 +247,15 @@ export default function AJSuperPortal() {
   // ── PULSE MUTE STATE (Prompt #4 Sound Fix) ──────────────────
   const [pulseMuted, setPulseMuted] = useState(true);
 
+  // ── LIVE STREAM CHAT (Prompt #2) ─────────────────────────
+  const [liveChatOpen,    setLiveChatOpen]    = useState(false);
+  const [liveChatInput,   setLiveChatInput]   = useState('');
+  const [liveChatMessages,setLiveChatMessages]= useState<any[]>([]);
+  const liveChatEndRef = useRef<HTMLDivElement>(null);
+
+  // ── GLOBAL SOUND TOGGLE for TikReels (Prompt #3) ─────────
+  const [globalSoundOn, setGlobalSoundOn] = useState(false);
+
   // ── WECHAT CONTACTS (per-user Firestore) ────────────────────
   const [wechatContacts, setWechatContacts] = useState<string[]>([]);
   const [addContactOpen, setAddContactOpen] = useState(false);
@@ -321,8 +330,8 @@ export default function AJSuperPortal() {
       const rooms = snap.docs
         .map(d => ({ id:d.id, ...d.data() }))
         .filter((r:any) => {
-          if (!r.lastSeenMs) return true; // legacy rooms shown briefly
-          return (now - r.lastSeenMs) < 60000; // only rooms active in last 60s
+          if (!r.lastSeenMs) return false; // hide legacy rooms — no heartbeat
+          return (now - r.lastSeenMs) < 30000; // ghost filter: 30s window
         });
       setLiveNowList(rooms);
     });
@@ -433,6 +442,36 @@ export default function AJSuperPortal() {
     }, 1000);
     return () => { if (pkTimerRef.current) clearInterval(pkTimerRef.current); };
   }, [pkActive]);
+
+  // Live Chat listener — reads from live_rooms/[roomID]/messages (Prompt #2)
+  useEffect(() => {
+    if (!liveActive || !liveRoomId) return;
+    const q = query(
+      collection(db,'live_rooms',liveRoomId,'messages'),
+      orderBy('createdAt','asc'), limit(60)
+    );
+    const unsub = onSnapshot(q, snap => {
+      const msgs = snap.docs.map(d => ({id:d.id,...d.data()}));
+      setLiveChatMessages(msgs);
+      setTimeout(() => liveChatEndRef.current?.scrollIntoView({ behavior:'smooth' }), 100);
+    });
+    return () => unsub();
+  }, [liveActive, liveRoomId]);
+
+  // ==========================================================
+  // SEND LIVE CHAT MESSAGE (Prompt #2)
+  // ==========================================================
+  const sendLiveChatMessage = async () => {
+    if (!liveChatInput.trim() || !liveRoomId || !user) return;
+    await addDoc(collection(db,'live_rooms',liveRoomId,'messages'), {
+      text:     liveChatInput.trim(),
+      uid:      user.uid,
+      username: username || 'AJ_Member',
+      photo:    tempPhoto || user.photoURL || '',
+      createdAt:serverTimestamp()
+    });
+    setLiveChatInput('');
+  };
 
   // ==========================================================
   // GO LIVE — REAL CAMERA (Agora.io integration point)
@@ -873,27 +912,280 @@ export default function AJSuperPortal() {
     setReferralCode('');
   };
 
-  // AI assistant
+  // ══════════════════════════════════════════════════════════════════
+  // AI TRADING BOT — UNIVERSAL LANGUAGE SUPPORT
+  // System Prompt: "You are a global multilingual assistant. Automatically
+  // detect the user's language (Urdu, English, Arabic, French, Spanish,
+  // Hindi, etc.) from their message and ALWAYS respond in that same language.
+  // Do not limit yourself to any specific list of languages."
+  // ══════════════════════════════════════════════════════════════════
+
+  // ── Universal language detector ───────────────────────────────────────
+  const detectLanguage = (text: string): string => {
+    // 1. Script-based detection (most reliable)
+    if (/[\u0600-\u06FF]/.test(text)) {
+      // Arabic-script family — distinguish by unique chars/words
+      if (/[\u0679\u0688\u0691\u06BE\u06C1\u06CC\u06D2]/.test(text) ||
+          /کوئن|پیسہ|نکالنا|لائیو|ریفرل|خریدنا|تحفہ|سکے|بیلنس/.test(text))
+        return 'ur'; // Urdu
+      if (/[\u067E\u0686\u0698\u06AF]/.test(text) && /فارسی|ایران|ریال/.test(text))
+        return 'fa'; // Persian/Farsi
+      return 'ar'; // Arabic
+    }
+    if (/[\u0900-\u097F]/.test(text)) return 'hi'; // Hindi / Devanagari
+    if (/[\u0980-\u09FF]/.test(text)) return 'bn'; // Bengali
+    if (/[\u0A00-\u0A7F]/.test(text)) return 'pa'; // Punjabi (Gurmukhi)
+    if (/[\u0400-\u04FF]/.test(text)) return 'ru'; // Russian / Cyrillic
+    if (/[\u4E00-\u9FFF]/.test(text)) return 'zh'; // Chinese
+    if (/[\u3040-\u30FF]/.test(text)) return 'ja'; // Japanese
+    if (/[\uAC00-\uD7AF]/.test(text)) return 'ko'; // Korean
+    if (/[\u0E00-\u0E7F]/.test(text)) return 'th'; // Thai
+    if (/[\u0370-\u03FF]/.test(text)) return 'el'; // Greek
+    if (/[\u0590-\u05FF]/.test(text)) return 'he'; // Hebrew
+
+    // 2. Keyword-based detection for Latin-script languages
+    const q = text.toLowerCase();
+    if (/\b(bonjour|merci|monnaie|retirer|acheter|cadeau|combien|comment)\b/.test(q)) return 'fr';   // French
+    if (/\b(hola|gracias|moneda|retirar|comprar|regalo|cuánto|cómo)\b/.test(q))        return 'es';   // Spanish
+    if (/\b(ciao|grazie|moneta|ritirare|comprare|regalo|quanto|come)\b/.test(q))       return 'it';   // Italian
+    if (/\b(olá|obrigado|moeda|retirar|comprar|presente|quanto|como)\b/.test(q))       return 'pt';   // Portuguese
+    if (/\b(hallo|danke|münze|auszahlen|kaufen|geschenk|wieviel|wie)\b/.test(q))       return 'de';   // German
+    if (/\b(merhaba|teşekkür|madeni|çekmek|satın|hediye|kadar|nasıl)\b/.test(q))      return 'tr';   // Turkish
+    if (/\b(привет|спасибо|монета|вывести|купить|подарок|сколько|как)\b/.test(q))      return 'ru';   // Russian keywords
+    if (/\b(halo|terima|koin|tarik|beli|hadiah|berapa|bagaimana)\b/.test(q))           return 'id';   // Indonesian
+    if (/\b(xin chào|cảm ơn|đồng xu|rút tiền|mua|quà tặng)\b/.test(q))               return 'vi';   // Vietnamese
+    if (/\b(شکریہ|آپ|ہے|کیا|کیسے|میں|آپ کا)\b/.test(q))                              return 'ur';   // Urdu romanized-ish
+
+    // 3. Browser locale fallback
+    const locale = (navigator?.language || 'en').split('-')[0].toLowerCase();
+    const supported = ['fr','es','de','it','pt','tr','ru','id','vi','ar','hi','bn','zh','ja','ko','pa','ur','fa','th','el','he'];
+    if (supported.includes(locale)) return locale;
+
+    return 'en'; // Default: English
+  };
+
+  // ── Response templates — all languages, all topics ────────────────────
+  const BOT_REPLIES: Record<string, Record<string, string>> = {
+    coin: {
+      en: `🪙 Rate: $1 = ${COIN_RATE} AJ Coins.\nEarn: Post (+0.75), Referral (+15), AI Bot profits.`,
+      ur: `🪙 شرح: $1 = ${COIN_RATE} AJ Coins\nکمائیں: پوسٹ (+0.75)، ریفرل (+15)، AI Bot منافع`,
+      ar: `🪙 السعر: $1 = ${COIN_RATE} AJ Coins\nاكسب: النشر (+0.75)، الإحالات (+15)، أرباح الروبوت`,
+      hi: `🪙 दर: $1 = ${COIN_RATE} AJ Coins\nकमाएं: पोस्ट (+0.75), रेफरल (+15), AI Bot मुनाफा`,
+      bn: `🪙 রেট: $1 = ${COIN_RATE} AJ Coins\nআয়: পোস্ট (+0.75), রেফারেল (+15), AI Bot লাভ`,
+      pa: `🪙 ਦਰ: $1 = ${COIN_RATE} AJ Coins\nਕਮਾਓ: ਪੋਸਟ (+0.75), ਰੈਫਰਲ (+15), AI Bot ਮੁਨਾਫਾ`,
+      fr: `🪙 Taux: $1 = ${COIN_RATE} AJ Coins\nGagnez: Post (+0.75), Parrainage (+15), profits AI Bot`,
+      es: `🪙 Tasa: $1 = ${COIN_RATE} AJ Coins\nGana: Post (+0.75), Referido (+15), ganancias AI Bot`,
+      de: `🪙 Kurs: $1 = ${COIN_RATE} AJ Coins\nVerdiene: Post (+0.75), Empfehlung (+15), AI Bot Gewinn`,
+      it: `🪙 Tasso: $1 = ${COIN_RATE} AJ Coins\nGuadagna: Post (+0.75), Referral (+15), profitti AI Bot`,
+      pt: `🪙 Taxa: $1 = ${COIN_RATE} AJ Coins\nGanhe: Post (+0.75), Indicação (+15), lucros AI Bot`,
+      tr: `🪙 Oran: $1 = ${COIN_RATE} AJ Coins\nKazan: Post (+0.75), Referans (+15), AI Bot kazancı`,
+      ru: `🪙 Курс: $1 = ${COIN_RATE} AJ Coins\nЗаработок: Пост (+0.75), Реферал (+15), прибыль AI Bot`,
+      id: `🪙 Kurs: $1 = ${COIN_RATE} AJ Coins\nCara Earn: Post (+0.75), Referral (+15), keuntungan AI Bot`,
+      vi: `🪙 Tỷ giá: $1 = ${COIN_RATE} AJ Coins\nKiếm: Đăng (+0.75), Giới thiệu (+15), lợi nhuận AI Bot`,
+      zh: `🪙 汇率：$1 = ${COIN_RATE} AJ Coins\n赚取：发帖 (+0.75)、推荐 (+15)、AI Bot 利润`,
+      ja: `🪙 レート：$1 = ${COIN_RATE} AJ Coins\n獲得：投稿 (+0.75)、紹介 (+15)、AIボット利益`,
+      ko: `🪙 비율: $1 = ${COIN_RATE} AJ Coins\n획득: 게시물 (+0.75), 추천 (+15), AI Bot 수익`,
+      fa: `🪙 نرخ: $1 = ${COIN_RATE} AJ Coins\nکسب کنید: پست (+0.75)، معرفی (+15)، سود ربات`,
+      th: `🪙 อัตรา: $1 = ${COIN_RATE} AJ Coins\nรับ: โพสต์ (+0.75), แนะนำ (+15), กำไร AI Bot`,
+      el: `🪙 Τιμή: $1 = ${COIN_RATE} AJ Coins\nΚέρδος: Ανάρτηση (+0.75), Παραπομπή (+15), κέρδη AI Bot`,
+      he: `🪙 שער: $1 = ${COIN_RATE} AJ Coins\nהשתכר: פוסט (+0.75), הפניה (+15), רווחי AI Bot`,
+    },
+    refer: {
+      en: `👥 Refer & Earn: Share your User ID.\nSomeone enters it → You get +15 Coins (30% share)!`,
+      ur: `👥 ریفر اور کمائیں: اپنا User ID شیئر کریں\nکوئی داخل کرے → +15 Coins (30% حصہ)!`,
+      ar: `👥 الإحالة والكسب: شارك معرّفك\nعند إدخاله → +15 Coins (30%)!`,
+      hi: `👥 रेफर और कमाएं: अपना User ID शेयर करें\nकोई डाले → +15 Coins (30% हिस्सा)!`,
+      bn: `👥 রেফার করুন: আপনার User ID শেয়ার করুন\nকেউ প্রবেশ করলে → +15 Coins (30%)!`,
+      pa: `👥 ਰੈਫਰ ਕਰੋ: ਆਪਣਾ User ID ਸ਼ੇਅਰ ਕਰੋ\nਕੋਈ ਦਾਖਲ ਕਰੇ → +15 Coins (30%)!`,
+      fr: `👥 Parrainage: Partagez votre ID.\nQuelqu'un l'entre → Vous recevez +15 Coins (30%)!`,
+      es: `👥 Referidos: Comparte tu ID.\nAlguien lo ingresa → +15 Coins (30%)!`,
+      de: `👥 Empfehlung: Teile deine ID.\nJemand gibt sie ein → +15 Coins (30%)!`,
+      it: `👥 Referral: Condividi il tuo ID.\nQualcuno lo inserisce → +15 Coins (30%)!`,
+      pt: `👥 Indicação: Compartilhe seu ID.\nAlguém insere → +15 Coins (30%)!`,
+      tr: `👥 Referans: ID'ni paylaş.\nBiri girerse → +15 Coins (30%)!`,
+      ru: `👥 Реферал: Поделись своим ID.\nКто-то вводит → +15 монет (30%)!`,
+      id: `👥 Referral: Bagikan ID kamu.\nSeseorang memasukkan → +15 Coins (30%)!`,
+      vi: `👥 Giới thiệu: Chia sẻ ID của bạn.\nAi đó nhập → +15 Coins (30%)!`,
+      zh: `👥 推荐好友：分享您的 ID\n有人输入 → +15 Coins (30%)！`,
+      ja: `👥 紹介：あなたのIDを共有\n誰かが入力 → +15 Coins (30%)！`,
+      ko: `👥 추천: ID를 공유하세요\n누군가 입력 → +15 Coins (30%)!`,
+      fa: `👥 معرفی: شناسه خود را به اشتراک بگذارید\nاگر کسی وارد کند → +15 Coins (30%)!`,
+      th: `👥 แนะนำ: แชร์ User ID ของคุณ\nมีคนกรอก → +15 Coins (30%)!`,
+      el: `👥 Παραπομπή: Μοιράσου το ID σου\nΚάποιος το εισάγει → +15 Coins (30%)!`,
+      he: `👥 הפניה: שתף את ה-ID שלך\nמישהו מזין → +15 Coins (30%)!`,
+    },
+    withdraw: {
+      en: `💸 Min Withdrawal: ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE}).\nMethods: EasyPaisa, JazzCash, Binance USDT TRC20, AirTM, Bank Transfer.`,
+      ur: `💸 کم از کم نکاسی: ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE})\nطریقے: EasyPaisa، JazzCash، Binance USDT، AirTM، Bank`,
+      ar: `💸 الحد الأدنى: ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE})\nطرق: EasyPaisa، JazzCash، Binance USDT، AirTM، تحويل بنكي`,
+      hi: `💸 न्यूनतम निकासी: ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE})\nतरीके: EasyPaisa, JazzCash, Binance USDT, AirTM, Bank`,
+      bn: `💸 সর্বনিম্ন উত্তোলন: ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE})\nপদ্ধতি: EasyPaisa, JazzCash, Binance USDT, AirTM, Bank`,
+      pa: `💸 ਘੱਟੋ ਘੱਟ ਕਢਵਾਉਣਾ: ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE})\nਤਰੀਕੇ: EasyPaisa, JazzCash, Binance, AirTM, Bank`,
+      fr: `💸 Retrait minimum: ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE})\nMéthodes: EasyPaisa, JazzCash, Binance USDT, AirTM, Virement`,
+      es: `💸 Retiro mínimo: ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE})\nMétodos: EasyPaisa, JazzCash, Binance USDT, AirTM, Banco`,
+      de: `💸 Min. Auszahlung: ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE})\nMethoden: EasyPaisa, JazzCash, Binance USDT, AirTM, Banküberweisung`,
+      it: `💸 Prelievo minimo: ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE})\nMetodi: EasyPaisa, JazzCash, Binance USDT, AirTM, Banca`,
+      pt: `💸 Saque mínimo: ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE})\nMétodos: EasyPaisa, JazzCash, Binance USDT, AirTM, Banco`,
+      tr: `💸 Min. Çekim: ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE})\nYöntemler: EasyPaisa, JazzCash, Binance USDT, AirTM, Banka`,
+      ru: `💸 Мин. вывод: ${WITHDRAW_MIN.toLocaleString()} монет ($${WITHDRAW_MIN/CASH_RATE})\nСпособы: EasyPaisa, JazzCash, Binance USDT, AirTM, Банк`,
+      id: `💸 Min. Penarikan: ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE})\nMetode: EasyPaisa, JazzCash, Binance USDT, AirTM, Bank`,
+      vi: `💸 Rút tối thiểu: ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE})\nPhương thức: EasyPaisa, JazzCash, Binance USDT, AirTM, Ngân hàng`,
+      zh: `💸 最低提款：${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE})\n方式：EasyPaisa、JazzCash、Binance USDT、AirTM、银行转账`,
+      ja: `💸 最低出金：${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE})\n方法：EasyPaisa、JazzCash、Binance USDT、AirTM、銀行振込`,
+      ko: `💸 최소 출금: ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE})\n방법: EasyPaisa, JazzCash, Binance USDT, AirTM, 은행`,
+      fa: `💸 حداقل برداشت: ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE})\nروش‌ها: EasyPaisa، JazzCash، Binance USDT، AirTM، بانک`,
+      th: `💸 ถอนขั้นต่ำ: ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE})\nวิธี: EasyPaisa, JazzCash, Binance USDT, AirTM, ธนาคาร`,
+      el: `💸 Ελάχιστη ανάληψη: ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE})\nΤρόποι: EasyPaisa, JazzCash, Binance USDT, AirTM, Τράπεζα`,
+      he: `💸 משיכה מינימלית: ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE})\nשיטות: EasyPaisa, JazzCash, Binance USDT, AirTM, בנק`,
+    },
+    buy: {
+      en: `💰 Min Purchase: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins.\nRate: $1 = ${COIN_RATE} AJ Coins.`,
+      ur: `💰 کم از کم خریداری: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\nشرح: $1 = ${COIN_RATE} AJ Coins`,
+      ar: `💰 الحد الأدنى للشراء: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\n$1 = ${COIN_RATE} AJ Coins`,
+      hi: `💰 न्यूनतम खरीद: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\nदर: $1 = ${COIN_RATE} AJ Coins`,
+      bn: `💰 সর্বনিম্ন ক্রয়: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\nহার: $1 = ${COIN_RATE} AJ Coins`,
+      pa: `💰 ਘੱਟੋ ਘੱਟ ਖਰੀਦ: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\nਦਰ: $1 = ${COIN_RATE} AJ Coins`,
+      fr: `💰 Achat minimum: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\nTaux: $1 = ${COIN_RATE} AJ Coins`,
+      es: `💰 Compra mínima: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\nTasa: $1 = ${COIN_RATE} AJ Coins`,
+      de: `💰 Mindesteinkauf: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\nKurs: $1 = ${COIN_RATE} AJ Coins`,
+      it: `💰 Acquisto minimo: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\nTasso: $1 = ${COIN_RATE} AJ Coins`,
+      pt: `💰 Compra mínima: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\nTaxa: $1 = ${COIN_RATE} AJ Coins`,
+      tr: `💰 Min. Satın Alma: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\nOran: $1 = ${COIN_RATE} AJ Coins`,
+      ru: `💰 Мин. покупка: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} монет\nКурс: $1 = ${COIN_RATE} AJ Coins`,
+      id: `💰 Pembelian Min.: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\nKurs: $1 = ${COIN_RATE} AJ Coins`,
+      vi: `💰 Mua tối thiểu: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\nTỷ giá: $1 = ${COIN_RATE} AJ Coins`,
+      zh: `💰 最低购买：$${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\n汇率：$1 = ${COIN_RATE} AJ Coins`,
+      ja: `💰 最低購入：$${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\nレート：$1 = ${COIN_RATE} AJ Coins`,
+      ko: `💰 최소 구매: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\n비율: $1 = ${COIN_RATE} AJ Coins`,
+      fa: `💰 حداقل خرید: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\nنرخ: $1 = ${COIN_RATE} AJ Coins`,
+      th: `💰 ซื้อขั้นต่ำ: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\nอัตรา: $1 = ${COIN_RATE} AJ Coins`,
+      el: `💰 Ελάχιστη αγορά: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\nΤιμή: $1 = ${COIN_RATE} AJ Coins`,
+      he: `💰 רכישה מינימלית: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\nשער: $1 = ${COIN_RATE} AJ Coins`,
+    },
+    live: {
+      en: `📡 Go Live: Social Hub → GO LIVE. Viewers send gifts — you keep 60%! Agora HD streaming.`,
+      ur: `📡 لائیو جائیں: Social Hub → GO LIVE\nناظرین تحفے بھیجیں — آپ 60% رکھیں! Agora HD`,
+      ar: `📡 ابدأ البث: Social Hub → GO LIVE\nالمشاهدون يرسلون الهدايا — 60% لك! Agora HD`,
+      hi: `📡 लाइव जाएं: Social Hub → GO LIVE\nदर्शक उपहार भेजें — आप 60% रखें! Agora HD`,
+      bn: `📡 লাইভ যান: Social Hub → GO LIVE\nদর্শকরা উপহার পাঠায় — আপনি 60% রাখুন! Agora HD`,
+      pa: `📡 ਲਾਈਵ ਜਾਓ: Social Hub → GO LIVE\nਦਰਸ਼ਕ ਤੋਹਫੇ ਭੇਜਦੇ — ਤੁਸੀਂ 60% ਰੱਖੋ! Agora HD`,
+      fr: `📡 Allez en direct: Social Hub → GO LIVE\nLes spectateurs envoient des cadeaux — gardez 60%! Agora HD`,
+      es: `📡 En vivo: Social Hub → GO LIVE\nLos espectadores envían regalos — ¡te quedas el 60%! Agora HD`,
+      de: `📡 Live gehen: Social Hub → GO LIVE\nZuschauer senden Geschenke — behalte 60%! Agora HD`,
+      it: `📡 Vai in diretta: Social Hub → GO LIVE\nGli spettatori inviano regali — tieni il 60%! Agora HD`,
+      pt: `📡 Ao vivo: Social Hub → GO LIVE\nEspectadores enviam presentes — fique com 60%! Agora HD`,
+      tr: `📡 Canlıya Geç: Social Hub → GO LIVE\nİzleyiciler hediye gönderir — %60'ı al! Agora HD`,
+      ru: `📡 Выйти в эфир: Social Hub → GO LIVE\nЗрители шлют подарки — оставляй 60%! Agora HD`,
+      id: `📡 Live: Social Hub → GO LIVE\nPenonton kirim hadiah — kamu dapat 60%! Agora HD`,
+      vi: `📡 Phát trực tiếp: Social Hub → GO LIVE\nNgười xem gửi quà — bạn giữ 60%! Agora HD`,
+      zh: `📡 开直播: Social Hub → GO LIVE\n观众送礼物 — 您保留 60%！Agora HD`,
+      ja: `📡 ライブ配信: Social Hub → GO LIVE\n視聴者がギフト送信 — 60%があなたのもの！Agora HD`,
+      ko: `📡 라이브: Social Hub → GO LIVE\n시청자가 선물 보내기 — 60% 보유! Agora HD`,
+      fa: `📡 زنده بروید: Social Hub → GO LIVE\nبینندگان هدیه می‌فرستند — 60% برای شماست! Agora HD`,
+      th: `📡 ไลฟ์: Social Hub → GO LIVE\nผู้ชมส่งของขวัญ — คุณเก็บ 60%! Agora HD`,
+      el: `📡 Πήγαινε Live: Social Hub → GO LIVE\nΟι θεατές στέλνουν δώρα — κρατάς 60%! Agora HD`,
+      he: `📡 שידור חי: Social Hub → GO LIVE\nצופים שולחים מתנות — אתה שומר 60%! Agora HD`,
+    },
+    gift: {
+      en: `🎁 Gifts:\n☕ Coffee 500🪙 | 🍕 Pizza 1000🪙 | ❤️ Heart 2500🪙\n🏎️ Car 5000🪙 | 🛩️ Jet 8000🪙 | 🏰 Mansion 10000🪙`,
+      ur: `🎁 تحفے:\n☕ کافی 500🪙 | 🍕 پیزا 1000🪙 | ❤️ دل 2500🪙\n🏎️ گاڑی 5000🪙 | 🛩️ جیٹ 8000🪙 | 🏰 محل 10000🪙`,
+      ar: `🎁 الهدايا:\n☕ قهوة 500🪙 | 🍕 بيتزا 1000🪙 | ❤️ قلب 2500🪙\n🏎️ سيارة 5000🪙 | 🛩️ طائرة 8000🪙 | 🏰 قصر 10000🪙`,
+      hi: `🎁 उपहार:\n☕ कॉफी 500🪙 | 🍕 पिज़्ज़ा 1000🪙 | ❤️ हार्ट 2500🪙\n🏎️ कार 5000🪙 | 🛩️ जेट 8000🪙 | 🏰 महल 10000🪙`,
+      bn: `🎁 উপহার:\n☕ কফি 500🪙 | 🍕 পিজা 1000🪙 | ❤️ হৃদয় 2500🪙\n🏎️ গাড়ি 5000🪙 | 🛩️ জেট 8000🪙 | 🏰 প্রাসাদ 10000🪙`,
+      pa: `🎁 ਤੋਹਫੇ:\n☕ ਕੌਫੀ 500🪙 | 🍕 ਪਿੱਜ਼ਾ 1000🪙 | ❤️ ਦਿਲ 2500🪙\n🏎️ ਕਾਰ 5000🪙 | 🛩️ ਜੈੱਟ 8000🪙 | 🏰 ਮਹਿਲ 10000🪙`,
+      fr: `🎁 Cadeaux:\n☕ Café 500🪙 | 🍕 Pizza 1000🪙 | ❤️ Cœur 2500🪙\n🏎️ Voiture 5000🪙 | 🛩️ Jet 8000🪙 | 🏰 Manoir 10000🪙`,
+      es: `🎁 Regalos:\n☕ Café 500🪙 | 🍕 Pizza 1000🪙 | ❤️ Corazón 2500🪙\n🏎️ Auto 5000🪙 | 🛩️ Jet 8000🪙 | 🏰 Mansión 10000🪙`,
+      de: `🎁 Geschenke:\n☕ Kaffee 500🪙 | 🍕 Pizza 1000🪙 | ❤️ Herz 2500🪙\n🏎️ Auto 5000🪙 | 🛩️ Jet 8000🪙 | 🏰 Villa 10000🪙`,
+      it: `🎁 Regali:\n☕ Caffè 500🪙 | 🍕 Pizza 1000🪙 | ❤️ Cuore 2500🪙\n🏎️ Auto 5000🪙 | 🛩️ Jet 8000🪙 | 🏰 Villa 10000🪙`,
+      pt: `🎁 Presentes:\n☕ Café 500🪙 | 🍕 Pizza 1000🪙 | ❤️ Coração 2500🪙\n🏎️ Carro 5000🪙 | 🛩️ Jato 8000🪙 | 🏰 Mansão 10000🪙`,
+      tr: `🎁 Hediyeler:\n☕ Kahve 500🪙 | 🍕 Pizza 1000🪙 | ❤️ Kalp 2500🪙\n🏎️ Araba 5000🪙 | 🛩️ Jet 8000🪙 | 🏰 Köşk 10000🪙`,
+      ru: `🎁 Подарки:\n☕ Кофе 500🪙 | 🍕 Пицца 1000🪙 | ❤️ Сердце 2500🪙\n🏎️ Авто 5000🪙 | 🛩️ Джет 8000🪙 | 🏰 Особняк 10000🪙`,
+      id: `🎁 Hadiah:\n☕ Kopi 500🪙 | 🍕 Pizza 1000🪙 | ❤️ Hati 2500🪙\n🏎️ Mobil 5000🪙 | 🛩️ Jet 8000🪙 | 🏰 Mansion 10000🪙`,
+      vi: `🎁 Quà tặng:\n☕ Cà phê 500🪙 | 🍕 Pizza 1000🪙 | ❤️ Tim 2500🪙\n🏎️ Xe hơi 5000🪙 | 🛩️ Máy bay 8000🪙 | 🏰 Dinh thự 10000🪙`,
+      zh: `🎁 礼物：\n☕ 咖啡 500🪙 | 🍕 披萨 1000🪙 | ❤️ 爱心 2500🪙\n🏎️ 跑车 5000🪙 | 🛩️ 飞机 8000🪙 | 🏰 豪宅 10000🪙`,
+      ja: `🎁 ギフト：\n☕ コーヒー 500🪙 | 🍕 ピザ 1000🪙 | ❤️ ハート 2500🪙\n🏎️ 車 5000🪙 | 🛩️ ジェット 8000🪙 | 🏰 邸宅 10000🪙`,
+      ko: `🎁 선물:\n☕ 커피 500🪙 | 🍕 피자 1000🪙 | ❤️ 하트 2500🪙\n🏎️ 자동차 5000🪙 | 🛩️ 제트기 8000🪙 | 🏰 저택 10000🪙`,
+      fa: `🎁 هدایا:\n☕ قهوه 500🪙 | 🍕 پیتزا 1000🪙 | ❤️ قلب 2500🪙\n🏎️ ماشین 5000🪙 | 🛩️ جت 8000🪙 | 🏰 کاخ 10000🪙`,
+      th: `🎁 ของขวัญ:\n☕ กาแฟ 500🪙 | 🍕 พิซซ่า 1000🪙 | ❤️ หัวใจ 2500🪙\n🏎️ รถ 5000🪙 | 🛩️ เจ็ต 8000🪙 | 🏰 คฤหาสน์ 10000🪙`,
+      el: `🎁 Δώρα:\n☕ Καφές 500🪙 | 🍕 Πίτσα 1000🪙 | ❤️ Καρδιά 2500🪙\n🏎️ Αμάξι 5000🪙 | 🛩️ Τζετ 8000🪙 | 🏰 Έπαυλη 10000🪙`,
+      he: `🎁 מתנות:\n☕ קפה 500🪙 | 🍕 פיצה 1000🪙 | ❤️ לב 2500🪙\n🏎️ מכונית 5000🪙 | 🛩️ ג'ט 8000🪙 | 🏰 ארמון 10000🪙`,
+    },
+    pk: {
+      en: `⚔️ PK Battle: Go Live → PK Challenge → Enter rival ID.\n100 Coins each. 5-min timer! Most gifts = Winner 🏆`,
+      ur: `⚔️ PK Battle: لائیو → PK Challenge → حریف ID ڈالیں\nہر ایک سے 100 Coins، 5 منٹ! سب سے زیادہ تحفے = فاتح 🏆`,
+      ar: `⚔️ PK Battle: بث مباشر → PK Challenge → أدخل ID المنافس\n100 Coins لكل منهما. 5 دقائق! أكثر الهدايا = الفائز 🏆`,
+      hi: `⚔️ PK Battle: लाइव → PK Challenge → प्रतिद्वंद्वी ID डालें\nप्रत्येक से 100 Coins, 5 मिनट! सबसे ज़्यादा उपहार = विजेता 🏆`,
+      bn: `⚔️ PK Battle: লাইভ → PK Challenge → প্রতিপক্ষ ID দিন\nপ্রত্যেকের 100 Coins, 5 মিনিট! সর্বাধিক উপহার = বিজয়ী 🏆`,
+      pa: `⚔️ PK Battle: ਲਾਈਵ → PK Challenge → ਵਿਰੋਧੀ ID ਦਾਖਲ ਕਰੋ\nਹਰੇਕ ਤੋਂ 100 Coins, 5 ਮਿੰਟ! ਜ਼ਿਆਦਾ ਤੋਹਫੇ = ਜੇਤੂ 🏆`,
+      fr: `⚔️ PK Battle: Live → PK Challenge → ID rival\n100 Coins chacun. 5 min! Plus de cadeaux = Gagnant 🏆`,
+      es: `⚔️ PK Battle: Live → PK Challenge → ID del rival\n100 Coins cada uno. 5 min! Más regalos = Ganador 🏆`,
+      de: `⚔️ PK Battle: Live → PK Challenge → Rivalen-ID\n100 Coins pro Person. 5 Min! Mehr Geschenke = Sieger 🏆`,
+      it: `⚔️ PK Battle: Live → PK Challenge → ID rivale\n100 Coins ciascuno. 5 min! Più regali = Vincitore 🏆`,
+      pt: `⚔️ PK Battle: Live → PK Challenge → ID do rival\n100 Coins cada. 5 min! Mais presentes = Vencedor 🏆`,
+      tr: `⚔️ PK Battle: Canlı → PK Challenge → Rakip ID\n100 Coins her biri. 5 dk! En çok hediye = Kazanan 🏆`,
+      ru: `⚔️ PK Battle: Эфир → PK Challenge → ID соперника\nПо 100 монет. 5 мин! Больше подарков = Победитель 🏆`,
+      id: `⚔️ PK Battle: Live → PK Challenge → ID lawan\n100 Coins masing. 5 menit! Hadiah terbanyak = Juara 🏆`,
+      vi: `⚔️ PK Battle: Live → PK Challenge → ID đối thủ\n100 Coins mỗi người. 5 phút! Quà nhiều nhất = Thắng 🏆`,
+      zh: `⚔️ PK对战: 直播 → PK挑战 → 输入对手ID\n各100 Coins，5分钟！礼物最多=冠军 🏆`,
+      ja: `⚔️ PK対決: ライブ → PKチャレンジ → ライバルID\n各100 Coins、5分！最多ギフト=優勝 🏆`,
+      ko: `⚔️ PK 배틀: 라이브 → PK 챌린지 → 라이벌 ID\n각 100 Coins, 5분! 선물 최다=승리자 🏆`,
+      fa: `⚔️ PK Battle: زنده → PK Challenge → ID رقیب\n100 Coins هر کدام. 5 دقیقه! بیشترین هدیه = برنده 🏆`,
+      th: `⚔️ PK Battle: ไลฟ์ → PK Challenge → ID คู่แข่ง\n100 Coins ต่อคน 5 นาที! ของขวัญมากที่สุด = ชนะ 🏆`,
+      el: `⚔️ PK Battle: Live → PK Challenge → ID αντιπάλου\n100 Coins ο καθένας. 5 λεπτά! Περισσότερα δώρα = Νικητής 🏆`,
+      he: `⚔️ PK Battle: שידור → PK Challenge → ID יריב\n100 Coins כל אחד. 5 דקות! הכי הרבה מתנות = מנצח 🏆`,
+    },
+    default: {
+      en: `I'm not sure. Contact CEO directly:\n👇`,
+      ur: `مجھے یقین نہیں۔ براہ کرم CEO سے رابطہ کریں:\n👇`,
+      ar: `لست متأكداً. يرجى التواصل مع المدير التنفيذي:\n👇`,
+      hi: `मुझे यकीन नहीं। CEO से संपर्क करें:\n👇`,
+      bn: `আমি নিশ্চিত নই। CEO-র সাথে যোগাযোগ করুন:\n👇`,
+      pa: `ਮੈਨੂੰ ਯਕੀਨ ਨਹੀਂ। CEO ਨਾਲ ਸੰਪਰਕ ਕਰੋ:\n👇`,
+      fr: `Je ne suis pas sûr. Contactez le CEO directement:\n👇`,
+      es: `No estoy seguro. Contacta al CEO directamente:\n👇`,
+      de: `Ich bin nicht sicher. CEO direkt kontaktieren:\n👇`,
+      it: `Non sono sicuro. Contatta il CEO direttamente:\n👇`,
+      pt: `Não tenho certeza. Contate o CEO diretamente:\n👇`,
+      tr: `Emin değilim. CEO ile doğrudan iletişime geçin:\n👇`,
+      ru: `Не уверен. Обратитесь напрямую к CEO:\n👇`,
+      id: `Saya tidak yakin. Hubungi CEO langsung:\n👇`,
+      vi: `Tôi không chắc. Liên hệ CEO trực tiếp:\n👇`,
+      zh: `我不确定。直接联系CEO：\n👇`,
+      ja: `わかりません。CEOに直接お問い合わせください：\n👇`,
+      ko: `확실하지 않습니다. CEO에게 직접 문의하세요:\n👇`,
+      fa: `مطمئن نیستم. مستقیماً با CEO تماس بگیرید:\n👇`,
+      th: `ฉันไม่แน่ใจ ติดต่อ CEO โดยตรง:\n👇`,
+      el: `Δεν είμαι σίγουρος. Επικοινωνήστε άμεσα με τον CEO:\n👇`,
+      he: `אני לא בטוח. צור קשר ישירות עם המנכ"ל:\n👇`,
+    },
+  };
+
+  // ── Universal keyword matcher ─────────────────────────────────────────
+  const matchTopic = (q: string): keyof typeof BOT_REPLIES => {
+    const t = q.toLowerCase();
+    // Coins / Balance
+    if (/coin|balance|كوئن|رصيد|بيلنس|सिक्का|कॉइन|মুদ্রা|монет|硬币|コイン|코인|سکہ|เหรียญ|νόμισμα|מטבע/.test(t)) return 'coin';
+    // Referral
+    if (/refer|referral|إحالة|ریفرل|रेफरल|রেফারেল|реферал|推荐|紹介|추천|معرفی|แนะนำ|παραπομπή|הפניה/.test(t)) return 'refer';
+    // Withdraw / Cashout
+    if (/withdraw|cashout|نکالنا|سحب|निकास|উত্তোলন|auszahlen|retirer|retirar|ritirare|çekmek|вывод|penarikan|rút|提款|出金|출금|برداشت|ถอน|ανάληψη|משיכה/.test(t)) return 'withdraw';
+    // Buy / Purchase
+    if (/buy|purchase|خریدنا|شراء|खरीद|ক্রয়|kaufen|acheter|comprar|comprare|satın|купить|beli|mua|购买|購入|구매|خرید|ซื้อ|αγορά|רכישה/.test(t)) return 'buy';
+    // Live / Stream
+    if (/live|بث|لائیو|लाइव|লাইভ|diffusion|directo|diretta|canlı|эфир|siaran|phát|直播|ライブ|라이브|زنده|ไลฟ์|ζωντανά|שידור/.test(t)) return 'live';
+    // Gift
+    if (/gift|تحفہ|هدية|تحفه|उपहार|উপহার|cadeau|regalo|geschenk|hediye|подарок|hadiah|quà|礼物|ギフト|선물|هدیه|ของขวัญ|δώρο|מתנה/.test(t)) return 'gift';
+    // PK / Challenge
+    if (/pk|challenge|battle|تحدي|مبارزه|चुनौती|চ্যালেঞ্জ|herausforderung|défi|desafío|sfida|mücadele|вызов|tantangan|thách thức|挑战|チャレンジ|도전|رقابت|ท้าทาย|πρόκληση|אתגר/.test(t)) return 'pk';
+    return 'default';
+  };
+
   const handleBotSend = () => {
     if (!botInput.trim()) return;
-    const q = botInput.toLowerCase();
-    let reply = '';
-    if (q.includes('coin')||q.includes('balance'))
-      reply = `🪙 Rate: $1 = ${COIN_RATE} AJ Coins.\nEarn by posting (+0.75 net), referrals (+15 net), AI Bot profits.`;
-    else if (q.includes('referral')||q.includes('refer'))
-      reply = `👥 Refer & Earn: Share your User ID.\nWhen someone enters it → You get +15 Coins (30% net share)!`;
-    else if (q.includes('withdraw')||q.includes('cashout'))
-      reply = `💸 Min Withdrawal: ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE}).\nMethods: EasyPaisa, JazzCash, Binance USDT TRC20, AirTM, Bank Transfer.`;
-    else if (q.includes('purchase')||q.includes('buy'))
-      reply = `💰 Min Purchase: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins.\nRate: $1 = ${COIN_RATE} AJ Coins.`;
-    else if (q.includes('live'))
-      reply = `📡 Go Live: Social Hub → GO LIVE button. Viewers send you gifts — you keep 60%! Use Agora for HD streaming.`;
-    else if (q.includes('gift'))
-      reply = `🎁 Gifts:\n☕ Coffee 500🪙\n🍕 Pizza 1000🪙\n❤️ Heart 2500🪙\n🏎️ Car 5000🪙\n🛩️ Jet 8000🪙\n🏰 Mansion 10000🪙`;
-    else if (q.includes('pk')||q.includes('challenge'))
-      reply = `⚔️ PK Battle: Go Live → PK Challenge → Enter rival ID.\n100 Coins deducted from each. 5-min timer! Most gifts = Winner! 🏆`;
-    else
-      reply = `I'm not sure. Contact CEO directly:\n👇`;
+    const lang  = detectLanguage(botInput);
+    const topic = matchTopic(botInput);
+    const pool  = BOT_REPLIES[topic];
+    const reply = pool[lang] ?? pool['en']; // fallback to English if lang missing
     setBotMessages(m => [...m, {from:'user',text:botInput}, {from:'bot',text:reply}]);
     setBotInput('');
   };
@@ -1004,7 +1296,7 @@ export default function AJSuperPortal() {
             { label:'Gaming', icon:<Trophy className="text-cyan-400 w-10 h-10 md:w-20 md:h-20 mb-2"/>, sc:'arcade', hover:'hover:border-cyan-400' },
             { label:'Social', icon:<Zap     className="text-pink-500 w-10 h-10 md:w-20 md:h-20 mb-2"/>, sc:'social', hover:'hover:border-pink-500' },
             { label:'Wallet', icon:<img src="/gold.jpg" className="w-14 h-14 mb-2 rounded-full border-2 border-yellow-500 shadow-md"/>, sc:'wallet', hover:'hover:border-yellow-500' },
-            { label:'AJ AI',  icon:<Bot   className="text-green-400 w-10 h-10 md:w-20 md:h-20 mb-2"/>, sc:'ai',     hover:'hover:border-green-500' },
+            { label:'AI Trading Bot', icon:<Bot className="text-green-400 w-10 h-10 md:w-20 md:h-20 mb-2"/>, sc:'ai', hover:'hover:border-green-500' },
           ].map(m => (
             <div key={m.label} onClick={() => navigateWithAd(m.sc)}
               className={`bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center cursor-pointer shadow-xl active:scale-95 transition-all ${m.hover} relative z-30`}>
@@ -1277,8 +1569,17 @@ export default function AJSuperPortal() {
                 {/* FEED — TikTok style with sound toggle */}
                 {tiktabMode==='feed' && (
                   <div className="h-full w-full max-w-md mx-auto snap-y snap-mandatory overflow-y-auto bg-black">
-                    {pixaVideos.map((vid:any, i:number) => {
-                      const soundOn = soundEnabledVideos[vid.id];
+                    {/* Global Sound Toggle Bar (Prompt #3) */}
+                  <div className="sticky top-0 z-30 flex justify-end px-4 py-2 bg-black/80 backdrop-blur-sm border-b border-white/10">
+                    <button
+                      onClick={() => setGlobalSoundOn(s => !s)}
+                      className="flex items-center gap-2 bg-white/10 border border-white/20 px-4 py-2 rounded-full text-[11px] font-black uppercase text-white hover:bg-white/20 transition-all active:scale-95">
+                      {globalSoundOn ? <Volume2 size={14} className="text-green-400"/> : <VolumeX size={14} className="text-red-400"/>}
+                      {globalSoundOn ? 'Sound ON' : 'Sound OFF'}
+                    </button>
+                  </div>
+                  {pixaVideos.map((vid:any, i:number) => {
+                      const soundOn = globalSoundOn;
                       const embedUrl = soundOn
                         ? `https://www.youtube.com/embed/${vid.id}?autoplay=1&mute=0&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1`
                         : `https://www.youtube.com/embed/${vid.id}?autoplay=1&mute=1&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1`;
@@ -1297,7 +1598,7 @@ export default function AJSuperPortal() {
                           {!soundOn && (
                             <div
                               className="absolute inset-0 flex items-end justify-center pb-48 z-20 cursor-pointer"
-                              onClick={() => setSoundEnabledVideos(s => ({...s,[vid.id]:true}))}>
+                              onClick={() => setGlobalSoundOn(true)}>
                               <div className="flex items-center gap-2 bg-black/60 backdrop-blur-sm border border-white/20 px-4 py-2 rounded-full shadow-xl animate-pulse">
                                 <VolumeX size={16} className="text-white"/>
                                 <span className="text-white text-[11px] font-black uppercase tracking-widest">Tap for Sound</span>
@@ -1318,14 +1619,14 @@ export default function AJSuperPortal() {
                               <Share2 size={35}/><span className="text-[10px] font-bold">Share</span>
                             </div>
                             {/* GIFT */}
-                            <div className="flex flex-col items-center cursor-pointer text-yellow-400" onClick={() => setCommentPostId('gift_'+vid.id)}>
+                            <div className="flex flex-col items-center cursor-pointer text-yellow-400" onClick={() => setPulseGiftPostId(vid.id)}>
                               <Gift size={28}/><span className="text-[10px] font-bold">Gift</span>
                             </div>
                             {/* SOUND TOGGLE */}
                             <div className="flex flex-col items-center cursor-pointer text-white"
-                              onClick={() => setSoundEnabledVideos(s => ({...s,[vid.id]:!s[vid.id]}))}>
-                              {soundOn ? <Volume2 size={28}/> : <VolumeX size={28}/>}
-                              <span className="text-[10px] font-bold">{soundOn?'Sound':'Muted'}</span>
+                              onClick={() => setGlobalSoundOn(s => !s)}>
+                              {globalSoundOn ? <Volume2 size={28} className="text-green-400"/> : <VolumeX size={28} className="text-red-400"/>}
+                              <span className="text-[10px] font-bold">{globalSoundOn?'Sound':'Muted'}</span>
                             </div>
                           </div>
                           <div className="absolute bottom-10 left-6 text-white max-w-[70%] z-10">
@@ -1839,6 +2140,48 @@ export default function AJSuperPortal() {
                 className="absolute top-20 left-6 bg-yellow-500 px-4 py-2 rounded-full font-black text-black text-xs uppercase shadow-xl active:scale-95 flex items-center gap-2">
                 <Swords size={14}/> PK
               </button>
+              {/* LIVE CHAT TOGGLE BUTTON (Prompt #2) */}
+              <button
+                onClick={() => setLiveChatOpen(o => !o)}
+                className="absolute bottom-36 right-6 bg-cyan-600 w-12 h-12 rounded-full flex items-center justify-center shadow-2xl border-2 border-cyan-400 active:scale-90 transition-all z-20">
+                <MessageCircle size={20} className="text-white"/>
+              </button>
+            </div>
+          )}
+
+          {/* ── LIVE CHAT OVERLAY (Prompt #2) ──────────────────────── */}
+          {liveChatOpen && liveActive && (
+            <div className="absolute bottom-[80px] left-3 w-72 h-64 z-30 flex flex-col bg-black/60 backdrop-blur-md rounded-3xl border border-cyan-500/30 overflow-hidden shadow-2xl">
+              <div className="flex items-center justify-between px-4 py-2 border-b border-white/10 bg-black/40">
+                <p className="text-[10px] font-black text-cyan-400 uppercase tracking-widest flex items-center gap-1">
+                  <MessageCircle size={12}/> Live Chat
+                </p>
+                <X size={14} className="text-gray-500 cursor-pointer" onClick={() => setLiveChatOpen(false)}/>
+              </div>
+              <div className="flex-1 overflow-y-auto p-3 space-y-1">
+                {liveChatMessages.length === 0
+                  ? <p className="text-[9px] text-gray-500 text-center mt-4 italic">No messages yet...</p>
+                  : liveChatMessages.map((m:any) => (
+                    <p key={m.id} className="text-[9px] text-white font-bold leading-tight">
+                      <span className="text-yellow-400">@{m.username}: </span>{m.text}
+                    </p>
+                  ))
+                }
+                <div ref={liveChatEndRef}/>
+              </div>
+              <div className="flex gap-2 p-2 border-t border-white/10 bg-black/40">
+                <input
+                  type="text"
+                  value={liveChatInput}
+                  onChange={e => setLiveChatInput(e.target.value)}
+                  onKeyDown={e => e.key==='Enter' && sendLiveChatMessage()}
+                  placeholder="Say something..."
+                  className="flex-1 bg-white/10 border border-white/10 rounded-full px-3 py-1.5 text-[10px] text-white outline-none focus:ring-1 focus:ring-cyan-500 font-bold"
+                />
+                <button onClick={sendLiveChatMessage} className="bg-cyan-500 p-1.5 rounded-full text-black active:scale-90 transition-all">
+                  <Send size={12}/>
+                </button>
+              </div>
             </div>
           )}
 
@@ -2044,7 +2387,7 @@ export default function AJSuperPortal() {
           <div className="w-full max-w-4xl pt-10">
             <button onClick={() => setScreen('hub')} className="text-green-400 font-bold text-sm mb-12 uppercase tracking-widest">← Back</button>
           </div>
-          <h2 className="text-5xl font-black mb-12 text-center uppercase text-white italic tracking-tighter">AJ AI BOT</h2>
+          <h2 className="text-5xl font-black mb-12 text-center uppercase text-white italic tracking-tighter">AI Trading Bot</h2>
           {botTier!=='none' && (
             <div className="w-full max-w-2xl bg-white/5 border-2 border-green-500/40 p-8 rounded-[3.5rem] text-center mb-16 shadow-[0_0_50px_rgba(34,197,94,0.15)]">
               <div className="w-full bg-black/50 border border-green-500/30 p-8 rounded-3xl font-mono text-left shadow-inner">
