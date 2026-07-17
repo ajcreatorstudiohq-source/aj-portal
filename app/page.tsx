@@ -19,7 +19,7 @@ import {
 // ============================================================
 const UNSPLASH_ACCESS_KEY    = "W4x76VphkyY9fzP3DbJPfXLhdD6x063gW--Voifn_UE";
 const YOUTUBE_API_KEY        = "AIzaSyD9vR3hNLt7pBNlm6PMaZWbJOB9QGcrD1Y";
-const GNEWS_API_KEY          = "bb753f67e7f9f155dfc8675b2abc4b60";
+const GNEWS_API_KEY          = "bb753f67e7f9155dfc8675b2abc4b60";
 const NOWPAYMENTS_API_KEY    = "3THXNSZ-AYVMTP6-HQ9KGKK-9J6CQD7";
 const CLOUDINARY_CLOUD_NAME  = "atm28akz";
 const CLOUDINARY_UPLOAD_PRESET = "aj_portal";
@@ -266,6 +266,14 @@ export default function AJSuperPortal() {
 
   // ── TIKREELS ────────────────────────────────────────────────
   const [tiktabMode,     setTiktabMode]     = useState<'feed'|'create'|'profile'>('feed');
+
+  // ── PERFORMANCE: TikReels windowing ───────────────────────
+  const [activeVideoIdx, setActiveVideoIdx] = useState(0);
+  const videoFeedRef = useRef<HTMLDivElement>(null);
+
+  // Low-end device detection (2GB RAM / 2-core phones)
+  const isLowEnd = typeof navigator !== 'undefined' &&
+    ((navigator as any).deviceMemory <= 2 || (navigator as any).hardwareConcurrency <= 2);
   const [tiktokPostText, setTiktokPostText] = useState('');
   const [tiktokPostImg,  setTiktokPostImg]  = useState('');
 
@@ -311,12 +319,23 @@ export default function AJSuperPortal() {
         user:     item.snippet.channelTitle,
         title:    item.snippet.title,
         thumb:    item.snippet?.thumbnails?.high?.url || '',
-        embedUrl: `https://www.youtube.com/embed/${item.id.videoId}?autoplay=1&mute=1&loop=1&playlist=${item.id.videoId}&controls=0&rel=0&playsinline=1`
+        embedUrl: `https://www.youtube.com/embed/${item.id.videoId}?autoplay=1&mute=1&loop=1&playlist=${item.id.videoId}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3`
       })));
 
-      const nRes  = await fetch(`https://gnews.io/api/v4/search?q=AI+crypto+technology&token=${GNEWS_API_KEY}&lang=en&max=15`);
-      const nData = await nRes.json();
-      setNewsData(nData.articles?.slice(0,15) || []);
+      // GNews fetch with robust mapping & fallback
+      try {
+        const nRes  = await fetch(`https://gnews.io/api/v4/top-headlines?topic=technology&token=${GNEWS_API_KEY}&lang=en&max=15&expand=content`);
+        const nData = await nRes.json();
+        const articles = (nData.articles || nData.data || []).map((a:any) => ({
+          title:       a.title       || a.headline || 'AJ News',
+          description: a.description || a.summary  || a.content?.slice(0,120) || '',
+          url:         a.url         || a.link      || '#',
+          image:       a.image       || a.urlToImage|| a.imageUrl || '',
+          publishedAt: a.publishedAt || a.date      || new Date().toISOString(),
+          source:      { name: a.source?.name || a.sourceName || 'AJ Discover' }
+        }));
+        setNewsData(articles.slice(0,15));
+      } catch(ne) { console.log("GNews fallback", ne); setNewsData([]); }
     } catch(e) { console.log("API Error", e); }
   };
 
@@ -331,7 +350,7 @@ export default function AJSuperPortal() {
         .map(d => ({ id:d.id, ...d.data() }))
         .filter((r:any) => {
           if (!r.lastSeenMs) return false; // hide legacy rooms — no heartbeat
-          return (now - r.lastSeenMs) < 30000; // ghost filter: 30s window
+          return (now - r.lastSeenMs) < 15000; // ghost filter: strict 15s window
         });
       setLiveNowList(rooms);
     });
@@ -459,6 +478,31 @@ export default function AJSuperPortal() {
   }, [liveActive, liveRoomId]);
 
   // ==========================================================
+  // TIKREELS WINDOWING — IntersectionObserver (no external deps)
+  // Only the visible slide ± 1 gets a real iframe — rest = black placeholder
+  // This keeps old phones alive even with 100k users
+  // ==========================================================
+  useEffect(() => {
+    if (socialScreen !== 'tikreels' || tiktabMode !== 'feed') return;
+    const root = videoFeedRef.current;
+    if (!root) return;
+    const obs = new IntersectionObserver(
+      entries => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            const idx = parseInt((entry.target as HTMLElement).dataset.vidx || '0', 10);
+            setActiveVideoIdx(idx);
+          }
+        });
+      },
+      { threshold: 0.55, root }
+    );
+    const slides = root.querySelectorAll('[data-vidx]');
+    slides.forEach(el => obs.observe(el));
+    return () => obs.disconnect();
+  }, [pixaVideos, socialScreen, tiktabMode]);
+
+  // ==========================================================
   // SEND LIVE CHAT MESSAGE (Prompt #2)
   // ==========================================================
   const sendLiveChatMessage = async () => {
@@ -496,10 +540,10 @@ export default function AJSuperPortal() {
         roomId, startedAt:serverTimestamp(), active:true,
         lastSeenMs: Date.now()
       });
-      // Heartbeat: update lastSeenMs every 15s to prevent ghost rooms
+      // Heartbeat: update lastSeenMs every 10s (strict real-time ghost removal)
       const heartbeat = setInterval(async () => {
         try { await updateDoc(doc(db,"live_rooms",roomId), { lastSeenMs: Date.now() }); } catch {}
-      }, 15000);
+      }, 10000);
       (liveStreamRef as any)._heartbeat = heartbeat;
       // Notify followers (Prompt #8)
       await addDoc(collection(db,"notifications"), {
@@ -1568,7 +1612,7 @@ export default function AJSuperPortal() {
 
                 {/* FEED — TikTok style with sound toggle */}
                 {tiktabMode==='feed' && (
-                  <div className="h-full w-full max-w-md mx-auto snap-y snap-mandatory overflow-y-auto bg-black">
+                  <div ref={videoFeedRef} className="h-full w-full max-w-md mx-auto snap-y snap-mandatory overflow-y-auto bg-black" style={{ touchAction:'pan-y', overscrollBehavior:'contain' }}>
                     {/* Global Sound Toggle Bar (Prompt #3) */}
                   <div className="sticky top-0 z-30 flex justify-end px-4 py-2 bg-black/80 backdrop-blur-sm border-b border-white/10">
                     <button
@@ -1579,21 +1623,47 @@ export default function AJSuperPortal() {
                     </button>
                   </div>
                   {pixaVideos.map((vid:any, i:number) => {
+                      // WINDOWING: only active ± 1 get a real iframe (max 3 iframes in DOM)
+                      // On low-end devices: only the exact active slide gets an iframe
+                      const windowSize = isLowEnd ? 0 : 1;
+                      const inWindow   = Math.abs(i - activeVideoIdx) <= windowSize;
                       const soundOn = globalSoundOn;
                       const embedUrl = soundOn
-                        ? `https://www.youtube.com/embed/${vid.id}?autoplay=1&mute=0&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1`
-                        : `https://www.youtube.com/embed/${vid.id}?autoplay=1&mute=1&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1`;
+                        ? `https://www.youtube.com/embed/${vid.id}?autoplay=1&mute=0&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3`
+                        : `https://www.youtube.com/embed/${vid.id}?autoplay=1&mute=1&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3`;
                       return (
                       <React.Fragment key={i}>
-                        <div className="h-[85vh] w-full snap-start relative border-b border-white/5">
-                          <iframe
-                            src={embedUrl}
-                            className="w-full h-full"
-                            title={vid.title}
-                            allow="autoplay; encrypted-media; gyroscope; picture-in-picture"
-                            allowFullScreen
-                            frameBorder="0"
-                          />
+                        <div
+                          data-vidx={i}
+                          className="h-[85vh] w-full snap-start relative border-b border-white/5"
+                          style={{ contain:'layout style paint', willChange:'transform', transform:'translate3d(0,0,0)' }}>
+                          {/* WINDOWED: out-of-window slides show cheap thumbnail, no iframe */}
+                          {!inWindow ? (
+                            <div className="absolute inset-0 bg-black flex items-center justify-center">
+                              {vid.thumb
+                                ? <img src={vid.thumb} alt="" loading="lazy" decoding="async"
+                                    className="w-full h-full object-cover opacity-40"/>
+                                : <Play size={48} className="text-white/20"/>}
+                            </div>
+                          ) : (
+                          <>
+                          {/* Zoom+crop container to hide YouTube branding */}
+                          <div className="absolute inset-0 overflow-hidden">
+                            <iframe
+                              src={embedUrl}
+                              className="absolute inset-0 w-full h-full"
+                              style={{ transform:'scale(1.15)', transformOrigin:'center center', pointerEvents:'none' }}
+                              title={vid.title}
+                              allow="autoplay; encrypted-media; gyroscope; picture-in-picture"
+                              allowFullScreen
+                              frameBorder="0"
+                            />
+                            {/* Corner overlays — block YouTube logo & Watch-on-YouTube button */}
+                            <div className="absolute top-0 left-0 w-28 h-14 z-10 pointer-events-auto bg-transparent"/>
+                            <div className="absolute top-0 right-0 w-28 h-14 z-10 pointer-events-auto bg-transparent"/>
+                            <div className="absolute bottom-0 left-0 w-28 h-14 z-10 pointer-events-auto bg-transparent"/>
+                            <div className="absolute bottom-0 right-0 w-28 h-14 z-10 pointer-events-auto bg-transparent"/>
+                          </div>
                           {/* SOUND OVERLAY — shown when muted */}
                           {!soundOn && (
                             <div
@@ -1631,12 +1701,14 @@ export default function AJSuperPortal() {
                           </div>
                           <div className="absolute bottom-10 left-6 text-white max-w-[70%] z-10">
                             <p className="font-black text-sm">@{vid.user}</p>
-                            <div className="flex items-center gap-2 mt-3 bg-black/30 w-max p-1.5 rounded-full backdrop-blur-md border border-white/10">
+                            <div className="flex items-center gap-2 mt-3 bg-black/40 w-max p-1.5 rounded-full border border-white/10">
                               <Music size={12}/>
                               {/* @ts-ignore */}
                               <marquee className="text-[10px] w-24 uppercase font-bold">Original Sound - AJ Studio</marquee>
                             </div>
                           </div>
+                          </>
+                          )}
                         </div>
                         {(i+1)%5===0 && (
                           <div onClick={() => (window as any).AJ_SDK?.showAd()}
@@ -1707,7 +1779,7 @@ export default function AJSuperPortal() {
               <div className="max-w-md mx-auto flex flex-col h-full">
 
                 {/* CREATE POST at TOP (Prompt #4) */}
-                <div className="bg-white/10 backdrop-blur-xl p-4 border-b border-pink-500/20 shadow-md sticky top-0 z-10">
+                <div className="bg-slate-900/98 p-4 border-b border-pink-500/20 shadow-md sticky top-0 z-10">
                   <div className="flex gap-3">
                     <img src={user?.photoURL||'/logo.png'} className="w-9 h-9 rounded-full border-2 border-pink-500 flex-shrink-0"/>
                     <textarea value={postText} onChange={e => setPostText(e.target.value)} placeholder="Share your CEO story..."
@@ -1724,7 +1796,7 @@ export default function AJSuperPortal() {
                 </div>
 
                 {/* Vertical Snap Scrolling Feed (Prompt #4) */}
-                <div className="snap-y snap-mandatory overflow-y-auto flex-1">
+                <div className="snap-y snap-mandatory overflow-y-auto flex-1" style={{ touchAction:'pan-y', overscrollBehavior:'contain' }}>
                   {userPosts.map((post:any, idx:number) => (
                     <React.Fragment key={post.id}>
                       {/* Monetag Banner every 4 posts (Prompt #4) */}
@@ -1733,10 +1805,10 @@ export default function AJSuperPortal() {
                           <MonetagBanner siteId={MONETAG_PULSE_BANNER}/>
                         </div>
                       )}
-                      <div className="snap-start bg-white/10 backdrop-blur-md border-b border-white/5 overflow-hidden shadow-xl relative min-h-[70vh] flex flex-col">
+                      <div className="snap-start bg-slate-900/95 border-b border-white/5 overflow-hidden shadow-xl relative min-h-[70vh] flex flex-col" style={{ contain:'layout style paint', willChange:'transform' }}>
                         <div className="flex items-center justify-between p-4">
                           <div className="flex items-center gap-3 cursor-pointer" onClick={() => openProfile(post.uid)}>
-                            <img src={post.photo||'/logo.png'} className="w-10 h-10 rounded-full border-2 border-pink-500"/>
+                            <img src={post.photo||'/logo.png'} loading="lazy" decoding="async" className="w-10 h-10 rounded-full border-2 border-pink-500"/>
                             <p className="font-black text-xs text-white tracking-widest">@{post.username}</p>
                           </div>
                           <MoreVertical size={18} className="opacity-40 text-white cursor-pointer"
@@ -1749,7 +1821,7 @@ export default function AJSuperPortal() {
                             </button>
                           </div>
                         )}
-                        {post.image && <img src={post.image} className="w-full object-cover max-h-[50vh]"/>}
+                        {post.image && <img src={post.image} loading="lazy" decoding="async" className="w-full object-cover max-h-[50vh]"/>}
                         <div className="p-5 flex-1">
                           <div className="flex gap-6 mb-4">
                             <Heart size={28} onClick={() => handleLike(post.id)} className={likedPosts[post.id]?"text-red-500 fill-red-500 cursor-pointer":"text-white cursor-pointer"}/>
