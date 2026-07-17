@@ -314,6 +314,16 @@ export default function AJSuperPortal() {
   const tiktokFileRef = useRef<HTMLInputElement>(null);
   const searchRef     = useRef<HTMLInputElement>(null);
 
+  // Profile loading + DM state
+  const [profileTotalLikes, setProfileTotalLikes] = useState(0);
+  const [profileLoading,    setProfileLoading]    = useState(false);
+  const [activeChatId,      setActiveChatId]      = useState<string|null>(null);
+  const [activeChatUser,    setActiveChatUser]    = useState<any>(null);
+  const [dmMessages,        setDmMessages]        = useState<any[]>([]);
+  const [dmInput,           setDmInput]           = useState('');
+  const dmUnsubRef = useRef<any>(null);
+  const dmEndRef   = useRef<HTMLDivElement>(null);
+
   // ── COMPUTED ─────────────────────────────────────────────────
   const totalCoins     = balance + visualProfit;
   const displayBalance = totalCoins.toFixed(2);
@@ -431,9 +441,7 @@ export default function AJSuperPortal() {
             uid:cu.uid, lastSync:serverTimestamp(),
             hasSocialProfile:false, photo:cu.photoURL||'',
             followers:0, following:0,
-            postsCount:0,
-            followersCount:0,
-            followingCount:0,
+            postsCount:0, followersCount:0, followingCount:0, totalLikes:0,
           });
         }
         onSnapshot(ref, s => {
@@ -604,30 +612,18 @@ export default function AJSuperPortal() {
   const joinLiveByRoomId = async (roomId?: string) => {
     const rid = (roomId || joinRoomInput).trim();
     if (!rid) return alert("Please enter the streamer's Room ID.");
-
-    // Try exact match first
     let roomSnap:any = await getDoc(doc(db, 'live_rooms', rid));
-
-    // Fallback: streamer's share card shows only last 14 chars — match by suffix
     if (!roomSnap.exists()) {
-      const allRooms = await getDocs(query(collection(db, 'live_rooms'), limit(50)));
-      const match = allRooms.docs.find(d => d.id.endsWith(rid) || d.id === rid);
-      if (match) roomSnap = match;
+      const all2 = await getDocs(query(collection(db,'live_rooms'),limit(50)));
+      const m = all2.docs.find(d => d.id.endsWith(rid) || d.id===rid);
+      if (m) roomSnap = m;
     }
-
-    if (!roomSnap.exists())
-      return alert("Room not found. Use the Copy button on the streamer's screen to get the full Room ID.");
-    if (!roomSnap.data()?.active)
-      return alert('This stream has ended. The Room ID is no longer active.');
-
-    // Ensure we are on the social screen so the viewer overlay (z-600) renders
+    if (!roomSnap.exists()) return alert('Room not found. Use the Copy button for the full ID.');
+    if (!roomSnap.data()?.active) return alert('This stream has ended.');
     setScreen('social');
-
     setViewerRoom({ id: roomSnap.id, ...roomSnap.data() });
-    setViewerRoomId(roomSnap.id);   // always use the real Firestore document ID
+    setViewerRoomId(roomSnap.id);
     setJoinRoomInput('');
-
-    // Subscribe to viewer chat
     const unsub = onSnapshot(
       query(collection(db, 'live_rooms', roomSnap.id, 'messages'), orderBy('createdAt', 'asc')),
       snap2 => {
@@ -779,55 +775,77 @@ export default function AJSuperPortal() {
   };
 
   // Open someone's profile
-  const openProfile = async (uid:string) => {
-    // Always navigate to social screen first — fixes 'Page Not Found'
-    setScreen('social');
-    setViewingUid(uid);
-
-    const snap = await getDoc(doc(db,"users",uid));
-    if (snap.exists()) setViewProfile(snap.data());
-
-    // Posts from global feed
-    const pq = query(collection(db,"user_posts"), orderBy("createdAt","desc"), limit(30));
-    const ps = await getDocs(pq);
-    const all = ps.docs.map(d => ({id:d.id,...d.data() as any}));
-    setProfilePosts(all.filter((p:any) => p.uid===uid && !p.isVideo));
-    const feedVideos = all.filter((p:any) => p.uid===uid && p.isVideo);
-
-    // Fetch from users/{uid}/videos sub-collection
-    let subVideos:any[] = [];
-    try {
-      const vidSnap = await getDocs(
-        query(collection(db,"users",uid,"videos"), orderBy("createdAt","desc"), limit(50))
-      );
-      subVideos = vidSnap.docs.map(d => ({id:d.id,...d.data() as any, isVideo:true}));
-    } catch {}
-
-    // Merge — sub-collection takes priority, no duplicates
-    const subIds = new Set(subVideos.map((v:any) => v.id));
-    setProfileVideos([...subVideos, ...feedVideos.filter((v:any) => !subIds.has(v.id))]);
-
-    // Use stored count fields; fall back to sub-collection size for old accounts
-    const userData = snap.exists() ? snap.data() : null;
-    if (userData?.followersCount !== undefined) {
-      setFollowers(userData.followersCount);
-    } else {
-      const fSnap = await getDocs(collection(db,"users",uid,"followers"));
-      setFollowers(fSnap.size);
-    }
-    if (userData?.followingCount !== undefined) {
-      setFollowing(userData.followingCount);
-    } else {
-      const foSnap = await getDocs(collection(db,"users",uid,"following"));
-      setFollowing(foSnap.size);
-    }
-
-    if (user) {
-      const myF = await getDoc(doc(db,"users",user.uid,"following",uid));
-      setIsFollowing(myF.exists());
-    }
-    setSocialScreen('profile');
+  const formatViews = (v:number) => {
+    if (!v || v <= 0) return '0';
+    if (v >= 1000000) return (v/1000000).toFixed(1).replace(/\.0$/,'') + 'M';
+    if (v >= 1000)    return (v/1000).toFixed(v>=10000?0:1).replace(/\.0$/,'') + 'k';
+    return String(v);
   };
+
+  const openOrCreateChat = async (otherUid:string, otherData:any) => {
+    if (!user) return;
+    try {
+      const chatId = [user.uid, otherUid].sort().join('_');
+      const chatRef = doc(db,'chats',chatId);
+      const cs = await getDoc(chatRef);
+      if (!cs.exists()) {
+        await setDoc(chatRef, { participants:[user.uid,otherUid], createdAt:serverTimestamp(), lastMessage:'', lastAt:serverTimestamp() });
+      }
+      setActiveChatId(chatId); setActiveChatUser(otherData);
+      if (dmUnsubRef.current) { dmUnsubRef.current(); dmUnsubRef.current=null; }
+      dmUnsubRef.current = onSnapshot(
+        query(collection(db,'chats',chatId,'messages'), orderBy('createdAt','asc')),
+        s => { setDmMessages(s.docs.map(d=>({id:d.id,...d.data()}))); setTimeout(()=>dmEndRef.current?.scrollIntoView({behavior:'smooth'}),60); }
+      );
+      setSocialScreen('dm');
+    } catch(e) { console.error('openOrCreateChat',e); }
+  };
+
+  const sendDmMessage = async () => {
+    if (!dmInput.trim() || !activeChatId || !user) return;
+    const text = dmInput.trim(); setDmInput('');
+    try {
+      await addDoc(collection(db,'chats',activeChatId,'messages'), { uid:user.uid, username:username||user.displayName||'AJ Member', photo:tempPhoto||user.photoURL||'', text, createdAt:serverTimestamp() });
+      await updateDoc(doc(db,'chats',activeChatId), { lastMessage:text, lastAt:serverTimestamp() });
+    } catch(e) { console.error('sendDmMessage',e); }
+  };
+
+  const openProfile = async (uid:string) => {
+    setScreen('social'); setViewingUid(uid); setViewProfile(null); setProfileLoading(true);
+    try {
+      const snap = await getDoc(doc(db,"users",uid));
+      let userData:any = snap.exists() ? {...snap.data()} : null;
+      if (userData) {
+        const fix:any = {};
+        if (userData.postsCount     === undefined) fix.postsCount     = 0;
+        if (userData.followersCount === undefined) fix.followersCount = 0;
+        if (userData.followingCount === undefined) fix.followingCount = 0;
+        if (userData.totalLikes     === undefined) fix.totalLikes     = 0;
+        if (Object.keys(fix).length) { updateDoc(doc(db,"users",uid),fix).catch(()=>{}); Object.assign(userData,fix); }
+        setViewProfile(userData);
+      }
+      const pq = query(collection(db,"user_posts"), orderBy("createdAt","desc"), limit(30));
+      const ps = await getDocs(pq);
+      const all = ps.docs.map(d => ({id:d.id,...d.data() as any}));
+      setProfilePosts(all.filter((p:any) => p.uid===uid && !p.isVideo));
+      const feedVideos = all.filter((p:any) => p.uid===uid && p.isVideo);
+      let subVideos:any[] = [];
+      try {
+        const vSnap = await getDocs(query(collection(db,"users",uid,"videos"),orderBy("createdAt","desc"),limit(50)));
+        subVideos = vSnap.docs.map(d => ({id:d.id,...d.data() as any, isVideo:true}));
+      } catch {}
+      const subIds = new Set(subVideos.map((v:any)=>v.id));
+      setProfileVideos([...subVideos,...feedVideos.filter((v:any)=>!subIds.has(v.id))]);
+      if (userData?.followersCount !== undefined) { setFollowers(userData.followersCount); }
+      else { try { setFollowers((await getDocs(collection(db,"users",uid,"followers"))).size); } catch {} }
+      if (userData?.followingCount !== undefined) { setFollowing(userData.followingCount); }
+      else { try { setFollowing((await getDocs(collection(db,"users",uid,"following"))).size); } catch {} }
+      setProfileTotalLikes(userData?.totalLikes ?? 0);
+      if (user) { try { const myF=await getDoc(doc(db,"users",user.uid,"following",uid)); setIsFollowing(myF.exists()); } catch {} }
+    } catch(e) { console.error('openProfile',e); }
+    finally { setProfileLoading(false); }
+    setSocialScreen('profile');
+};
 
   // ==========================================================
   // WECHAT CONTACTS — per-user Firestore storage
@@ -1704,14 +1722,29 @@ export default function AJSuperPortal() {
             )}
 
             {/* USER PROFILE */}
-            {socialScreen==='profile' && viewProfile && (
+            {socialScreen==='profile' && (
               <div className="max-w-md mx-auto pb-24">
+                {profileLoading && (
+                  <div className="flex flex-col items-center justify-center py-24 gap-4">
+                    <div className="w-16 h-16 rounded-full border-4 border-pink-500 border-t-transparent animate-spin"/>
+                    <p className="text-gray-400 text-xs font-black uppercase tracking-widest">Loading Profile...</p>
+                  </div>
+                )}
+                {!profileLoading && !viewProfile && (
+                  <div className="flex flex-col items-center justify-center py-24 gap-4">
+                    <Film size={48} className="text-gray-600"/>
+                    <p className="text-gray-400 text-sm font-black uppercase tracking-widest">Profile Not Found</p>
+                    <button onClick={() => setSocialScreen('hub')} className="text-pink-500 text-xs font-black uppercase border border-pink-500/30 px-6 py-2 rounded-full">Go Back</button>
+                  </div>
+                )}
+                {!profileLoading && viewProfile && (<>
                 <div className="relative h-44 bg-gradient-to-br from-pink-600/30 to-cyan-600/30 rounded-b-[3rem]">
                   <div className="absolute -bottom-12 left-1/2 -translate-x-1/2">
                     <img src={viewProfile.photo||'/logo.png'} className="w-24 h-24 rounded-full border-4 border-slate-950 shadow-2xl"/>
                   </div>
                 </div>
                 <div className="mt-16 text-center px-6">
+                  {viewProfile.name && <p className="text-xs text-gray-500 font-bold tracking-widest uppercase mb-1">{viewProfile.name}</p>}
                   <h2 className="text-2xl font-black text-white uppercase tracking-widest">@{viewProfile.username||'AJ_MEMBER'}</h2>
                   <p className="text-sm text-gray-400 mt-2 font-bold">{viewProfile.bio||'No bio yet.'}</p>
                   {/* STATS GRID */}
@@ -1719,22 +1752,23 @@ export default function AJSuperPortal() {
                     const [profTab, setProfTab] = React.useState<'grid'|'following'>('grid');
                     return (<>
                       <div className="flex justify-center gap-6 mt-6">
-                        {/* Posts */}
                         <div className="text-center">
                           <p className="text-xl font-black text-white">{profilePosts.length}</p>
                           <p className="text-[9px] text-gray-500 uppercase font-bold tracking-widest">Posts</p>
                         </div>
-                        {/* Followers */}
                         <div className="text-center">
                           <p className="text-xl font-black text-white">{followers}</p>
                           <p className="text-[9px] text-gray-500 uppercase font-bold tracking-widest">Followers</p>
                         </div>
-                        {/* Following — tappable */}
                         <button onClick={() => { setProfTab(t => t==='following'?'grid':'following'); if(viewingUid) loadFollowingList(); }}
                           className="text-center">
                           <p className="text-xl font-black text-white">{following}</p>
                           <p className="text-[9px] text-pink-400 uppercase font-bold tracking-widest underline">Following</p>
                         </button>
+                        <div className="text-center">
+                          <p className="text-xl font-black text-red-400">{formatViews(profileTotalLikes)}</p>
+                          <p className="text-[9px] text-gray-500 uppercase font-bold tracking-widest">Likes</p>
+                        </div>
                       </div>
                       {profTab==='following' && (
                         <div className="mt-4 border border-white/10 rounded-2xl overflow-hidden">
@@ -1757,10 +1791,16 @@ export default function AJSuperPortal() {
                     </>);
                   })()}
                   {viewingUid!==user?.uid && (
-                    <button onClick={() => viewingUid && handleFollow(viewingUid)}
-                      className={`mt-6 px-10 py-3 rounded-full font-black uppercase text-sm tracking-widest transition-all active:scale-95 flex items-center gap-2 mx-auto ${isFollowing?'bg-white/10 border border-white/20 text-white':'bg-pink-600 text-white shadow-lg'}`}>
-                      {isFollowing ? <><UserCheck size={16}/> Following</> : <><UserPlus size={16}/> Follow</>}
-                    </button>
+                    <div className="flex gap-3 justify-center mt-6">
+                      <button onClick={() => viewingUid && handleFollow(viewingUid)}
+                        className={`px-8 py-3 rounded-full font-black uppercase text-sm tracking-widest transition-all active:scale-95 flex items-center gap-2 ${isFollowing?'bg-white/10 border border-white/20 text-white':'bg-pink-600 text-white shadow-lg'}`}>
+                        {isFollowing ? <><UserCheck size={16}/> Following</> : <><UserPlus size={16}/> Follow</>}
+                      </button>
+                      <button onClick={() => openOrCreateChat(viewingUid!, viewProfile)}
+                        className="px-8 py-3 rounded-full font-black uppercase text-sm tracking-widest bg-cyan-600/20 border border-cyan-500/40 text-cyan-400 flex items-center gap-2 active:scale-95 transition-all">
+                        <MessageCircle size={16}/> Message
+                      </button>
+                    </div>
                   )}
                   <div className="flex gap-4 mt-8 border-b border-white/10">
                     {[{t:'Posts',i:<Grid size={18}/>},{t:'Videos',i:<Film size={18}/>}].map(tab => (
@@ -1771,27 +1811,26 @@ export default function AJSuperPortal() {
                   </div>
                   <div className="grid grid-cols-3 gap-1 mt-4">
                     {[...profilePosts,...profileVideos].map((p:any) => (
-                      <div key={p.id} className="aspect-square bg-white/5 rounded-xl overflow-hidden">
+                      <div key={p.id} className="aspect-square bg-white/5 rounded-xl overflow-hidden relative">
                         {(p.image||p.url||p.thumbnail)
                           ? <img src={p.image||p.url||p.thumbnail} className="w-full h-full object-cover"/>
                           : <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-pink-600/20 to-cyan-600/20"><Film size={24} className="text-pink-400"/></div>
                         }
+                        <div className="absolute bottom-1 left-1 flex items-center gap-0.5 bg-black/60 px-1.5 py-0.5 rounded-full">
+                          <Film size={8} className="text-white opacity-70"/>
+                          <span className="text-[8px] font-black text-white">{formatViews(p.views??0)}</span>
+                        </div>
                       </div>
                     ))}
                     {profileVideos.length===0 && profilePosts.length===0 && (
                       <div className="col-span-3 py-12 text-center">
                         <Film size={36} className="text-gray-600 mx-auto mb-3"/>
-                        <p className="text-gray-500 text-xs font-bold uppercase tracking-widest">No videos uploaded yet</p>
-                        <p className="text-gray-700 text-[9px] mt-1">Videos will appear here once uploaded.</p>
-                      </div>
-                    )}
-                    {profileVideos.length===0 && profilePosts.length>0 && (
-                      <div className="col-span-3 py-4 text-center border-t border-white/5 mt-2">
-                        <p className="text-gray-600 text-[9px] font-bold uppercase tracking-widest">No videos uploaded yet</p>
+                        <p className="text-gray-500 text-xs font-black uppercase tracking-widest">No videos uploaded yet</p>
                       </div>
                     )}
                   </div>
                 </div>
+                </>)}
               </div>
             )}
 
@@ -1808,6 +1847,53 @@ export default function AJSuperPortal() {
                   <LogOut className="text-red-500" size={24}/><span className="font-black text-sm uppercase tracking-widest text-red-500">Sign Out</span>
                 </button>
                 <button onClick={() => setSocialScreen('hub')} className="text-gray-500 uppercase text-[10px] font-black mt-10">Back</button>
+              </div>
+            )}
+
+            {/* DM CHAT */}
+            {socialScreen==='dm' && activeChatUser && (
+              <div className="fixed inset-0 z-[500] bg-[#0a0a0a] flex flex-col">
+                <div className="flex items-center gap-3 px-4 py-3 bg-black/90 border-b border-white/10 shrink-0">
+                  <button onClick={() => { setSocialScreen('profile'); if(dmUnsubRef.current){dmUnsubRef.current();dmUnsubRef.current=null;} }}
+                    className="text-pink-500 font-black text-xs uppercase tracking-widest">Back</button>
+                  <img src={activeChatUser.photo||'/logo.png'} className="w-9 h-9 rounded-full border-2 border-cyan-500 object-cover"/>
+                  <div>
+                    <p className="font-black text-white text-xs uppercase tracking-widest">@{activeChatUser.username||'AJ_MEMBER'}</p>
+                    {activeChatUser.name && <p className="text-[9px] text-cyan-400 font-bold">{activeChatUser.name}</p>}
+                  </div>
+                </div>
+                <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3">
+                  {dmMessages.length===0 && (
+                    <div className="flex items-center justify-center py-20 text-center">
+                      <div><MessageCircle size={40} className="text-gray-700 mx-auto mb-3"/>
+                        <p className="text-gray-500 text-xs font-black uppercase tracking-widest">No messages yet. Say hi!</p>
+                      </div>
+                    </div>
+                  )}
+                  {dmMessages.map((m:any) => {
+                    const isMe = m.uid===user?.uid;
+                    return (
+                      <div key={m.id} className={`flex gap-2 items-end ${isMe?'flex-row-reverse':''}`}>
+                        <img src={m.photo||'/logo.png'} className="w-7 h-7 rounded-full border border-pink-500 object-cover shrink-0"/>
+                        <div className={`max-w-[72%] px-4 py-2.5 rounded-2xl text-xs font-bold break-words ${
+                          isMe?'bg-pink-600 text-white rounded-br-sm':'bg-white/10 text-gray-200 rounded-bl-sm'
+                        }`}>{m.text}</div>
+                      </div>
+                    );
+                  })}
+                  <div ref={dmEndRef}/>
+                </div>
+                <div className="flex gap-2 px-3 py-3 bg-black/90 border-t border-white/10 shrink-0">
+                  <img src={tempPhoto||user?.photoURL||'/logo.png'} className="w-8 h-8 rounded-full border border-pink-500 shrink-0 object-cover"/>
+                  <input type="text" value={dmInput} onChange={e=>setDmInput(e.target.value)}
+                    onKeyDown={e=>e.key==='Enter'&&sendDmMessage()}
+                    placeholder={'Message @'+(activeChatUser.username||'user')+'...'}
+                    className="flex-1 bg-white/10 border border-white/10 rounded-full px-4 py-2 text-[11px] text-white outline-none focus:ring-1 focus:ring-cyan-500 font-bold"
+                  />
+                  <button onClick={sendDmMessage} className="bg-cyan-500 p-2 rounded-full text-black active:scale-90 transition-all shadow-lg">
+                    <Send size={14}/>
+                  </button>
+                </div>
               </div>
             )}
 
@@ -1896,7 +1982,8 @@ export default function AJSuperPortal() {
                                 <img
                                   src={vid.thumb||'/logo.png'}
                                   loading="lazy" decoding="async"
-                                  className="w-12 h-12 rounded-full border-2 border-white object-cover shadow-xl"
+                                  onClick={() => (vid as any).uid && openProfile((vid as any).uid)}
+                                  className="w-12 h-12 rounded-full border-2 border-white object-cover shadow-xl cursor-pointer active:scale-90 transition-all"
                                 />
                                 <button
                                   onClick={() => setFollowedYouTubers(prev => {
@@ -2147,6 +2234,11 @@ export default function AJSuperPortal() {
                       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/20"/>
                       {/* RIGHT SIDEBAR ACTIONS */}
                       <div className="absolute right-4 bottom-28 flex flex-col gap-6 items-center z-10">
+                         <div className="flex flex-col items-center gap-0.5">
+                           <img src={photo.user?.profile_image?.medium||'/logo.png'} loading="lazy" decoding="async"
+                             title={photo.user?.name||'Creator'}
+                             className="w-11 h-11 rounded-full border-2 border-white object-cover shadow-xl"/>
+                         </div>
                         <div onClick={() => handleLike(photo.id)} className="flex flex-col items-center cursor-pointer active:scale-125 transition-all drop-shadow-lg">
                           <Heart size={32} className={likedPosts[photo.id]?"text-red-500 fill-red-500":"text-white"}/>
                           <span className="text-[9px] font-black text-white mt-1">{photo.likes||0}</span>
