@@ -288,6 +288,10 @@ export default function AJSuperPortal() {
   const [followers,     setFollowers]     = useState(0);
   const [following,     setFollowing]     = useState(0);
   const [isFollowing,   setIsFollowing]   = useState(false);
+  // TikReels: local follow-state for YouTube channel names (no Firebase UID available)
+  const [followedYouTubers, setFollowedYouTubers] = useState<Set<string>>(new Set());
+  // Following list for profile tab
+  const [followingList, setFollowingList] = useState<any[]>([]);
 
   // ── REFS ─────────────────────────────────────────────────────
   const fileInputRef  = useRef<HTMLInputElement>(null);
@@ -680,6 +684,19 @@ export default function AJSuperPortal() {
       await updateDoc(doc(db,"users",targetUid),   { followers: increment(1) });
       setIsFollowing(true); setFollowers(f => f+1);
     }
+  };
+
+  // Load the list of users the current user follows (for profile Following tab)
+  const loadFollowingList = async () => {
+    if (!user) return;
+    try {
+      const foSnap = await getDocs(collection(db,"users",user.uid,"following"));
+      const list = await Promise.all(foSnap.docs.map(async d => {
+        const snap = await getDoc(doc(db,"users",d.id));
+        return snap.exists() ? { uid:d.id, ...snap.data() } : { uid:d.id, username:d.id };
+      }));
+      setFollowingList(list.filter(Boolean));
+    } catch {}
   };
 
   // Open someone's profile
@@ -1544,14 +1561,43 @@ export default function AJSuperPortal() {
                 <div className="mt-16 text-center px-6">
                   <h2 className="text-2xl font-black text-white uppercase tracking-widest">@{viewProfile.username||'AJ_MEMBER'}</h2>
                   <p className="text-sm text-gray-400 mt-2 font-bold">{viewProfile.bio||'No bio yet.'}</p>
-                  <div className="flex justify-center gap-8 mt-6">
-                    {[{l:'Posts',v:profilePosts.length},{l:'Videos',v:profileVideos.length},{l:'Followers',v:followers},{l:'Following',v:following}].map(s => (
-                      <div key={s.l} className="text-center">
-                        <p className="text-xl font-black text-white">{s.v}</p>
-                        <p className="text-[9px] text-gray-500 uppercase font-bold tracking-widest">{s.l}</p>
+                  {/* STATS GRID */}
+                  {(() => {
+                    const [profTab, setProfTab] = React.useState<'grid'|'following'>('grid');
+                    return (<>
+                      <div className="flex justify-center gap-6 mt-6">
+                        {[{l:'Posts',v:profilePosts.length},{l:'Videos',v:profileVideos.length},{l:'Followers',v:followers}].map(s => (
+                          <div key={s.l} className="text-center">
+                            <p className="text-xl font-black text-white">{s.v}</p>
+                            <p className="text-[9px] text-gray-500 uppercase font-bold tracking-widest">{s.l}</p>
+                          </div>
+                        ))}
+                        <button onClick={() => { setProfTab(t => t==='following'?'grid':'following'); if(viewingUid) loadFollowingList(); }}
+                          className="text-center">
+                          <p className="text-xl font-black text-white">{following}</p>
+                          <p className="text-[9px] text-pink-400 uppercase font-bold tracking-widest underline">Following</p>
+                        </button>
                       </div>
-                    ))}
-                  </div>
+                      {profTab==='following' && (
+                        <div className="mt-4 border border-white/10 rounded-2xl overflow-hidden">
+                          <p className="text-[9px] font-black text-pink-400 uppercase tracking-widest px-4 py-2 bg-white/5 border-b border-white/10">Following List</p>
+                          {followingList.length===0 && <p className="text-[10px] text-gray-500 text-center py-6">No one followed yet.</p>}
+                          {followingList.map((fu:any) => (
+                            <div key={fu.uid} onClick={() => openProfile(fu.uid)}
+                              className="flex items-center gap-3 px-4 py-3 hover:bg-white/5 cursor-pointer border-b border-white/5 transition-all">
+                              <img src={fu.photo||'/logo.png'} loading="lazy" decoding="async"
+                                className="w-9 h-9 rounded-full border-2 border-pink-500 object-cover"/>
+                              <div className="flex-1">
+                                <p className="font-black text-white text-xs">@{fu.username||'AJ_MEMBER'}</p>
+                                <p className="text-[9px] text-gray-500 font-bold">{fu.bio||'AJ Portal Member'}</p>
+                              </div>
+                              <UserCheck size={14} className="text-pink-400"/>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>);
+                  })()}
                   {viewingUid!==user?.uid && (
                     <button onClick={() => viewingUid && handleFollow(viewingUid)}
                       className={`mt-6 px-10 py-3 rounded-full font-black uppercase text-sm tracking-widest transition-all active:scale-95 flex items-center gap-2 mx-auto ${isFollowing?'bg-white/10 border border-white/20 text-white':'bg-pink-600 text-white shadow-lg'}`}>
@@ -1603,7 +1649,7 @@ export default function AJSuperPortal() {
               <div className="flex flex-col h-full">
                 <div className="flex gap-0 bg-black border-b border-white/10 shrink-0">
                   {(['feed','create','profile'] as const).map(t => (
-                    <button key={t} onClick={() => setTiktabMode(t)}
+                    <button key={t} onClick={() => { setTiktabMode(t); if(t==='profile') loadFollowingList(); }}
                       className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest transition-all ${tiktabMode===t?'text-pink-500 border-b-2 border-pink-500':'text-gray-500'}`}>
                       {t==='feed'?'🎬 Feed':t==='create'?'➕ Post':'👤 Profile'}
                     </button>
@@ -1677,6 +1723,27 @@ export default function AJSuperPortal() {
                           )}
                           {/* RIGHT SIDEBAR ACTIONS */}
                           <div className="absolute right-4 bottom-32 flex flex-col gap-6 items-center z-10">
+                            {/* CREATOR AVATAR + FOLLOW — above Like button */}
+                            <div className="flex flex-col items-center gap-0.5">
+                              <div className="relative">
+                                <img
+                                  src={vid.thumb||'/logo.png'}
+                                  loading="lazy" decoding="async"
+                                  className="w-12 h-12 rounded-full border-2 border-white object-cover shadow-xl"
+                                />
+                                <button
+                                  onClick={() => setFollowedYouTubers(prev => {
+                                    const next = new Set(prev);
+                                    if (next.has(vid.user)) { next.delete(vid.user); }
+                                    else { next.add(vid.user); }
+                                    return next;
+                                  })}
+                                  className={`absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center border-2 border-black font-black text-[11px] shadow-lg transition-all active:scale-125 ${followedYouTubers.has(vid.user) ? 'bg-white text-pink-600' : 'bg-pink-600 text-white'}`}
+                                >
+                                  {followedYouTubers.has(vid.user) ? '✓' : '+'}
+                                </button>
+                              </div>
+                            </div>
                             <div onClick={() => handleLike(vid.id)} className="flex flex-col items-center cursor-pointer active:scale-125 transition-all">
                               <Heart size={35} className={likedPosts[vid.id]?"text-red-500 fill-red-500":"text-white"}/>
                               <span className="text-[10px] font-bold text-white">12k</span>
@@ -1760,14 +1827,57 @@ export default function AJSuperPortal() {
                           </div>
                         ))}
                       </div>
-                      <div className="grid grid-cols-3 gap-1 mt-6">
-                        {userPosts.filter((p:any) => p.uid===user?.uid).map((p:any) => (
-                          <div key={p.id} className="aspect-square bg-white/5 rounded-xl overflow-hidden">
-                            {p.image ? <img src={p.image} className="w-full h-full object-cover"/>
-                              : <div className="w-full h-full flex items-center justify-center"><Film size={24} className="text-pink-400"/></div>}
+                      {/* TABS: Posts | Following */}
+                      {(() => {
+                        const [myTab, setMyTab] = React.useState<'posts'|'following'>('posts');
+                        return (<>
+                          <div className="flex gap-0 border-b border-white/10 mt-5">
+                            <button onClick={() => setMyTab('posts')}
+                              className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest transition-all ${myTab==='posts'?'text-pink-500 border-b-2 border-pink-500':'text-gray-500'}`}>
+                              <Grid size={12} className="inline mr-1"/>Posts
+                            </button>
+                            <button onClick={() => { setMyTab('following'); loadFollowingList(); }}
+                              className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest transition-all ${myTab==='following'?'text-pink-500 border-b-2 border-pink-500':'text-gray-500'}`}>
+                              <UserCheck size={12} className="inline mr-1"/>Following ({following})
+                            </button>
                           </div>
-                        ))}
-                      </div>
+                          {myTab==='posts' && (
+                            <div className="grid grid-cols-3 gap-1 mt-4">
+                              {userPosts.filter((p:any) => p.uid===user?.uid).map((p:any) => (
+                                <div key={p.id} className="aspect-square bg-white/5 rounded-xl overflow-hidden">
+                                  {p.image ? <img src={p.image} className="w-full h-full object-cover"/>
+                                    : <div className="w-full h-full flex items-center justify-center"><Film size={24} className="text-pink-400"/></div>}
+                                </div>
+                              ))}
+                              {userPosts.filter((p:any) => p.uid===user?.uid).length===0 && (
+                                <div className="col-span-3 py-10 text-gray-500 text-xs text-center">No posts yet.</div>
+                              )}
+                            </div>
+                          )}
+                          {myTab==='following' && (
+                            <div className="flex flex-col gap-0 mt-2">
+                              {followingList.length===0 && (
+                                <div className="py-12 text-gray-500 text-xs text-center">You are not following anyone yet.</div>
+                              )}
+                              {followingList.map((fu:any) => (
+                                <div key={fu.uid}
+                                  onClick={() => openProfile(fu.uid)}
+                                  className="flex items-center gap-4 px-4 py-3 hover:bg-white/5 cursor-pointer border-b border-white/5 transition-all rounded-2xl">
+                                  <img src={fu.photo||'/logo.png'} loading="lazy" decoding="async"
+                                    className="w-11 h-11 rounded-full border-2 border-pink-500 object-cover"/>
+                                  <div className="flex-1">
+                                    <p className="font-black text-white text-xs tracking-widest">@{fu.username||'AJ_MEMBER'}</p>
+                                    <p className="text-[10px] text-gray-500 font-bold">{fu.bio||'AJ Portal Member'}</p>
+                                  </div>
+                                  <div className="w-6 h-6 rounded-full bg-pink-600/20 border border-pink-500/30 flex items-center justify-center">
+                                    <UserCheck size={12} className="text-pink-400"/>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </>);
+                      })()}
                     </div>
                   </div>
                 )}
