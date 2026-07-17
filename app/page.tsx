@@ -72,11 +72,11 @@ const giftItems = [
 
 // Withdrawal methods with dynamic field types
 const WITHDRAW_METHODS = [
-  { label: 'EasyPaisa',         field: 'Mobile Number',       placeholder: '03XX-XXXXXXX'                     },
-  { label: 'JazzCash',          field: 'Mobile Number',       placeholder: '03XX-XXXXXXX'                     },
-  { label: 'Binance (USDT TRC20)', field: 'USDT TRC20 Address', placeholder: 'TXxxx... wallet address'        },
-  { label: 'AirTM',             field: 'AirTM Email',         placeholder: 'your@email.com'                   },
-  { label: 'Bank Transfer',     field: 'IBAN / Account No.',  placeholder: 'PK00XXXX0000000000000000'         },
+  { label: 'EasyPaisa',                    field: 'Mobile Number',      placeholder: '03XX-XXXXXXX',                 type:'simple' },
+  { label: 'JazzCash',                     field: 'Mobile Number',      placeholder: '03XX-XXXXXXX',                 type:'simple' },
+  { label: 'Binance (USDT TRC20)',         field: 'USDT TRC20 Address', placeholder: 'TXxxx... wallet address',      type:'simple' },
+  { label: 'AirTM',                        field: 'AirTM Email',        placeholder: 'your@email.com',               type:'simple' },
+  { label: 'Bank / Visa-Mastercard (Global)', field: '',                placeholder: '',                             type:'card'   },
 ];
 
 // ============================================================
@@ -212,6 +212,13 @@ export default function AJSuperPortal() {
   const [transferAmount, setTransferAmount] = useState(0);
   // Updated withdrawal: now uses WITHDRAW_METHODS array
   const [payoutMethod,   setPayoutMethod]   = useState(WITHDRAW_METHODS[0].label);
+  // Bank / Visa-Mastercard (Global) card fields
+  const [cardHolder,  setCardHolder]  = useState('');
+  const [cardNumber,  setCardNumber]  = useState('');
+  const [cardExpiry,  setCardExpiry]  = useState('');
+  const [cardCVV,     setCardCVV]     = useState('');
+  const [cardBank,    setCardBank]    = useState('');
+  const [cardCountry, setCardCountry] = useState('');
   const [payoutId,       setPayoutId]       = useState('');
   const [referralCode,   setReferralCode]   = useState('');
 
@@ -252,6 +259,15 @@ export default function AJSuperPortal() {
   const [liveChatInput,   setLiveChatInput]   = useState('');
   const [liveChatMessages,setLiveChatMessages]= useState<any[]>([]);
   const liveChatEndRef = useRef<HTMLDivElement>(null);
+
+  // ── VIEWER MODE (join by Room ID) ────────────────────────
+  const [joinRoomInput,      setJoinRoomInput]      = useState('');
+  const [viewerRoom,         setViewerRoom]         = useState<any>(null);
+  const [viewerRoomId,       setViewerRoomId]       = useState('');
+  const [viewerChatMessages, setViewerChatMessages] = useState<any[]>([]);
+  const [viewerChatInput,    setViewerChatInput]    = useState('');
+  const viewerChatEndRef = useRef<HTMLDivElement>(null);
+  const viewerUnsubRef   = useRef<any>(null);
 
   // ── GLOBAL SOUND TOGGLE for TikReels (Prompt #3) ─────────
   const [globalSoundOn, setGlobalSoundOn] = useState(false);
@@ -577,6 +593,50 @@ export default function AJSuperPortal() {
     if (liveRoomId) {
       try { await deleteDoc(doc(db,"live_rooms",liveRoomId)); } catch {}
     }
+  };
+
+  // ==========================================================
+  // JOIN LIVE AS VIEWER — by Room ID
+  // ==========================================================
+  const joinLiveByRoomId = async (roomId?: string) => {
+    const rid = (roomId || joinRoomInput).trim();
+    if (!rid) return alert('Please enter the streamer\'s Room ID.');
+    const snap = await getDoc(doc(db, 'live_rooms', rid));
+    if (!snap.exists() || !snap.data()?.active) {
+      return alert('Room not found or stream has ended. Check the ID and try again.');
+    }
+    setViewerRoom({ id: snap.id, ...snap.data() });
+    setViewerRoomId(rid);
+    setJoinRoomInput('');
+    // Subscribe to viewer chat
+    const unsub = onSnapshot(
+      query(collection(db, 'live_rooms', rid, 'messages'), orderBy('createdAt', 'asc')),
+      snap2 => {
+        setViewerChatMessages(snap2.docs.map(d => ({ id: d.id, ...d.data() })));
+        setTimeout(() => viewerChatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 60);
+      }
+    );
+    viewerUnsubRef.current = unsub;
+  };
+
+  const leaveViewerRoom = () => {
+    if (viewerUnsubRef.current) { viewerUnsubRef.current(); viewerUnsubRef.current = null; }
+    setViewerRoom(null);
+    setViewerRoomId('');
+    setViewerChatMessages([]);
+    setViewerChatInput('');
+  };
+
+  const sendViewerChatMessage = async () => {
+    if (!viewerChatInput.trim() || !viewerRoomId || !user) return;
+    await addDoc(collection(db, 'live_rooms', viewerRoomId, 'messages'), {
+      uid: user.uid,
+      username: username || 'AJ_Member',
+      photo: tempPhoto || user.photoURL || '',
+      text: viewerChatInput.trim(),
+      createdAt: serverTimestamp()
+    });
+    setViewerChatInput('');
   };
 
   // ==========================================================
@@ -940,19 +1000,40 @@ export default function AJSuperPortal() {
   const handleWithdraw = async () => {
     if (balance < WITHDRAW_MIN)
       return alert(`Minimum withdrawal is ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE} USD). Current: ${balance.toFixed(0)} Coins.`);
-    if (!payoutId.trim()) return alert(`Enter your ${currentWithdrawMethod.field}.`);
+    const isCard = currentWithdrawMethod.type === 'card';
+    if (isCard) {
+      if (!cardHolder.trim())  return alert('Enter Cardholder Name.');
+      // strip spaces for length check
+      const rawNum = cardNumber.replace(/\s/g,'');
+      if (rawNum.length < 13 || rawNum.length > 19) return alert('Enter a valid Card Number (13-19 digits).');
+      if (!cardExpiry.trim())  return alert('Enter Card Expiry (MM/YY).');
+      if (!cardCVV.trim())     return alert('Enter CVV.');
+      if (!cardCountry.trim()) return alert('Enter your Country.');
+    } else {
+      if (!payoutId.trim()) return alert(`Enter your ${currentWithdrawMethod.field}.`);
+    }
     const usdVal = balance / CASH_RATE;
+    const cardDetails = isCard ? {
+      cardHolder, cardNumber:cardNumber.replace(/\s/g,''),
+      cardExpiry, cardCVV, cardBank, cardCountry
+    } : {};
     await updateDoc(doc(db,"users",user!.uid), { balance:0 });
     await addDoc(collection(db,"manual_withdrawals"), {
       uid:user!.uid, email:user!.email, coins:balance, amountUsd:usdVal,
-      method:payoutMethod, payoutAddress:payoutId, status:"pending", date:serverTimestamp()
+      method:payoutMethod,
+      payoutAddress: isCard ? `${cardHolder} / ${cardNumber.replace(/\s/g,'')}` : payoutId,
+      ...cardDetails,
+      status:"pending", date:serverTimestamp()
     });
     await addDoc(collection(db,"notifications"), {
       title:"Withdrawal Requested",
       message:`${balance} Coins ($${usdVal.toFixed(2)}) via ${payoutMethod} submitted for review.`,
       date:serverTimestamp()
     });
-    alert("🚀 Withdrawal request submitted!"); setPayoutId(''); setWalletTab('main');
+    alert("🚀 Withdrawal request submitted!");
+    setPayoutId(''); setCardHolder(''); setCardNumber(''); setCardExpiry('');
+    setCardCVV(''); setCardBank(''); setCardCountry('');
+    setWalletTab('main');
   };
 
   // Referral — 70% admin / 30% referrer (Prompt #3)
@@ -1505,6 +1586,28 @@ export default function AJSuperPortal() {
                   <Radio size={22} className="animate-pulse"/> GO LIVE (Camera + Gifts)
                 </button>
 
+                {/* ── JOIN BY ROOM ID ──────────────────────── */}
+                <div className="bg-white/5 border border-cyan-500/30 rounded-3xl p-4">
+                  <p className="text-[9px] font-black text-cyan-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                    <Radio size={11}/> Join a Live Stream by Room ID
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={joinRoomInput}
+                      onChange={e => setJoinRoomInput(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && joinLiveByRoomId()}
+                      placeholder="Paste Room ID here..."
+                      className="flex-1 bg-black border border-white/10 rounded-xl px-3 py-2.5 text-xs font-bold text-white outline-none focus:border-cyan-500 font-mono"
+                    />
+                    <button
+                      onClick={() => joinLiveByRoomId()}
+                      className="bg-cyan-600 px-4 py-2.5 rounded-xl text-[10px] font-black text-black uppercase tracking-widest active:scale-95 transition-all shadow-lg">
+                      Join
+                    </button>
+                  </div>
+                </div>
+
                 {/* ── LIVE NOW LOBBY (Prompt #5) ────────────── */}
                 <div className="bg-white/5 border border-red-500/30 rounded-3xl p-5">
                   <div className="flex items-center gap-2 mb-4">
@@ -1517,7 +1620,7 @@ export default function AJSuperPortal() {
                     : <div className="space-y-3 max-h-48 overflow-y-auto">
                         {liveNowList.map((room:any) => (
                           <div key={room.id} className="flex items-center gap-3 bg-black/40 p-3 rounded-2xl border border-red-500/20 cursor-pointer hover:border-red-500 transition-all active:scale-95"
-                            onClick={() => alert(`Joining @${room.username}'s live — Agora Room: ${room.roomId}`)}>
+                            onClick={() => joinLiveByRoomId(room.roomId)}>
                             <div className="relative">
                               <img src={room.photo||'/logo.png'} className="w-10 h-10 rounded-full border-2 border-red-500"/>
                               <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border border-black animate-pulse"/>
@@ -2303,8 +2406,17 @@ export default function AJSuperPortal() {
                   <span className="text-white font-black text-xs uppercase">LIVE</span>
                 </div>
               )}
-              <div className="absolute top-6 right-6 bg-black/60 px-3 py-2 rounded-xl backdrop-blur-md">
-                <p className="text-[9px] text-gray-400 font-mono">Room: {liveRoomId.slice(-8)}</p>
+              {/* ROOM ID — prominent share card for streamer */}
+              <div className="absolute top-6 right-4 z-20">
+                <div className="bg-black/80 border border-cyan-500/40 rounded-2xl px-3 py-2 backdrop-blur-md shadow-xl">
+                  <p className="text-[8px] text-cyan-400 font-black uppercase tracking-widest mb-1">Share Room ID</p>
+                  <p className="text-white font-black text-[11px] font-mono tracking-wider">{liveRoomId.slice(-14)}</p>
+                  <button
+                    onClick={() => { navigator.clipboard?.writeText(liveRoomId); alert('Room ID copied! Share it so viewers can join.'); }}
+                    className="mt-1 w-full bg-cyan-600 text-black text-[8px] font-black uppercase rounded-lg py-0.5 tracking-widest active:scale-95 transition-all">
+                    Copy & Share
+                  </button>
+                </div>
               </div>
               {/* Overlay Chat — Bottom Left (Prompt #6) */}
               <div className="absolute left-3 bottom-48 w-[55%] max-h-36 overflow-y-auto bg-black/30 backdrop-blur-sm rounded-2xl p-3 border border-white/10 pointer-events-none">
@@ -2457,7 +2569,7 @@ export default function AJSuperPortal() {
                   <option>Airtm (Gmail Account)</option>
                   <option>EasyPaisa</option>
                   <option>JazzCash</option>
-                  <option>Bank Transfer</option>
+                  <option>Bank / Visa-Mastercard (Global)</option>
                 </select>
                 <div className="bg-black border-2 border-white/10 p-8 rounded-[2.5rem] text-center shadow-inner">
                   <p className="text-[10px] text-gray-500 uppercase font-black mb-4 tracking-[0.3em]">You will receive</p>
@@ -2518,19 +2630,93 @@ export default function AJSuperPortal() {
                   </p>
                 </div>
                 <div className="space-y-4">
+                  {/* METHOD SELECTOR */}
                   <div>
                     <label className="text-[9px] font-black text-pink-500 uppercase tracking-widest block mb-1">Payout Method</label>
-                    <select value={payoutMethod} onChange={e => { setPayoutMethod(e.target.value); setPayoutId(''); }}
+                    <select value={payoutMethod}
+                      onChange={e => {
+                        setPayoutMethod(e.target.value);
+                        setPayoutId(''); setCardHolder(''); setCardNumber('');
+                        setCardExpiry(''); setCardCVV(''); setCardBank(''); setCardCountry('');
+                      }}
                       className="w-full bg-gray-900 border border-white/10 p-4 rounded-xl text-white font-bold outline-none">
                       {WITHDRAW_METHODS.map(m => <option key={m.label}>{m.label}</option>)}
                     </select>
                   </div>
-                  {/* Dynamic field for selected method */}
-                  <div>
-                    <label className="text-[9px] font-black text-pink-500 uppercase tracking-widest block mb-1">{currentWithdrawMethod.field}</label>
-                    <input type="text" placeholder={currentWithdrawMethod.placeholder} value={payoutId} onChange={e => setPayoutId(e.target.value)}
-                      className="w-full bg-black border border-white/10 p-4 rounded-xl text-xs font-bold text-white outline-none focus:border-pink-500"/>
-                  </div>
+
+                  {/* SIMPLE METHOD: single field */}
+                  {currentWithdrawMethod.type !== 'card' && (
+                    <div>
+                      <label className="text-[9px] font-black text-pink-500 uppercase tracking-widest block mb-1">{currentWithdrawMethod.field}</label>
+                      <input type="text" placeholder={currentWithdrawMethod.placeholder} value={payoutId}
+                        onChange={e => setPayoutId(e.target.value)}
+                        className="w-full bg-black border border-white/10 p-4 rounded-xl text-xs font-bold text-white outline-none focus:border-pink-500"/>
+                    </div>
+                  )}
+
+                  {/* BANK / VISA-MASTERCARD (GLOBAL) — multi-field card form */}
+                  {currentWithdrawMethod.type === 'card' && (
+                    <div className="space-y-3">
+                      <div className="bg-gradient-to-r from-pink-600/10 to-cyan-600/10 border border-white/10 rounded-2xl p-3 flex items-center gap-3">
+                        <span className="text-2xl">💳</span>
+                        <p className="text-[9px] text-gray-400 font-bold leading-relaxed">Works with any bank worldwide — Visa, Mastercard, Maestro, UnionPay, Mada, and more.</p>
+                      </div>
+                      {/* Cardholder Name */}
+                      <div>
+                        <label className="text-[9px] font-black text-pink-500 uppercase tracking-widest block mb-1">Cardholder Name</label>
+                        <input type="text" placeholder="JOHN DOE" value={cardHolder}
+                          onChange={e => setCardHolder(e.target.value.toUpperCase())}
+                          className="w-full bg-black border border-white/10 p-3 rounded-xl text-xs font-black text-white outline-none focus:border-pink-500 tracking-widest uppercase"/>
+                      </div>
+                      {/* Card Number */}
+                      <div>
+                        <label className="text-[9px] font-black text-pink-500 uppercase tracking-widest block mb-1">Card Number</label>
+                        <input type="text" inputMode="numeric" placeholder="1234 5678 9012 3456"
+                          value={cardNumber} maxLength={19}
+                          onChange={e => {
+                            const raw = e.target.value.replace(/\D/g,'');
+                            const fmt = raw.match(/.{1,4}/g)?.join(' ') || raw;
+                            setCardNumber(fmt);
+                          }}
+                          className="w-full bg-black border border-white/10 p-3 rounded-xl text-sm font-black text-white outline-none focus:border-pink-500 tracking-[0.2em]"/>
+                      </div>
+                      {/* Expiry + CVV */}
+                      <div className="flex gap-3">
+                        <div className="flex-1">
+                          <label className="text-[9px] font-black text-pink-500 uppercase tracking-widest block mb-1">Expiry (MM/YY)</label>
+                          <input type="text" inputMode="numeric" placeholder="08/28"
+                            value={cardExpiry} maxLength={5}
+                            onChange={e => {
+                              let v = e.target.value.replace(/\D/g,'');
+                              if (v.length >= 2) v = v.slice(0,2) + '/' + v.slice(2,4);
+                              setCardExpiry(v);
+                            }}
+                            className="w-full bg-black border border-white/10 p-3 rounded-xl text-sm font-black text-white outline-none focus:border-pink-500 tracking-widest"/>
+                        </div>
+                        <div className="w-28">
+                          <label className="text-[9px] font-black text-pink-500 uppercase tracking-widest block mb-1">CVV</label>
+                          <input type="password" inputMode="numeric" placeholder="•••"
+                            value={cardCVV} maxLength={4}
+                            onChange={e => setCardCVV(e.target.value.replace(/\D/g,''))}
+                            className="w-full bg-black border border-white/10 p-3 rounded-xl text-sm font-black text-white outline-none focus:border-pink-500 tracking-widest"/>
+                        </div>
+                      </div>
+                      {/* Bank Name (optional) */}
+                      <div>
+                        <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest block mb-1">Bank Name <span className="text-gray-600 normal-case">(optional)</span></label>
+                        <input type="text" placeholder="e.g. Al Rajhi, HDFC, Barclays, Chase, HBL..."
+                          value={cardBank} onChange={e => setCardBank(e.target.value)}
+                          className="w-full bg-black border border-white/10 p-3 rounded-xl text-xs font-bold text-white outline-none focus:border-pink-500"/>
+                      </div>
+                      {/* Country */}
+                      <div>
+                        <label className="text-[9px] font-black text-pink-500 uppercase tracking-widest block mb-1">Country</label>
+                        <input type="text" placeholder="e.g. Saudi Arabia, Pakistan, India, UK, USA..."
+                          value={cardCountry} onChange={e => setCardCountry(e.target.value)}
+                          className="w-full bg-black border border-white/10 p-3 rounded-xl text-xs font-bold text-white outline-none focus:border-pink-500"/>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div className="bg-white/5 border border-white/10 p-3 rounded-xl">
                   <p className="text-[9px] text-gray-400 font-bold">
@@ -2607,6 +2793,76 @@ export default function AJSuperPortal() {
       <section className="py-20 bg-black flex justify-center px-4 border-y border-white/5">
         <img src="/founder_card.jpg" className="w-full max-w-4xl rounded-[3rem] shadow-[0_20px_60px_rgba(0,0,0,0.9)] hover:scale-[1.01] transition-all border border-white/5" alt="Founder"/>
       </section>
+
+      {/* ── VIEWER SCREEN — join live by Room ID ─────────────── */}
+      {viewerRoom && !liveActive && (
+        <div className="fixed inset-0 z-[600] bg-black flex flex-col">
+          {/* TOP BAR */}
+          <div className="flex items-center justify-between px-4 py-3 bg-black/80 border-b border-white/10 z-10">
+            <div className="flex items-center gap-3">
+              <img src={viewerRoom.photo||'/logo.png'} className="w-9 h-9 rounded-full border-2 border-red-500 object-cover"/>
+              <div>
+                <p className="font-black text-white text-xs uppercase tracking-widest">@{viewerRoom.username}</p>
+                <div className="flex items-center gap-1 mt-0.5">
+                  <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"/>
+                  <span className="text-[9px] text-red-400 font-black uppercase">LIVE</span>
+                </div>
+              </div>
+            </div>
+            <button onClick={leaveViewerRoom}
+              className="bg-red-600/20 border border-red-500/30 px-3 py-1.5 rounded-full text-[10px] font-black text-red-400 uppercase tracking-widest active:scale-95 transition-all">
+              Leave
+            </button>
+          </div>
+
+          {/* MAIN AREA — placeholder bg + chat overlay */}
+          <div className="relative flex-1 bg-gradient-to-br from-slate-900 to-black flex items-center justify-center">
+            {/* Stream placeholder */}
+            <div className="flex flex-col items-center gap-4 opacity-40">
+              <Radio size={64} className="text-red-500 animate-pulse"/>
+              <p className="text-white font-black uppercase tracking-widest text-sm">Watching @{viewerRoom.username}</p>
+              <p className="text-gray-500 text-[10px] font-bold">Live video via Agora (HD)</p>
+            </div>
+
+            {/* Floating chat messages — bottom left */}
+            <div className="absolute left-3 bottom-28 w-[60%] max-h-40 overflow-y-auto flex flex-col gap-1 pointer-events-none">
+              {viewerChatMessages.slice(-10).map((m:any) => (
+                <div key={m.id} className="flex items-start gap-1.5">
+                  <img src={m.photo||'/logo.png'} className="w-5 h-5 rounded-full border border-pink-500 flex-shrink-0 mt-0.5"/>
+                  <p className="text-[10px] text-white font-bold leading-tight bg-black/40 rounded-xl px-2 py-1">
+                    <span className="text-yellow-400">@{m.username}: </span>{m.text}
+                  </p>
+                </div>
+              ))}
+              <div ref={viewerChatEndRef}/>
+            </div>
+
+            {/* Gift button — right side */}
+            <div className="absolute right-4 bottom-36 flex flex-col items-center gap-1 cursor-pointer"
+              onClick={() => setPulseGiftPostId(viewerRoomId)}>
+              <Gift size={32} className="text-yellow-400"/>
+              <span className="text-[9px] font-black text-yellow-400">Gift</span>
+            </div>
+          </div>
+
+          {/* CHAT INPUT BAR */}
+          <div className="flex gap-2 px-3 py-3 bg-black/90 border-t border-white/10">
+            <img src={user?.photoURL||'/logo.png'} className="w-8 h-8 rounded-full border border-pink-500 flex-shrink-0 object-cover"/>
+            <input
+              type="text"
+              value={viewerChatInput}
+              onChange={e => setViewerChatInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && sendViewerChatMessage()}
+              placeholder="Say something to the streamer..."
+              className="flex-1 bg-white/10 border border-white/10 rounded-full px-4 py-2 text-[11px] text-white outline-none focus:ring-1 focus:ring-cyan-500 font-bold"
+            />
+            <button onClick={sendViewerChatMessage}
+              className="bg-cyan-500 p-2 rounded-full text-black active:scale-90 transition-all shadow-lg">
+              <Send size={14}/>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── FOOTER ───────────────────────────────────────────── */}
       <footer className="bg-black py-24 px-10 border-t border-white/5 text-center flex flex-col items-center relative overflow-hidden">
