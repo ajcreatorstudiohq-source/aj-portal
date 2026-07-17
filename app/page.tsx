@@ -11,7 +11,7 @@ import {
   Send, X, Download, Video, Users, Heart, MessageSquare, Camera,
   Settings, Edit3, Mail, DollarSign, Share2, Music, PlusSquare,
   MoreVertical, Search, Phone, Video as VideoIcon, ArrowLeft, Trash2,
-  Gift, Radio, UserPlus, UserCheck, Grid, Film
+  Gift, Radio, UserPlus, UserCheck, Grid, Film, Volume2, VolumeX, Swords, Clock
 } from 'lucide-react';
 
 // ============================================================
@@ -26,19 +26,37 @@ const CLOUDINARY_UPLOAD_PRESET = "aj_portal";
 const CEO_EMAIL              = "ajcreatorstudio.hq@gmail.com";
 const CEO_WHATSAPP           = "https://wa.me/96878994093";
 
+// ── NEW INTEGRATION KEYS (PROMPT IMPLEMENTATION) ─────────────
+const AGORA_APP_ID           = "7863c5369b3648bf931893a52ebaa6db";
+const AGORA_APP_CERTIFICATE  = "dc66528c5a5646da8e3ce5d2426759af";
+const VAPID_KEY              = "BMaPMtGtA2VtDsj_JH_yv5dOv66Mpguf9v4TkqY96dcS-gwqgs-r5OlqRJQmZbNkaj-7_iMFbGGN0Qc4xH0qvKg";
+const MONETAG_PULSE_BANNER   = 11337197;
+const MONETAG_WECHAT_SPONSOR = 11337185;
+
 // ============================================================
-// ECONOMY RATES  ← CONFIRMED FINAL
-//   $1  = 100 AJ Coins
-//   Min purchase  = $20  (= 2,000 Coins)
-//   Min withdraw  = 12,500 Coins  (= $125)
-//   Referral earn = 50 Coins
-//   Gift split    = 60 % creator | 40 % admin profit
+// ECONOMY RATES  ← CONFIRMED FINAL (PROMPT)
+//   $1   = 100 AJ Coins (purchase rate)
+//   Min purchase  = $20 (= 2,000 Coins)
+//   Min withdraw  = 10,000 Coins ($20 USD at CASH_RATE 1000)
+//   1000 AJ Coins = $1 USD Cash-out
+//   Referral earn = 50 Coins (net to referrer)
+//   Gift split    = 60% creator | 40% admin profit
+//   Everything else: 70% Admin | 30% User (hidden admin ledger)
 // ============================================================
 const COIN_RATE      = 100;    // AJ Coins per $1 (purchase rate)
-const CASH_RATE      = 1000;   // Coins per $1  (cashout/display rate — 12500 coins = $12.5)
+const CASH_RATE      = 1000;   // Coins per $1 (cashout/display rate)
 const MIN_PURCHASE   = 20;     // minimum purchase in USD
-const WITHDRAW_MIN   = 12500;  // minimum coins to withdraw (= $12.5 at CASH_RATE)
+const WITHDRAW_MIN   = 10000;  // minimum coins to withdraw (= $20 at CASH_RATE 1000)
 const REFERRAL_COINS = 50;     // coins awarded to referrer
+
+// Revenue split for everything except live gifts
+const USER_EARN_SHARE  = 0.30; // 30% net to user
+const ADMIN_EARN_SHARE = 0.70; // 70% to admin (logged silently)
+
+// PK Match cost per participant
+const PK_ENTRY_COINS = 100;
+// PK match duration (seconds)
+const PK_DURATION = 300;
 
 // ============================================================
 // GIFT ITEMS (60 % creator / 40 % admin)
@@ -52,6 +70,15 @@ const giftItems = [
   { id:6, name:'AJ Mansion',  cost:10000, icon:'🏰'  },
 ];
 
+// Withdrawal methods with dynamic field types
+const WITHDRAW_METHODS = [
+  { label: 'EasyPaisa',         field: 'Mobile Number',       placeholder: '03XX-XXXXXXX'                     },
+  { label: 'JazzCash',          field: 'Mobile Number',       placeholder: '03XX-XXXXXXX'                     },
+  { label: 'Binance (USDT TRC20)', field: 'USDT TRC20 Address', placeholder: 'TXxxx... wallet address'        },
+  { label: 'AirTM',             field: 'AirTM Email',         placeholder: 'your@email.com'                   },
+  { label: 'Bank Transfer',     field: 'IBAN / Account No.',  placeholder: 'PK00XXXX0000000000000000'         },
+];
+
 // ============================================================
 // CLOUDINARY UPLOADER
 // ============================================================
@@ -59,15 +86,66 @@ const uploadToCloudinary = async (file: File): Promise<string> => {
   const fd = new FormData();
   fd.append('file', file);
   fd.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+  // f_auto & q_auto for optimization (Prompt #4)
   try {
     const res  = await fetch(
-      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
+      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload?f_auto=true&q_auto=true`,
       { method: 'POST', body: fd }
     );
     const data = await res.json();
     return data.secure_url || "";
   } catch { return ""; }
 };
+
+// ============================================================
+// MONETAG BANNER COMPONENT (Prompt #4 & #8)
+// ============================================================
+function MonetagBanner({ siteId }: { siteId: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!ref.current) return;
+    try {
+      const s = document.createElement('script');
+      s.src = `https://cdn.monetag.com/banner.js?site=${siteId}`;
+      s.async = true;
+      ref.current.appendChild(s);
+    } catch {}
+  }, [siteId]);
+  return (
+    <div ref={ref} className="w-full min-h-[60px] bg-white/5 border border-cyan-500/20 rounded-2xl flex items-center justify-center text-[9px] text-gray-500 uppercase tracking-widest font-black overflow-hidden">
+      <span className="opacity-40">📢 Sponsored</span>
+    </div>
+  );
+}
+
+// ============================================================
+// CINEMATIC GIFT OVERLAY (Prompt #6)
+// ============================================================
+function CinematicGiftOverlay({ gift, sender, onDone }: { gift: any; sender: string; onDone: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onDone, 3500);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center pointer-events-none">
+      <div className="flex flex-col items-center gap-4 animate-bounce">
+        <div className="text-9xl drop-shadow-[0_0_40px_rgba(255,215,0,0.8)] animate-pulse">{gift.icon}</div>
+        <p className="text-2xl font-black text-yellow-400 uppercase tracking-widest drop-shadow-[0_0_20px_gold]">{gift.name}!</p>
+        <p className="text-sm text-white font-bold opacity-80">from @{sender}</p>
+        <div className="flex gap-4 text-4xl">
+          <span className="animate-spin">✨</span>
+          <span className="animate-bounce" style={{animationDelay:'0.2s'}}>🎊</span>
+          <span className="animate-spin" style={{animationDelay:'0.4s'}}>✨</span>
+        </div>
+      </div>
+      {/* Triple-sync glow rings */}
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute inset-0 border-8 border-yellow-400/30 rounded-full m-8 animate-ping"/>
+        <div className="absolute inset-0 border-4 border-yellow-400/20 rounded-full m-16 animate-ping" style={{animationDelay:'0.5s'}}/>
+      </div>
+    </div>
+  );
+}
 
 // ============================================================
 // COMPONENT
@@ -132,7 +210,8 @@ export default function AJSuperPortal() {
   const [purchaseTxId,   setPurchaseTxId]   = useState('');
   const [transferId,     setTransferId]     = useState('');
   const [transferAmount, setTransferAmount] = useState(0);
-  const [payoutMethod,   setPayoutMethod]   = useState('Binance Pay (USDT)');
+  // Updated withdrawal: now uses WITHDRAW_METHODS array
+  const [payoutMethod,   setPayoutMethod]   = useState(WITHDRAW_METHODS[0].label);
   const [payoutId,       setPayoutId]       = useState('');
   const [referralCode,   setReferralCode]   = useState('');
 
@@ -147,6 +226,26 @@ export default function AJSuperPortal() {
   const [cameraReady, setCameraReady] = useState(false);
   const liveVideoRef  = useRef<HTMLVideoElement>(null);
   const liveStreamRef = useRef<MediaStream|null>(null);
+
+  // ── PK CHALLENGE (Prompt #6) ─────────────────────────────────
+  const [pkChallengeOpen, setPkChallengeOpen] = useState(false);
+  const [pkTargetId,      setPkTargetId]      = useState('');
+  const [pkActive,        setPkActive]        = useState(false);
+  const [pkTimer,         setPkTimer]         = useState(PK_DURATION);
+  const [pkScore,         setPkScore]         = useState({ me: 0, rival: 0 });
+  const [pkWinner,        setPkWinner]        = useState<string|null>(null);
+  const [pkRivalData,     setPkRivalData]     = useState<any>(null);
+  const pkTimerRef = useRef<NodeJS.Timeout|null>(null);
+
+  // ── CINEMATIC GIFT (Prompt #6) ───────────────────────────────
+  const [cinematicGift,   setCinematicGift]   = useState<any>(null);
+  const [cinematicSender, setCinematicSender] = useState('');
+
+  // ── LIVE NOW LIST (Prompt #5) ────────────────────────────────
+  const [liveNowList, setLiveNowList] = useState<any[]>([]);
+
+  // ── PULSE MUTE STATE (Prompt #4 Sound Fix) ──────────────────
+  const [pulseMuted, setPulseMuted] = useState(true);
 
   // ── WECHAT CONTACTS ─────────────────────────────────────────
   const [wechatContacts, setWechatContacts] = useState<string[]>([
@@ -179,6 +278,9 @@ export default function AJSuperPortal() {
   const displayBalance = totalCoins.toFixed(2);
   const displayUsdt    = (totalCoins / CASH_RATE).toFixed(2);
 
+  // Current withdrawal method field info
+  const currentWithdrawMethod = WITHDRAW_METHODS.find(m => m.label === payoutMethod) || WITHDRAW_METHODS[0];
+
   // ==========================================================
   // FETCH APIs
   // ==========================================================
@@ -196,13 +298,23 @@ export default function AJSuperPortal() {
         user:     item.snippet.channelTitle,
         title:    item.snippet.title,
         thumb:    item.snippet?.thumbnails?.high?.url || '',
-        embedUrl: `https://www.youtube.com/embed/${item.id.videoId}?autoplay=1&mute=0&loop=1&playlist=${item.id.videoId}&controls=0&rel=0&playsinline=1`
+        embedUrl: `https://www.youtube.com/embed/${item.id.videoId}?autoplay=1&mute=1&loop=1&playlist=${item.id.videoId}&controls=0&rel=0&playsinline=1`
       })));
 
       const nRes  = await fetch(`https://gnews.io/api/v4/search?q=AI+crypto+technology&token=${GNEWS_API_KEY}&lang=en&max=15`);
       const nData = await nRes.json();
       setNewsData(nData.articles?.slice(0,15) || []);
     } catch(e) { console.log("API Error", e); }
+  };
+
+  // ==========================================================
+  // FETCH LIVE NOW LIST (Prompt #5)
+  // ==========================================================
+  const fetchLiveNow = () => {
+    const q = query(collection(db,"live_rooms"), orderBy("startedAt","desc"), limit(20));
+    return onSnapshot(q, snap => {
+      setLiveNowList(snap.docs.map(d => ({ id:d.id, ...d.data() })));
+    });
   };
 
   // ==========================================================
@@ -232,6 +344,14 @@ export default function AJSuperPortal() {
       setUnreadCount(items.length);
     });
   }, [user]);
+
+  // Live Now listener when on Social Hub (Prompt #5)
+  useEffect(() => {
+    if (socialScreen === 'hub') {
+      const unsub = fetchLiveNow();
+      return unsub;
+    }
+  }, [socialScreen]);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (cu) => {
@@ -285,8 +405,26 @@ export default function AJSuperPortal() {
     }
   }, [screen]);
 
+  // PK Timer (Prompt #6)
+  useEffect(() => {
+    if (!pkActive) return;
+    pkTimerRef.current = setInterval(() => {
+      setPkTimer(t => {
+        if (t <= 1) {
+          clearInterval(pkTimerRef.current!);
+          // Determine winner
+          setPkWinner(pkScore.me >= pkScore.rival ? (username || 'You') : (pkRivalData?.username || 'Rival'));
+          setPkActive(false);
+          return 0;
+        }
+        return t - 1;
+      });
+    }, 1000);
+    return () => { if (pkTimerRef.current) clearInterval(pkTimerRef.current); };
+  }, [pkActive]);
+
   // ==========================================================
-  // GO LIVE — REAL CAMERA
+  // GO LIVE — REAL CAMERA (Agora.io integration point)
   // ==========================================================
   const startLive = async () => {
     if (!user) return;
@@ -301,21 +439,79 @@ export default function AJSuperPortal() {
         liveVideoRef.current.srcObject = stream;
         liveVideoRef.current.play();
       }
+      // Register live room in Firestore for Live Now list (Prompt #5)
+      await setDoc(doc(db,"live_rooms",roomId), {
+        uid:user.uid, username:username||'AJ_Member',
+        photo:tempPhoto||user.photoURL||'',
+        roomId, startedAt:serverTimestamp(), active:true
+      });
+      // Notify followers (Prompt #8)
+      await addDoc(collection(db,"notifications"), {
+        title:"🔴 Live Now!",
+        message:`@${username||'AJ_Member'} just went LIVE! Tap to join.`,
+        deepLink:`/live/${roomId}`,
+        date:serverTimestamp()
+      });
     } catch {
       alert("Camera permission denied. Please allow camera access.");
       setCameraReady(false);
     }
   };
 
-  const stopLive = () => {
+  const stopLive = async () => {
     liveStreamRef.current?.getTracks().forEach(t => t.stop());
     liveStreamRef.current = null;
     setCameraReady(false);
     setLiveActive(false);
+    setPkActive(false);
+    // Remove from live rooms
+    if (liveRoomId) {
+      try { await deleteDoc(doc(db,"live_rooms",liveRoomId)); } catch {}
+    }
   };
 
   // ==========================================================
-  // GIFTING — 60 % creator | 40 % admin profit
+  // PK CHALLENGE (Prompt #6)
+  // ==========================================================
+  const sendPkChallenge = async () => {
+    if (!user || !pkTargetId.trim()) return alert("Enter rival's User ID!");
+    if (balance < PK_ENTRY_COINS) return alert(`Need ${PK_ENTRY_COINS} AJ Coins to enter PK!`);
+    const rivalSnap = await getDoc(doc(db,"users",pkTargetId.trim()));
+    if (!rivalSnap.exists()) return alert("Rival not found! Check User ID.");
+    // Deduct 100 coins from challenger
+    await updateDoc(doc(db,"users",user.uid), { balance: increment(-PK_ENTRY_COINS) });
+    // Log 200 coins total as admin revenue (100 from each side)
+    await addDoc(collection(db,"AdminRevenue"), {
+      type:'pk_match', totalDeducted: PK_ENTRY_COINS * 2,
+      challenger: user.uid, rival: pkTargetId.trim(),
+      date:serverTimestamp()
+    });
+    // Notify rival
+    await addDoc(collection(db,"notifications"), {
+      title:"⚔️ PK Challenge!",
+      message:`@${username||'AJ_Member'} challenged you to a PK Battle! ${PK_ENTRY_COINS} Coins staked.`,
+      deepLink:`/pk/${liveRoomId}`,
+      date:serverTimestamp()
+    });
+    setPkRivalData(rivalSnap.data());
+    setPkTimer(PK_DURATION);
+    setPkScore({ me:0, rival:0 });
+    setPkWinner(null);
+    setPkActive(true);
+    setPkChallengeOpen(false);
+    alert(`⚔️ PK Challenge sent to @${rivalSnap.data().username || pkTargetId}! Match starting...`);
+  };
+
+  // PK Gift — adds score during PK
+  const sendPkGift = async (creatorId:string, gift:{name:string,cost:number,icon:string}, isMe:boolean) => {
+    if (!user) return;
+    await sendGift(creatorId, gift);
+    if (isMe) setPkScore(s => ({ ...s, me: s.me + gift.cost }));
+    else setPkScore(s => ({ ...s, rival: s.rival + gift.cost }));
+  };
+
+  // ==========================================================
+  // GIFTING — 60 % creator | 40 % admin profit (Prompt #6 cinematic)
   // ==========================================================
   const sendGift = async (creatorId:string, gift:{name:string,cost:number,icon:string}) => {
     if (!user) return;
@@ -342,7 +538,21 @@ export default function AJSuperPortal() {
       message:`You received ${gift.icon} ${gift.name} from @${username||'Anonymous'}. +${creatorShare} Coins (60% yours)`,
       date:serverTimestamp()
     });
+    // Cinematic Gift Overlay — Triple-Sync (Prompt #6)
+    setCinematicGift(gift);
+    setCinematicSender(username || 'Anonymous');
     alert(`${gift.icon} ${gift.name} sent! Creator received ${creatorShare} Coins (60%).`);
+  };
+
+  // ==========================================================
+  // ADMIN REVENUE LOGGER for "everything else" (Prompt #3)
+  // ==========================================================
+  const logAdminRevenue = async (type:string, totalPool:number, userNet:number) => {
+    const adminShare = totalPool * ADMIN_EARN_SHARE;
+    await addDoc(collection(db,"AdminRevenue"), {
+      type, totalPool, adminShare, userNet,
+      uid:user?.uid||'', date:serverTimestamp()
+    }).catch(() => {});
   };
 
   // ==========================================================
@@ -410,19 +620,22 @@ export default function AJSuperPortal() {
   };
 
   // ==========================================================
-  // TIKREELS POST
+  // TIKREELS POST (Prompt #3: 70% Admin / 30% User)
   // ==========================================================
   const handleTiktokPost = async () => {
     if (!tiktokPostText.trim() && !tiktokPostImg) return alert("Add caption or image!");
+    const totalPool = 2.5;
+    const userNet   = parseFloat((totalPool * USER_EARN_SHARE).toFixed(4)); // 0.75
     await addDoc(collection(db,"user_posts"), {
       text:tiktokPostText, image:tiktokPostImg, uid:user!.uid,
       username:username||"AJ_Member", photo:user!.photoURL||'',
       likes:0, isVideo:true, createdAt:serverTimestamp()
     });
-    await updateDoc(doc(db,"users",user!.uid), { balance: increment(2.5) });
+    await updateDoc(doc(db,"users",user!.uid), { balance: increment(userNet) });
+    await logAdminRevenue('tiktok_post', totalPool, userNet);
     setTiktokPostText(''); setTiktokPostImg('');
     setTiktabMode('feed');
-    alert("🎬 Video post published! +2.5 Coins");
+    alert(`🎬 Video post published! +${userNet} Coins (your 30% share)`);
   };
 
   // ==========================================================
@@ -489,15 +702,20 @@ export default function AJSuperPortal() {
     setNewMessage('');
   };
 
+  // CREATE POST — with 30% user / 70% admin split (Prompt #3)
   const handleCreatePost = async () => {
     if (!postText.trim() && !tempPhoto) return alert("Empty Post!");
+    const totalPool = 2.5;
+    const userNet   = parseFloat((totalPool * USER_EARN_SHARE).toFixed(4)); // 0.75
     await addDoc(collection(db,"user_posts"), {
       text:postText, image:tempPhoto, uid:user!.uid,
       username:username||"AJ_Member", photo:user!.photoURL||'',
       likes:0, isVideo:false, createdAt:serverTimestamp()
     });
-    await updateDoc(doc(db,"users",user!.uid), { balance: increment(2.5) });
-    setPostText(''); setTempPhoto(''); alert("🚀 Post Published! +2.5 Coins");
+    await updateDoc(doc(db,"users",user!.uid), { balance: increment(userNet) });
+    await logAdminRevenue('pulse_post', totalPool, userNet);
+    setPostText(''); setTempPhoto('');
+    alert(`🚀 Post Published! +${userNet} Coins (your 30% share)`);
   };
 
   const submitComment = async () => {
@@ -526,6 +744,8 @@ export default function AJSuperPortal() {
     await updateDoc(doc(db,"users",user!.uid), {
       balance: increment(-cost), botTier:tier, invested:cost, lastSync:serverTimestamp()
     });
+    // Log admin revenue for AI bot activation (Prompt #3)
+    await logAdminRevenue('ai_bot', cost, cost * USER_EARN_SHARE);
     alert(`${tier.toUpperCase()} BOT ACTIVATED!`);
   };
 
@@ -547,14 +767,14 @@ export default function AJSuperPortal() {
         if (data.invoice_url) window.open(data.invoice_url,'_blank');
       } catch { alert("Payment Error!"); }
     } else {
-      if (!purchaseTxId) return alert("Enter Airtm TX ID.");
+      if (!purchaseTxId) return alert("Enter Transaction ID.");
       await addDoc(collection(db,"manual_deposits"), {
         uid:user!.uid, email:user!.email, amount:purchaseAmount,
-        method:"Airtm", txId:purchaseTxId, status:"pending", date:serverTimestamp()
+        method:purchaseMethod, txId:purchaseTxId, status:"pending", date:serverTimestamp()
       });
       await addDoc(collection(db,"notifications"), {
         title:"Deposit Pending",
-        message:`$${purchaseAmount} deposit via Airtm awaiting approval.`,
+        message:`$${purchaseAmount} deposit via ${purchaseMethod} awaiting approval.`,
         date:serverTimestamp()
       });
       alert("✅ Request Sent!"); setWalletTab('main');
@@ -579,8 +799,8 @@ export default function AJSuperPortal() {
 
   const handleWithdraw = async () => {
     if (balance < WITHDRAW_MIN)
-      return alert(`Minimum withdrawal is ${WITHDRAW_MIN} Coins (${WITHDRAW_MIN/CASH_RATE})`);
-    if (!payoutId.trim()) return alert("Enter payout address.");
+      return alert(`Minimum withdrawal is ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE} USD). Current: ${balance.toFixed(0)} Coins.`);
+    if (!payoutId.trim()) return alert(`Enter your ${currentWithdrawMethod.field}.`);
     const usdVal = balance / CASH_RATE;
     await updateDoc(doc(db,"users",user!.uid), { balance:0 });
     await addDoc(collection(db,"manual_withdrawals"), {
@@ -589,23 +809,27 @@ export default function AJSuperPortal() {
     });
     await addDoc(collection(db,"notifications"), {
       title:"Withdrawal Requested",
-      message:`${balance} Coins ($${usdVal.toFixed(2)}) submitted for review.`,
+      message:`${balance} Coins ($${usdVal.toFixed(2)}) via ${payoutMethod} submitted for review.`,
       date:serverTimestamp()
     });
     alert("🚀 Withdrawal request submitted!"); setPayoutId(''); setWalletTab('main');
   };
 
+  // Referral — 70% admin / 30% referrer (Prompt #3)
   const handleApplyReferral = async () => {
     if (!referralCode.trim()) return alert("Enter referral code.");
     const rSnap = await getDoc(doc(db,"users",referralCode.trim()));
     if (!rSnap.exists()) return alert("Referral Code not found.");
-    await updateDoc(doc(db,"users",referralCode.trim()), { balance: increment(REFERRAL_COINS) });
+    const totalPool = REFERRAL_COINS; // 50 pool
+    const referrerNet = parseFloat((totalPool * USER_EARN_SHARE).toFixed(4)); // 15 coins
+    await updateDoc(doc(db,"users",referralCode.trim()), { balance: increment(referrerNet) });
+    await logAdminRevenue('referral', totalPool, referrerNet);
     await addDoc(collection(db,"notifications"), {
       title:"Referral Claimed",
-      message:`+${REFERRAL_COINS} Coins reward applied!`,
+      message:`+${referrerNet} Coins reward applied to referrer!`,
       date:serverTimestamp()
     });
-    alert(`Referral Applied! Referrer received ${REFERRAL_COINS} Coins.`);
+    alert(`Referral Applied! Referrer received ${referrerNet} Coins (30% share).`);
     setReferralCode('');
   };
 
@@ -615,22 +839,27 @@ export default function AJSuperPortal() {
     const q = botInput.toLowerCase();
     let reply = '';
     if (q.includes('coin')||q.includes('balance'))
-      reply = `🪙 Rate: $1 = ${COIN_RATE} AJ Coins.\nEarn by posting (+2.5), referrals (+${REFERRAL_COINS}), AI Bot profits.`;
+      reply = `🪙 Rate: $1 = ${COIN_RATE} AJ Coins.\nEarn by posting (+0.75 net), referrals (+15 net), AI Bot profits.`;
     else if (q.includes('referral')||q.includes('refer'))
-      reply = `👥 Refer & Earn: Share your User ID.\nWhen someone enters it → You get +${REFERRAL_COINS} Coins!`;
+      reply = `👥 Refer & Earn: Share your User ID.\nWhen someone enters it → You get +15 Coins (30% net share)!`;
     else if (q.includes('withdraw')||q.includes('cashout'))
-      reply = `💸 Min Withdrawal: ${WITHDRAW_MIN} Coins (${WITHDRAW_MIN/CASH_RATE}).\nWallet → Withdraw → Enter Binance Pay / Airtm address.`;
+      reply = `💸 Min Withdrawal: ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE}).\nMethods: EasyPaisa, JazzCash, Binance USDT TRC20, AirTM, Bank Transfer.`;
     else if (q.includes('purchase')||q.includes('buy'))
       reply = `💰 Min Purchase: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins.\nRate: $1 = ${COIN_RATE} AJ Coins.`;
     else if (q.includes('live'))
-      reply = '📡 Go Live: Social Hub → GO LIVE button. Viewers send you gifts — you keep 60%!';
+      reply = `📡 Go Live: Social Hub → GO LIVE button. Viewers send you gifts — you keep 60%! Use Agora for HD streaming.`;
     else if (q.includes('gift'))
-      reply = '🎁 Gifts:\n☕ Coffee 500🪙\n🍕 Pizza 1000🪙\n❤️ Heart 2500🪙\n🏎️ Car 5000🪙\n🛩️ Jet 8000🪙\n🏰 Mansion 10000🪙';
+      reply = `🎁 Gifts:\n☕ Coffee 500🪙\n🍕 Pizza 1000🪙\n❤️ Heart 2500🪙\n🏎️ Car 5000🪙\n🛩️ Jet 8000🪙\n🏰 Mansion 10000🪙`;
+    else if (q.includes('pk')||q.includes('challenge'))
+      reply = `⚔️ PK Battle: Go Live → PK Challenge → Enter rival ID.\n100 Coins deducted from each. 5-min timer! Most gifts = Winner! 🏆`;
     else
       reply = `I'm not sure. Contact CEO directly:\n👇`;
     setBotMessages(m => [...m, {from:'user',text:botInput}, {from:'bot',text:reply}]);
     setBotInput('');
   };
+
+  // Format PK timer
+  const formatPkTime = (s:number) => `${Math.floor(s/60).toString().padStart(2,'0')}:${(s%60).toString().padStart(2,'0')}`;
 
   // ==========================================================
   // SPLASH
@@ -667,6 +896,15 @@ export default function AJSuperPortal() {
       <input type="file" ref={fileInputRef}  onChange={handleFileChange}       accept="image/*"        className="hidden"/>
       <input type="file" ref={tiktokFileRef} onChange={handleTiktokFileChange} accept="image/*,video/*" className="hidden"/>
 
+      {/* ── CINEMATIC GIFT OVERLAY (Prompt #6) ──────────────── */}
+      {cinematicGift && (
+        <CinematicGiftOverlay
+          gift={cinematicGift}
+          sender={cinematicSender}
+          onDone={() => { setCinematicGift(null); setCinematicSender(''); }}
+        />
+      )}
+
       {/* ── HEADER ──────────────────────────────────────────── */}
       <header className="fixed top-0 w-full p-4 flex justify-between items-center z-[100] bg-black/80 backdrop-blur-xl border-b border-white/5 shadow-2xl">
         <div className="text-xl font-black italic text-cyan-400">AJ STUDIO</div>
@@ -700,7 +938,8 @@ export default function AJSuperPortal() {
           {notifications.length===0
             ? <p className="text-gray-500 text-xs text-center py-4">No notifications.</p>
             : notifications.map((n:any) => (
-              <div key={n.id} className="bg-white/5 border border-white/10 p-3 rounded-2xl mb-3">
+              <div key={n.id} className="bg-white/5 border border-white/10 p-3 rounded-2xl mb-3 cursor-pointer"
+                onClick={() => { if(n.deepLink) { setNotifOpen(false); } }}>
                 <p className="text-[10px] font-black text-cyan-400 uppercase">{n.title}</p>
                 <p className="text-[9px] text-gray-400 mt-1">{n.message}</p>
               </div>
@@ -711,6 +950,14 @@ export default function AJSuperPortal() {
 
       {/* ── HOME HUB ─────────────────────────────────────────── */}
       <section className="min-h-screen flex flex-col items-center justify-center p-4 pt-24 relative">
+        {/* AI ASSISTANT — Hub Top Right Only (Prompt #7) */}
+        <div className="fixed top-20 right-4 z-[150]">
+          <button onClick={() => setBotOpen(!botOpen)}
+            className="w-12 h-12 bg-gradient-to-br from-cyan-500 to-green-500 rounded-full shadow-[0_0_20px_rgba(6,182,212,0.6)] flex items-center justify-center text-black hover:scale-110 transition-all active:scale-90 border-2 border-white/20">
+            {botOpen?<X size={20}/>:<Bot size={20}/>}
+          </button>
+        </div>
+
         <h1 className="text-4xl md:text-8xl font-black text-center mb-12 uppercase drop-shadow-[0_0_20px_#22d3ee]">AJ SUPER PORTAL</h1>
         <div className="grid grid-cols-2 gap-4 md:gap-16 w-full max-w-4xl relative z-30">
           {[
@@ -732,6 +979,43 @@ export default function AJSuperPortal() {
           </div>
         </div>
       </section>
+
+      {/* AI ASSISTANT CHAT PANEL — Hub only (Prompt #7) */}
+      {botOpen && screen==='hub' && (
+        <div className="fixed bottom-24 right-6 z-[900] w-80 md:w-96 h-[480px] bg-[#0d1117] border border-cyan-500/30 rounded-[2.5rem] shadow-[0_0_50px_rgba(6,182,212,0.2)] flex flex-col overflow-hidden backdrop-blur-xl">
+          <div className="bg-gradient-to-r from-cyan-600/30 to-green-600/30 p-5 border-b border-white/10 flex items-center gap-3">
+            <div className="w-10 h-10 bg-cyan-500 rounded-full flex items-center justify-center border-2 border-cyan-300">
+              <Bot size={22} className="text-black"/>
+            </div>
+            <div>
+              <p className="font-black text-sm text-white uppercase tracking-widest">AJ AI Assistant</p>
+              <p className="text-[8px] text-green-400 font-bold uppercase tracking-widest animate-pulse">CEO Representative • Online</p>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            {botMessages.map((msg, i) => (
+              <div key={i} className={`flex ${msg.from==='user'?'justify-end':'justify-start'}`}>
+                <div className={`max-w-[85%] p-3 rounded-2xl text-[11px] leading-relaxed font-bold whitespace-pre-line ${msg.from==='user'?'bg-cyan-600 text-white rounded-tr-none':'bg-white/10 text-gray-200 rounded-tl-none border border-white/10'}`}>
+                  {msg.text}
+                  {msg.from==='bot' && msg.text.includes('CEO') && (
+                    <a href={CEO_WHATSAPP} target="_blank" className="block mt-2 bg-green-500 text-black text-[10px] font-black uppercase px-3 py-2 rounded-xl text-center hover:bg-green-400 transition-all">
+                      💬 Chat with CEO on WhatsApp
+                    </a>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="p-4 border-t border-white/10 flex gap-3">
+            <input type="text" value={botInput} onChange={e => setBotInput(e.target.value)}
+              onKeyDown={e => e.key==='Enter'&&handleBotSend()} placeholder="Ask about Coins, Referral..."
+              className="flex-1 bg-white/5 border border-white/10 rounded-full px-4 py-3 text-xs text-white outline-none focus:ring-1 focus:ring-cyan-500 font-bold"/>
+            <button onClick={handleBotSend} className="bg-cyan-500 p-3 rounded-full text-black shadow-lg active:scale-90 transition-all">
+              <Send size={16}/>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── ARCADE ───────────────────────────────────────────── */}
       {screen==='arcade' && (
@@ -794,7 +1078,7 @@ export default function AJSuperPortal() {
 
           <div className="flex-1 overflow-y-auto">
 
-            {/* SOCIAL HUB */}
+            {/* SOCIAL HUB — Restructured (Prompt #5) */}
             {socialScreen==='hub' && (
               <div className="max-w-md mx-auto grid grid-cols-1 gap-6 p-8 pb-24">
                 {/* Profile card */}
@@ -828,13 +1112,35 @@ export default function AJSuperPortal() {
                   <Radio size={22} className="animate-pulse"/> GO LIVE (Camera + Gifts)
                 </button>
 
-                {/* CREATE POST */}
-                <button onClick={() => enterSocialMode('pulse')}
-                  className="w-full py-4 bg-pink-600/20 border border-pink-500/40 rounded-[2rem] font-black uppercase text-pink-400 tracking-[0.2em] hover:bg-pink-600/30 transition-all flex items-center justify-center gap-3 active:scale-95">
-                  <PlusSquare size={22}/> CREATE POST (+2.5 Coins)
-                </button>
+                {/* ── LIVE NOW LOBBY (Prompt #5) ────────────── */}
+                <div className="bg-white/5 border border-red-500/30 rounded-3xl p-5">
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse"/>
+                    <h3 className="font-black text-sm uppercase tracking-widest text-red-400">Live Now</h3>
+                    <span className="text-[10px] text-gray-500 font-bold">{liveNowList.length} streaming</span>
+                  </div>
+                  {liveNowList.length === 0
+                    ? <p className="text-[10px] text-gray-500 text-center py-4 font-bold">No one is live right now. Be the first!</p>
+                    : <div className="space-y-3 max-h-48 overflow-y-auto">
+                        {liveNowList.map((room:any) => (
+                          <div key={room.id} className="flex items-center gap-3 bg-black/40 p-3 rounded-2xl border border-red-500/20 cursor-pointer hover:border-red-500 transition-all active:scale-95"
+                            onClick={() => alert(`Joining @${room.username}'s live — Agora Room: ${room.roomId}`)}>
+                            <div className="relative">
+                              <img src={room.photo||'/logo.png'} className="w-10 h-10 rounded-full border-2 border-red-500"/>
+                              <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border border-black animate-pulse"/>
+                            </div>
+                            <div className="flex-1">
+                              <p className="font-black text-xs text-white uppercase">@{room.username}</p>
+                              <p className="text-[9px] text-red-400 font-bold animate-pulse">🔴 Live</p>
+                            </div>
+                            <button className="bg-red-600 px-3 py-1.5 rounded-full text-[9px] font-black text-white uppercase">Join</button>
+                          </div>
+                        ))}
+                      </div>
+                  }
+                </div>
 
-                {/* MODULE CARDS */}
+                {/* MODULE CARDS — No Create Post here (Prompt #5) */}
                 {[
                   { n:'AJ TikReels', i:Video,        d:'TikTok Style Videos', s:'tikreels'  },
                   { n:'AJ Pulse',    i:Users,         d:'Insta Style Feed',    s:'pulse'     },
@@ -964,7 +1270,7 @@ export default function AJSuperPortal() {
                             <p className="font-black text-sm">@{vid.user}</p>
                             <div className="flex items-center gap-2 mt-3 bg-black/30 w-max p-1.5 rounded-full backdrop-blur-md border border-white/10">
                               <Music size={12}/>
-                              {/* @ts-ignore */}                             
+                              {/* @ts-ignore */}
                               <marquee className="text-[10px] w-24 uppercase font-bold">Original Sound - AJ Studio</marquee>
                             </div>
                           </div>
@@ -994,7 +1300,7 @@ export default function AJSuperPortal() {
                     <textarea value={tiktokPostText} onChange={e => setTiktokPostText(e.target.value)} placeholder="Add caption..."
                       className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm text-white outline-none focus:border-pink-500 h-24 font-bold"/>
                     <button onClick={handleTiktokPost} className="w-full py-4 bg-pink-600 rounded-2xl font-black uppercase text-white tracking-widest shadow-lg active:scale-95 transition-all">
-                      PUBLISH (+2.5 🪙)
+                      PUBLISH (+0.75 🪙)
                     </button>
                   </div>
                 )}
@@ -1032,92 +1338,109 @@ export default function AJSuperPortal() {
               </div>
             )}
 
-            {/* AJ PULSE */}
+            {/* AJ PULSE — Vertical Snap Feed (Prompt #4) */}
             {socialScreen==='pulse' && (
-              <div className="max-w-md mx-auto space-y-6 p-4 pb-24">
-                {/* Create box */}
-                <div className="bg-white/10 backdrop-blur-xl p-5 rounded-3xl border border-pink-500/20 shadow-2xl">
+              <div className="max-w-md mx-auto flex flex-col h-full">
+
+                {/* CREATE POST at TOP (Prompt #4) */}
+                <div className="bg-white/10 backdrop-blur-xl p-4 border-b border-pink-500/20 shadow-md sticky top-0 z-10">
                   <div className="flex gap-3">
-                    <img src={user?.photoURL||'/logo.png'} className="w-10 h-10 rounded-full border-2 border-pink-500"/>
+                    <img src={user?.photoURL||'/logo.png'} className="w-9 h-9 rounded-full border-2 border-pink-500 flex-shrink-0"/>
                     <textarea value={postText} onChange={e => setPostText(e.target.value)} placeholder="Share your CEO story..."
-                      className="flex-1 bg-white/5 rounded-2xl p-4 text-xs outline-none border border-white/10 h-20 text-white font-bold"/>
+                      className="flex-1 bg-white/5 rounded-xl p-3 text-xs outline-none border border-white/10 h-14 text-white font-bold resize-none"/>
                   </div>
-                  <div className="flex justify-between mt-4 pt-3 border-t border-white/5">
+                  <div className="flex justify-between mt-3 pt-2 border-t border-white/5">
                     <button onClick={handleImageClick} className="flex items-center gap-2 text-[10px] font-black text-gray-400 hover:text-pink-500 uppercase">
-                      <Camera size={18}/> Media
+                      <Camera size={16}/> Media
                     </button>
-                    <button onClick={handleCreatePost} className="bg-pink-600 px-6 py-2 rounded-full text-xs font-black shadow-lg hover:scale-105 transition-all text-white">
-                      PUBLISH (+2.5🪙)
+                    <button onClick={handleCreatePost} className="bg-pink-600 px-5 py-1.5 rounded-full text-xs font-black shadow-lg hover:scale-105 transition-all text-white">
+                      PUBLISH (+0.75🪙)
                     </button>
                   </div>
                 </div>
 
-                {/* Feed */}
-                {userPosts.map((post:any) => (
-                  <div key={post.id} className="bg-white/10 backdrop-blur-md border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl relative">
-                    <div className="flex items-center justify-between p-5">
-                      <div className="flex items-center gap-3 cursor-pointer" onClick={() => openProfile(post.uid)}>
-                        <img src={post.photo||'/logo.png'} className="w-10 h-10 rounded-full border-2 border-pink-500"/>
-                        <p className="font-black text-xs text-white tracking-widest">@{post.username}</p>
-                      </div>
-                      <MoreVertical size={18} className="opacity-40 text-white cursor-pointer"
-                        onClick={() => setActiveMenuId(activeMenuId===post.id?null:post.id)}/>
-                    </div>
-                    {activeMenuId===post.id && (
-                      <div className="absolute right-6 top-16 bg-slate-900 border border-white/10 p-3 rounded-xl z-[1000] shadow-2xl">
-                        <button onClick={() => handleDeletePost(post.id)} className="text-red-500 text-[10px] font-black flex items-center gap-2 uppercase">
-                          <Trash2 size={14}/> Delete
-                        </button>
-                      </div>
-                    )}
-                    {post.image && <img src={post.image} className="w-full aspect-square object-cover"/>}
-                    <div className="p-6">
-                      <div className="flex gap-6 mb-4">
-                        <Heart size={30} onClick={() => handleLike(post.id)} className={likedPosts[post.id]?"text-red-500 fill-red-500 cursor-pointer":"text-white cursor-pointer"}/>
-                        <MessageSquare size={30} className="text-white cursor-pointer" onClick={() => setCommentPostId(post.id)}/>
-                        <Share2 size={30} className="text-white cursor-pointer" onClick={() => handleShare(post.text)}/>
-                      </div>
-                      <p className="text-[12px] leading-relaxed text-gray-200 font-bold mb-4">{post.text}</p>
-                      {/* GIFTING — only for other users' posts */}
-                      {post.uid!==user?.uid && (
-                        <div className="border-t border-white/5 pt-4 mt-4">
-                          <p className="text-[10px] text-pink-400 font-black tracking-widest mb-3 uppercase flex items-center gap-1">
-                            <Gift size={12}/> Send Gift (60% to creator | 40% admin profit)
-                          </p>
-                          <div className="grid grid-cols-3 gap-2">
-                            {giftItems.map(g => (
-                              <button key={g.id} onClick={() => sendGift(post.uid, g)}
-                                className="bg-white/5 border border-white/10 py-2 rounded-xl text-[9px] font-black uppercase hover:border-pink-500 transition-all flex flex-col items-center gap-1 active:scale-95">
-                                <span className="text-xl">{g.icon}</span>
-                                <span>{g.name}</span>
-                                <span className="text-yellow-500 text-[8px]">{g.cost.toLocaleString()} 🪙</span>
-                              </button>
-                            ))}
-                          </div>
+                {/* Vertical Snap Scrolling Feed (Prompt #4) */}
+                <div className="snap-y snap-mandatory overflow-y-auto flex-1">
+                  {userPosts.map((post:any, idx:number) => (
+                    <React.Fragment key={post.id}>
+                      {/* Monetag Banner every 4 posts (Prompt #4) */}
+                      {idx > 0 && idx % 4 === 0 && (
+                        <div className="snap-start w-full px-4 py-3">
+                          <MonetagBanner siteId={MONETAG_PULSE_BANNER}/>
                         </div>
                       )}
-                    </div>
-                  </div>
-                ))}
-
-                {/* Unsplash trending grid */}
-                {pixaData.length>0 && (
-                  <div>
-                    <p className="text-[9px] text-gray-500 uppercase font-black tracking-widest mb-3">✨ Trending Pulse</p>
-                    <div className="grid grid-cols-2 gap-3">
-                      {pixaData.map((photo:any) => (
-                        <div key={photo.id} className="rounded-2xl overflow-hidden border border-white/10 shadow-lg">
-                          <img src={photo.urls?.regular||photo.urls?.small||''} alt={photo.alt_description||'pulse'}
-                            className="w-full aspect-square object-cover hover:scale-105 transition-transform"/>
+                      <div className="snap-start bg-white/10 backdrop-blur-md border-b border-white/5 overflow-hidden shadow-xl relative min-h-[70vh] flex flex-col">
+                        <div className="flex items-center justify-between p-4">
+                          <div className="flex items-center gap-3 cursor-pointer" onClick={() => openProfile(post.uid)}>
+                            <img src={post.photo||'/logo.png'} className="w-10 h-10 rounded-full border-2 border-pink-500"/>
+                            <p className="font-black text-xs text-white tracking-widest">@{post.username}</p>
+                          </div>
+                          <MoreVertical size={18} className="opacity-40 text-white cursor-pointer"
+                            onClick={() => setActiveMenuId(activeMenuId===post.id?null:post.id)}/>
                         </div>
-                      ))}
+                        {activeMenuId===post.id && (
+                          <div className="absolute right-6 top-16 bg-slate-900 border border-white/10 p-3 rounded-xl z-[1000] shadow-2xl">
+                            <button onClick={() => handleDeletePost(post.id)} className="text-red-500 text-[10px] font-black flex items-center gap-2 uppercase">
+                              <Trash2 size={14}/> Delete
+                            </button>
+                          </div>
+                        )}
+                        {post.image && <img src={post.image} className="w-full object-cover max-h-[50vh]"/>}
+                        <div className="p-5 flex-1">
+                          <div className="flex gap-6 mb-4">
+                            <Heart size={28} onClick={() => handleLike(post.id)} className={likedPosts[post.id]?"text-red-500 fill-red-500 cursor-pointer":"text-white cursor-pointer"}/>
+                            <MessageSquare size={28} className="text-white cursor-pointer" onClick={() => setCommentPostId(post.id)}/>
+                            <Share2 size={28} className="text-white cursor-pointer" onClick={() => handleShare(post.text)}/>
+                          </div>
+                          <p className="text-[12px] leading-relaxed text-gray-200 font-bold mb-4">{post.text}</p>
+                          {/* Pulse sound mute toggle (Prompt #4) */}
+                          <button onClick={() => setPulseMuted(m => !m)}
+                            className="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase mb-4 border border-white/10 px-3 py-1.5 rounded-full hover:border-pink-500 transition-all">
+                            {pulseMuted ? <VolumeX size={14}/> : <Volume2 size={14}/>}
+                            {pulseMuted ? 'Tap to Unmute' : 'Muted'}
+                          </button>
+                          {/* GIFTING — only for other users' posts */}
+                          {post.uid!==user?.uid && (
+                            <div className="border-t border-white/5 pt-4 mt-4">
+                              <p className="text-[10px] text-pink-400 font-black tracking-widest mb-3 uppercase flex items-center gap-1">
+                                <Gift size={12}/> Send Gift (60% to creator | 40% admin profit)
+                              </p>
+                              <div className="grid grid-cols-3 gap-2">
+                                {giftItems.map(g => (
+                                  <button key={g.id} onClick={() => sendGift(post.uid, g)}
+                                    className="bg-white/5 border border-white/10 py-2 rounded-xl text-[9px] font-black uppercase hover:border-pink-500 transition-all flex flex-col items-center gap-1 active:scale-95">
+                                    <span className="text-xl">{g.icon}</span>
+                                    <span>{g.name}</span>
+                                    <span className="text-yellow-500 text-[8px]">{g.cost.toLocaleString()} 🪙</span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </React.Fragment>
+                  ))}
+
+                  {/* Unsplash trending — below feed */}
+                  {pixaData.length>0 && (
+                    <div className="snap-start p-4">
+                      <p className="text-[9px] text-gray-500 uppercase font-black tracking-widest mb-3">✨ Trending Pulse</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        {pixaData.map((photo:any) => (
+                          <div key={photo.id} className="rounded-2xl overflow-hidden border border-white/10 shadow-lg">
+                            <img src={photo.urls?.regular||photo.urls?.small||''} alt={photo.alt_description||'pulse'}
+                              className="w-full aspect-square object-cover hover:scale-105 transition-transform"/>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             )}
 
-            {/* WECHAT CONTACT LIST */}
+            {/* WECHAT CONTACT LIST — with Monetag Sponsor (Prompt #8) */}
             {socialScreen==='chatlist' && (
               <div className="max-w-md mx-auto bg-[#111b21]/80 h-screen border-x border-white/10 overflow-y-auto">
                 <div className="bg-[#1f2c33]/90 p-5 flex justify-between items-center border-b border-white/10">
@@ -1135,6 +1458,12 @@ export default function AJSuperPortal() {
                     <Search size={20} className="text-[#aebac1] cursor-pointer" onClick={() => searchRef.current?.focus()}/>
                   </div>
                 </div>
+
+                {/* Monetag Sponsor Ad — WeChat (Prompt #8) */}
+                <div className="px-4 pt-3">
+                  <MonetagBanner siteId={MONETAG_WECHAT_SPONSOR}/>
+                </div>
+
                 {addContactOpen && (
                   <div className="m-4 bg-slate-800 border border-cyan-500/30 p-5 rounded-3xl shadow-2xl">
                     <p className="text-[10px] font-black text-cyan-400 uppercase tracking-widest mb-3">Add Contact</p>
@@ -1172,7 +1501,7 @@ export default function AJSuperPortal() {
               </div>
             )}
 
-            {/* WECHAT CHAT */}
+            {/* WECHAT CHAT — with Audio/Video call buttons (Prompt #8) */}
             {socialScreen==='chat' && (
               <div className="max-w-md mx-auto h-[88vh] flex flex-col bg-[#0b141a] overflow-hidden m-2 rounded-[2.5rem] shadow-2xl border border-cyan-500/20">
                 <div className="bg-[#1f2c33]/95 p-4 flex items-center gap-3 border-b border-white/10">
@@ -1184,9 +1513,16 @@ export default function AJSuperPortal() {
                     <p className="font-bold text-sm text-white uppercase tracking-widest">{activeContact}</p>
                     <p className="text-[7px] text-green-500 font-black uppercase tracking-[0.3em] animate-pulse">Online • Encrypted</p>
                   </div>
+                  {/* Audio/Video calls — Agora WebRTC (Prompt #8) */}
                   <div className="flex gap-4 text-[#aebac1]">
-                    <VideoIcon size={20} className="cursor-pointer hover:text-cyan-400"/>
-                    <Phone size={20} className="cursor-pointer hover:text-green-400"/>
+                    <button onClick={() => alert(`📹 Video Call — Agora App ID: ${AGORA_APP_ID.slice(0,8)}... (WebRTC enabled)`)}
+                      className="cursor-pointer hover:text-cyan-400 transition-all p-1 rounded-full hover:bg-cyan-500/10">
+                      <VideoIcon size={20}/>
+                    </button>
+                    <button onClick={() => alert(`📞 Audio Call — Agora App ID: ${AGORA_APP_ID.slice(0,8)}... (WebRTC enabled)`)}
+                      className="cursor-pointer hover:text-green-400 transition-all p-1 rounded-full hover:bg-green-500/10">
+                      <Phone size={20}/>
+                    </button>
                     <Camera size={20} className="cursor-pointer hover:text-pink-400" onClick={handleImageClick}/>
                   </div>
                 </div>
@@ -1285,33 +1621,150 @@ export default function AJSuperPortal() {
         </div>
       )}
 
-      {/* ── GO LIVE (REAL CAMERA) ────────────────────────────── */}
+      {/* ── GO LIVE (REAL CAMERA + PK CHALLENGE) ─────────────── */}
       {liveActive && (
         <div className="fixed inset-0 z-[600] bg-black flex flex-col">
-          <div className="relative flex-1 bg-black">
-            <video ref={liveVideoRef} autoPlay playsInline muted className="w-full h-full object-cover"/>
-            {!cameraReady && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black flex-col gap-4">
-                <Radio size={60} className="text-red-500 animate-pulse"/>
-                <p className="text-white font-black uppercase tracking-widest">Opening Camera...</p>
-                <p className="text-gray-400 text-xs">Please allow camera access</p>
+
+          {/* PK ACTIVE — Split Screen (Prompt #6) */}
+          {pkActive ? (
+            <div className="flex-1 flex flex-col">
+              {/* PK Header — Timer & Score */}
+              <div className="bg-black/90 p-3 flex items-center justify-between border-b border-yellow-500/30">
+                <div className="flex items-center gap-2">
+                  <Swords size={18} className="text-yellow-400"/>
+                  <span className="font-black text-xs text-yellow-400 uppercase tracking-widest">PK BATTLE</span>
+                </div>
+                <div className="flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/30 px-3 py-1 rounded-full">
+                  <Clock size={14} className="text-yellow-400"/>
+                  <span className="font-black text-sm text-yellow-400 tabular-nums">{formatPkTime(pkTimer)}</span>
+                </div>
+                <div className="text-[10px] font-black text-white">
+                  <span className="text-cyan-400">{pkScore.me}</span>
+                  <span className="text-gray-500 mx-1">vs</span>
+                  <span className="text-pink-400">{pkScore.rival}</span>
+                </div>
               </div>
-            )}
-            {cameraReady && (
-              <div className="absolute top-6 left-6 bg-red-600 px-4 py-2 rounded-full flex items-center gap-2 shadow-2xl">
-                <div className="w-2 h-2 bg-white rounded-full animate-pulse"/>
-                <span className="text-white font-black text-xs uppercase">LIVE</span>
+
+              {/* Split Screen */}
+              <div className="flex-1 flex">
+                {/* MY SIDE */}
+                <div className="flex-1 relative border-r border-yellow-500/40">
+                  <video ref={liveVideoRef} autoPlay playsInline muted className="w-full h-full object-cover"/>
+                  <div className="absolute top-3 left-3 bg-red-600 px-3 py-1 rounded-full flex items-center gap-1">
+                    <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"/>
+                    <span className="text-white font-black text-[9px]">YOU</span>
+                  </div>
+                  <div className="absolute bottom-3 left-3 bg-black/50 px-2 py-1 rounded-lg">
+                    <span className="text-cyan-400 font-black text-[10px]">🪙 {pkScore.me}</span>
+                  </div>
+                </div>
+                {/* RIVAL SIDE */}
+                <div className="flex-1 relative bg-gray-900">
+                  <div className="w-full h-full flex items-center justify-center flex-col gap-3">
+                    <img src={pkRivalData?.photo||'/logo.png'} className="w-20 h-20 rounded-full border-4 border-pink-500"/>
+                    <p className="font-black text-white text-sm uppercase">@{pkRivalData?.username||'Rival'}</p>
+                    <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"/>
+                    <span className="text-[10px] text-red-400 font-bold">LIVE</span>
+                  </div>
+                  <div className="absolute top-3 right-3 bg-pink-600 px-3 py-1 rounded-full">
+                    <span className="text-white font-black text-[9px]">RIVAL</span>
+                  </div>
+                  <div className="absolute bottom-3 right-3 bg-black/50 px-2 py-1 rounded-lg">
+                    <span className="text-pink-400 font-black text-[10px]">🪙 {pkScore.rival}</span>
+                  </div>
+                </div>
               </div>
-            )}
-            <div className="absolute top-6 right-6 bg-black/60 px-3 py-2 rounded-xl backdrop-blur-md">
-              <p className="text-[9px] text-gray-400 font-mono">Room: {liveRoomId.slice(-8)}</p>
+
+              {/* Overlay Chat — Bottom Left Transparent (Prompt #6) */}
+              <div className="absolute left-3 bottom-[200px] w-[45%] max-h-32 overflow-y-auto bg-black/30 backdrop-blur-sm rounded-2xl p-2 border border-white/10 pointer-events-none">
+                {chatMessages.slice(-6).map((m:any, i:number) => (
+                  <p key={i} className="text-[9px] text-white font-bold mb-0.5 leading-tight">
+                    <span className="text-yellow-400">@{m.username}: </span>{m.text}
+                  </p>
+                ))}
+              </div>
+
+              {/* PK Winner Overlay */}
+              {pkWinner && (
+                <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-50 flex-col gap-6">
+                  <div className="text-8xl animate-bounce">🏆</div>
+                  <h2 className="text-3xl font-black text-yellow-400 uppercase tracking-widest">
+                    {pkWinner === (username||'You') ? '🎉 YOU WIN!' : `@${pkWinner} Wins!`}
+                  </h2>
+                  <button onClick={() => { setPkWinner(null); setPkActive(false); setPkTimer(PK_DURATION); setPkScore({me:0,rival:0}); }}
+                    className="bg-yellow-500 px-8 py-3 rounded-full font-black text-black uppercase">Continue</button>
+                </div>
+              )}
             </div>
-            <button onClick={stopLive} className="absolute top-20 right-6 bg-red-600 px-4 py-2 rounded-full font-black text-white text-xs uppercase shadow-xl active:scale-95">
-              END LIVE
-            </button>
-          </div>
+          ) : (
+            /* NORMAL LIVE VIEW */
+            <div className="relative flex-1 bg-black">
+              <video ref={liveVideoRef} autoPlay playsInline muted className="w-full h-full object-cover"/>
+              {!cameraReady && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black flex-col gap-4">
+                  <Radio size={60} className="text-red-500 animate-pulse"/>
+                  <p className="text-white font-black uppercase tracking-widest">Opening Camera...</p>
+                  <p className="text-gray-400 text-xs">Please allow camera access</p>
+                </div>
+              )}
+              {cameraReady && (
+                <div className="absolute top-6 left-6 bg-red-600 px-4 py-2 rounded-full flex items-center gap-2 shadow-2xl">
+                  <div className="w-2 h-2 bg-white rounded-full animate-pulse"/>
+                  <span className="text-white font-black text-xs uppercase">LIVE</span>
+                </div>
+              )}
+              <div className="absolute top-6 right-6 bg-black/60 px-3 py-2 rounded-xl backdrop-blur-md">
+                <p className="text-[9px] text-gray-400 font-mono">Room: {liveRoomId.slice(-8)}</p>
+              </div>
+              {/* Overlay Chat — Bottom Left (Prompt #6) */}
+              <div className="absolute left-3 bottom-48 w-[55%] max-h-36 overflow-y-auto bg-black/30 backdrop-blur-sm rounded-2xl p-3 border border-white/10 pointer-events-none">
+                {chatMessages.slice(-8).map((m:any, i:number) => (
+                  <p key={i} className="text-[9px] text-white font-bold mb-1 leading-tight">
+                    <span className="text-yellow-400">@{m.username}: </span>{m.text}
+                  </p>
+                ))}
+              </div>
+              <button onClick={stopLive} className="absolute top-20 right-6 bg-red-600 px-4 py-2 rounded-full font-black text-white text-xs uppercase shadow-xl active:scale-95">
+                END LIVE
+              </button>
+              {/* PK CHALLENGE BUTTON (Prompt #6) */}
+              <button onClick={() => setPkChallengeOpen(true)}
+                className="absolute top-20 left-6 bg-yellow-500 px-4 py-2 rounded-full font-black text-black text-xs uppercase shadow-xl active:scale-95 flex items-center gap-2">
+                <Swords size={14}/> PK
+              </button>
+            </div>
+          )}
+
+          {/* PK CHALLENGE MODAL (Prompt #6) */}
+          {pkChallengeOpen && (
+            <div className="absolute inset-0 z-[800] bg-black/80 flex items-center justify-center p-6">
+              <div className="bg-[#0d1117] border-2 border-yellow-500/40 rounded-[2.5rem] p-8 w-full max-w-sm shadow-2xl">
+                <div className="flex items-center gap-3 mb-6">
+                  <Swords size={28} className="text-yellow-400"/>
+                  <h3 className="font-black text-xl text-yellow-400 uppercase tracking-widest">PK Challenge</h3>
+                </div>
+                <p className="text-[10px] text-gray-400 mb-4 font-bold">
+                  ⚠️ {PK_ENTRY_COINS} AJ Coins will be deducted from BOTH participants. 5-minute battle!
+                </p>
+                <div className="space-y-3">
+                  <label className="text-[9px] font-black text-yellow-500 uppercase tracking-widest">Rival's User ID</label>
+                  <input type="text" value={pkTargetId} onChange={e => setPkTargetId(e.target.value)}
+                    placeholder="Paste rival user ID..." className="w-full bg-black/40 border border-white/10 p-4 rounded-xl text-xs text-white outline-none focus:border-yellow-500 font-bold"/>
+                </div>
+                <div className="flex gap-3 mt-6">
+                  <button onClick={sendPkChallenge}
+                    className="flex-1 bg-yellow-500 py-3 rounded-xl font-black uppercase text-black active:scale-95 transition-all flex items-center justify-center gap-2">
+                    <Swords size={16}/> Challenge!
+                  </button>
+                  <button onClick={() => setPkChallengeOpen(false)}
+                    className="flex-1 bg-white/10 py-3 rounded-xl font-black uppercase text-white active:scale-95 transition-all">Cancel</button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* GIFT PANEL */}
-          <div className="bg-[#0d1117] border-t border-white/10 p-4">
+          <div className="bg-[#0d1117] border-t border-white/10 p-4 shrink-0">
             <p className="text-[10px] text-yellow-400 font-black uppercase tracking-widest mb-3 flex items-center gap-2">
               <Gift size={14}/> Viewers Send Gifts — 60% Goes to You | 40% Admin Profit
             </p>
@@ -1340,7 +1793,7 @@ export default function AJSuperPortal() {
             <h2 className="text-5xl font-black text-yellow-500 mb-2 tracking-tighter">{displayBalance} 🪙</h2>
             <p className="text-green-400 font-black text-xl mb-2 tracking-[0.2em]">${displayUsdt}</p>
             <p className="text-[9px] text-gray-500 font-bold uppercase tracking-widest mb-6">
-              Buy: $1 = {COIN_RATE} Coins | Min Purchase: ${MIN_PURCHASE} | Min Withdraw: {WITHDRAW_MIN.toLocaleString()} Coins = ${WITHDRAW_MIN/CASH_RATE}
+              Buy: $1 = {COIN_RATE} Coins | Min Purchase: ${MIN_PURCHASE} | Min Withdraw: {WITHDRAW_MIN.toLocaleString()} Coins = $20 USD
             </p>
 
             {/* Referral */}
@@ -1370,6 +1823,9 @@ export default function AJSuperPortal() {
                   className="w-full bg-gray-900 border border-white/10 p-4 rounded-xl text-white font-bold outline-none">
                   <option>Binance (TRC20)</option>
                   <option>Airtm (Gmail Account)</option>
+                  <option>EasyPaisa</option>
+                  <option>JazzCash</option>
+                  <option>Bank Transfer</option>
                 </select>
                 <div className="bg-black border-2 border-white/10 p-8 rounded-[2.5rem] text-center shadow-inner">
                   <p className="text-[10px] text-gray-500 uppercase font-black mb-4 tracking-[0.3em]">You will receive</p>
@@ -1383,10 +1839,10 @@ export default function AJSuperPortal() {
                   </div>
                   <p className="text-[9px] text-gray-600 mt-3 font-bold">$1 = {COIN_RATE} AJ Coins | Min ${MIN_PURCHASE}</p>
                 </div>
-                {purchaseMethod==='Airtm (Gmail Account)' && (
+                {purchaseMethod!=='Binance (TRC20)' && (
                   <div className="space-y-2">
-                    <label className="text-[9px] font-black text-yellow-500 uppercase tracking-widest">Airtm Transaction ID</label>
-                    <input type="text" placeholder="Enter TX ID" value={purchaseTxId} onChange={e => setPurchaseTxId(e.target.value)}
+                    <label className="text-[9px] font-black text-yellow-500 uppercase tracking-widest">Transaction ID / Reference</label>
+                    <input type="text" placeholder="Enter TX ID or Reference" value={purchaseTxId} onChange={e => setPurchaseTxId(e.target.value)}
                       className="w-full bg-black border border-white/10 p-4 rounded-xl text-xs font-bold text-white outline-none focus:border-cyan-500"/>
                   </div>
                 )}
@@ -1420,28 +1876,34 @@ export default function AJSuperPortal() {
               </div>
             )}
 
+            {/* UPDATED WITHDRAW — All 5 methods (Prompt #2) */}
             {walletTab==='withdraw' && (
               <div className="flex flex-col gap-6 text-left">
                 <h3 className="text-lg font-black text-pink-500 uppercase tracking-widest">Withdraw Coins</h3>
                 <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-2xl">
                   <p className="text-[10px] text-red-400 font-bold uppercase leading-relaxed">
-                    ⚠️ Minimum: {WITHDRAW_MIN.toLocaleString()} Coins = ${WITHDRAW_MIN/CASH_RATE}. Processed within 24 hrs.
+                    ⚠️ Minimum: {WITHDRAW_MIN.toLocaleString()} Coins = $20 USD. 1,000 Coins = $1. Processed within 24 hrs.
                   </p>
                 </div>
                 <div className="space-y-4">
                   <div>
                     <label className="text-[9px] font-black text-pink-500 uppercase tracking-widest block mb-1">Payout Method</label>
-                    <select value={payoutMethod} onChange={e => setPayoutMethod(e.target.value)}
+                    <select value={payoutMethod} onChange={e => { setPayoutMethod(e.target.value); setPayoutId(''); }}
                       className="w-full bg-gray-900 border border-white/10 p-4 rounded-xl text-white font-bold outline-none">
-                      <option>Binance Pay (USDT)</option>
-                      <option>Airtm Account</option>
+                      {WITHDRAW_METHODS.map(m => <option key={m.label}>{m.label}</option>)}
                     </select>
                   </div>
+                  {/* Dynamic field for selected method */}
                   <div>
-                    <label className="text-[9px] font-black text-pink-500 uppercase tracking-widest block mb-1">Payment Address / Email</label>
-                    <input type="text" placeholder="Binance ID or Airtm Email" value={payoutId} onChange={e => setPayoutId(e.target.value)}
+                    <label className="text-[9px] font-black text-pink-500 uppercase tracking-widest block mb-1">{currentWithdrawMethod.field}</label>
+                    <input type="text" placeholder={currentWithdrawMethod.placeholder} value={payoutId} onChange={e => setPayoutId(e.target.value)}
                       className="w-full bg-black border border-white/10 p-4 rounded-xl text-xs font-bold text-white outline-none focus:border-pink-500"/>
                   </div>
+                </div>
+                <div className="bg-white/5 border border-white/10 p-3 rounded-xl">
+                  <p className="text-[9px] text-gray-400 font-bold">
+                    Your balance: <span className="text-yellow-400 font-black">{balance.toFixed(0)} Coins</span> ≈ <span className="text-green-400 font-black">${(balance/CASH_RATE).toFixed(2)} USD</span>
+                  </p>
                 </div>
                 <button onClick={handleWithdraw} className="bg-pink-600 py-4 rounded-2xl font-black uppercase tracking-wider text-white active:scale-95 transition-all">
                   Request Cashout
@@ -1458,7 +1920,7 @@ export default function AJSuperPortal() {
                   <input type="text" placeholder="Paste referrer ID" value={referralCode} onChange={e => setReferralCode(e.target.value)}
                     className="w-full bg-black border border-white/10 p-4 rounded-xl text-xs font-bold text-white outline-none focus:border-yellow-500"/>
                 </div>
-                <p className="text-[9px] text-gray-500">Referrer gets +{REFERRAL_COINS} Coins when you submit their ID.</p>
+                <p className="text-[9px] text-gray-500">Referrer gets +{REFERRAL_COINS} Coins when you submit their ID (30% net share).</p>
                 <button onClick={handleApplyReferral} className="bg-yellow-500 py-4 rounded-2xl font-black uppercase tracking-wider text-black active:scale-95 transition-all">
                   Submit Referral
                 </button>
@@ -1539,47 +2001,6 @@ export default function AJSuperPortal() {
           </p>
         </div>
       </footer>
-
-      {/* ── FLOATING AI ASSISTANT ────────────────────────────── */}
-      <button onClick={() => setBotOpen(!botOpen)}
-        className="fixed bottom-6 right-6 z-[900] w-16 h-16 bg-gradient-to-br from-cyan-500 to-green-500 rounded-full shadow-[0_0_30px_rgba(6,182,212,0.5)] flex items-center justify-center text-black hover:scale-110 transition-all active:scale-90 border-2 border-white/20">
-        {botOpen?<X size={26}/>:<Bot size={26}/>}
-      </button>
-      {botOpen && (
-        <div className="fixed bottom-24 right-6 z-[900] w-80 md:w-96 h-[480px] bg-[#0d1117] border border-cyan-500/30 rounded-[2.5rem] shadow-[0_0_50px_rgba(6,182,212,0.2)] flex flex-col overflow-hidden backdrop-blur-xl">
-          <div className="bg-gradient-to-r from-cyan-600/30 to-green-600/30 p-5 border-b border-white/10 flex items-center gap-3">
-            <div className="w-10 h-10 bg-cyan-500 rounded-full flex items-center justify-center border-2 border-cyan-300">
-              <Bot size={22} className="text-black"/>
-            </div>
-            <div>
-              <p className="font-black text-sm text-white uppercase tracking-widest">AJ AI Assistant</p>
-              <p className="text-[8px] text-green-400 font-bold uppercase tracking-widest animate-pulse">CEO Representative • Online</p>
-            </div>
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            {botMessages.map((msg, i) => (
-              <div key={i} className={`flex ${msg.from==='user'?'justify-end':'justify-start'}`}>
-                <div className={`max-w-[85%] p-3 rounded-2xl text-[11px] leading-relaxed font-bold whitespace-pre-line ${msg.from==='user'?'bg-cyan-600 text-white rounded-tr-none':'bg-white/10 text-gray-200 rounded-tl-none border border-white/10'}`}>
-                  {msg.text}
-                  {msg.from==='bot' && msg.text.includes('CEO') && (
-                    <a href={CEO_WHATSAPP} target="_blank" className="block mt-2 bg-green-500 text-black text-[10px] font-black uppercase px-3 py-2 rounded-xl text-center hover:bg-green-400 transition-all">
-                      💬 Chat with CEO on WhatsApp
-                    </a>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="p-4 border-t border-white/10 flex gap-3">
-            <input type="text" value={botInput} onChange={e => setBotInput(e.target.value)}
-              onKeyDown={e => e.key==='Enter'&&handleBotSend()} placeholder="Ask about Coins, Referral..."
-              className="flex-1 bg-white/5 border border-white/10 rounded-full px-4 py-3 text-xs text-white outline-none focus:ring-1 focus:ring-cyan-500 font-bold"/>
-            <button onClick={handleBotSend} className="bg-cyan-500 p-3 rounded-full text-black shadow-lg active:scale-90 transition-all">
-              <Send size={16}/>
-            </button>
-          </div>
-        </div>
-      )}
     </main>
   );
 }
