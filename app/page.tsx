@@ -37,14 +37,14 @@ const MONETAG_WECHAT_SPONSOR = 11337185;
 // ECONOMY RATES  ← CONFIRMED FINAL (PROMPT)
 //   $1   = 100 AJ Coins (purchase rate)
 //   Min purchase  = $20 (= 2,000 Coins)
-//   Min withdraw  = 10,000 Coins ($20 USD at CASH_RATE 1000)
-//   1000 AJ Coins = $1 USD Cash-out
+//   Min withdraw  = 10,000 Coins ($20 USD at CASH_RATE 500)
+//   500 AJ Coins = $1 USD Cash-out
 //   Referral earn = 50 Coins (net to referrer)
 //   Gift split    = 60% creator | 40% admin profit
 //   Everything else: 70% Admin | 30% User (hidden admin ledger)
 // ============================================================
 const COIN_RATE      = 100;    // AJ Coins per $1 (purchase rate)
-const CASH_RATE      = 1000;   // Coins per $1 (cashout/display rate)
+const CASH_RATE      = 500;    // Coins per $1 (cashout/display rate)
 const MIN_PURCHASE   = 20;     // minimum purchase in USD
 const WITHDRAW_MIN   = 10000;  // minimum coins to withdraw (= $20 at CASH_RATE 1000)
 const REFERRAL_COINS = 50;     // coins awarded to referrer
@@ -247,17 +247,21 @@ export default function AJSuperPortal() {
   // ── PULSE MUTE STATE (Prompt #4 Sound Fix) ──────────────────
   const [pulseMuted, setPulseMuted] = useState(true);
 
-  // ── WECHAT CONTACTS ─────────────────────────────────────────
-  const [wechatContacts, setWechatContacts] = useState<string[]>([
-    'AJ Global Support','Family WeChat Hub','CEO VIP Elite','Crypto News Daily'
-  ]);
+  // ── WECHAT CONTACTS (per-user Firestore) ────────────────────
+  const [wechatContacts, setWechatContacts] = useState<string[]>([]);
   const [addContactOpen, setAddContactOpen] = useState(false);
   const [newContact,     setNewContact]     = useState('');
+
+  // ── TIKREELS SOUND ──────────────────────────────────────────
+  const [soundEnabledVideos, setSoundEnabledVideos] = useState<{[key:string]:boolean}>({});
 
   // ── TIKREELS ────────────────────────────────────────────────
   const [tiktabMode,     setTiktabMode]     = useState<'feed'|'create'|'profile'>('feed');
   const [tiktokPostText, setTiktokPostText] = useState('');
   const [tiktokPostImg,  setTiktokPostImg]  = useState('');
+
+  // ── PULSE GIFT PANEL (per-post) ─────────────────────────────
+  const [pulseGiftPostId, setPulseGiftPostId] = useState<string|null>(null);
 
   // ── USER PROFILE (viewer) ───────────────────────────────────
   const [viewingUid,    setViewingUid]    = useState<string|null>(null);
@@ -308,12 +312,19 @@ export default function AJSuperPortal() {
   };
 
   // ==========================================================
-  // FETCH LIVE NOW LIST (Prompt #5)
+  // FETCH LIVE NOW LIST — with ghost filter (lastSeen < 60s)
   // ==========================================================
   const fetchLiveNow = () => {
     const q = query(collection(db,"live_rooms"), orderBy("startedAt","desc"), limit(20));
     return onSnapshot(q, snap => {
-      setLiveNowList(snap.docs.map(d => ({ id:d.id, ...d.data() })));
+      const now = Date.now();
+      const rooms = snap.docs
+        .map(d => ({ id:d.id, ...d.data() }))
+        .filter((r:any) => {
+          if (!r.lastSeenMs) return true; // legacy rooms shown briefly
+          return (now - r.lastSeenMs) < 60000; // only rooms active in last 60s
+        });
+      setLiveNowList(rooms);
     });
   };
 
@@ -439,12 +450,18 @@ export default function AJSuperPortal() {
         liveVideoRef.current.srcObject = stream;
         liveVideoRef.current.play();
       }
-      // Register live room in Firestore for Live Now list (Prompt #5)
+      // Register live room in Firestore for Live Now list
       await setDoc(doc(db,"live_rooms",roomId), {
         uid:user.uid, username:username||'AJ_Member',
         photo:tempPhoto||user.photoURL||'',
-        roomId, startedAt:serverTimestamp(), active:true
+        roomId, startedAt:serverTimestamp(), active:true,
+        lastSeenMs: Date.now()
       });
+      // Heartbeat: update lastSeenMs every 15s to prevent ghost rooms
+      const heartbeat = setInterval(async () => {
+        try { await updateDoc(doc(db,"live_rooms",roomId), { lastSeenMs: Date.now() }); } catch {}
+      }, 15000);
+      (liveStreamRef as any)._heartbeat = heartbeat;
       // Notify followers (Prompt #8)
       await addDoc(collection(db,"notifications"), {
         title:"🔴 Live Now!",
@@ -459,12 +476,17 @@ export default function AJSuperPortal() {
   };
 
   const stopLive = async () => {
+    // Clear heartbeat interval
+    if ((liveStreamRef as any)._heartbeat) {
+      clearInterval((liveStreamRef as any)._heartbeat);
+      (liveStreamRef as any)._heartbeat = null;
+    }
     liveStreamRef.current?.getTracks().forEach(t => t.stop());
     liveStreamRef.current = null;
     setCameraReady(false);
     setLiveActive(false);
     setPkActive(false);
-    // Remove from live rooms
+    // Remove from live rooms immediately on disconnect
     if (liveRoomId) {
       try { await deleteDoc(doc(db,"live_rooms",liveRoomId)); } catch {}
     }
@@ -598,24 +620,42 @@ export default function AJSuperPortal() {
   };
 
   // ==========================================================
-  // WECHAT CONTACTS
+  // WECHAT CONTACTS — per-user Firestore storage
   // ==========================================================
+  // Load contacts from Firestore when user changes
+  useEffect(() => {
+    if (!user) return;
+    const colRef = collection(db,"users",user.uid,"wechat_contacts");
+    const unsub = onSnapshot(colRef, snap => {
+      setWechatContacts(snap.docs.map(d => d.data().name as string));
+    });
+    return unsub;
+  }, [user]);
+
+  const saveContactToFirestore = async (name: string) => {
+    if (!user || !name.trim()) return;
+    const colRef = collection(db,"users",user.uid,"wechat_contacts");
+    await addDoc(colRef, { name: name.trim(), addedAt: serverTimestamp() });
+  };
+
   const handleContactsSync = async () => {
     if ((navigator as any).contacts) {
       try {
         const cts = await (navigator as any).contacts.select(['name','tel'], { multiple:true });
         if (cts.length>0) {
-          const names = cts.map((c:any) => c.name?.[0]||'Unknown').filter(Boolean);
-          setWechatContacts(prev => [...prev, ...names.filter((n:string) => !prev.includes(n))]);
+          for (const c of cts) {
+            const name = c.name?.[0]||'Unknown';
+            if (name && !wechatContacts.includes(name)) await saveContactToFirestore(name);
+          }
           alert(`✅ ${cts.length} contact(s) synced!`);
         }
       } catch { setAddContactOpen(true); }
     } else { setAddContactOpen(true); }
   };
 
-  const addManualContact = () => {
+  const addManualContact = async () => {
     if (!newContact.trim()) return;
-    setWechatContacts(prev => [...prev, newContact.trim()]);
+    await saveContactToFirestore(newContact.trim());
     setNewContact(''); setAddContactOpen(false);
   };
 
@@ -1234,20 +1274,36 @@ export default function AJSuperPortal() {
                   ))}
                 </div>
 
-                {/* FEED — autoplay, no click needed */}
+                {/* FEED — TikTok style with sound toggle */}
                 {tiktabMode==='feed' && (
                   <div className="h-full w-full max-w-md mx-auto snap-y snap-mandatory overflow-y-auto bg-black">
-                    {pixaVideos.map((vid:any, i:number) => (
+                    {pixaVideos.map((vid:any, i:number) => {
+                      const soundOn = soundEnabledVideos[vid.id];
+                      const embedUrl = soundOn
+                        ? `https://www.youtube.com/embed/${vid.id}?autoplay=1&mute=0&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1`
+                        : `https://www.youtube.com/embed/${vid.id}?autoplay=1&mute=1&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1`;
+                      return (
                       <React.Fragment key={i}>
                         <div className="h-[85vh] w-full snap-start relative border-b border-white/5">
                           <iframe
-                            src={vid.embedUrl}
+                            src={embedUrl}
                             className="w-full h-full"
                             title={vid.title}
                             allow="autoplay; encrypted-media; gyroscope; picture-in-picture"
                             allowFullScreen
                             frameBorder="0"
                           />
+                          {/* SOUND OVERLAY — shown when muted */}
+                          {!soundOn && (
+                            <div
+                              className="absolute inset-0 flex items-end justify-center pb-48 z-20 cursor-pointer"
+                              onClick={() => setSoundEnabledVideos(s => ({...s,[vid.id]:true}))}>
+                              <div className="flex items-center gap-2 bg-black/60 backdrop-blur-sm border border-white/20 px-4 py-2 rounded-full shadow-xl animate-pulse">
+                                <VolumeX size={16} className="text-white"/>
+                                <span className="text-white text-[11px] font-black uppercase tracking-widest">Tap for Sound</span>
+                              </div>
+                            </div>
+                          )}
                           {/* RIGHT SIDEBAR ACTIONS */}
                           <div className="absolute right-4 bottom-32 flex flex-col gap-6 items-center z-10">
                             <div onClick={() => handleLike(vid.id)} className="flex flex-col items-center cursor-pointer active:scale-125 transition-all">
@@ -1264,6 +1320,12 @@ export default function AJSuperPortal() {
                             {/* GIFT */}
                             <div className="flex flex-col items-center cursor-pointer text-yellow-400" onClick={() => setCommentPostId('gift_'+vid.id)}>
                               <Gift size={28}/><span className="text-[10px] font-bold">Gift</span>
+                            </div>
+                            {/* SOUND TOGGLE */}
+                            <div className="flex flex-col items-center cursor-pointer text-white"
+                              onClick={() => setSoundEnabledVideos(s => ({...s,[vid.id]:!s[vid.id]}))}>
+                              {soundOn ? <Volume2 size={28}/> : <VolumeX size={28}/>}
+                              <span className="text-[10px] font-bold">{soundOn?'Sound':'Muted'}</span>
                             </div>
                           </div>
                           <div className="absolute bottom-10 left-6 text-white max-w-[70%] z-10">
@@ -1283,7 +1345,8 @@ export default function AJSuperPortal() {
                           </div>
                         )}
                       </React.Fragment>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
 
@@ -1403,7 +1466,7 @@ export default function AJSuperPortal() {
                           {post.uid!==user?.uid && (
                             <div className="border-t border-white/5 pt-4 mt-4">
                               <p className="text-[10px] text-pink-400 font-black tracking-widest mb-3 uppercase flex items-center gap-1">
-                                <Gift size={12}/> Send Gift (60% to creator | 40% admin profit)
+                                <Gift size={12}/> Send a Gift 🎁
                               </p>
                               <div className="grid grid-cols-3 gap-2">
                                 {giftItems.map(g => (
@@ -1422,20 +1485,42 @@ export default function AJSuperPortal() {
                     </React.Fragment>
                   ))}
 
-                  {/* Unsplash trending — below feed */}
-                  {pixaData.length>0 && (
-                    <div className="snap-start p-4">
-                      <p className="text-[9px] text-gray-500 uppercase font-black tracking-widest mb-3">✨ Trending Pulse</p>
-                      <div className="grid grid-cols-2 gap-3">
-                        {pixaData.map((photo:any) => (
-                          <div key={photo.id} className="rounded-2xl overflow-hidden border border-white/10 shadow-lg">
-                            <img src={photo.urls?.regular||photo.urls?.small||''} alt={photo.alt_description||'pulse'}
-                              className="w-full aspect-square object-cover hover:scale-105 transition-transform"/>
-                          </div>
-                        ))}
+                  {/* Unsplash trending — TikTok vertical snap cards */}
+                  {pixaData.map((photo:any, idx:number) => (
+                    <div key={photo.id} className="snap-start relative min-h-[85vh] w-full bg-black flex flex-col border-b border-white/5 overflow-hidden">
+                      <img
+                        src={photo.urls?.regular||photo.urls?.small||''}
+                        alt={photo.alt_description||'pulse'}
+                        className="w-full h-full object-cover absolute inset-0"
+                      />
+                      {/* Gradient overlay */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/20"/>
+                      {/* RIGHT SIDEBAR ACTIONS */}
+                      <div className="absolute right-4 bottom-28 flex flex-col gap-6 items-center z-10">
+                        <div onClick={() => handleLike(photo.id)} className="flex flex-col items-center cursor-pointer active:scale-125 transition-all drop-shadow-lg">
+                          <Heart size={32} className={likedPosts[photo.id]?"text-red-500 fill-red-500":"text-white"}/>
+                          <span className="text-[9px] font-black text-white mt-1">{photo.likes||0}</span>
+                        </div>
+                        <div className="flex flex-col items-center cursor-pointer drop-shadow-lg" onClick={() => setCommentPostId(photo.id)}>
+                          <MessageCircle size={32} className="text-white"/>
+                          <span className="text-[9px] font-black text-white mt-1">Comment</span>
+                        </div>
+                        <div onClick={() => handleShare(photo.alt_description||'AJ Pulse')} className="flex flex-col items-center cursor-pointer text-white drop-shadow-lg">
+                          <Share2 size={32}/><span className="text-[9px] font-black mt-1">Share</span>
+                        </div>
+                        <div className="flex flex-col items-center cursor-pointer text-yellow-400 drop-shadow-lg"
+                          onClick={() => setPulseGiftPostId(photo.id)}>
+                          <Gift size={28}/><span className="text-[9px] font-black mt-1">Gift</span>
+                        </div>
+                      </div>
+                      {/* BOTTOM INFO */}
+                      <div className="absolute bottom-6 left-4 max-w-[70%] z-10">
+                        <p className="font-black text-white text-sm drop-shadow-lg">📸 {photo.user?.name||'AJ Pulse'}</p>
+                        <p className="text-[10px] text-gray-300 mt-1 font-bold line-clamp-2">{photo.alt_description||'Trending Lifestyle'}</p>
+                        {idx===0 && <span className="text-[8px] text-yellow-400 font-black uppercase tracking-widest">✨ Trending Pulse</span>}
                       </div>
                     </div>
-                  )}
+                  ))}
                 </div>
               </div>
             )}
@@ -1590,6 +1675,28 @@ export default function AJSuperPortal() {
               </div>
             )}
           </div>
+
+          {/* PULSE GIFT MODAL — for Unsplash trending photos */}
+          {pulseGiftPostId && (
+            <div className="fixed inset-0 z-[1000] bg-black/70 backdrop-blur-md flex items-end">
+              <div className="w-full bg-[#111b21] rounded-t-[3rem] border-t-2 border-yellow-500 p-6 shadow-2xl">
+                <div className="flex justify-between items-center mb-5">
+                  <h3 className="text-lg font-black text-yellow-400 uppercase tracking-widest flex items-center gap-2"><Gift size={18}/> Send Gift</h3>
+                  <X className="cursor-pointer text-gray-500" onClick={() => setPulseGiftPostId(null)}/>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  {giftItems.map(g => (
+                    <button key={g.id} onClick={() => { sendGift(pulseGiftPostId, g); setPulseGiftPostId(null); }}
+                      className="bg-white/5 border border-white/10 py-3 rounded-2xl text-[9px] font-black uppercase hover:border-yellow-500 transition-all flex flex-col items-center gap-1 active:scale-95">
+                      <span className="text-2xl">{g.icon}</span>
+                      <span className="text-white">{g.name}</span>
+                      <span className="text-yellow-500 text-[8px]">{g.cost.toLocaleString()} 🪙</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* COMMENT BOARD */}
           {commentPostId && !commentPostId.startsWith('gift_') && (
@@ -1766,7 +1873,7 @@ export default function AJSuperPortal() {
           {/* GIFT PANEL */}
           <div className="bg-[#0d1117] border-t border-white/10 p-4 shrink-0">
             <p className="text-[10px] text-yellow-400 font-black uppercase tracking-widest mb-3 flex items-center gap-2">
-              <Gift size={14}/> Viewers Send Gifts — 60% Goes to You | 40% Admin Profit
+              <Gift size={14}/> Send Gifts to Creator 🎁
             </p>
             <div className="flex gap-3 overflow-x-auto pb-2">
               {giftItems.map(g => (
@@ -1882,7 +1989,7 @@ export default function AJSuperPortal() {
                 <h3 className="text-lg font-black text-pink-500 uppercase tracking-widest">Withdraw Coins</h3>
                 <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-2xl">
                   <p className="text-[10px] text-red-400 font-bold uppercase leading-relaxed">
-                    ⚠️ Minimum: {WITHDRAW_MIN.toLocaleString()} Coins = $20 USD. 1,000 Coins = $1. Processed within 24 hrs.
+                    ⚠️ Minimum: {WITHDRAW_MIN.toLocaleString()} Coins = $20 USD. {CASH_RATE} Coins = $1. Processed within 24 hrs.
                   </p>
                 </div>
                 <div className="space-y-4">
