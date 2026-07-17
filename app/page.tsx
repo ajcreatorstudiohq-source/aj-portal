@@ -430,7 +430,10 @@ export default function AJSuperPortal() {
             balance:500, botTier:'none', invested:0,
             uid:cu.uid, lastSync:serverTimestamp(),
             hasSocialProfile:false, photo:cu.photoURL||'',
-            followers:0, following:0
+            followers:0, following:0,
+            postsCount:0,
+            followersCount:0,
+            followingCount:0,
           });
         }
         onSnapshot(ref, s => {
@@ -600,17 +603,33 @@ export default function AJSuperPortal() {
   // ==========================================================
   const joinLiveByRoomId = async (roomId?: string) => {
     const rid = (roomId || joinRoomInput).trim();
-    if (!rid) return alert('Please enter the streamer\'s Room ID.');
-    const snap = await getDoc(doc(db, 'live_rooms', rid));
-    if (!snap.exists() || !snap.data()?.active) {
-      return alert('Room not found or stream has ended. Check the ID and try again.');
+    if (!rid) return alert("Please enter the streamer's Room ID.");
+
+    // Try exact match first
+    let roomSnap:any = await getDoc(doc(db, 'live_rooms', rid));
+
+    // Fallback: streamer's share card shows only last 14 chars — match by suffix
+    if (!roomSnap.exists()) {
+      const allRooms = await getDocs(query(collection(db, 'live_rooms'), limit(50)));
+      const match = allRooms.docs.find(d => d.id.endsWith(rid) || d.id === rid);
+      if (match) roomSnap = match;
     }
-    setViewerRoom({ id: snap.id, ...snap.data() });
-    setViewerRoomId(rid);
+
+    if (!roomSnap.exists())
+      return alert("Room not found. Use the Copy button on the streamer's screen to get the full Room ID.");
+    if (!roomSnap.data()?.active)
+      return alert('This stream has ended. The Room ID is no longer active.');
+
+    // Ensure we are on the social screen so the viewer overlay (z-600) renders
+    setScreen('social');
+
+    setViewerRoom({ id: roomSnap.id, ...roomSnap.data() });
+    setViewerRoomId(roomSnap.id);   // always use the real Firestore document ID
     setJoinRoomInput('');
+
     // Subscribe to viewer chat
     const unsub = onSnapshot(
-      query(collection(db, 'live_rooms', rid, 'messages'), orderBy('createdAt', 'asc')),
+      query(collection(db, 'live_rooms', roomSnap.id, 'messages'), orderBy('createdAt', 'asc')),
       snap2 => {
         setViewerChatMessages(snap2.docs.map(d => ({ id: d.id, ...d.data() })));
         setTimeout(() => viewerChatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 60);
@@ -761,17 +780,48 @@ export default function AJSuperPortal() {
 
   // Open someone's profile
   const openProfile = async (uid:string) => {
+    // Always navigate to social screen first — fixes 'Page Not Found'
+    setScreen('social');
     setViewingUid(uid);
+
     const snap = await getDoc(doc(db,"users",uid));
     if (snap.exists()) setViewProfile(snap.data());
+
+    // Posts from global feed
     const pq = query(collection(db,"user_posts"), orderBy("createdAt","desc"), limit(30));
     const ps = await getDocs(pq);
     const all = ps.docs.map(d => ({id:d.id,...d.data() as any}));
-    setProfilePosts(all.filter((p:any)  => p.uid===uid && !p.isVideo));
-    setProfileVideos(all.filter((p:any) => p.uid===uid && p.isVideo));
-    const fSnap  = await getDocs(collection(db,"users",uid,"followers"));
-    const foSnap = await getDocs(collection(db,"users",uid,"following"));
-    setFollowers(fSnap.size); setFollowing(foSnap.size);
+    setProfilePosts(all.filter((p:any) => p.uid===uid && !p.isVideo));
+    const feedVideos = all.filter((p:any) => p.uid===uid && p.isVideo);
+
+    // Fetch from users/{uid}/videos sub-collection
+    let subVideos:any[] = [];
+    try {
+      const vidSnap = await getDocs(
+        query(collection(db,"users",uid,"videos"), orderBy("createdAt","desc"), limit(50))
+      );
+      subVideos = vidSnap.docs.map(d => ({id:d.id,...d.data() as any, isVideo:true}));
+    } catch {}
+
+    // Merge — sub-collection takes priority, no duplicates
+    const subIds = new Set(subVideos.map((v:any) => v.id));
+    setProfileVideos([...subVideos, ...feedVideos.filter((v:any) => !subIds.has(v.id))]);
+
+    // Use stored count fields; fall back to sub-collection size for old accounts
+    const userData = snap.exists() ? snap.data() : null;
+    if (userData?.followersCount !== undefined) {
+      setFollowers(userData.followersCount);
+    } else {
+      const fSnap = await getDocs(collection(db,"users",uid,"followers"));
+      setFollowers(fSnap.size);
+    }
+    if (userData?.followingCount !== undefined) {
+      setFollowing(userData.followingCount);
+    } else {
+      const foSnap = await getDocs(collection(db,"users",uid,"following"));
+      setFollowing(foSnap.size);
+    }
+
     if (user) {
       const myF = await getDoc(doc(db,"users",user.uid,"following",uid));
       setIsFollowing(myF.exists());
@@ -1669,12 +1719,17 @@ export default function AJSuperPortal() {
                     const [profTab, setProfTab] = React.useState<'grid'|'following'>('grid');
                     return (<>
                       <div className="flex justify-center gap-6 mt-6">
-                        {[{l:'Posts',v:profilePosts.length},{l:'Videos',v:profileVideos.length},{l:'Followers',v:followers}].map(s => (
-                          <div key={s.l} className="text-center">
-                            <p className="text-xl font-black text-white">{s.v}</p>
-                            <p className="text-[9px] text-gray-500 uppercase font-bold tracking-widest">{s.l}</p>
-                          </div>
-                        ))}
+                        {/* Posts */}
+                        <div className="text-center">
+                          <p className="text-xl font-black text-white">{profilePosts.length}</p>
+                          <p className="text-[9px] text-gray-500 uppercase font-bold tracking-widest">Posts</p>
+                        </div>
+                        {/* Followers */}
+                        <div className="text-center">
+                          <p className="text-xl font-black text-white">{followers}</p>
+                          <p className="text-[9px] text-gray-500 uppercase font-bold tracking-widest">Followers</p>
+                        </div>
+                        {/* Following — tappable */}
                         <button onClick={() => { setProfTab(t => t==='following'?'grid':'following'); if(viewingUid) loadFollowingList(); }}
                           className="text-center">
                           <p className="text-xl font-black text-white">{following}</p>
@@ -1717,14 +1772,23 @@ export default function AJSuperPortal() {
                   <div className="grid grid-cols-3 gap-1 mt-4">
                     {[...profilePosts,...profileVideos].map((p:any) => (
                       <div key={p.id} className="aspect-square bg-white/5 rounded-xl overflow-hidden">
-                        {p.image
-                          ? <img src={p.image} className="w-full h-full object-cover"/>
+                        {(p.image||p.url||p.thumbnail)
+                          ? <img src={p.image||p.url||p.thumbnail} className="w-full h-full object-cover"/>
                           : <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-pink-600/20 to-cyan-600/20"><Film size={24} className="text-pink-400"/></div>
                         }
                       </div>
                     ))}
-                    {[...profilePosts,...profileVideos].length===0 && (
-                      <div className="col-span-3 py-12 text-gray-500 text-xs text-center">No posts yet.</div>
+                    {profileVideos.length===0 && profilePosts.length===0 && (
+                      <div className="col-span-3 py-12 text-center">
+                        <Film size={36} className="text-gray-600 mx-auto mb-3"/>
+                        <p className="text-gray-500 text-xs font-bold uppercase tracking-widest">No videos uploaded yet</p>
+                        <p className="text-gray-700 text-[9px] mt-1">Videos will appear here once uploaded.</p>
+                      </div>
+                    )}
+                    {profileVideos.length===0 && profilePosts.length>0 && (
+                      <div className="col-span-3 py-4 text-center border-t border-white/5 mt-2">
+                        <p className="text-gray-600 text-[9px] font-bold uppercase tracking-widest">No videos uploaded yet</p>
+                      </div>
                     )}
                   </div>
                 </div>
