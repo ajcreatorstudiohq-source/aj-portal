@@ -383,7 +383,7 @@ function closeHelp() { playSfx('click'); document.getElementById('helpMenu').sty
 
 function renderShop() {
     document.getElementById('shopRings').innerText = totalRings;
-    document.getElementById('shopAJ').innerText = (totalRings * 0.003).toFixed(3);
+    document.getElementById('shopAJ').innerText = (totalRings * 0.01).toFixed(3);
     const grid = document.getElementById('shopGrid'); grid.innerHTML = '';
     skins.forEach(skin => {
         const isOwned = ownedSkins.includes(skin.id), isActive = currentSkin === skin.id, item = document.createElement('div');

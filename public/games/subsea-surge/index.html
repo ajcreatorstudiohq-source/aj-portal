@@ -301,7 +301,7 @@
     // --- HUD & MENU SYNC FUNCTION ---
     function updateCoinDisplays() { 
         document.querySelectorAll('.global-coins').forEach(el => el.innerText = totalCoins); 
-        let ajNet = (totalCoins * 0.003).toFixed(3);
+        let ajNet = (totalCoins * 0.01).toFixed(3);
         if(document.getElementById('mainAJ')) document.getElementById('mainAJ').innerText = ajNet;
         if(document.getElementById('shopAJ')) document.getElementById('shopAJ').innerText = ajNet;
     }

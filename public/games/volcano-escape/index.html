@@ -188,7 +188,7 @@
     function renderGarage() {
         const grid = document.getElementById('skinGrid'); grid.innerHTML = "";
         document.getElementById('shopCrystals').innerText = totalCrystals;
-        document.getElementById('garageAJ').innerText = (totalCrystals * 0.003).toFixed(3);
+        document.getElementById('garageAJ').innerText = (totalCrystals * 0.01).toFixed(3);
         characters.forEach(char => {
             const item = document.createElement('div');
             item.className = `shop-item ${currentChar === char.id ? 'selected' : ''}`;

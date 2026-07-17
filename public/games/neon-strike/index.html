@@ -271,7 +271,7 @@
     }
 
     function updateUIDisplays() {
-        const ajVal = (totalPoints * 0.003).toFixed(3);
+        const ajVal = (totalPoints * 0.01).toFixed(3);
         document.getElementById('totalPointsDisplay').innerText = totalPoints;
         if(document.getElementById('mainAJDisplay')) document.getElementById('mainAJDisplay').innerText = ajVal;
     }
