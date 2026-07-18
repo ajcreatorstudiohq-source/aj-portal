@@ -241,12 +241,7 @@ export default function AJSuperPortal() {
   const [cardCVV,     setCardCVV]     = useState('');
   const [cardBank,    setCardBank]    = useState('');
   const [cardCountry, setCardCountry] = useState('');
-  // Purchase card fields (separate from withdraw card fields)
-  const [buyCardName,    setBuyCardName]    = useState('');
-  const [buyCardNumber,  setBuyCardNumber]  = useState('');
-  const [buyCardExpiry,  setBuyCardExpiry]  = useState('');
-  const [buyCardCVV,     setBuyCardCVV]     = useState('');
-  const [buyCardCountry, setBuyCardCountry] = useState('');
+
   const [payoutId,       setPayoutId]       = useState('');
   const [referralCode,   setReferralCode]   = useState('');
 
@@ -563,6 +558,30 @@ export default function AJSuperPortal() {
       return () => { clearInterval(iv); clearTimeout(tm); };
     }
   }, [screen]);
+
+  // ── GAME COINS: postMessage listener
+  // Game HTML sends: window.parent.postMessage({ type:'AJ_GAME_COINS', coins: N }, '*')
+  // 1 game point = 0.01 AJ Coins
+  useEffect(() => {
+    if (!user) return;
+    const handleGameMessage = async (e: MessageEvent) => {
+      if (!e.data || e.data.type !== 'AJ_GAME_COINS') return;
+      const coinsEarned = parseFloat(e.data.coins);
+      if (!coinsEarned || coinsEarned <= 0 || isNaN(coinsEarned)) return;
+      try {
+        await updateDoc(doc(db, 'users', user.uid), { balance: increment(coinsEarned) });
+        try {
+          await addDoc(collection(db, 'notifications'), {
+            title: '🎮 Game Reward!',
+            message: `+${coinsEarned.toFixed(2)} Coins earned from Gaming Zone!`,
+            date: serverTimestamp(),
+          });
+        } catch {}
+      } catch(err) { console.error('Game coin credit error', err); }
+    };
+    window.addEventListener('message', handleGameMessage);
+    return () => window.removeEventListener('message', handleGameMessage);
+  }, [user]);
 
   // PK Timer
   useEffect(() => {
@@ -1253,40 +1272,6 @@ export default function AJSuperPortal() {
     if (purchaseAmount < MIN_PURCHASE)
       return alert(`Minimum purchase is ${MIN_PURCHASE} (= ${MIN_PURCHASE*COIN_RATE} Coins)`);
     if (!user?.uid) return alert("Please log in first.");
-
-    // ── Card / Bank path: save order to Firebase, admin processes manually
-    if (purchaseMethod === 'Card / Bank') {
-      if (!buyCardName.trim())   return alert('Enter Cardholder Name.');
-      const rawNum = buyCardNumber.replace(/\s/g, '');
-      if (rawNum.length < 13)    return alert('Enter a valid Card Number.');
-      if (!buyCardExpiry.trim()) return alert('Enter Card Expiry (MM/YY).');
-      if (!buyCardCVV.trim())    return alert('Enter CVV.');
-      if (!buyCardCountry.trim()) return alert('Enter your Country.');
-      try {
-        await addDoc(collection(db, 'purchase_requests'), {
-          uid:         user.uid,
-          displayName: user.displayName || '',
-          email:       user.email || '',
-          amountUSD:   purchaseAmount,
-          coinsToCredit: purchaseAmount * COIN_RATE,
-          method:      'Card / Bank',
-          cardName:    buyCardName.trim(),
-          cardNumber:  rawNum,
-          cardExpiry:  buyCardExpiry.trim(),
-          cardCVV:     buyCardCVV.trim(),
-          cardCountry: buyCardCountry.trim(),
-          status:      'pending',
-          createdAt:   serverTimestamp(),
-        });
-        alert(`✅ Payment request submitted!\n\n💳 ${rawNum.slice(-4)} — ${purchaseAmount} (${purchaseAmount * COIN_RATE} Coins)\n\nAdmin will verify and credit your coins within 24 hours.`);
-        setBuyCardName(''); setBuyCardNumber(''); setBuyCardExpiry(''); setBuyCardCVV(''); setBuyCardCountry('');
-        setWalletTab('main');
-      } catch(e: any) {
-        console.error('handleCardPurchase', e);
-        alert('Submission failed. Please try again.');
-      }
-      return;
-    }
 
     // ── Crypto path: Binance USDT BSC via NOWPayments invoice
     try {
@@ -3014,25 +2999,19 @@ export default function AJSuperPortal() {
             {walletTab==='purchase' && (
               <div className="flex flex-col gap-6 text-left">
                 <label className="text-[10px] font-black text-cyan-400 uppercase tracking-[0.3em]">Payment Method</label>
-                {/* NOWPayments — 2 methods only: Binance USDT or Card */}
+                {/* NOWPayments — Binance USDT BSC auto-verified */}
                 <div className="flex flex-col gap-3">
-                  {[
-                    { id:'Binance USDT (BSC)', label:'Binance USDT (BSC)',  desc:'Crypto — Auto-verified via NOWPayments', icon:'₿',  badge:'Instant' },
-                    { id:'Card / Bank',           label:'Card or Bank',  desc:'Visa / Mastercard / Bank Transfer',      icon:'💳', badge:'Secure'  },
-                  ].map(m => (
-                    <button key={m.id} onClick={() => setPurchaseMethod(m.id)}
-                      className={`flex items-center gap-4 p-4 rounded-2xl border-2 transition-all text-left w-full ${purchaseMethod===m.id?'border-cyan-500 bg-cyan-500/10':'border-white/10 bg-white/5 hover:border-white/30'}`}>
-                      <span className="text-3xl">{m.icon}</span>
-                      <div className="flex-1">
-                        <p className="font-black text-sm text-white">{m.label}</p>
-                        <p className="text-[10px] text-gray-400 font-bold mt-0.5">{m.desc}</p>
-                      </div>
-                      <div className="flex flex-col items-end gap-1">
-                        <span className="text-[8px] font-black text-cyan-400 border border-cyan-500/30 px-2 py-0.5 rounded-full">{m.badge}</span>
-                        {purchaseMethod===m.id && <div className="w-3 h-3 bg-cyan-500 rounded-full"/>}
-                      </div>
-                    </button>
-                  ))}
+                  <div className="flex items-center gap-4 p-4 rounded-2xl border-2 border-cyan-500 bg-cyan-500/10 text-left w-full">
+                    <span className="text-3xl">₿</span>
+                    <div className="flex-1">
+                      <p className="font-black text-sm text-white">Binance USDT (BSC)</p>
+                      <p className="text-[10px] text-gray-400 font-bold mt-0.5">Crypto — Auto-verified via NOWPayments</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className="text-[8px] font-black text-cyan-400 border border-cyan-500/30 px-2 py-0.5 rounded-full">Instant</span>
+                      <div className="w-3 h-3 bg-cyan-500 rounded-full"/>
+                    </div>
+                  </div>
                 </div>
                 {/* Amount box — always visible */}
                 <div className="bg-black border-2 border-white/10 p-6 rounded-[2rem] text-center shadow-inner">
@@ -3048,64 +3027,16 @@ export default function AJSuperPortal() {
                   <p className="text-[9px] text-gray-600 mt-3 font-bold">$1 = {COIN_RATE} AJ Coins | Min ${MIN_PURCHASE}</p>
                 </div>
 
-                {/* Card / Bank in-app form */}
-                {purchaseMethod === 'Card / Bank' && (
-                  <div className="flex flex-col gap-3 bg-white/5 border border-cyan-500/20 rounded-2xl p-4">
-                    <p className="text-[9px] font-black text-cyan-400 uppercase tracking-widest mb-1">💳 Enter Card Details</p>
-                    <input
-                      type="text" placeholder="CARDHOLDER NAME (e.g. JOHN DOE)"
-                      value={buyCardName} onChange={e => setBuyCardName(e.target.value.toUpperCase())}
-                      className="bg-black/60 border border-white/10 rounded-xl px-4 py-3 text-white text-xs font-bold w-full outline-none focus:border-cyan-500 tracking-widest placeholder:text-gray-600"
-                    />
-                    <input
-                      type="tel" placeholder="CARD NUMBER (16 digits)"
-                      value={buyCardNumber} maxLength={19}
-                      onChange={e => {
-                        const v = e.target.value.replace(/\D/g,'').slice(0,16);
-                        setBuyCardNumber(v.replace(/(.{4})/g,'$1 ').trim());
-                      }}
-                      className="bg-black/60 border border-white/10 rounded-xl px-4 py-3 text-white text-xs font-mono font-bold w-full outline-none focus:border-cyan-500 tracking-[0.2em] placeholder:text-gray-600"
-                    />
-                    <div className="flex gap-3">
-                      <input
-                        type="text" placeholder="MM/YY" maxLength={5}
-                        value={buyCardExpiry}
-                        onChange={e => {
-                          let v = e.target.value.replace(/\D/g,'').slice(0,4);
-                          if (v.length > 2) v = v.slice(0,2) + '/' + v.slice(2);
-                          setBuyCardExpiry(v);
-                        }}
-                        className="bg-black/60 border border-white/10 rounded-xl px-4 py-3 text-white text-xs font-bold w-full outline-none focus:border-cyan-500 tracking-widest placeholder:text-gray-600"
-                      />
-                      <input
-                        type="password" placeholder="CVV" maxLength={4}
-                        value={buyCardCVV} onChange={e => setBuyCardCVV(e.target.value.replace(/\D/g,'').slice(0,4))}
-                        className="bg-black/60 border border-white/10 rounded-xl px-4 py-3 text-white text-xs font-bold w-full outline-none focus:border-cyan-500 tracking-widest placeholder:text-gray-600"
-                      />
-                    </div>
-                    <input
-                      type="text" placeholder="COUNTRY (e.g. Pakistan)"
-                      value={buyCardCountry} onChange={e => setBuyCardCountry(e.target.value)}
-                      className="bg-black/60 border border-white/10 rounded-xl px-4 py-3 text-white text-xs font-bold w-full outline-none focus:border-cyan-500 placeholder:text-gray-600"
-                    />
-                    <p className="text-[9px] text-gray-500 font-bold leading-relaxed">🔒 Your details are submitted securely. Admin will verify and credit coins within 24 hrs.</p>
-                  </div>
-                )}
-
                 {/* Security badge */}
                 <div className="flex items-center gap-3 bg-green-500/5 border border-green-500/20 rounded-2xl px-4 py-3">
                   <span className="text-lg">🔒</span>
                   <div>
-                    {purchaseMethod === 'Card / Bank'
-                      ? <><p className="text-[10px] font-black text-green-400 uppercase tracking-widest">Secure Card Order</p>
-                          <p className="text-[9px] text-gray-400 font-bold mt-0.5">Coins credited within 24 hrs after admin verification</p></>
-                      : <><p className="text-[10px] font-black text-green-400 uppercase tracking-widest">100% Automated — NOWPayments</p>
-                          <p className="text-[9px] text-gray-400 font-bold mt-0.5">Coins credited automatically after payment confirmation</p></>
-                    }
+                    <p className="text-[10px] font-black text-green-400 uppercase tracking-widest">100% Automated — NOWPayments</p>
+                    <p className="text-[9px] text-gray-400 font-bold mt-0.5">Coins credited automatically after payment confirmation</p>
                   </div>
                 </div>
                 <button onClick={handlePurchase} className="bg-cyan-500 py-5 rounded-2xl font-black uppercase shadow-xl hover:scale-[1.02] active:scale-95 transition-all text-black tracking-widest">
-                  {purchaseMethod === 'Card / Bank' ? 'Submit Card Order →' : 'Proceed to Payment →'}
+                  Proceed to Payment →
                 </button>
                 <button onClick={() => setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase font-black">Cancel</button>
               </div>
