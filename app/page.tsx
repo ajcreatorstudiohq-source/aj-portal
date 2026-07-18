@@ -51,6 +51,8 @@ const AGORA_APP_ID           = "7863c5369b3648bf931893a52ebaa6db";
 const AGORA_APP_CERTIFICATE  = "dc66528c5a5646da8e3ce5d2426759af";
 const VAPID_KEY              = "BMaPMtGtA2VtDsj_JH_yv5dOv66Mpguf9v4TkqY96dcS-gwqgs-r5OlqRJQmZbNkaj-7_iMFbGGN0Qc4xH0qvKg";
 const MONETAG_PULSE_BANNER   = 11337197;
+const PULSE_AD_VIDEO_ID      = 'dD2nkFBEaWI';  // Replace with your sponsor ad YouTube ID
+const NOWPAYMENTS_IPN_SECRET = '9eeeBo6K1ljJSQtUCb1Up88Gv6n1AreU'; // IPN secret for verification
 const MONETAG_WECHAT_SPONSOR = 11337185;
 
 // ============================================================
@@ -221,7 +223,8 @@ export default function AJSuperPortal() {
     text:`Hi! I am AJ AI Assistant 🤖. I'm here to provide A to Z details about AJ Super Portal — Coins, TikReels, Pulse, Live, Games, Wallet, Withdrawals & more. How can I assist you today?`
   }]);
   const [botInput, setBotInput] = useState('');
-  const lastBotTopicRef = useRef<string>('greeting');
+  const lastBotTopicRef  = useRef<string>('greeting');
+  const isFirstBotMsg    = useRef<boolean>(true);  // Smart AI: 1st reply always English
 
   // ── WALLET INPUTS
   const [purchaseAmount, setPurchaseAmount] = useState(20);
@@ -576,10 +579,9 @@ export default function AJSuperPortal() {
       if (!el) return;
       const idx = parseInt(idxStr, 10);
       if (idx !== activeVideoIdx) {
-        // Non-active iframe: reload src with mute=1 to kill audio immediately
-        const src = el.src;
-        if (src && src.includes('youtube.com') && src.includes('mute=0')) {
-          el.src = src.replace('mute=0', 'mute=1');
+        // Audio Bleed fix: blank src instantly — fastest way to kill YouTube audio
+        if (el.src && el.src.includes('youtube.com')) {
+          el.src = '';
         }
       }
     });
@@ -1188,37 +1190,41 @@ export default function AJSuperPortal() {
     } catch(e) { console.error('activateBot', e); alert('Activation failed. Please try again.'); }
   };
 
-  // ── WALLET ACTIONS
+  // ── WALLET ACTIONS — 100% Automated via NOWPayments (Binance USDT + Card)
+  // IPN webhook at /api/callback auto-credits coins when status = "finished"
   const handlePurchase = async () => {
     if (purchaseAmount < MIN_PURCHASE)
       return alert(`Minimum purchase is $${MIN_PURCHASE} (= ${MIN_PURCHASE*COIN_RATE} Coins)`);
-    if (purchaseMethod==='Binance (TRC20)') {
-      try {
-        const res  = await fetch('https://api.nowpayments.io/v1/invoice', {
-          method:'POST',
-          headers:{ 'x-api-key':NOWPAYMENTS_API_KEY, 'Content-Type':'application/json' },
-          body: JSON.stringify({
-            price_amount:purchaseAmount, price_currency:"usd",
-            pay_currency:"usdttrc20", order_id:`AJ_${Date.now()}`
-          })
-        });
-        const data = await res.json();
-        if (data.invoice_url) window.open(data.invoice_url,'_blank');
-      } catch { alert("Payment Error!"); }
-    } else {
-      if (!purchaseTxId) return alert("Enter Transaction ID.");
-      try {
-        await addDoc(collection(db,"manual_deposits"), {
-          uid:user!.uid, email:user!.email, amount:purchaseAmount,
-          method:purchaseMethod, txId:purchaseTxId, status:"pending", date:serverTimestamp()
-        });
-        await addDoc(collection(db,"notifications"), {
-          title:"Deposit Pending",
-          message:`$${purchaseAmount} deposit via ${purchaseMethod} awaiting approval.`,
-          date:serverTimestamp()
-        });
-        alert("✅ Request Sent!"); setWalletTab('main');
-      } catch(e) { console.error('handlePurchase', e); alert('Purchase request failed. Please try again.'); }
+    if (!user?.uid) return alert("Please log in first.");
+    try {
+      const isCrypto = purchaseMethod === 'Binance USDT (TRC20)';
+      const body: any = {
+        price_amount:      purchaseAmount,
+        price_currency:    "usd",
+        order_id:          user.uid,     // IPN uses this UID to auto-credit coins
+        order_description: `AJ Coins — $${purchaseAmount} = ${purchaseAmount * COIN_RATE} Coins`,
+        success_url:       window.location.href,
+        cancel_url:        window.location.href,
+      };
+      if (isCrypto) {
+        body.pay_currency = "usdttrc20"; // USDT via Binance TRC20
+      } else {
+        body.is_fiat = true;             // Show Card / Bank payment gateway
+      }
+      const res  = await fetch('https://api.nowpayments.io/v1/invoice', {
+        method:  'POST',
+        headers: { 'x-api-key': NOWPAYMENTS_API_KEY, 'Content-Type': 'application/json' },
+        body:    JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.invoice_url) {
+        window.open(data.invoice_url, '_blank');
+      } else {
+        throw new Error(data.message || 'Invoice creation failed');
+      }
+    } catch(e: any) {
+      console.error('handlePurchase', e);
+      alert(`Payment Error: ${e.message || 'Please try again.'}`);
     }
   };
 
@@ -1515,11 +1521,15 @@ export default function AJSuperPortal() {
     return topicData[lang] ?? topicData['hin'] ?? topicData['en'] ?? getBotReply('general', 'en');
   };
 
-  // Fix #8: Language matching after first English message
+  // Smart AI Bot: 1st reply always English → then auto-match Hinglish/Urdu/Arabic etc.
   const handleBotSend = () => {
     if (!botInput.trim()) return;
-    const input = botInput.trim();
-    const lang  = detectLanguage(input);
+    const input   = botInput.trim();
+    const rawLang = detectLanguage(input);
+    // First message → English so new users understand the bot
+    // Every subsequent message → match the user's own language automatically
+    const lang    = isFirstBotMsg.current ? 'en' : rawLang;
+    isFirstBotMsg.current = false;
     const topic = matchBotTopic(input, lastBotTopicRef.current);
     lastBotTopicRef.current = topic;
     const reply = getBotReply(topic, lang);
@@ -1649,7 +1659,7 @@ export default function AJSuperPortal() {
         <div className="w-full max-w-4xl mt-10 px-4 pointer-events-none select-none">
           <div className="flex items-center gap-3 bg-gradient-to-r from-yellow-950/60 to-amber-950/30 border border-yellow-500/20 rounded-2xl px-5 py-3 shadow-inner">
             <span className="text-yellow-500/70 text-[8px] font-black uppercase tracking-widest border border-yellow-500/30 px-2 py-0.5 rounded-full shrink-0">Sponsored</span>
-            <p className="text-gray-400 text-[10px] font-bold leading-snug">🌐 AJ Super Portal — Pakistan's #1 Social Earnings Platform. Earn Daily, Withdraw Anytime. Join 1M+ Members!</p>
+            <p className="text-gray-400 text-[10px] font-bold leading-snug">🌐 AJ Super Portal — Oman's #1 Social Earnings Platform. Earn Daily, Withdraw Anytime. Join 1M+ Members!</p>
           </div>
         </div>
       </section>
@@ -2168,7 +2178,7 @@ export default function AJSuperPortal() {
                             </>
                             )}
                           </div>
-                          {(i+1)%5===0 && (
+                          {(i+1)%4===0 && (
                              /* Full-screen TikReel Video Ad — premium sponsor style */
                              <div className="h-[85vh] w-full snap-start flex flex-col items-center justify-center bg-gradient-to-br from-slate-950 via-gray-950 to-black border-y-2 border-pink-500/20 relative">
                                <div className="absolute top-4 right-5">
@@ -2297,109 +2307,153 @@ export default function AJSuperPortal() {
                    </div>
                  </div>
 
-                 {/* Full-screen TikReel-style snap feed */}
+                 {/* Full-screen TikReel-style snap feed — Unsplash mix + Firestore posts */}
                  <div className="snap-y snap-mandatory overflow-y-auto flex-1 bg-black" style={{ touchAction:'pan-y', overscrollBehavior:'contain' }}>
-                   {pulsePosts.map((post:any, idx:number) => (
-                     <React.Fragment key={post.id}>
-                       {/* Full-screen Video Ad every 4 posts */}
-                       {idx > 0 && idx % 4 === 0 && (
-                         <div className="h-[85vh] w-full snap-start flex flex-col items-center justify-center bg-gradient-to-br from-slate-950 via-gray-950 to-black border-y-2 border-cyan-500/20 relative">
-                           <div className="absolute top-3 right-4">
-                             <span className="text-[8px] font-black text-cyan-500/60 uppercase tracking-widest border border-cyan-500/30 px-2 py-0.5 rounded-full">Ad</span>
-                           </div>
-                           <VideoIcon size={56} className="text-cyan-400 mb-4 animate-pulse"/>
-                           <p className="text-cyan-400 font-black uppercase tracking-[0.25em] text-sm mb-1">Sponsored Video</p>
-                           <p className="text-gray-500 text-[10px] font-bold">AJ Premium Partner</p>
-                           <div className="mt-6 w-48 h-px bg-gradient-to-r from-cyan-500/30 via-cyan-400 to-cyan-500/30 rounded-full"/>
-                         </div>
-                       )}
-
-                       {/* Full-screen Post Card */}
-                       <div className="h-[85vh] w-full snap-start relative bg-black overflow-hidden"
-                         style={{ contain:'layout style paint', willChange:'transform' }}>
-                         {post.image
-                           ? <img src={post.image} className="absolute inset-0 w-full h-full object-cover" loading="lazy" decoding="async"/>
-                           : <div className="absolute inset-0 bg-gradient-to-br from-pink-950/60 via-slate-900 to-black"/>
-                         }
-                         <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-black/25 pointer-events-none"/>
-
-                         {/* RIGHT SIDEBAR — Avatar ABOVE Like > Comment > Share > Gift > Mute */}
-                         <div className="absolute right-3 bottom-24 flex flex-col gap-5 items-center z-10">
-                           {/* Circular Avatar — ABOVE Like, clickable → openProfile */}
-                           <div className="relative cursor-pointer" onClick={() => post.uid && openProfile(post.uid)}>
-                             <img src={post.photo||'/logo.png'} loading="lazy" decoding="async"
-                               className="w-12 h-12 rounded-full border-2 border-white object-cover shadow-xl active:scale-90 transition-all"/>
-                             <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-5 h-5 bg-pink-600 rounded-full flex items-center justify-center border-2 border-black text-white text-[11px] font-black shadow-lg">+</div>
-                           </div>
-                           {/* Like */}
-                           <div onClick={() => handleLike(post.id)} className="flex flex-col items-center cursor-pointer active:scale-125 transition-all">
-                             <Heart size={32} className={likedPosts[post.id]?"text-red-500 fill-red-500":"text-white"}/>
-                             <span className="text-[9px] font-bold text-white mt-0.5">{formatViews(post.likes||0)}</span>
-                           </div>
-                           {/* Comment */}
-                           <div className="flex flex-col items-center cursor-pointer" onClick={() => setCommentPostId(post.id)}>
-                             <MessageCircle size={32} className="text-white"/>
-                             <span className="text-[9px] font-bold text-white mt-0.5">{formatViews(post.comments||0)}</span>
-                           </div>
-                           {/* Share */}
-                           <div onClick={() => handleShare(post.text||'')} className="flex flex-col items-center cursor-pointer text-white">
-                             <Share2 size={30}/><span className="text-[9px] font-bold mt-0.5">Share</span>
-                           </div>
-                           {/* Gift */}
-                           {post.uid!==user?.uid && (
-                             <div className="flex flex-col items-center cursor-pointer text-yellow-400" onClick={() => setPulseGiftPostId(post.id)}>
-                               <Gift size={28}/><span className="text-[9px] font-bold mt-0.5">Gift</span>
+                   {(() => {
+                     // Mix user posts (Firestore) with Unsplash lifestyle images for rich feed
+                     // New posts from addDoc always appear at top — existing posts never deleted
+                     const pulseFeed: any[] = [];
+                     const maxK = Math.max(pulsePosts.length, pixaData.length);
+                     for (let k = 0; k < maxK; k++) {
+                       if (k < pulsePosts.length)
+                         pulseFeed.push({ ...pulsePosts[k], _src: 'user' });
+                       if (k < pixaData.length)
+                         pulseFeed.push({
+                           _src:   'unsplash',
+                           id:     `unsp-${k}`,
+                           image:  pixaData[k]?.urls?.regular,
+                           username: pixaData[k]?.user?.name || 'AJ Creator',
+                           text:   pixaData[k]?.alt_description || 'AJ Lifestyle',
+                           photo:  pixaData[k]?.user?.profile_image?.small || '/logo.png',
+                           likes:  pixaData[k]?.likes || 0,
+                         });
+                     }
+                     return pulseFeed.map((post: any, idx: number) => (
+                       <React.Fragment key={post.id || `pf-${idx}`}>
+                         {/* Full-screen Real Video Ad every 5 posts — actual YouTube player */}
+                         {idx > 0 && idx % 5 === 0 && (
+                           <div className="h-[85vh] w-full snap-start relative overflow-hidden bg-black">
+                             <iframe
+                               src={`https://www.youtube.com/embed/${PULSE_AD_VIDEO_ID}?autoplay=1&mute=0&controls=1&loop=1&playlist=${PULSE_AD_VIDEO_ID}&rel=0&modestbranding=1`}
+                               className="absolute inset-0 w-full h-full"
+                               allow="autoplay; encrypted-media; gyroscope; picture-in-picture"
+                               allowFullScreen
+                               frameBorder="0"
+                               title="Sponsored Video"
+                             />
+                             {/* Sponsor label overlay */}
+                             <div className="absolute top-4 left-4 z-10 pointer-events-none">
+                               <span className="bg-cyan-600/80 backdrop-blur-sm text-white text-[8px] font-black px-2 py-1 rounded-full uppercase tracking-widest">
+                                 Sponsored
+                               </span>
                              </div>
-                           )}
-                           {/* Mute */}
-                           <div className="flex flex-col items-center cursor-pointer" onClick={() => setPulseMuted(m => !m)}>
-                             {pulseMuted ? <VolumeX size={26} className="text-red-400"/> : <Volume2 size={26} className="text-green-400"/>}
-                             <span className="text-[9px] font-bold text-white mt-0.5">{pulseMuted?'Muted':'Sound'}</span>
-                           </div>
-                         </div>
-
-                         {/* BOTTOM-LEFT — @username, Caption, Scrolling Music */}
-                         <div className="absolute bottom-8 left-4 text-white max-w-[72%] z-10">
-                           <p className="font-black text-sm cursor-pointer drop-shadow-[0_1px_4px_rgba(0,0,0,0.8)]"
-                             onClick={() => post.uid && openProfile(post.uid)}>
-                             @{post.username||'AJ_User'}
-                           </p>
-                           {post.text && (
-                             <p className="text-[11px] text-gray-200 mt-0.5 line-clamp-2 font-medium leading-snug">
-                               {post.text}
-                             </p>
-                           )}
-                           <div className="flex items-center gap-2 mt-3 bg-black/50 backdrop-blur-sm w-max px-3 py-1.5 rounded-full border border-white/10">
-                             <Music size={11} className="text-pink-400 shrink-0"/>
-                             {/* @ts-ignore */}
-                             <marquee className="text-[9px] w-28 uppercase font-bold">Original Sound — AJ Pulse</marquee>
-                           </div>
-                         </div>
-
-                         {/* Delete menu (own posts only) */}
-                         {post.uid===user?.uid && (
-                           <div className="absolute top-4 right-4 z-20">
-                             <button onClick={() => setActiveMenuId(activeMenuId===post.id?null:post.id)}
-                               className="bg-black/50 backdrop-blur-sm rounded-full p-2 active:scale-90 transition-all">
-                               <MoreVertical size={16} className="text-white"/>
-                             </button>
-                             {activeMenuId===post.id && (
-                               <div className="absolute right-0 top-11 bg-slate-900 border border-white/10 p-3 rounded-xl z-[1000] shadow-2xl">
-                                 <button onClick={() => handleDeletePost(post.id)}
-                                   className="text-red-500 text-[10px] font-black flex items-center gap-2 uppercase">
-                                   <Trash2 size={14}/> Delete
-                                 </button>
-                               </div>
-                             )}
                            </div>
                          )}
-                       </div>
-                     </React.Fragment>
-                   ))}
-                   {pulsePosts.length===0 && (
+
+                         {/* Full-screen Post Card */}
+                         <div className="h-[85vh] w-full snap-start relative bg-black overflow-hidden"
+                           style={{ contain:'layout style paint', willChange:'transform' }}>
+                           {/* Background image (user upload or Unsplash) */}
+                           {post.image
+                             ? <img src={post.image} className="absolute inset-0 w-full h-full object-cover" loading="lazy" decoding="async"/>
+                             : <div className="absolute inset-0 bg-gradient-to-br from-pink-950/60 via-slate-900 to-black"/>
+                           }
+                           <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-black/25 pointer-events-none"/>
+
+                           {/* RIGHT SIDEBAR — Avatar ABOVE Like > Comment > Share > Gift > Mute */}
+                           <div className="absolute right-3 bottom-24 flex flex-col gap-5 items-center z-10">
+                             {/* Circular Avatar — ABOVE Like, clickable → openProfile (user posts only) */}
+                             <div className="relative cursor-pointer"
+                               onClick={() => post._src==='user' && post.uid && openProfile(post.uid)}>
+                               <img src={post.photo||'/logo.png'} loading="lazy" decoding="async"
+                                 className="w-12 h-12 rounded-full border-2 border-white object-cover shadow-xl active:scale-90 transition-all"/>
+                               {post._src==='user' && (
+                                 <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-5 h-5 bg-pink-600 rounded-full flex items-center justify-center border-2 border-black text-white text-[11px] font-black shadow-lg">+</div>
+                               )}
+                             </div>
+                             {/* Like */}
+                             <div onClick={() => post._src==='user' && handleLike(post.id)}
+                               className="flex flex-col items-center cursor-pointer active:scale-125 transition-all">
+                               <Heart size={32} className={likedPosts[post.id]?"text-red-500 fill-red-500":"text-white"}/>
+                               <span className="text-[9px] font-bold text-white mt-0.5">{formatViews(post.likes||0)}</span>
+                             </div>
+                             {/* Comment */}
+                             <div className="flex flex-col items-center cursor-pointer"
+                               onClick={() => post._src==='user' && setCommentPostId(post.id)}>
+                               <MessageCircle size={32} className="text-white"/>
+                               <span className="text-[9px] font-bold text-white mt-0.5">{formatViews(post.comments||0)}</span>
+                             </div>
+                             {/* Share */}
+                             <div onClick={() => handleShare(post.text||'' )} className="flex flex-col items-center cursor-pointer text-white">
+                               <Share2 size={30}/><span className="text-[9px] font-bold mt-0.5">Share</span>
+                             </div>
+                             {/* Gift — only for other users' posts */}
+                             {post._src==='user' && post.uid!==user?.uid && (
+                               <div className="flex flex-col items-center cursor-pointer text-yellow-400"
+                                 onClick={() => setPulseGiftPostId(post.id)}>
+                                 <Gift size={28}/><span className="text-[9px] font-bold mt-0.5">Gift</span>
+                               </div>
+                             )}
+                             {/* Mute */}
+                             <div className="flex flex-col items-center cursor-pointer" onClick={() => setPulseMuted(m => !m)}>
+                               {pulseMuted ? <VolumeX size={26} className="text-red-400"/> : <Volume2 size={26} className="text-green-400"/>}
+                               <span className="text-[9px] font-bold text-white mt-0.5">{pulseMuted?'Muted':'Sound'}</span>
+                             </div>
+                           </div>
+
+                           {/* BOTTOM-LEFT — @username, Caption, Scrolling Music */}
+                           <div className="absolute bottom-8 left-4 text-white max-w-[72%] z-10">
+                             <p className="font-black text-sm cursor-pointer drop-shadow-[0_1px_4px_rgba(0,0,0,0.8)]"
+                               onClick={() => post._src==='user' && post.uid && openProfile(post.uid)}>
+                               @{post.username||'AJ_Creator'}
+                             </p>
+                             {post.text && (
+                               <p className="text-[11px] text-gray-200 mt-0.5 line-clamp-2 font-medium leading-snug">
+                                 {post.text}
+                               </p>
+                             )}
+                             <div className="flex items-center gap-2 mt-3 bg-black/50 backdrop-blur-sm w-max px-3 py-1.5 rounded-full border border-white/10">
+                               <Music size={11} className="text-pink-400 shrink-0"/>
+                               {/* @ts-ignore */}
+                               <marquee className="text-[9px] w-28 uppercase font-bold">
+                                 {post._src==='unsplash' ? 'AJ Lifestyle • Unsplash' : 'Original Sound — AJ Pulse'}
+                               </marquee>
+                             </div>
+                           </div>
+
+                           {/* Delete menu (own Firestore posts only) */}
+                           {post._src==='user' && post.uid===user?.uid && (
+                             <div className="absolute top-4 right-4 z-20">
+                               <button onClick={() => setActiveMenuId(activeMenuId===post.id?null:post.id)}
+                                 className="bg-black/50 backdrop-blur-sm rounded-full p-2 active:scale-90 transition-all">
+                                 <MoreVertical size={16} className="text-white"/>
+                               </button>
+                               {activeMenuId===post.id && (
+                                 <div className="absolute right-0 top-11 bg-slate-900 border border-white/10 p-3 rounded-xl z-[1000] shadow-2xl">
+                                   <button onClick={() => handleDeletePost(post.id)}
+                                     className="text-red-500 text-[10px] font-black flex items-center gap-2 uppercase">
+                                     <Trash2 size={14}/> Delete
+                                   </button>
+                                 </div>
+                               )}
+                             </div>
+                           )}
+                           {/* Unsplash attribution badge */}
+                           {post._src==='unsplash' && (
+                             <div className="absolute top-4 left-4 z-10 pointer-events-none">
+                               <span className="text-[7px] font-bold text-white/50 bg-black/40 px-2 py-0.5 rounded-full">
+                                 📸 Unsplash
+                               </span>
+                             </div>
+                           )}
+                         </div>
+                       </React.Fragment>
+                     ));
+                   })()}
+                   {pulsePosts.length===0 && pixaData.length===0 && (
                      <div className="h-[60vh] flex flex-col items-center justify-center gap-4 text-center px-8">
                        <Users size={56} className="text-pink-500/30"/>
-                       <p className="text-gray-400 font-black uppercase tracking-widest text-sm">No posts yet</p>
+                       <p className="text-gray-400 font-black uppercase tracking-widest text-sm">Loading feed...</p>
                        <p className="text-gray-600 text-[11px] font-bold">Be the first to share your moment!</p>
                      </div>
                    )}
@@ -2859,19 +2913,31 @@ export default function AJSuperPortal() {
             {walletTab==='purchase' && (
               <div className="flex flex-col gap-6 text-left">
                 <label className="text-[10px] font-black text-cyan-400 uppercase tracking-[0.3em]">Payment Method</label>
-                <select value={purchaseMethod} onChange={e => setPurchaseMethod(e.target.value)}
-                  className="w-full bg-gray-900 border border-white/10 p-4 rounded-xl text-white font-bold outline-none">
-                  <option>Binance (TRC20)</option>
-                  <option>Airtm (Gmail Account)</option>
-                  <option>EasyPaisa</option>
-                  <option>JazzCash</option>
-                  <option>Bank / Visa-Mastercard (Global)</option>
-                </select>
-                <div className="bg-black border-2 border-white/10 p-8 rounded-[2.5rem] text-center shadow-inner">
-                  <p className="text-[10px] text-gray-500 uppercase font-black mb-4 tracking-[0.3em]">You will receive</p>
-                  <p className="text-yellow-500 text-5xl font-black mb-6">{(purchaseAmount*COIN_RATE).toLocaleString()} 🪙</p>
+                {/* NOWPayments — 2 methods only: Binance USDT or Card */}
+                <div className="flex flex-col gap-3">
+                  {[
+                    { id:'Binance USDT (TRC20)', label:'Binance USDT',  desc:'Crypto — Auto-verified via NOWPayments', icon:'₿',  badge:'Instant' },
+                    { id:'Card / Bank',           label:'Card or Bank',  desc:'Visa / Mastercard / Bank Transfer',      icon:'💳', badge:'Secure'  },
+                  ].map(m => (
+                    <button key={m.id} onClick={() => setPurchaseMethod(m.id)}
+                      className={`flex items-center gap-4 p-4 rounded-2xl border-2 transition-all text-left w-full ${purchaseMethod===m.id?'border-cyan-500 bg-cyan-500/10':'border-white/10 bg-white/5 hover:border-white/30'}`}>
+                      <span className="text-3xl">{m.icon}</span>
+                      <div className="flex-1">
+                        <p className="font-black text-sm text-white">{m.label}</p>
+                        <p className="text-[10px] text-gray-400 font-bold mt-0.5">{m.desc}</p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <span className="text-[8px] font-black text-cyan-400 border border-cyan-500/30 px-2 py-0.5 rounded-full">{m.badge}</span>
+                        {purchaseMethod===m.id && <div className="w-3 h-3 bg-cyan-500 rounded-full"/>}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                <div className="bg-black border-2 border-white/10 p-6 rounded-[2rem] text-center shadow-inner">
+                  <p className="text-[10px] text-gray-500 uppercase font-black mb-3 tracking-[0.3em]">You will receive</p>
+                  <p className="text-yellow-500 text-5xl font-black mb-5">{(purchaseAmount*COIN_RATE).toLocaleString()} 🪙</p>
                   <div className="flex items-center justify-center gap-3 bg-white/5 p-4 rounded-2xl border border-white/10">
-                    <DollarSign className="text-green-400" size={30}/>
+                    <DollarSign className="text-green-400" size={28}/>
                     <input type="number" min={MIN_PURCHASE}
                       value={purchaseAmount===0?'':purchaseAmount}
                       onChange={e => setPurchaseAmount(e.target.value===''?0:Number(e.target.value))}
@@ -2879,15 +2945,15 @@ export default function AJSuperPortal() {
                   </div>
                   <p className="text-[9px] text-gray-600 mt-3 font-bold">$1 = {COIN_RATE} AJ Coins | Min ${MIN_PURCHASE}</p>
                 </div>
-                {purchaseMethod!=='Binance (TRC20)' && (
-                  <div className="space-y-2">
-                    <label className="text-[9px] font-black text-yellow-500 uppercase tracking-widest">Transaction ID / Reference</label>
-                    <input type="text" placeholder="Enter TX ID or Reference" value={purchaseTxId} onChange={e => setPurchaseTxId(e.target.value)}
-                      className="w-full bg-black border border-white/10 p-4 rounded-xl text-xs font-bold text-white outline-none focus:border-cyan-500"/>
+                <div className="flex items-center gap-3 bg-green-500/5 border border-green-500/20 rounded-2xl px-4 py-3">
+                  <span className="text-lg">🔒</span>
+                  <div>
+                    <p className="text-[10px] font-black text-green-400 uppercase tracking-widest">100% Automated — NOWPayments</p>
+                    <p className="text-[9px] text-gray-400 font-bold mt-0.5">Coins credited automatically after payment confirmation</p>
                   </div>
-                )}
-                <button onClick={handlePurchase} className="bg-cyan-500 py-5 rounded-2xl font-black uppercase shadow-xl hover:scale-[1.02] active:scale-95 transition-all text-black">
-                  Confirm Purchase
+                </div>
+                <button onClick={handlePurchase} className="bg-cyan-500 py-5 rounded-2xl font-black uppercase shadow-xl hover:scale-[1.02] active:scale-95 transition-all text-black tracking-widest">
+                  Proceed to Payment →
                 </button>
                 <button onClick={() => setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase font-black">Cancel</button>
               </div>
@@ -3193,4 +3259,4 @@ function Bell({ size, className }: { size:number; className?:string }) {
       <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
     </svg>
   );
-} 
+}
