@@ -298,7 +298,8 @@ export default function AJSuperPortal() {
   const [soundEnabledVideos, setSoundEnabledVideos] = useState<{[key:string]:boolean}>({});
 
   // ── TIKREELS
-  const [tiktabMode,     setTiktabMode]     = useState<'feed'|'create'|'profile'>('feed');
+  const [tiktabMode,        setTiktabMode]        = useState<'feed'|'create'|'profile'>('feed');
+  const [tikProfileSubTab,  setTikProfileSubTab]  = useState<'posts'|'following'>('posts');
 
   // ── PERFORMANCE: TikReels windowing
   const [activeVideoIdx, setActiveVideoIdx] = useState(0);
@@ -1993,124 +1994,145 @@ export default function AJSuperPortal() {
                         {globalSoundOn ? 'Sound ON' : 'Sound OFF'}
                       </button>
                     </div>
-                    {pixaVideos.map((vid:any, i:number) => {
-                      const windowSize = isLowEnd ? 0 : 1;
-                      const inWindow   = Math.abs(i - activeVideoIdx) <= windowSize;
-                      const soundOn = globalSoundOn;
-                      const embedUrl = soundOn
-                        ? `https://www.youtube.com/embed/${vid.id}?autoplay=1&mute=0&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3`
-                        : `https://www.youtube.com/embed/${vid.id}?autoplay=1&mute=1&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3`;
-                      return (
-                      <React.Fragment key={i}>
-                        <div
-                          data-vidx={i}
-                          className="h-[85vh] w-full snap-start relative border-b border-white/5"
-                          style={{ contain:'layout style paint', willChange:'transform', transform:'translate3d(0,0,0)' }}>
-                          {!inWindow ? (
-                            <div className="absolute inset-0 bg-black flex items-center justify-center">
-                              {vid.thumb
-                                ? <img src={vid.thumb} alt="" loading="lazy" decoding="async"
-                                    className="w-full h-full object-cover opacity-40"/>
-                                : <Film size={48} className="text-white/20"/>}
-                            </div>
-                          ) : (
-                          <>
-                          <div className="absolute inset-0 overflow-hidden">
-                            <iframe
-                              src={embedUrl}
-                              className="absolute inset-0 w-full h-full"
-                              style={{ transform:'scale(1.15)', transformOrigin:'center center', pointerEvents:'none' }}
-                              title={vid.title}
-                              allow="autoplay; encrypted-media; gyroscope; picture-in-picture"
-                              allowFullScreen
-                              frameBorder="0"
-                            />
-                            <div className="absolute top-0 left-0 w-28 h-14 z-10 pointer-events-auto bg-transparent"/>
-                            <div className="absolute top-0 right-0 w-28 h-14 z-10 pointer-events-auto bg-transparent"/>
-                            <div className="absolute bottom-0 left-0 w-28 h-14 z-10 pointer-events-auto bg-transparent"/>
-                            <div className="absolute bottom-0 right-0 w-28 h-14 z-10 pointer-events-auto bg-transparent"/>
-                          </div>
-                          {!soundOn && (
-                            <div
-                              className="absolute inset-0 flex items-end justify-center pb-48 z-20 cursor-pointer"
-                              onClick={() => setGlobalSoundOn(true)}>
-                              <div className="flex items-center gap-2 bg-black/60 backdrop-blur-sm border border-white/20 px-4 py-2 rounded-full shadow-xl animate-pulse">
-                                <VolumeX size={16} className="text-white"/>
-                                <span className="text-white text-[11px] font-black uppercase tracking-widest">Tap for Sound</span>
+                    {(() => {
+                      // Merge: AJ member posts first (have real uid → profile click works), then YouTube
+                      const userReels = userPosts.filter((p:any) => p.uid);
+                      const merged: any[] = [
+                        ...userReels.map((p:any) => ({ ...p, _isUser: true })),
+                        ...pixaVideos,
+                      ];
+                      return merged.map((vid:any, i:number) => {
+                        const inWindow  = Math.abs(i - activeVideoIdx) <= (isLowEnd ? 0 : 1);
+                        const isUserPost = !!(vid as any)._isUser;
+                        const soundOn   = globalSoundOn;
+                        const embedUrl  = isUserPost ? '' : (soundOn
+                          ? `https://www.youtube.com/embed/${vid.id}?autoplay=1&mute=0&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3`
+                          : `https://www.youtube.com/embed/${vid.id}?autoplay=1&mute=1&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3`);
+                        const avatarKey = isUserPost ? (vid.uid||vid.username) : vid.user;
+                        return (
+                        <React.Fragment key={`${isUserPost?'u':'y'}-${vid.id||i}`}>
+                          <div
+                            data-vidx={i}
+                            className="h-[85vh] w-full snap-start relative border-b border-white/5"
+                            style={{ contain:'layout style paint', willChange:'transform', transform:'translate3d(0,0,0)' }}>
+                            {!inWindow ? (
+                              <div className="absolute inset-0 bg-black flex items-center justify-center">
+                                {(vid.thumb||vid.image)
+                                  ? <img src={vid.thumb||vid.image} alt="" loading="lazy" decoding="async"
+                                      className="w-full h-full object-cover opacity-40"/>
+                                  : <Film size={48} className="text-white/20"/>}
                               </div>
+                            ) : (
+                            <>
+                              {/* CONTENT */}
+                              {isUserPost ? (
+                                <div className="absolute inset-0 overflow-hidden bg-black">
+                                  {vid.image
+                                    ? <img src={vid.image} className="absolute inset-0 w-full h-full object-cover" loading="lazy" decoding="async"/>
+                                    : <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-pink-900/40 to-cyan-900/40">
+                                        <Film size={64} className="text-white/30"/>
+                                      </div>
+                                  }
+                                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent"/>
+                                </div>
+                              ) : (
+                                <div className="absolute inset-0 overflow-hidden">
+                                  <iframe
+                                    src={embedUrl}
+                                    className="absolute inset-0 w-full h-full"
+                                    style={{ transform:'scale(1.15)', transformOrigin:'center center', pointerEvents:'none' }}
+                                    title={vid.title}
+                                    allow="autoplay; encrypted-media; gyroscope; picture-in-picture"
+                                    allowFullScreen
+                                    frameBorder="0"
+                                  />
+                                  <div className="absolute top-0 left-0 w-28 h-14 z-10 pointer-events-auto bg-transparent"/>
+                                  <div className="absolute top-0 right-0 w-28 h-14 z-10 pointer-events-auto bg-transparent"/>
+                                  <div className="absolute bottom-0 left-0 w-28 h-14 z-10 pointer-events-auto bg-transparent"/>
+                                  <div className="absolute bottom-0 right-0 w-28 h-14 z-10 pointer-events-auto bg-transparent"/>
+                                </div>
+                              )}
+                              {/* Sound tap hint — only for YouTube */}
+                              {!soundOn && !isUserPost && (
+                                <div
+                                  className="absolute inset-0 flex items-end justify-center pb-48 z-20 cursor-pointer"
+                                  onClick={() => setGlobalSoundOn(true)}>
+                                  <div className="flex items-center gap-2 bg-black/60 backdrop-blur-sm border border-white/20 px-4 py-2 rounded-full shadow-xl animate-pulse">
+                                    <VolumeX size={16} className="text-white"/>
+                                    <span className="text-white text-[11px] font-black uppercase tracking-widest">Tap for Sound</span>
+                                  </div>
+                                </div>
+                              )}
+                              {/* RIGHT SIDEBAR ACTIONS */}
+                              <div className="absolute right-4 bottom-32 flex flex-col gap-6 items-center z-10">
+                                {/* Avatar — clickable only for AJ member posts (have uid) */}
+                                <div className="flex flex-col items-center gap-0.5">
+                                  <div className="relative">
+                                    <img
+                                      src={isUserPost ? (vid.photo||'/logo.png') : (vid.thumb||'/logo.png')}
+                                      loading="lazy" decoding="async"
+                                      onClick={() => { if (isUserPost && vid.uid) openProfile(vid.uid); }}
+                                      className={`w-12 h-12 rounded-full border-2 border-white object-cover shadow-xl transition-all ${isUserPost && vid.uid ? 'cursor-pointer active:scale-90' : 'cursor-default'}`}
+                                    />
+                                    <button
+                                      onClick={() => setFollowedYouTubers(prev => {
+                                        const next = new Set(prev);
+                                        if (next.has(avatarKey)) { next.delete(avatarKey); }
+                                        else { next.add(avatarKey); }
+                                        return next;
+                                      })}
+                                      className={`absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center border-2 border-black font-black text-[11px] shadow-lg transition-all active:scale-125 ${followedYouTubers.has(avatarKey) ? 'bg-white text-pink-600' : 'bg-pink-600 text-white'}`}
+                                    >
+                                      {followedYouTubers.has(avatarKey) ? '✓' : '+'}
+                                    </button>
+                                  </div>
+                                </div>
+                                <div onClick={() => handleLike(vid.id)} className="flex flex-col items-center cursor-pointer active:scale-125 transition-all">
+                                  <Heart size={35} className={likedPosts[vid.id]?"text-red-500 fill-red-500":"text-white"}/>
+                                  <span className="text-[10px] font-bold text-white">12k</span>
+                                </div>
+                                <div className="flex flex-col items-center cursor-pointer" onClick={() => setCommentPostId(vid.id)}>
+                                  <MessageCircle size={35} className="text-white"/>
+                                  <span className="text-[10px] font-bold text-white">842</span>
+                                </div>
+                                <div onClick={() => handleShare(`Watch ${vid.title||vid.text||''} on AJ Portal!`)} className="flex flex-col items-center cursor-pointer text-white">
+                                  <Share2 size={35}/><span className="text-[10px] font-bold">Share</span>
+                                </div>
+                                <div className="flex flex-col items-center cursor-pointer text-yellow-400" onClick={() => setPulseGiftPostId(vid.id)}>
+                                  <Gift size={28}/><span className="text-[10px] font-bold">Gift</span>
+                                </div>
+                                {!isUserPost && (
+                                  <div className="flex flex-col items-center cursor-pointer text-white"
+                                    onClick={() => setGlobalSoundOn(s => !s)}>
+                                    {globalSoundOn ? <Volume2 size={28} className="text-green-400"/> : <VolumeX size={28} className="text-red-400"/>}
+                                    <span className="text-[10px] font-bold">{globalSoundOn?'Sound':'Muted'}</span>
+                                  </div>
+                                )}
+                              </div>
+                              {/* Bottom info */}
+                              <div className="absolute bottom-10 left-6 text-white max-w-[70%] z-10">
+                                <p className="font-black text-sm">@{isUserPost ? (vid.username||'AJ_Member') : vid.user}</p>
+                                {isUserPost && vid.text && <p className="text-[11px] text-gray-300 mt-1 line-clamp-2">{vid.text}</p>}
+                                <div className="flex items-center gap-2 mt-3 bg-black/40 w-max p-1.5 rounded-full border border-white/10">
+                                  <Music size={12}/>
+                                  {/* @ts-ignore */}
+                                  <marquee className="text-[10px] w-24 uppercase font-bold">Original Sound - AJ Studio</marquee>
+                                </div>
+                              </div>
+                            </>
+                            )}
+                          </div>
+                          {(i+1)%5===0 && (
+                            <div onClick={() => (window as any).AJ_SDK?.showAd()}
+                              className="h-[85vh] w-full snap-start flex items-center justify-center bg-gray-900 text-cyan-400 font-black flex-col gap-4 cursor-pointer border-y-2 border-cyan-500/20">
+                              <VideoIcon size={70} className="animate-pulse"/>
+                              <p className="uppercase tracking-[0.3em]">AJ VVIP AD</p>
                             </div>
                           )}
-                          {/* RIGHT SIDEBAR ACTIONS */}
-                          <div className="absolute right-4 bottom-32 flex flex-col gap-6 items-center z-10">
-                            {/* Fix #7: Clickable avatar in TikReels */}
-                            <div className="flex flex-col items-center gap-0.5">
-                              <div className="relative">
-                                <img
-                                  src={vid.thumb||'/logo.png'}
-                                  loading="lazy" decoding="async"
-                                  onClick={() => {
-                                    if ((vid as any).uid) {
-                                      openProfile((vid as any).uid);
-                                    } else {
-                                      alert(`@${vid.user}\nThis creator's full profile is only available for AJ Portal members.`);
-                                    }
-                                  }}
-                                  className="w-12 h-12 rounded-full border-2 border-white object-cover shadow-xl cursor-pointer active:scale-90 transition-all"
-                                />
-                                <button
-                                  onClick={() => setFollowedYouTubers(prev => {
-                                    const next = new Set(prev);
-                                    if (next.has(vid.user)) { next.delete(vid.user); }
-                                    else { next.add(vid.user); }
-                                    return next;
-                                  })}
-                                  className={`absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center border-2 border-black font-black text-[11px] shadow-lg transition-all active:scale-125 ${followedYouTubers.has(vid.user) ? 'bg-white text-pink-600' : 'bg-pink-600 text-white'}`}
-                                >
-                                  {followedYouTubers.has(vid.user) ? '✓' : '+'}
-                                </button>
-                              </div>
-                            </div>
-                            <div onClick={() => handleLike(vid.id)} className="flex flex-col items-center cursor-pointer active:scale-125 transition-all">
-                              <Heart size={35} className={likedPosts[vid.id]?"text-red-500 fill-red-500":"text-white"}/>
-                              <span className="text-[10px] font-bold text-white">12k</span>
-                            </div>
-                            <div className="flex flex-col items-center cursor-pointer" onClick={() => setCommentPostId(vid.id)}>
-                              <MessageCircle size={35} className="text-white"/>
-                              <span className="text-[10px] font-bold text-white">842</span>
-                            </div>
-                            <div onClick={() => handleShare(`Watch ${vid.title} on AJ Portal!`)} className="flex flex-col items-center cursor-pointer text-white">
-                              <Share2 size={35}/><span className="text-[10px] font-bold">Share</span>
-                            </div>
-                            <div className="flex flex-col items-center cursor-pointer text-yellow-400" onClick={() => setPulseGiftPostId(vid.id)}>
-                              <Gift size={28}/><span className="text-[10px] font-bold">Gift</span>
-                            </div>
-                            <div className="flex flex-col items-center cursor-pointer text-white"
-                              onClick={() => setGlobalSoundOn(s => !s)}>
-                              {globalSoundOn ? <Volume2 size={28} className="text-green-400"/> : <VolumeX size={28} className="text-red-400"/>}
-                              <span className="text-[10px] font-bold">{globalSoundOn?'Sound':'Muted'}</span>
-                            </div>
-                          </div>
-                          <div className="absolute bottom-10 left-6 text-white max-w-[70%] z-10">
-                            <p className="font-black text-sm">@{vid.user}</p>
-                            <div className="flex items-center gap-2 mt-3 bg-black/40 w-max p-1.5 rounded-full border border-white/10">
-                              <Music size={12}/>
-                              {/* @ts-ignore */}
-                              <marquee className="text-[10px] w-24 uppercase font-bold">Original Sound - AJ Studio</marquee>
-                            </div>
-                          </div>
-                          </>
-                          )}
-                        </div>
-                        {(i+1)%5===0 && (
-                          <div onClick={() => (window as any).AJ_SDK?.showAd()}
-                            className="h-[85vh] w-full snap-start flex items-center justify-center bg-gray-900 text-cyan-400 font-black flex-col gap-4 cursor-pointer border-y-2 border-cyan-500/20">
-                            <VideoIcon size={70} className="animate-pulse"/>
-                            <p className="uppercase tracking-[0.3em]">AJ VVIP AD</p>
-                          </div>
-                        )}
-                      </React.Fragment>
-                      );
-                    })}
+                        </React.Fragment>
+                        );
+                      });
+                    })()}
                   </div>
                 )}
 
@@ -2144,63 +2166,60 @@ export default function AJSuperPortal() {
                       <h2 className="text-xl font-black text-white uppercase tracking-widest">@{username||'AJ_MEMBER'}</h2>
                       <p className="text-sm text-gray-400 mt-1 font-bold">{bio||'No bio yet.'}</p>
                       <div className="flex justify-center gap-8 mt-5">
-                        {[{l:'Videos',v:profileVideos.length},{l:'Followers',v:followers},{l:'Following',v:following}].map(s => (
+                        {[{l:'Videos',v:userPosts.filter((p:any)=>p.uid===user?.uid).length},{l:'Followers',v:followers},{l:'Following',v:following}].map(s => (
                           <div key={s.l} className="text-center">
                             <p className="text-xl font-black text-white">{s.v}</p>
                             <p className="text-[9px] text-gray-500 uppercase font-bold">{s.l}</p>
                           </div>
                         ))}
                       </div>
-                      {(() => {
-                        const [myTab, setMyTab] = React.useState<'posts'|'following'>('posts');
-                        return (<>
-                          <div className="flex gap-0 border-b border-white/10 mt-5">
-                            <button onClick={() => setMyTab('posts')}
-                              className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest transition-all ${myTab==='posts'?'text-pink-500 border-b-2 border-pink-500':'text-gray-500'}`}>
-                              <Grid size={12} className="inline mr-1"/>Posts
-                            </button>
-                            <button onClick={() => { setMyTab('following'); loadFollowingList(); }}
-                              className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest transition-all ${myTab==='following'?'text-pink-500 border-b-2 border-pink-500':'text-gray-500'}`}>
-                              <UserCheck size={12} className="inline mr-1"/>Following ({following})
-                            </button>
-                          </div>
-                          {myTab==='posts' && (
-                            <div className="grid grid-cols-3 gap-1 mt-4">
-                              {userPosts.filter((p:any) => p.uid===user?.uid).map((p:any) => (
-                                <div key={p.id} className="aspect-square bg-white/5 rounded-xl overflow-hidden">
-                                  {p.image ? <img src={p.image} className="w-full h-full object-cover"/>
-                                    : <div className="w-full h-full flex items-center justify-center"><Film size={24} className="text-pink-400"/></div>}
-                                </div>
-                              ))}
-                              {userPosts.filter((p:any) => p.uid===user?.uid).length===0 && (
-                                <div className="col-span-3 py-10 text-gray-500 text-xs text-center">No posts yet.</div>
-                              )}
+                      {/* Sub-tabs: Posts | Following */}
+                      <div className="flex gap-0 border-b border-white/10 mt-5">
+                        <button onClick={() => setTikProfileSubTab('posts')}
+                          className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest transition-all ${tikProfileSubTab==='posts'?'text-pink-500 border-b-2 border-pink-500':'text-gray-500'}`}>
+                          <Grid size={12} className="inline mr-1"/>Posts
+                        </button>
+                        <button onClick={() => { setTikProfileSubTab('following'); loadFollowingList(); }}
+                          className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest transition-all ${tikProfileSubTab==='following'?'text-pink-500 border-b-2 border-pink-500':'text-gray-500'}`}>
+                          <UserCheck size={12} className="inline mr-1"/>Following ({following})
+                        </button>
+                      </div>
+                      {tikProfileSubTab==='posts' && (
+                        <div className="grid grid-cols-3 gap-1 mt-4">
+                          {userPosts.filter((p:any) => p.uid===user?.uid).map((p:any) => (
+                            <div key={p.id} className="aspect-square bg-white/5 rounded-xl overflow-hidden">
+                              {p.image
+                                ? <img src={p.image} className="w-full h-full object-cover"/>
+                                : <div className="w-full h-full flex items-center justify-center"><Film size={24} className="text-pink-400"/></div>}
                             </div>
+                          ))}
+                          {userPosts.filter((p:any) => p.uid===user?.uid).length===0 && (
+                            <div className="col-span-3 py-10 text-gray-500 text-xs text-center">No posts yet.</div>
                           )}
-                          {myTab==='following' && (
-                            <div className="flex flex-col gap-0 mt-2">
-                              {followingList.length===0 && (
-                                <div className="py-12 text-gray-500 text-xs text-center">You are not following anyone yet.</div>
-                              )}
-                              {followingList.map((fu:any) => (
-                                <div key={fu.uid}
-                                  onClick={() => openProfile(fu.uid)}
-                                  className="flex items-center gap-4 px-4 py-3 hover:bg-white/5 cursor-pointer border-b border-white/5 transition-all rounded-2xl">
-                                  <img src={fu.photo||'/logo.png'} loading="lazy" decoding="async"
-                                    className="w-11 h-11 rounded-full border-2 border-pink-500 object-cover"/>
-                                  <div className="flex-1">
-                                    <p className="font-black text-white text-xs tracking-widest">@{fu.username||'AJ_MEMBER'}</p>
-                                    <p className="text-[10px] text-gray-500 font-bold">{fu.bio||'AJ Portal Member'}</p>
-                                  </div>
-                                  <div className="w-6 h-6 rounded-full bg-pink-600/20 border border-pink-500/30 flex items-center justify-center">
-                                    <UserCheck size={12} className="text-pink-400"/>
-                                  </div>
-                                </div>
-                              ))}
+                        </div>
+                      )}
+                      {tikProfileSubTab==='following' && (
+                        <div className="flex flex-col gap-0 mt-2">
+                          {followingList.length===0 && (
+                            <div className="py-12 text-gray-500 text-xs text-center">You are not following anyone yet.</div>
+                          )}
+                          {followingList.map((fu:any) => (
+                            <div key={fu.uid}
+                              onClick={() => openProfile(fu.uid)}
+                              className="flex items-center gap-4 px-4 py-3 hover:bg-white/5 cursor-pointer border-b border-white/5 transition-all rounded-2xl">
+                              <img src={fu.photo||'/logo.png'} loading="lazy" decoding="async"
+                                className="w-11 h-11 rounded-full border-2 border-pink-500 object-cover"/>
+                              <div className="flex-1">
+                                <p className="font-black text-white text-xs tracking-widest">@{fu.username||'AJ_MEMBER'}</p>
+                                <p className="text-[10px] text-gray-500 font-bold">{fu.bio||'AJ Portal Member'}</p>
+                              </div>
+                              <div className="w-6 h-6 rounded-full bg-pink-600/20 border border-pink-500/30 flex items-center justify-center">
+                                <UserCheck size={12} className="text-pink-400"/>
+                              </div>
                             </div>
-                          )}
-                        </>);
-                      })()}
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
