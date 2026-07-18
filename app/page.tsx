@@ -85,7 +85,7 @@ const giftItems = [
 const WITHDRAW_METHODS = [
   { label: 'EasyPaisa',                    field: 'Mobile Number',      placeholder: '03XX-XXXXXXX',                 type:'simple' },
   { label: 'JazzCash',                     field: 'Mobile Number',      placeholder: '03XX-XXXXXXX',                 type:'simple' },
-  { label: 'Binance (USDT TRC20)',         field: 'USDT TRC20 Address', placeholder: 'TXxxx... wallet address',      type:'simple' },
+  { label: 'Binance (USDT BSC)',           field: 'USDT BSC Address',   placeholder: '0x... BSC wallet address',     type:'simple' },
   { label: 'AirTM',                        field: 'AirTM Email',        placeholder: 'your@email.com',               type:'simple' },
   { label: 'Bank / Visa-Mastercard (Global)', field: '',                placeholder: '',                             type:'card'   },
 ];
@@ -207,6 +207,8 @@ export default function AJSuperPortal() {
   const [commentPostId, setCommentPostId] = useState<string|null>(null);
   const [postComments,  setPostComments]  = useState<any[]>([]);
   const [newComment,    setNewComment]    = useState('');
+  const [selectedSound,   setSelectedSound]   = useState<string|null>(null);
+  const [tiktokAudioFile, setTiktokAudioFile] = useState<File|null>(null);
   const [copied,        setCopied]        = useState(false);
 
   // ── AI
@@ -228,7 +230,7 @@ export default function AJSuperPortal() {
 
   // ── WALLET INPUTS
   const [purchaseAmount, setPurchaseAmount] = useState(20);
-  const [purchaseMethod, setPurchaseMethod] = useState('Binance (TRC20)');
+  const [purchaseMethod, setPurchaseMethod] = useState('Binance USDT (BSC)');
   const [purchaseTxId,   setPurchaseTxId]   = useState('');
   const [transferId,     setTransferId]     = useState('');
   const [transferAmount, setTransferAmount] = useState(0);
@@ -262,7 +264,8 @@ export default function AJSuperPortal() {
   const [pkScore,         setPkScore]         = useState({ me: 0, rival: 0 });
   const [pkWinner,        setPkWinner]        = useState<string|null>(null);
   const [pkRivalData,     setPkRivalData]     = useState<any>(null);
-  const pkTimerRef = useRef<NodeJS.Timeout|null>(null);
+  const pkTimerRef   = useRef<NodeJS.Timeout|null>(null);
+  const audioFileRef = useRef<HTMLInputElement>(null);
 
   // ── CINEMATIC GIFT
   const [cinematicGift,   setCinematicGift]   = useState<any>(null);
@@ -360,9 +363,24 @@ export default function AJSuperPortal() {
       const pData = await pRes.json();
       setPixaData(Array.isArray(pData) ? pData : []);
 
-      const yRes  = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=15&q=Hindi+Shorts+OR+Funny+Clips+OR+Cartoons+OR+Bollywood+Movies&type=video&videoDuration=short&key=${YOUTUBE_API_KEY}`);
+      // Fix 2: Rotate across keyword sets and shuffle results each time TikReel opens
+      const YT_KEYWORDS = [
+        'Hindi Shorts viral',
+        'Bollywood Movie Clips funny',
+        'Funny Cartoons Hindi',
+        'Comedy Shorts India',
+        'Desi Funny Videos',
+        'Hindi Stand Up Comedy',
+      ];
+      const randomKeyword = YT_KEYWORDS[Math.floor(Math.random() * YT_KEYWORDS.length)];
+      const yRes  = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=20&q=${encodeURIComponent(randomKeyword)}&type=video&videoDuration=short&key=${YOUTUBE_API_KEY}`);
       const yData = await yRes.json();
       const items = yData.items || [];
+      // Fisher-Yates shuffle for randomized order on every open
+      for (let i = items.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [items[i], items[j]] = [items[j], items[i]];
+      }
       setPixaVideos(items.map((item:any) => ({
         id:       item.id.videoId,
         user:     item.snippet.channelTitle,
@@ -1044,18 +1062,17 @@ export default function AJSuperPortal() {
   const handleTiktokPost = async () => {
     if (!tiktokPostText.trim() && !tiktokPostImg) return alert("Add caption or image!");
     try {
-      const totalPool = 2.5;
-      const userNet   = parseFloat((totalPool * USER_EARN_SHARE).toFixed(4));
+      const videoReward = 10; // Fix 6: flat 10 coins for video post
       await addDoc(collection(db,"user_posts"), {
         text:tiktokPostText, image:tiktokPostImg, uid:user!.uid,
         username:username||"AJ_Member", photo:user!.photoURL||'',
         likes:0, isVideo:true, createdAt:serverTimestamp()
       });
-      await updateDoc(doc(db,"users",user!.uid), { balance: increment(userNet) });
-      await logAdminRevenue('tiktok_post', totalPool, userNet);
+      await updateDoc(doc(db,"users",user!.uid), { balance: increment(videoReward) });
+      await logAdminRevenue('tiktok_post', videoReward, videoReward);
       setTiktokPostText(''); setTiktokPostImg('');
       setTiktabMode('feed');
-      alert(`🎬 Video post published! +${userNet} Coins (your 30% share)`);
+      alert(`🎬 Video post published! +${videoReward} Coins 🪩`);
     } catch(e) { console.error('handleTiktokPost', e); alert('Post failed. Please try again.'); }
   };
 
@@ -1134,18 +1151,17 @@ export default function AJSuperPortal() {
   const handleCreatePost = async () => {
     if (!postText.trim() && !tempPhoto) return alert("Empty Post!");
     try {
-      const totalPool = 2.5;
-      const userNet   = parseFloat((totalPool * USER_EARN_SHARE).toFixed(4));
+      const photoReward = 5; // Fix 6: flat 5 coins for photo post
       // Fix #3: Use 'pulse_posts' collection, addDoc ensures no overwrite, sorted by createdAt
       await addDoc(collection(db,"pulse_posts"), {
         text:postText, image:tempPhoto, uid:user!.uid,
         username:username||"AJ_Member", photo:user!.photoURL||'',
         likes:0, isVideo:false, createdAt:serverTimestamp()
       });
-      await updateDoc(doc(db,"users",user!.uid), { balance: increment(userNet) });
-      await logAdminRevenue('pulse_post', totalPool, userNet);
+      await updateDoc(doc(db,"users",user!.uid), { balance: increment(photoReward) });
+      await logAdminRevenue('pulse_post', photoReward, photoReward);
       setPostText(''); setTempPhoto('');
-      alert(`🚀 Post Published! +${userNet} Coins (your 30% share)`);
+      alert(`🚀 Post Published! +${photoReward} Coins 🪩`);
     } catch(e) { console.error('handleCreatePost', e); alert('Post failed. Please try again.'); }
   };
 
@@ -1197,8 +1213,9 @@ export default function AJSuperPortal() {
       return alert(`Minimum purchase is $${MIN_PURCHASE} (= ${MIN_PURCHASE*COIN_RATE} Coins)`);
     if (!user?.uid) return alert("Please log in first.");
     try {
-      const isCrypto = purchaseMethod === 'Binance USDT (TRC20)';
-      const body: any = {
+      // Fix 1 + Fix 7: Try fiat first for Card/Bank; fallback to USDT BSC on failure
+      const isCrypto = purchaseMethod === 'Binance USDT (BSC)';
+      const baseBody: any = {
         price_amount:      purchaseAmount,
         price_currency:    "usd",
         order_id:          user.uid,     // IPN uses this UID to auto-credit coins
@@ -1206,22 +1223,50 @@ export default function AJSuperPortal() {
         success_url:       window.location.href,
         cancel_url:        window.location.href,
       };
+
+      let invoiceUrl: string | null = null;
+
       if (isCrypto) {
-        body.pay_currency = "usdttrc20"; // USDT via Binance TRC20
+        // Crypto path: USDT via Binance BSC
+        const body = { ...baseBody, pay_currency: "usdtbsc" };
+        const res  = await fetch('https://api.nowpayments.io/v1/invoice', {
+          method:  'POST',
+          headers: { 'x-api-key': NOWPAYMENTS_API_KEY, 'Content-Type': 'application/json' },
+          body:    JSON.stringify(body),
+        });
+        const data = await res.json();
+        invoiceUrl = data.invoice_url || null;
+        if (!invoiceUrl) throw new Error(data.message || 'Invoice creation failed');
       } else {
-        body.is_fiat = true;             // Show Card / Bank payment gateway
+        // Fiat path: try is_fiat:true first, fallback to USDT BSC on any error
+        try {
+          const fiatBody = { ...baseBody, is_fiat: true };
+          const res  = await fetch('https://api.nowpayments.io/v1/invoice', {
+            method:  'POST',
+            headers: { 'x-api-key': NOWPAYMENTS_API_KEY, 'Content-Type': 'application/json' },
+            body:    JSON.stringify(fiatBody),
+          });
+          const data = await res.json();
+          if (data.invoice_url) {
+            invoiceUrl = data.invoice_url;
+          } else {
+            throw new Error(data.message || 'Fiat not available');
+          }
+        } catch {
+          // Fallback: use USDT BSC crypto payment
+          const fallbackBody = { ...baseBody, pay_currency: "usdtbsc" };
+          const res  = await fetch('https://api.nowpayments.io/v1/invoice', {
+            method:  'POST',
+            headers: { 'x-api-key': NOWPAYMENTS_API_KEY, 'Content-Type': 'application/json' },
+            body:    JSON.stringify(fallbackBody),
+          });
+          const data = await res.json();
+          invoiceUrl = data.invoice_url || null;
+          if (!invoiceUrl) throw new Error(data.message || 'Invoice creation failed');
+        }
       }
-      const res  = await fetch('https://api.nowpayments.io/v1/invoice', {
-        method:  'POST',
-        headers: { 'x-api-key': NOWPAYMENTS_API_KEY, 'Content-Type': 'application/json' },
-        body:    JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (data.invoice_url) {
-        window.open(data.invoice_url, '_blank');
-      } else {
-        throw new Error(data.message || 'Invoice creation failed');
-      }
+
+      if (invoiceUrl) window.open(invoiceUrl, '_blank');
     } catch(e: any) {
       console.error('handlePurchase', e);
       alert(`Payment Error: ${e.message || 'Please try again.'}`);
@@ -1413,16 +1458,16 @@ export default function AJSuperPortal() {
     },
 
     withdraw: {
-      en:  `💸 Withdrawal — How to Cash Out:\n\n• Minimum: ${WITHDRAW_MIN.toLocaleString()} Coins = $${WITHDRAW_MIN/CASH_RATE} USD\n• Rate: ${CASH_RATE} Coins = $1\n• Go to: Wallet → Withdraw\n\n📋 Methods:\n1. EasyPaisa\n2. JazzCash\n3. Binance USDT TRC20\n4. AirTM\n5. Bank / Visa / Mastercard\n\n⏱️ Processed within 24 hours!`,
-      hin: `💸 Withdraw kaise karo:\n\n• Minimum: ${WITHDRAW_MIN.toLocaleString()} Coins = $${WITHDRAW_MIN/CASH_RATE}\n• Rate: ${CASH_RATE} Coins = $1\n• Wallet → Withdraw\n\n📋 Methods:\n1. EasyPaisa\n2. JazzCash\n3. Binance USDT TRC20\n4. AirTM\n5. Bank / Visa / Mastercard\n\n⏱️ 24 ghante mein process hota hai, dost! 🙏`,
-      ur:  `💸 نکاسی:\n\n• کم از کم: ${WITHDRAW_MIN.toLocaleString()} Coins = $${WITHDRAW_MIN/CASH_RATE}\n• Wallet → Withdraw\n\n📋 طریقے:\n1. EasyPaisa\n2. JazzCash\n3. Binance USDT TRC20\n4. AirTM\n5. Bank / Visa / Mastercard\n\n⏱️ 24 گھنٹوں میں!`,
-      hi:  `💸 Withdrawal:\n\n• Minimum: ${WITHDRAW_MIN.toLocaleString()} Coins = $${WITHDRAW_MIN/CASH_RATE}\n• Wallet → Withdraw\n\n📋 Methods:\n1. EasyPaisa\n2. JazzCash\n3. Binance USDT TRC20\n4. AirTM\n5. Bank / Visa / Mastercard\n\n⏱️ 24 घंटे में!`,
-      ar:  `💸 السحب:\n\n• الحد الأدنى: ${WITHDRAW_MIN.toLocaleString()} كوين = $${WITHDRAW_MIN/CASH_RATE}\n• المحفظة → السحب\n\n📋 الطرق:\n1. EasyPaisa\n2. JazzCash\n3. Binance USDT TRC20\n4. AirTM\n5. بنك / فيزا / ماستركارد\n\n⏱️ 24 ساعة!`,
+      en:  `💸 Withdrawal — How to Cash Out:\n\n• Minimum: ${WITHDRAW_MIN.toLocaleString()} Coins = $${WITHDRAW_MIN/CASH_RATE} USD\n• Rate: ${CASH_RATE} Coins = $1\n• Go to: Wallet → Withdraw\n\n📋 Methods:\n1. EasyPaisa\n2. JazzCash\n3. Binance USDT BSC\n4. AirTM\n5. Bank / Visa / Mastercard\n\n📅 Withdrawals processed monthly: 25th – 31st of each month.`,
+      hin: `💸 Withdraw kaise karo:\n\n• Minimum: ${WITHDRAW_MIN.toLocaleString()} Coins = $${WITHDRAW_MIN/CASH_RATE}\n• Rate: ${CASH_RATE} Coins = $1\n• Wallet → Withdraw\n\n📋 Methods:\n1. EasyPaisa\n2. JazzCash\n3. Binance USDT BSC\n4. AirTM\n5. Bank / Visa / Mastercard\n\n📅 Withdrawal 25 se 31 tarikh ke beech process hoti hai. 🙏`,
+      ur:  `💸 نکاسی:\n\n• کم از کم: ${WITHDRAW_MIN.toLocaleString()} Coins = $${WITHDRAW_MIN/CASH_RATE}\n• Wallet → Withdraw\n\n📋 طریقے:\n1. EasyPaisa\n2. JazzCash\n3. Binance USDT BSC\n4. AirTM\n5. Bank / Visa / Mastercard\n\n📅 نکاسی ہر ماہ 25 سے 31 تاریخ کے درمیان!`,
+      hi:  `💸 Withdrawal:\n\n• Minimum: ${WITHDRAW_MIN.toLocaleString()} Coins = $${WITHDRAW_MIN/CASH_RATE}\n• Wallet → Withdraw\n\n📋 Methods:\n1. EasyPaisa\n2. JazzCash\n3. Binance USDT BSC\n4. AirTM\n5. Bank / Visa / Mastercard\n\n📅 Withdrawal हर महीने 25 से 31 तारीख के बीच!`,
+      ar:  `💸 السحب:\n\n• الحد الأدنى: ${WITHDRAW_MIN.toLocaleString()} كوين = $${WITHDRAW_MIN/CASH_RATE}\n• المحفظة → السحب\n\n📋 الطرق:\n1. EasyPaisa\n2. JazzCash\n3. Binance USDT BSC\n4. AirTM\n5. بنك / فيزا / ماستركارد\n\n📅 تُعالَج عمليات السحب شهرياً من 25 إلى 31 من كل شهر!`,
     },
 
     buy: {
-      en:  `💰 Purchase AJ Coins:\n\n• Minimum: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\n• Rate: $1 = ${COIN_RATE} Coins\n• Wallet → Purchase\n\n📋 Options:\n1. Binance USDT TRC20 (auto invoice)\n2. Airtm\n3. EasyPaisa\n4. JazzCash\n5. Bank / Visa / Mastercard\n\nSend payment → enter TX ID → submit. Coins credited within minutes! ✅`,
-      hin: `💰 Coins kharido:\n\n• Minimum: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\n• $1 = ${COIN_RATE} Coins\n• Wallet → Purchase\n\n📋 Options:\n1. Binance USDT TRC20\n2. Airtm\n3. EasyPaisa\n4. JazzCash\n5. Bank / Visa / Mastercard\n\nPayment → TX ID → Submit! Kuch minute mein Coins ✅`,
+      en:  `💰 Purchase AJ Coins:\n\n• Minimum: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\n• Rate: $1 = ${COIN_RATE} Coins\n• Wallet → Purchase\n\n📋 Options:\n1. Binance USDT BSC (auto invoice)\n2. Airtm\n3. EasyPaisa\n4. JazzCash\n5. Bank / Visa / Mastercard\n\nSend payment → enter TX ID → submit. Coins credited within minutes! ✅`,
+      hin: `💰 Coins kharido:\n\n• Minimum: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\n• $1 = ${COIN_RATE} Coins\n• Wallet → Purchase\n\n📋 Options:\n1. Binance USDT BSC\n2. Airtm\n3. EasyPaisa\n4. JazzCash\n5. Bank / Visa / Mastercard\n\nPayment → TX ID → Submit! Kuch minute mein Coins ✅`,
       ur:  `💰 Coins خریدیں:\n\n• کم از کم: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\n• Wallet → Purchase\n\n📋 طریقے:\n1. Binance\n2. Airtm\n3. EasyPaisa\n4. JazzCash\n5. Bank / Visa\n\nPayment → TX ID → Submit ✅`,
       hi:  `💰 Coins खरीदें:\n\n• Minimum: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\n• Wallet → Purchase\n\nPayment → TX ID → Submit!\nकुछ मिनट में Coins ✅`,
       ar:  `💰 شراء كوينز:\n\n• الحد الأدنى: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} كوين\n• المحفظة → شراء\n\nادفع → أدخل TX ID → أرسل!\nكوينز خلال دقائق ✅`,
@@ -1573,6 +1618,7 @@ export default function AJSuperPortal() {
     <main className="min-h-screen bg-[#020617] text-white font-sans overflow-x-hidden relative">
       <input type="file" ref={fileInputRef}  onChange={handleFileChange}       accept="image/*"        className="hidden"/>
       <input type="file" ref={tiktokFileRef} onChange={handleTiktokFileChange} accept="image/*,video/*" className="hidden"/>
+      <input type="file" ref={audioFileRef}  onChange={e => { const f = e.target.files?.[0]; if(f) setTiktokAudioFile(f); }} accept="audio/*" className="hidden"/>
 
       {/* CINEMATIC GIFT OVERLAY */}
       {cinematicGift && (
@@ -2169,8 +2215,17 @@ export default function AJSuperPortal() {
                               <div className="absolute bottom-10 left-6 text-white max-w-[70%] z-10">
                                 <p className="font-black text-sm">@{isUserPost ? (vid.username||'AJ_Member') : vid.user}</p>
                                 {isUserPost && vid.text && <p className="text-[11px] text-gray-300 mt-1 line-clamp-2">{vid.text}</p>}
-                                <div className="flex items-center gap-2 mt-3 bg-black/40 w-max p-1.5 rounded-full border border-white/10">
-                                  <Music size={12}/>
+                                <div
+                                  className="flex items-center gap-2 mt-3 bg-black/40 w-max p-1.5 rounded-full border border-white/10 cursor-pointer active:scale-95 transition-all"
+                                  onClick={() => {
+                                    const soundLabel = isUserPost
+                                      ? (vid.title || vid.text || 'Original Sound — AJ Studio')
+                                      : (vid.title || 'Original Sound — AJ Studio');
+                                    setSelectedSound(soundLabel);
+                                    alert(`🎵 Sound selected: "${soundLabel.slice(0,40)}"`);
+                                  }}
+                                >
+                                  <Music size={12} className="text-pink-400" style={{animation:'spin 3s linear infinite'}}/>
                                   {/* @ts-ignore */}
                                   <marquee className="text-[10px] w-24 uppercase font-bold">Original Sound - AJ Studio</marquee>
                                 </div>
@@ -2179,15 +2234,19 @@ export default function AJSuperPortal() {
                             )}
                           </div>
                           {(i+1)%4===0 && (
-                             /* Full-screen TikReel Video Ad — premium sponsor style */
-                             <div className="h-[85vh] w-full snap-start flex flex-col items-center justify-center bg-gradient-to-br from-slate-950 via-gray-950 to-black border-y-2 border-pink-500/20 relative">
-                               <div className="absolute top-4 right-5">
-                                 <span className="text-[8px] font-black text-pink-500/60 uppercase tracking-widest border border-pink-500/30 px-2 py-0.5 rounded-full">Sponsored</span>
+                             /* Fix 5: Real YouTube video ad every 4 TikReels */
+                             <div className="h-[85vh] w-full snap-start relative overflow-hidden bg-black">
+                               <iframe
+                                 src={`https://www.youtube.com/embed/${PULSE_AD_VIDEO_ID}?autoplay=1&mute=0&controls=1&loop=1&playlist=${PULSE_AD_VIDEO_ID}&rel=0&modestbranding=1`}
+                                 className="absolute inset-0 w-full h-full"
+                                 allow="autoplay; encrypted-media; gyroscope; picture-in-picture"
+                                 allowFullScreen
+                                 frameBorder="0"
+                                 title="Sponsored Video"
+                               />
+                               <div className="absolute top-4 right-5 pointer-events-none">
+                                 <span className="bg-pink-600/80 backdrop-blur-sm text-white text-[8px] font-black px-2 py-1 rounded-full uppercase tracking-widest">Sponsored</span>
                                </div>
-                               <VideoIcon size={64} className="text-pink-500 mb-5 animate-pulse"/>
-                               <p className="text-pink-400 font-black uppercase tracking-[0.3em] text-base mb-2">AJ VVIP AD</p>
-                               <p className="text-gray-500 text-[10px] font-bold">Premium Partner Content</p>
-                               <div className="mt-6 w-48 h-px bg-gradient-to-r from-pink-500/30 via-pink-400 to-pink-500/30 rounded-full"/>
                              </div>
                            )}
                         </React.Fragment>
@@ -2209,8 +2268,19 @@ export default function AJSuperPortal() {
                     </div>
                     <textarea value={tiktokPostText} onChange={e => setTiktokPostText(e.target.value)} placeholder="Add caption..."
                       className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm text-white outline-none focus:border-pink-500 h-24 font-bold"/>
+                    {/* Fix 3a: Select Audio / Music from Phone */}
+                    <button
+                      type="button"
+                      onClick={() => audioFileRef.current?.click()}
+                      className="w-full py-3 bg-white/5 border border-pink-500/30 rounded-2xl font-black uppercase text-pink-400 text-xs tracking-widest flex items-center justify-center gap-2 hover:bg-pink-500/10 active:scale-95 transition-all"
+                    >
+                      <Music size={14}/> {tiktokAudioFile ? `🎵 ${tiktokAudioFile.name}` : 'Select Audio / Music from Phone'}
+                    </button>
+                    {selectedSound && !tiktokAudioFile && (
+                      <p className="text-[10px] text-pink-400 font-bold text-center">🎵 Using: {selectedSound.slice(0,40)}</p>
+                    )}
                     <button onClick={handleTiktokPost} className="w-full py-4 bg-pink-600 rounded-2xl font-black uppercase text-white tracking-widest shadow-lg active:scale-95 transition-all">
-                      PUBLISH (+0.75 🪙)
+                      PUBLISH (+10 🪙)
                     </button>
                   </div>
                 )}
@@ -2394,11 +2464,7 @@ export default function AJSuperPortal() {
                                  <Gift size={28}/><span className="text-[9px] font-bold mt-0.5">Gift</span>
                                </div>
                              )}
-                             {/* Mute */}
-                             <div className="flex flex-col items-center cursor-pointer" onClick={() => setPulseMuted(m => !m)}>
-                               {pulseMuted ? <VolumeX size={26} className="text-red-400"/> : <Volume2 size={26} className="text-green-400"/>}
-                               <span className="text-[9px] font-bold text-white mt-0.5">{pulseMuted?'Muted':'Sound'}</span>
-                             </div>
+
                            </div>
 
                            {/* BOTTOM-LEFT — @username, Caption, Scrolling Music */}
@@ -2412,13 +2478,7 @@ export default function AJSuperPortal() {
                                  {post.text}
                                </p>
                              )}
-                             <div className="flex items-center gap-2 mt-3 bg-black/50 backdrop-blur-sm w-max px-3 py-1.5 rounded-full border border-white/10">
-                               <Music size={11} className="text-pink-400 shrink-0"/>
-                               {/* @ts-ignore */}
-                               <marquee className="text-[9px] w-28 uppercase font-bold">
-                                 {post._src==='unsplash' ? 'AJ Lifestyle • Unsplash' : 'Original Sound — AJ Pulse'}
-                               </marquee>
-                             </div>
+
                            </div>
 
                            {/* Delete menu (own Firestore posts only) */}
@@ -2916,7 +2976,7 @@ export default function AJSuperPortal() {
                 {/* NOWPayments — 2 methods only: Binance USDT or Card */}
                 <div className="flex flex-col gap-3">
                   {[
-                    { id:'Binance USDT (TRC20)', label:'Binance USDT',  desc:'Crypto — Auto-verified via NOWPayments', icon:'₿',  badge:'Instant' },
+                    { id:'Binance USDT (BSC)', label:'Binance USDT (BSC)',  desc:'Crypto — Auto-verified via NOWPayments', icon:'₿',  badge:'Instant' },
                     { id:'Card / Bank',           label:'Card or Bank',  desc:'Visa / Mastercard / Bank Transfer',      icon:'💳', badge:'Secure'  },
                   ].map(m => (
                     <button key={m.id} onClick={() => setPurchaseMethod(m.id)}
@@ -2987,7 +3047,7 @@ export default function AJSuperPortal() {
                 <h3 className="text-lg font-black text-pink-500 uppercase tracking-widest">Withdraw Coins</h3>
                 <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-2xl">
                   <p className="text-[10px] text-red-400 font-bold uppercase leading-relaxed">
-                    ⚠️ Minimum: {WITHDRAW_MIN.toLocaleString()} Coins = $20 USD. {CASH_RATE} Coins = $1. Processed within 24 hrs.
+                    ⚠️ Minimum: {WITHDRAW_MIN.toLocaleString()} Coins = $20 USD. {CASH_RATE} Coins = $1.<br/>📅 Withdrawals are processed monthly from the 25th to 31st of each month.
                   </p>
                 </div>
                 <div className="space-y-4">
