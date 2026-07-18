@@ -304,6 +304,8 @@ export default function AJSuperPortal() {
   // ── PERFORMANCE: TikReels windowing
   const [activeVideoIdx, setActiveVideoIdx] = useState(0);
   const videoFeedRef = useRef<HTMLDivElement>(null);
+  // Fix #11: Audio Bleeding — track iframe refs so we can mute/unmount on scroll
+  const iframeRefs = useRef<{ [key: number]: HTMLIFrameElement | null }>({});
 
   const isLowEnd = typeof navigator !== 'undefined' &&
     ((navigator as any).deviceMemory <= 2 || (navigator as any).hardwareConcurrency <= 2);
@@ -536,7 +538,7 @@ export default function AJSuperPortal() {
   }, [liveActive, liveRoomId]);
 
   // ==========================================================
-  // TIKREELS WINDOWING
+  // TIKREELS WINDOWING + Fix #11: Audio Bleeding via IntersectionObserver
   // ==========================================================
   useEffect(() => {
     if (socialScreen !== 'tikreels' || tiktabMode !== 'feed') return;
@@ -551,12 +553,37 @@ export default function AJSuperPortal() {
           }
         });
       },
-      { threshold: 0.55, root }
+      // Fix #11: threshold 0.8 — video must be 80% visible before it becomes "active"
+      // This prevents the next video from stealing audio too early during scroll
+      { threshold: 0.8, root }
     );
     const slides = root.querySelectorAll('[data-vidx]');
     slides.forEach(el => obs.observe(el));
-    return () => obs.disconnect();
-  }, [pixaVideos, socialScreen, tiktabMode]);
+    return () => {
+      obs.disconnect();
+      // Fix #11: Clean up iframe refs when feed unmounts to stop all audio
+      iframeRefs.current = {};
+    };
+  }, [pixaVideos, socialScreen, tiktabMode, userPosts]);
+
+  // Fix #11: Audio Bleeding — when activeVideoIdx changes, force-mute ALL iframe
+  // references except the active one by resetting their src to a muted version.
+  // This is the KEY fix: YouTube iframes ignore JS pause(), so we must
+  // reload their src with mute=1 when they leave the viewport.
+  useEffect(() => {
+    if (socialScreen !== 'tikreels' || tiktabMode !== 'feed') return;
+    Object.entries(iframeRefs.current).forEach(([idxStr, el]) => {
+      if (!el) return;
+      const idx = parseInt(idxStr, 10);
+      if (idx !== activeVideoIdx) {
+        // Non-active iframe: reload src with mute=1 to kill audio immediately
+        const src = el.src;
+        if (src && src.includes('youtube.com') && src.includes('mute=0')) {
+          el.src = src.replace('mute=0', 'mute=1');
+        }
+      }
+    });
+  }, [activeVideoIdx, socialScreen, tiktabMode]);
 
   // ==========================================================
   // SEND LIVE CHAT MESSAGE
@@ -2005,7 +2032,10 @@ export default function AJSuperPortal() {
                         const inWindow  = Math.abs(i - activeVideoIdx) <= (isLowEnd ? 0 : 1);
                         const isUserPost = !!(vid as any)._isUser;
                         const soundOn   = globalSoundOn;
-                        const embedUrl  = isUserPost ? '' : (soundOn
+                        // Fix #11: Audio Bleeding — ONLY the active video gets mute=0.
+                        // All other in-window iframes stay mute=1 to prevent audio bleed.
+                        const isActive  = i === activeVideoIdx;
+                        const embedUrl  = isUserPost ? '' : (isActive && soundOn
                           ? `https://www.youtube.com/embed/${vid.id}?autoplay=1&mute=0&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3`
                           : `https://www.youtube.com/embed/${vid.id}?autoplay=1&mute=1&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3`);
                         const avatarKey = isUserPost ? (vid.uid||vid.username) : vid.user;
@@ -2038,6 +2068,7 @@ export default function AJSuperPortal() {
                               ) : (
                                 <div className="absolute inset-0 overflow-hidden">
                                   <iframe
+                                    ref={el => { iframeRefs.current[i] = el; }}
                                     src={embedUrl}
                                     className="absolute inset-0 w-full h-full"
                                     style={{ transform:'scale(1.15)', transformOrigin:'center center', pointerEvents:'none' }}
@@ -2052,8 +2083,8 @@ export default function AJSuperPortal() {
                                   <div className="absolute bottom-0 right-0 w-28 h-14 z-10 pointer-events-auto bg-transparent"/>
                                 </div>
                               )}
-                              {/* Sound tap hint — only for YouTube */}
-                              {!soundOn && !isUserPost && (
+                              {/* Sound tap hint — Fix #11: only for active YouTube video */}
+                              {!soundOn && !isUserPost && isActive && (
                                 <div
                                   className="absolute inset-0 flex items-end justify-center pb-48 z-20 cursor-pointer"
                                   onClick={() => setGlobalSoundOn(true)}>
