@@ -314,9 +314,11 @@ export default function AJSuperPortal() {
 
   // ── PERFORMANCE: TikReels windowing
   const [activeVideoIdx, setActiveVideoIdx] = useState(0);
+  const [reelPaused,    setReelPaused]    = useState(false); // Pause/Resume on click
   const videoFeedRef = useRef<HTMLDivElement>(null);
   // Fix #11: Audio Bleeding — track iframe refs so we can mute/unmount on scroll
   const iframeRefs = useRef<{ [key: number]: HTMLIFrameElement | null }>({});
+  const userVideoRefs = useRef<{ [key: number]: HTMLVideoElement | null }>({});
 
   const isLowEnd = typeof navigator !== 'undefined' &&
     ((navigator as any).deviceMemory <= 2 || (navigator as any).hardwareConcurrency <= 2);
@@ -656,12 +658,14 @@ export default function AJSuperPortal() {
   // reload their src with mute=1 when they leave the viewport.
   useEffect(() => {
     if (socialScreen !== 'tikreels' || tiktabMode !== 'feed') return;
+    // Reset pause state when user scrolls to a new video
+    setReelPaused(false);
     Object.entries(iframeRefs.current).forEach(([idxStr, el]) => {
       if (!el) return;
       const idx = parseInt(idxStr, 10);
       if (idx !== activeVideoIdx) {
         // Audio Bleed fix: blank src instantly — fastest way to kill YouTube audio
-        if (el.src && el.src.includes('youtube.com')) {
+        if (el.src && (el.src.includes('youtube.com') || el.src.includes('youtube-nocookie.com'))) {
           el.src = '';
         }
       }
@@ -2141,15 +2145,32 @@ export default function AJSuperPortal() {
                         // All other in-window iframes stay mute=1 to prevent audio bleed.
                         const isActive  = i === activeVideoIdx;
                         const embedUrl  = isUserPost ? '' : (isActive && soundOn
-                          ? `https://www.youtube.com/embed/${vid.id}?autoplay=1&mute=0&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3`
-                          : `https://www.youtube.com/embed/${vid.id}?autoplay=1&mute=1&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3`);
+                          ? `https://www.youtube-nocookie.com/embed/${vid.id}?autoplay=1&mute=0&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3&enablejsapi=1`
+                          : `https://www.youtube-nocookie.com/embed/${vid.id}?autoplay=1&mute=1&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3&enablejsapi=1`);
                         const avatarKey = isUserPost ? (vid.uid||vid.username) : vid.user;
                         return (
                         <React.Fragment key={`${isUserPost?'u':'y'}-${vid.id||i}`}>
                           <div
                             data-vidx={i}
                             className="h-[85vh] w-full snap-start relative border-b border-white/5"
-                            style={{ contain:'layout style paint', willChange:'transform', transform:'translate3d(0,0,0)' }}>
+                            style={{ contain:'layout style paint', willChange:'transform', transform:'translate3d(0,0,0)' }}
+                            onClick={() => {
+                              if (!isActive) return;
+                              const newPaused = !reelPaused;
+                              setReelPaused(newPaused);
+                              // Pause/Resume YouTube iframe via postMessage API
+                              const iframe = iframeRefs.current[i];
+                              if (iframe?.contentWindow) {
+                                iframe.contentWindow.postMessage(JSON.stringify({
+                                  event: 'command',
+                                  func: newPaused ? 'pauseVideo' : 'playVideo',
+                                  args: []
+                                }), '*');
+                              }
+                              // Pause/Resume user-uploaded video element
+                              const uv = userVideoRefs.current[i];
+                              if (uv) { newPaused ? uv.pause() : uv.play().catch(()=>{}); }
+                            }}>
                             {!inWindow ? (
                               <div className="absolute inset-0 bg-black flex items-center justify-center">
                                 {(vid.thumb||vid.image)
@@ -2163,7 +2184,13 @@ export default function AJSuperPortal() {
                               {isUserPost ? (
                                 <div className="absolute inset-0 overflow-hidden bg-black">
                                   {vid.image
-                                    ? <img src={vid.image} className="absolute inset-0 w-full h-full object-cover" loading="lazy" decoding="async"/>
+                                    ? vid.isVideo
+                                      ? <video
+                                          ref={el => { userVideoRefs.current[i] = el; }}
+                                          src={vid.image}
+                                          className="absolute inset-0 w-full h-full object-cover"
+                                          autoPlay playsInline loop muted={!soundOn}/>
+                                      : <img src={vid.image} className="absolute inset-0 w-full h-full object-cover" loading="lazy" decoding="async"/>
                                     : <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-pink-900/40 to-cyan-900/40">
                                         <Film size={64} className="text-white/30"/>
                                       </div>
@@ -2188,11 +2215,19 @@ export default function AJSuperPortal() {
                                   <div className="absolute bottom-0 right-0 w-28 h-14 z-10 pointer-events-auto bg-transparent"/>
                                 </div>
                               )}
+                              {/* Pause overlay — shows play icon when paused */}
+                              {isActive && reelPaused && (
+                                <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none">
+                                  <div className="w-20 h-20 bg-black/60 backdrop-blur-sm rounded-full flex items-center justify-center border-2 border-white/30 shadow-2xl animate-ping-once">
+                                    <svg width="32" height="32" viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21"/></svg>
+                                  </div>
+                                </div>
+                              )}
                               {/* Sound tap hint — Fix #11: only for active YouTube video */}
-                              {!soundOn && !isUserPost && isActive && (
+                              {!soundOn && !isUserPost && isActive && !reelPaused && (
                                 <div
                                   className="absolute inset-0 flex items-end justify-center pb-48 z-20 cursor-pointer"
-                                  onClick={() => setGlobalSoundOn(true)}>
+                                  onClick={e => { e.stopPropagation(); setGlobalSoundOn(true); }}>
                                   <div className="flex items-center gap-2 bg-black/60 backdrop-blur-sm border border-white/20 px-4 py-2 rounded-full shadow-xl animate-pulse">
                                     <VolumeX size={16} className="text-white"/>
                                     <span className="text-white text-[11px] font-black uppercase tracking-widest">Tap for Sound</span>
@@ -2271,7 +2306,7 @@ export default function AJSuperPortal() {
                              /* Video Ad every 4 TikReels — mute=1 required for mobile autoplay */
                              <div className="h-[85vh] w-full snap-start relative overflow-hidden bg-black">
                                <iframe
-                                 src={`https://www.youtube.com/embed/${PULSE_AD_VIDEO_ID}?autoplay=1&mute=1&controls=1&loop=1&playlist=${PULSE_AD_VIDEO_ID}&rel=0&modestbranding=1&playsinline=1&enablejsapi=1`}
+                                 src={`https://www.youtube-nocookie.com/embed/${PULSE_AD_VIDEO_ID}?autoplay=1&mute=1&controls=1&loop=1&playlist=${PULSE_AD_VIDEO_ID}&rel=0&modestbranding=1&playsinline=1&enablejsapi=1`}
                                  className="absolute inset-0 w-full h-full"
                                  allow="autoplay; encrypted-media; gyroscope; picture-in-picture; web-share"
                                  allowFullScreen
@@ -2455,7 +2490,7 @@ export default function AJSuperPortal() {
                          {idx > 0 && idx % 5 === 0 && (
                            <div className="h-[85vh] w-full snap-start relative overflow-hidden bg-black">
                              <iframe
-                               src={`https://www.youtube.com/embed/${PULSE_AD_VIDEO_ID}?autoplay=1&mute=0&controls=1&loop=1&playlist=${PULSE_AD_VIDEO_ID}&rel=0&modestbranding=1`}
+                               src={`https://www.youtube-nocookie.com/embed/${PULSE_AD_VIDEO_ID}?autoplay=1&mute=1&controls=1&loop=1&playlist=${PULSE_AD_VIDEO_ID}&rel=0&modestbranding=1&playsinline=1&enablejsapi=1`}
                                className="absolute inset-0 w-full h-full"
                                allow="autoplay; encrypted-media; gyroscope; picture-in-picture"
                                allowFullScreen
