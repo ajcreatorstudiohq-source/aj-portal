@@ -1,25 +1,46 @@
 "use client";
 import React, { useState, useEffect, useRef } from 'react';
-import { auth, db, googleProvider } from '../firebaseConfig';
-import { signInWithPopup, onAuthStateChanged, signOut } from 'firebase/auth';
+// ── Fix #9: Firebase inline config with exact keys ──────────
+import { initializeApp, getApps } from 'firebase/app';
 import {
+  getAuth, GoogleAuthProvider,
+  signInWithPopup, onAuthStateChanged, signOut
+} from 'firebase/auth';
+import {
+  getFirestore,
   doc, setDoc, onSnapshot, updateDoc, increment, collection,
   addDoc, getDoc, serverTimestamp, query, orderBy, limit, deleteDoc, getDocs
 } from 'firebase/firestore';
 import {
-  MessageCircle, Trophy, Zap, Bot, LogOut, Globe, ChevronRight,
+  MessageCircle, Trophy, Zap, Bot, LogOut, ChevronRight,
   Send, X, Download, Video, Users, Heart, MessageSquare, Camera,
   Settings, Edit3, Mail, DollarSign, Share2, Music, PlusSquare,
   MoreVertical, Search, Phone, Video as VideoIcon, ArrowLeft, Trash2,
   Gift, Radio, UserPlus, UserCheck, Grid, Film, Volume2, VolumeX, Swords, Clock
 } from 'lucide-react';
 
+// ── Fix #9: Exact Firebase keys ──────────────────────────────
+const firebaseConfig = {
+  apiKey:            "AIzaSyDp2od-lrfAhEHV5oAIqBW5rWjaRbnAdFM",
+  authDomain:        "aj-super-portal.firebaseapp.com",
+  databaseURL:       "https://aj-super-portal-default-rtdb.firebaseio.com",
+  projectId:         "aj-super-portal",
+  storageBucket:     "aj-super-portal.appspot.com",
+  messagingSenderId: "288191292906",
+  appId:             "1:288191292906:web:bc31cb072948533f88fe93",
+  measurementId:     "G-8WYD1ZB96D"
+};
+
+const app          = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+const auth         = getAuth(app);
+const db           = getFirestore(app);
+const googleProvider = new GoogleAuthProvider();
+
 // ============================================================
 // API KEYS & CONFIG
 // ============================================================
 const UNSPLASH_ACCESS_KEY    = "W4x76VphkyY9fzP3DbJPfXLhdD6x063gW--Voifn_UE";
 const YOUTUBE_API_KEY        = "AIzaSyD9vR3hNLt7pBNlm6PMaZWbJOB9QGcrD1Y";
-const GNEWS_API_KEY          = "bb753f67e7f9155dfc8675b2abc4b60";
 const NOWPAYMENTS_API_KEY    = "3THXNSZ-AYVMTP6-HQ9KGKK-9J6CQD7";
 const CLOUDINARY_CLOUD_NAME  = "atm28akz";
 const CLOUDINARY_UPLOAD_PRESET = "aj_portal";
@@ -85,7 +106,7 @@ const uploadToCloudinary = async (file: File): Promise<string> => {
 };
 
 // ============================================================
-// FORMAT VIEWS — Fix #4: 1k/1.5k formatting
+// Fix #6: formatCount — 1k/2k/1.5M view counter for thumbnails
 // ============================================================
 const formatViews = (v: number): string => {
   if (!v || v <= 0) return '0';
@@ -171,9 +192,9 @@ export default function AJSuperPortal() {
   // ── CONTENT
   const [pixaData,     setPixaData]     = useState<any[]>([]);
   const [pixaVideos,   setPixaVideos]   = useState<any[]>([]);
-  const [newsData,     setNewsData]     = useState<any[]>([]);
   const [chatMessages, setChatMessages] = useState<any[]>([]);
-  const [userPosts,    setUserPosts]    = useState<any[]>([]);
+  const [userPosts,    setUserPosts]    = useState<any[]>([]);  // TikReels feed
+  const [pulsePosts,   setPulsePosts]   = useState<any[]>([]);  // Fix #3: AJ Pulse separate feed
   const [postText,     setPostText]     = useState('');
   const [newMessage,   setNewMessage]   = useState('');
   const [activeContact,setActiveContact]= useState<string|null>(null);
@@ -194,9 +215,10 @@ export default function AJSuperPortal() {
     "Connecting to AJ liquidity pool..."
   ]);
   const [botOpen,     setBotOpen]     = useState(false);
+  // Fix #8: First message always in English
   const [botMessages, setBotMessages] = useState([{
     from:'bot',
-    text:`Hi! I am AJ AI Assistant 🤖. I am here to provide A to Z details about AJ Super Portal. How can I assist you today?`
+    text:`Hi! I am AJ AI Assistant 🤖. I'm here to provide A to Z details about AJ Super Portal — Coins, TikReels, Pulse, Live, Games, Wallet, Withdrawals & more. How can I assist you today?`
   }]);
   const [botInput, setBotInput] = useState('');
   const lastBotTopicRef = useRef<string>('greeting');
@@ -343,19 +365,6 @@ export default function AJSuperPortal() {
         embedUrl: `https://www.youtube.com/embed/${item.id.videoId}?autoplay=1&mute=1&loop=1&playlist=${item.id.videoId}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3`
       })));
 
-      try {
-        const nRes  = await fetch(`https://gnews.io/api/v4/top-headlines?topic=technology&token=${GNEWS_API_KEY}&lang=en&max=15&expand=content`);
-        const nData = await nRes.json();
-        const articles = (nData.articles || nData.data || []).map((a:any) => ({
-          title:       a.title       || a.headline || 'AJ News',
-          description: a.description || a.summary  || a.content?.slice(0,120) || '',
-          url:         a.url         || a.link      || '#',
-          image:       a.image       || a.urlToImage|| a.imageUrl || '',
-          publishedAt: a.publishedAt || a.date      || new Date().toISOString(),
-          source:      { name: a.source?.name || a.sourceName || 'AJ Discover' }
-        }));
-        setNewsData(articles.slice(0,15));
-      } catch(ne) { console.log("GNews fallback", ne); setNewsData([]); }
     } catch(e) { console.log("API Error", e); }
   };
 
@@ -388,15 +397,24 @@ export default function AJSuperPortal() {
         return onSnapshot(q, snap => setChatMessages(snap.docs.map(d=>({id:d.id,...d.data()})).reverse()));
       } catch {}
     }
-    if (socialScreen==='pulse' || socialScreen==='tikreels') {
+    // Fix #3: TikReels uses 'user_posts', AJ Pulse uses 'pulse_posts' (separate collections)
+    if (socialScreen==='tikreels') {
       try {
         const q = query(collection(db,"user_posts"), orderBy("createdAt","desc"), limit(20));
         return onSnapshot(q, snap => setUserPosts(snap.docs.map(d=>({id:d.id,...d.data()}))));
       } catch {}
     }
+    if (socialScreen==='pulse') {
+      try {
+        const q = query(collection(db,"pulse_posts"), orderBy("createdAt","desc"), limit(20));
+        return onSnapshot(q, snap => setPulsePosts(snap.docs.map(d=>({id:d.id,...d.data()}))));
+      } catch {}
+    }
     if (commentPostId && !commentPostId.startsWith('gift_')) {
       try {
-        const q = query(collection(db,"user_posts",commentPostId,"comments"), orderBy("createdAt","asc"));
+        // Comments work on both collections; try pulse_posts first then user_posts
+        const col = (socialScreen === 'pulse') ? 'pulse_posts' : 'user_posts';
+        const q = query(collection(db, col, commentPostId,"comments"), orderBy("createdAt","asc"));
         return onSnapshot(q, snap => setPostComments(snap.docs.map(d=>({id:d.id,...d.data()}))));
       } catch {}
     }
@@ -430,19 +448,25 @@ export default function AJSuperPortal() {
           const snap = await getDoc(ref);
           if (snap.exists()) {
             const d = snap.data();
-            setHasSocialProfile(d.hasSocialProfile||false);
+            setHasSocialProfile(d.hasSocialProfile ?? true);
             setUsername(d.username||'');
             setBio(d.bio||'');
             setTempPhoto(d.photo||cu.photoURL||'');
           } else {
+            // Fix #4: Initialize new users with hasSocialProfile:true and all Number fields
             await setDoc(ref, {
               name:cu.displayName, email:cu.email,
               balance:500, botTier:'none', invested:0,
               uid:cu.uid, lastSync:serverTimestamp(),
-              hasSocialProfile:false, photo:cu.photoURL||'',
+              hasSocialProfile:true,           // Fix #4: true by default
+              photo:cu.photoURL||'',
               followers:0, following:0,
-              postsCount:0, followersCount:0, followingCount:0, totalLikes:0,
+              postsCount:0,                    // Fix #4: Number field
+              followersCount:0,                // Fix #4: Number field
+              followingCount:0,                // Fix #4: Number field
+              totalLikes:0,                    // Fix #4: Number field
             });
+            setHasSocialProfile(true);
           }
           onSnapshot(ref, s => {
             if (s.exists()) {
@@ -786,7 +810,7 @@ export default function AJSuperPortal() {
   };
 
   // ==========================================================
-  // Fix #6: OPEN OR CREATE CHAT (Messaging System)
+  // OPEN OR CREATE CHAT (Messaging System)
   // ==========================================================
   const openOrCreateChat = async (otherUid:string, otherData:any) => {
     if (!user) return;
@@ -832,10 +856,9 @@ export default function AJSuperPortal() {
   };
 
   // ==========================================================
-  // Fix #1 & #2: OPEN PROFILE — Null-safe with default values
+  // Fix #5: OPEN PROFILE — Always renders, never shows 404
   // ==========================================================
   const openProfile = async (uid:string) => {
-    // Fix #1: Immediately set screen + socialScreen so profile shows (not 404)
     setScreen('social');
     setSocialScreen('profile');
     setViewingUid(uid);
@@ -847,12 +870,11 @@ export default function AJSuperPortal() {
     try {
       const snap = await getDoc(doc(db,"users",uid));
 
-      // Fix #1 & #2: If doc missing, use safe default values — never show 404
+      // Fix #5: If doc missing, use safe defaults — never crash
       let userData: any;
       if (snap.exists()) {
         userData = { ...snap.data() };
       } else {
-        // Create a minimal default profile so the screen renders
         userData = {
           username: 'AJ Member',
           bio: '',
@@ -865,7 +887,7 @@ export default function AJSuperPortal() {
         };
       }
 
-      // Fix #2: Auto-initialize missing stats fields in Firestore (self-healing)
+      // Fix #5: Auto-initialize missing Number stats fields (self-healing)
       if (snap.exists()) {
         const fix: any = {};
         if (userData.postsCount     === undefined) fix.postsCount     = 0;
@@ -880,15 +902,21 @@ export default function AJSuperPortal() {
 
       setViewProfile(userData);
 
-      // Fetch posts
+      // Fetch posts from pulse_posts + user_posts
       try {
-        const pq = query(collection(db,"user_posts"), orderBy("createdAt","desc"), limit(30));
-        const ps = await getDocs(pq);
-        const all = ps.docs.map(d => ({id:d.id,...d.data() as any}));
-        setProfilePosts(all.filter((p:any) => p.uid===uid && !p.isVideo));
+        // Pulse posts
+        const pq1 = query(collection(db,"pulse_posts"), orderBy("createdAt","desc"), limit(30));
+        const ps1 = await getDocs(pq1);
+        const pulseAll = ps1.docs.map(d => ({id:d.id,...d.data() as any}));
+        setProfilePosts(pulseAll.filter((p:any) => p.uid===uid && !p.isVideo));
+
+        // TikReel posts
+        const pq2 = query(collection(db,"user_posts"), orderBy("createdAt","desc"), limit(30));
+        const ps2 = await getDocs(pq2);
+        const all = ps2.docs.map(d => ({id:d.id,...d.data() as any}));
         const feedVideos = all.filter((p:any) => p.uid===uid && p.isVideo);
 
-        // Fix #3: Fetch from users/{uid}/videos (plural) sub-collection
+        // Fix #6: Fetch from users/{uid}/videos sub-collection
         let subVideos: any[] = [];
         try {
           const vSnap = await getDocs(
@@ -922,7 +950,7 @@ export default function AJSuperPortal() {
       }
     } catch(e) {
       console.error('openProfile error', e);
-      // Even on total failure, show a blank default profile
+      // Even on total failure, always show a safe default profile
       setViewProfile({
         username: 'AJ Member',
         bio: '',
@@ -1072,12 +1100,14 @@ export default function AJSuperPortal() {
     } catch(e) { console.error('sendChatMessage', e); }
   };
 
+  // Fix #3: AJ Pulse posts go to 'pulse_posts' collection with addDoc (no overwrite)
   const handleCreatePost = async () => {
     if (!postText.trim() && !tempPhoto) return alert("Empty Post!");
     try {
       const totalPool = 2.5;
       const userNet   = parseFloat((totalPool * USER_EARN_SHARE).toFixed(4));
-      await addDoc(collection(db,"user_posts"), {
+      // Fix #3: Use 'pulse_posts' collection, addDoc ensures no overwrite, sorted by createdAt
+      await addDoc(collection(db,"pulse_posts"), {
         text:postText, image:tempPhoto, uid:user!.uid,
         username:username||"AJ_Member", photo:user!.photoURL||'',
         likes:0, isVideo:false, createdAt:serverTimestamp()
@@ -1091,8 +1121,9 @@ export default function AJSuperPortal() {
 
   const submitComment = async () => {
     if (!newComment.trim() || !commentPostId) return;
+    const col = (socialScreen === 'pulse') ? 'pulse_posts' : 'user_posts';
     try {
-      await addDoc(collection(db,"user_posts",commentPostId,"comments"), {
+      await addDoc(collection(db, col, commentPostId, "comments"), {
         text:newComment, username:username||"AJ_Member",
         photo:user?.photoURL||'', createdAt:serverTimestamp()
       });
@@ -1102,14 +1133,20 @@ export default function AJSuperPortal() {
 
   const handleDeletePost = async (id:string) => {
     if (confirm("Delete permanently?")) {
-      try { await deleteDoc(doc(db,"user_posts",id)); setActiveMenuId(null); } catch(e) { console.error('handleDeletePost', e); }
+      const col = (socialScreen === 'pulse') ? 'pulse_posts' : 'user_posts';
+      try { await deleteDoc(doc(db, col, id)); setActiveMenuId(null); } catch(e) { console.error('handleDeletePost', e); }
     }
   };
 
   const handleLike  = (id:string) => setLikedPosts((p:any) => ({...p,[id]:!p[id]}));
+  // Fix #2: Native share API
   const handleShare = (msg:string) => {
-    if (navigator.share) navigator.share({ title:'AJ Portal', text:msg });
-    else alert("Link Copied!");
+    if (navigator.share) {
+      navigator.share({ title:'AJ Super Portal', text: msg, url: window.location.href }).catch(() => {});
+    } else {
+      navigator.clipboard?.writeText(window.location.href);
+      alert("Link copied!");
+    }
   };
 
   const activateBot = async (tier:string, cost:number) => {
@@ -1241,16 +1278,13 @@ export default function AJSuperPortal() {
   };
 
   // ══════════════════════════════════════════════════════════
-  // AI TRADING BOT — UNIVERSAL LANGUAGE SUPPORT
+  // Fix #8: AI ASSISTANT — A to Z Knowledge, Language Matching
   // ══════════════════════════════════════════════════════════
-  // ── BOT: Language detector (Hinglish-aware)
   const detectLanguage = (text: string): string => {
-    // Hinglish = English words + Urdu/Hindi Roman script mixed → detect FIRST
     const q = text.toLowerCase();
     const hinglishSignals = /\b(bhai|dost|yaar|kya|kaise|karo|hua|hoga|hoti|hota|seedha|bilkul|thoda|bohot|sirf|abhi|agar|toh|phir|mujhe|aapko|tumhara|mera|apna|paise|kamao|nikalo|karo|dekho|batao|samjhao|lao|bhejo|milega|milta|lagta|sahi|theek|accha|acha)\b/.test(q);
-    if (hinglishSignals) return 'hin'; // Hinglish bucket
+    if (hinglishSignals) return 'hin';
 
-    // Script-based detection
     if (/[\u0600-\u06FF]/.test(text)) {
       if (/[\u0679\u0688\u0691\u06BE\u06C1\u06CC\u06D2]/.test(text) ||
           /کوئن|پیسہ|نکالنا|لائیو|ریفرل|خریدنا|تحفہ|سکے|بیلنس|بھائی|دوست/.test(text))
@@ -1279,17 +1313,15 @@ export default function AJSuperPortal() {
     if (/\b(halo|terima|koin|tarik|beli|hadiah|berapa|bagaimana)\b/.test(q))           return 'id';
     if (/\b(xin chào|cảm ơn|đồng xu|rút tiền|mua|quà tặng)\b/.test(q))               return 'vi';
     if (/\b(شکریہ|آپ|ہے|کیا|کیسے|میں|آپ کا)\b/.test(q))                              return 'ur';
-    const locale = (navigator?.language || 'en').split('-')[0].toLowerCase();
+    const locale = (typeof navigator !== 'undefined' ? navigator.language : 'en').split('-')[0].toLowerCase();
     const supported = ['fr','es','de','it','pt','tr','ru','id','vi','ar','hi','bn','zh','ja','ko','pa','ur','fa','th','el','he'];
     if (supported.includes(locale)) return locale;
     return 'en';
   };
 
-  // ── BOT: Full knowledge base (A to Z)
   type BotLang = 'en'|'hin'|'ur'|'hi'|'ar'|'bn'|'pa'|'fr'|'es'|'de'|'it'|'pt'|'tr'|'ru'|'id'|'vi'|'zh'|'ja'|'ko'|'fa'|'th'|'el'|'he';
   const BOT_KB: Record<string, Record<BotLang|string, string>> = {
 
-    // ─── GREETING ────────────────────────────────────────────
     greeting: {
       en:  `Welcome back! 😊 I can help you with:\n🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\n🪙 Coins & Earning • 💸 Withdraw • 🎁 Gifts • ⚔️ PK Battle\nJust ask me anything!`,
       hin: `Bhai, kya scene hai! 😄 Main yahan hoon:\n🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\n🪙 Coins earning • 💸 Withdraw • 🎁 Gifts • ⚔️ PK Battle\nKuch bhi poocho, seedha batata hoon! 🔥`,
@@ -1298,7 +1330,6 @@ export default function AJSuperPortal() {
       ar:  `مرحباً! 😊 يمكنني مساعدتك في:\n🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\n🪙 الكوينز • 💸 السحب • 🎁 الهدايا • ⚔️ PK\nاسألني أي شيء!`,
     },
 
-    // ─── COIN / BALANCE / EARNING ─────────────────────────────
     coin: {
       en:  `🪙 AJ Coins — Full Breakdown:\n\n• Rate: $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1 cash-out\n• Welcome Bonus: 500 Coins on signup 🎉\n• Referral Bonus: +${REFERRAL_COINS} Coins per friend referred\n• Post on AJ Pulse: +0.75 Coins per post\n• TikReel video: +0.75 Coins per upload\n• AI Bot (Basic): 2% daily on invested coins\n• AI Bot (VVIP): 5% daily on invested coins\n• Live gifts received: 60% goes to you!\n\nGo to Wallet → Purchase to top up anytime. 💰`,
       hin: `Bhai, yeh lo puri detail! 🪙\n\n• Rate: $1 = ${COIN_RATE} Coins | Cash out: ${CASH_RATE} Coins = $1\n• Signup bonus: 500 Coins FREE 🎉\n• Referral: +${REFERRAL_COINS} Coins har dost ke liye\n• Post karo AJ Pulse pe: +0.75 Coins\n• TikReel video upload: +0.75 Coins\n• AI Bot Basic: 2% daily profit\n• AI Bot VVIP: 5% daily profit 🔥\n• Live pe gifts milein: 60% tumhara!\n\nWallet → Purchase se recharge karo, dost! 💰`,
@@ -1307,207 +1338,156 @@ export default function AJSuperPortal() {
       ar:  `🪙 AJ Coins — تفاصيل كاملة:\n\n• السعر: $1 = ${COIN_RATE} كوين | ${CASH_RATE} كوين = $1\n• مكافأة التسجيل: 500 كوين مجاناً 🎉\n• الإحالة: +${REFERRAL_COINS} كوين لكل صديق\n• نشر على AJ Pulse: +0.75 كوين\n• TikReel فيديو: +0.75 كوين\n• AI Bot أساسي: 2% يومياً\n• AI Bot VVIP: 5% يومياً 🔥\n• هدايا البث المباشر: 60% لك!\n\nاذهب إلى المحفظة → الشراء للشحن 💰`,
     },
 
-    // ─── TIKREELS ─────────────────────────────────────────────
     tikreels: {
-      en:  `🎬 AJ TikReels — TikTok-style short videos!\n\n• Go to Social → AJ TikReels → Feed tab\n• Scroll up/down to watch videos (YouTube Shorts style)\n• Click the avatar/profile pic to view any creator's profile\n• Toggle Sound ON/OFF with the top-right button\n• Like ❤️, Comment 💬, Share 🔗, or send Gifts 🎁 on any video\n• Upload your own: hit ➕ Post tab, add caption + image/video\n• Each upload earns you +0.75 Coins 🪙\n• View counts show as 1k, 2k, 1.5M on profile grids`,
-      hin: `🎬 AJ TikReels — TikTok jaisi short videos!\n\nBhai, ekdum easy hai:\n• Social → AJ TikReels → Feed tab pe jao\n• Videos scroll karo, YouTube Shorts style\n• Kisi bhi creator ki profile pic tap karo → unki profile open\n• Sound ON/OFF ka button upar right mein hai\n• Like ❤️, Comment 💬, Gift 🎁 kar sakte ho\n• Apni video upload karo: ➕ Post tab → +0.75 Coins milenge 🔥\n• Profile grid pe views 1k, 2k, 1.5M format mein dikhte hain`,
-      ur:  `🎬 AJ TikReels — TikTok طرز کی مختصر ویڈیوز!\n\n• Social → AJ TikReels → Feed tab پر جائیں\n• ویڈیوز اسکرول کریں (YouTube Shorts انداز)\n• کسی کی بھی پروفائل تصویر ٹیپ کریں → پروفائل کھلے گی\n• آواز ON/OFF بٹن اوپر دائیں طرف ہے\n• Like ❤️، Comment 💬، Gift 🎁 بھیجیں\n• اپنی ویڈیو: ➕ Post tab → +0.75 Coins 🔥\n• پروفائل گرڈ پر views: 1k، 2k، 1.5M فارمیٹ`,
-      hi:  `🎬 AJ TikReels — TikTok स्टाइल शॉर्ट वीडियो!\n\n• Social → AJ TikReels → Feed tab जाएं\n• वीडियो स्क्रॉल करें (YouTube Shorts स्टाइल)\n• किसी की प्रोफाइल पिक टैप करें → उनकी प्रोफाइल खुलेगी\n• Sound ON/OFF बटन ऊपर दाईं ओर है\n• Like ❤️, Comment 💬, Gift 🎁 भेजें\n• अपनी वीडियो: ➕ Post → +0.75 Coins 🔥\n• Profile grid पर views: 1k, 2k, 1.5M format`,
-      ar:  `🎬 AJ TikReels — فيديوهات قصيرة!\n\n• اذهب إلى Social → AJ TikReels → Feed\n• مرر الفيديوهات (YouTube Shorts)\n• اضغط على الصورة الشخصية لأي منشئ محتوى\n• زر Sound ON/OFF في أعلى اليمين\n• أعجب ❤️، علق 💬، أرسل هدية 🎁\n• ارفع فيديو: ➕ Post → +0.75 كوين 🔥\n• عدد المشاهدات: 1k، 2k، 1.5M`,
+      en:  `🎬 AJ TikReels — TikTok-style short videos!\n\n• Go to Social → AJ TikReels → Feed tab\n• Scroll up/down to watch videos\n• Click the avatar/profile pic to view any creator's profile\n• Toggle Sound ON/OFF with the top-right button\n• Like ❤️, Comment 💬, Share 🔗, or send Gifts 🎁\n• Upload your own: hit ➕ Post tab, add caption + image/video\n• Each upload earns you +0.75 Coins 🪙\n• View counts show as 1k, 2k, 1.5M on profile grids`,
+      hin: `🎬 AJ TikReels — TikTok jaisi short videos!\n\n• Social → AJ TikReels → Feed tab pe jao\n• Videos scroll karo\n• Kisi bhi creator ki profile pic tap karo → unki profile open\n• Sound ON/OFF ka button upar right mein hai\n• Like ❤️, Comment 💬, Gift 🎁 kar sakte ho\n• Apni video upload karo: ➕ Post tab → +0.75 Coins milenge 🔥\n• Profile grid pe views 1k, 2k, 1.5M format mein dikhte hain`,
+      ur:  `🎬 AJ TikReels — TikTok طرز کی مختصر ویڈیوز!\n\n• Social → AJ TikReels → Feed tab\n• ویڈیوز اسکرول کریں\n• کسی کی بھی پروفائل تصویر ٹیپ کریں → پروفائل کھلے گی\n• آواز ON/OFF بٹن اوپر دائیں\n• Like ❤️، Comment 💬، Gift 🎁\n• اپنی ویڈیو: ➕ Post tab → +0.75 Coins 🔥\n• پروفائل گرڈ پر views: 1k، 2k، 1.5M فارمیٹ`,
+      hi:  `🎬 AJ TikReels — TikTok स्टाइल!\n\n• Social → AJ TikReels → Feed\n• Videos scroll करें\n• Profile pic टैप → profile खुलेगी\n• Sound ON/OFF बटन ऊपर\n• Like ❤️, Comment 💬, Gift 🎁\n• Video upload: ➕ Post → +0.75 Coins 🔥\n• Profile grid: 1k, 2k, 1.5M format`,
+      ar:  `🎬 AJ TikReels:\n\n• Social → AJ TikReels → Feed\n• مرر الفيديوهات\n• اضغط على الصورة الشخصية → ملف المنشئ\n• Sound ON/OFF\n• أعجب ❤️، علق 💬، هدية 🎁\n• ارفع فيديو: ➕ Post → +0.75 كوين 🔥\n• عدد المشاهدات: 1k، 2k، 1.5M`,
     },
 
-    // ─── AJ PULSE (LIVE / FEED) ───────────────────────────────
     pulse: {
       en:  `📡 AJ Pulse — Instagram-style feed + Live streaming!\n\n📸 Feed:\n• Scroll posts, like, comment, share, send gifts\n• Tap any user's avatar → opens their full profile\n• Post your own content → +0.75 Coins per post\n\n🔴 Go Live:\n• Social Hub → GO LIVE button (needs camera permission)\n• Share your Room ID so viewers can join\n• Viewers send gifts → You keep 60% of gift value!\n• OR join someone's live: paste their Room ID → Join\n\n⚔️ PK Battle: Challenge any live streamer — 100 Coins entry, 5-min battle, most gifts wins! 🏆`,
-      hin: `📡 AJ Pulse — Instagram + Live streaming combo!\n\nBhai, yeh features hain:\n📸 Feed:\n• Posts scroll karo, like/comment/gift karo\n• Kisi bhi user ki dp tap karo → uski profile open 🔥\n• Apni post daalo → +0.75 Coins\n\n🔴 Live:\n• Social Hub → GO LIVE (camera permission chahiye)\n• Room ID share karo taaki log join kar sakein\n• Viewers gifts bhejein → 60% tumhara! 💰\n• Kisi aur ki live join karo: Room ID paste karo → Join\n\n⚔️ PK Battle: 100 Coins entry, 5 min, jyada gifts = jeet! 🏆`,
-      ur:  `📡 AJ Pulse — Instagram طرز فیڈ + Live!\n\n📸 فیڈ:\n• پوسٹس اسکرول کریں، like/comment/gift کریں\n• کسی بھی یوزر کی تصویر ٹیپ کریں → پروفائل کھلے گی 🔥\n• اپنی پوسٹ ڈالیں → +0.75 Coins\n\n🔴 Live:\n• Social Hub → GO LIVE (کیمرہ اجازت ضروری)\n• Room ID شیئر کریں تاکہ دیکھنے والے join کریں\n• Viewers تحفے بھیجیں → 60% آپ کا! 💰\n• کسی کی Live join کریں: Room ID پیسٹ کریں\n\n⚔️ PK Battle: 100 Coins، 5 منٹ، زیادہ تحفے = فاتح 🏆`,
-      hi:  `📡 AJ Pulse — Instagram + Live streaming!\n\n📸 Feed:\n• Posts देखें, like/comment/gift करें\n• किसी का avatar टैप करें → उनकी profile खुलेगी 🔥\n• अपनी post डालें → +0.75 Coins\n\n🔴 Live:\n• Social Hub → GO LIVE (camera permission चाहिए)\n• Room ID share करें ताकि लोग join करें\n• Viewers gifts भेजें → 60% आपका! 💰\n• किसी की Live join करें: Room ID paste करें\n\n⚔️ PK Battle: 100 Coins entry, 5 min, ज़्यादा gifts = जीत 🏆`,
-      ar:  `📡 AJ Pulse — بث مباشر + منشورات!\n\n📸 المنشورات:\n• تصفح، أعجب، علق، أرسل هدايا\n• اضغط على صورة أي مستخدم → ملفه الشخصي 🔥\n• انشر محتوى → +0.75 كوين\n\n🔴 البث المباشر:\n• Social Hub → GO LIVE\n• شارك Room ID ليتمكن المشاهدون من الانضمام\n• المشاهدون يرسلون هدايا → 60% لك!\n• انضم لبث شخص: الصق Room ID → انضم\n\n⚔️ PK Battle: 100 كوين، 5 دقائق، أكثر هدايا = فوز 🏆`,
+      hin: `📡 AJ Pulse — Instagram + Live streaming combo!\n\n📸 Feed:\n• Posts scroll karo, like/comment/gift karo\n• Kisi bhi user ki dp tap karo → uski profile open 🔥\n• Apni post daalo → +0.75 Coins\n\n🔴 Live:\n• Social Hub → GO LIVE (camera permission chahiye)\n• Room ID share karo taaki log join kar sakein\n• Viewers gifts bhejein → 60% tumhara! 💰\n• Kisi aur ki live join karo: Room ID paste karo → Join\n\n⚔️ PK Battle: 100 Coins entry, 5 min, jyada gifts = jeet! 🏆`,
+      ur:  `📡 AJ Pulse:\n\n📸 فیڈ:\n• پوسٹس اسکرول، like/comment/gift\n• avatar ٹیپ → پروفائل 🔥\n• اپنی پوسٹ → +0.75 Coins\n\n🔴 Live:\n• Social Hub → GO LIVE\n• Room ID شیئر کریں\n• gifts → 60% آپ کا! 💰\n\n⚔️ PK Battle: 100 Coins، 5 منٹ 🏆`,
+      hi:  `📡 AJ Pulse:\n\n📸 Feed:\n• Posts, like/comment/gift\n• Avatar टैप → profile 🔥\n• अपनी post → +0.75 Coins\n\n🔴 Live:\n• Social Hub → GO LIVE\n• Room ID share करें\n• Gifts → 60% आपका! 💰\n\n⚔️ PK Battle: 100 Coins, 5 min 🏆`,
+      ar:  `📡 AJ Pulse:\n\n📸 منشورات:\n• تصفح، like/comment/gift\n• avatar → ملف شخصي 🔥\n• نشر → +0.75 كوين\n\n🔴 بث مباشر:\n• GO LIVE\n• شارك Room ID\n• gifts → 60% لك!\n\n⚔️ PK Battle: 100 كوين، 5 دقائق 🏆`,
     },
 
-    // ─── SOCIAL (Follow / DM / Profile) ──────────────────────
     social: {
-      en:  `👤 Social Features — A to Z:\n\n• 🔍 View any profile: tap any avatar/profile pic anywhere in the app\n• ➕ Follow / Unfollow users from their profile page\n• 💬 Message (DM): tap "Message" button on any profile → opens private chat\n• 📊 Profile shows: Posts count, Followers, Following, Total Likes, video grid\n• 📹 Video grid shows view counts (1k, 2k format)\n• 🎯 Setup your own profile: Social Hub → Settings → Edit Profile`,
-      hin: `👤 Social Features — poori detail:\n\nBhai, yeh sab hota hai:\n• 🔍 Koi bhi profile dekhni hai? Bas uski dp ya avatar tap karo\n• ➕ Follow / Unfollow: profile page pe button hai\n• 💬 DM karna hai? "Message" button tap karo → private chat khulega 🔥\n• 📊 Profile pe dikhta hai: Posts, Followers, Following, Total Likes, videos\n• 📹 Video grid pe views: 1k, 2k format mein\n• 🎯 Apni profile banao: Social Hub → Settings → Edit Profile`,
-      ur:  `👤 Social Features — مکمل تفصیل:\n\n• 🔍 کوئی بھی پروفائل دیکھیں: avatar یا تصویر ٹیپ کریں\n• ➕ Follow / Unfollow: پروفائل پیج پر بٹن ہے\n• 💬 DM کریں: "Message" بٹن → private chat کھلے گی 🔥\n• 📊 پروفائل پر: Posts، Followers، Following، Total Likes، videos\n• 📹 Video grid پر views: 1k، 2k فارمیٹ\n• 🎯 اپنی پروفائل: Social Hub → Settings → Edit Profile`,
-      hi:  `👤 Social Features — पूरी जानकारी:\n\n• 🔍 कोई भी profile देखें: avatar टैप करें\n• ➕ Follow / Unfollow: profile page पर बटन\n• 💬 DM: "Message" बटन → private chat 🔥\n• 📊 Profile पर: Posts, Followers, Following, Likes, videos\n• 📹 Video grid पर views: 1k, 2k format\n• 🎯 अपनी profile: Social Hub → Settings → Edit Profile`,
-      ar:  `👤 الميزات الاجتماعية:\n\n• 🔍 عرض أي ملف شخصي: اضغط على الصورة الرمزية\n• ➕ متابعة / إلغاء المتابعة من الملف الشخصي\n• 💬 رسالة خاصة: زر "Message" → محادثة خاصة 🔥\n• 📊 الملف الشخصي: منشورات، متابعون، يتابع، إجمالي الإعجابات\n• 📹 شبكة الفيديو: عدد المشاهدات بتنسيق 1k، 2k\n• 🎯 إعداد ملفك: Social Hub → Settings → Edit Profile`,
+      en:  `👤 Social Features — A to Z:\n\n• 🔍 View any profile: tap any avatar/profile pic anywhere\n• ➕ Follow / Unfollow from their profile page\n• 💬 Message (DM): tap "Message" button on any profile\n• 📊 Profile: Posts, Followers, Following, Total Likes, video grid\n• 📹 Video grid shows view counts (1k, 2k format)\n• 🎯 Setup your own: Social Hub → Settings → Edit Profile`,
+      hin: `👤 Social Features:\n\n• 🔍 Koi bhi profile: dp ya avatar tap karo\n• ➕ Follow / Unfollow profile page pe\n• 💬 DM: "Message" button → private chat 🔥\n• 📊 Profile: Posts, Followers, Following, Likes, videos\n• 📹 Video grid: 1k, 2k views\n• 🎯 Apni profile: Social Hub → Settings → Edit Profile`,
+      ur:  `👤 Social Features:\n\n• 🔍 کوئی بھی پروفائل: avatar ٹیپ\n• ➕ Follow / Unfollow\n• 💬 DM: "Message" → private chat 🔥\n• 📊 Posts، Followers، Likes، videos\n• 📹 1k، 2k views\n• 🎯 اپنی: Social Hub → Settings`,
+      hi:  `👤 Social Features:\n\n• 🔍 Profile: avatar टैप\n• ➕ Follow / Unfollow\n• 💬 DM: "Message" 🔥\n• 📊 Posts, Followers, Likes, videos\n• 📹 1k, 2k views\n• 🎯 अपनी: Settings → Edit Profile`,
+      ar:  `👤 الميزات الاجتماعية:\n\n• 🔍 أي ملف: اضغط الصورة\n• ➕ متابعة / إلغاء\n• 💬 رسالة خاصة 🔥\n• 📊 منشورات، متابعون، إعجابات\n• 📹 1k، 2k مشاهدة\n• 🎯 إعداد ملفك: Settings`,
     },
 
-    // ─── GAMING ───────────────────────────────────────────────
     gaming: {
-      en:  `🎮 AJ Gaming Zone — Play & Multiply Coins!\n\n• Access: Tap "Gaming" from the main Hub\n• Games: Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\n• Play 1v1 style games to multiply your AJ Coins\n• Coming soon: Ludo Elite Royal, Puck Pulse Elite 🔜\n• More games being added — stay tuned! 🎯`,
-      hin: `🎮 AJ Gaming Zone — Coins multiply karo!\n\nBhai, yeh games hain:\n• Main Hub se "Gaming" tap karo\n• Games: Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\n• 1v1 games khelo, coins multiply honge 🔥\n• Jald aane wale: Ludo Elite Royal, Puck Pulse Elite 🔜\n• Aur games bhi add ho rahe hain!`,
-      ur:  `🎮 AJ Gaming Zone — Coins multiply کریں!\n\n• Main Hub سے "Gaming" ٹیپ کریں\n• گیمز: Rider King، Pulse Racer، Subsea Surge، Neon Strike، Volcano Escape\n• 1v1 گیمز کھیلیں، Coins multiply ہوں گے 🔥\n• جلد آنے والے: Ludo Elite Royal، Puck Pulse Elite 🔜`,
-      hi:  `🎮 AJ Gaming Zone — Coins multiply करो!\n\n• Main Hub से "Gaming" टैप करें\n• Games: Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\n• 1v1 games खेलो, coins multiply होंगे 🔥\n• जल्द: Ludo Elite Royal, Puck Pulse Elite 🔜`,
-      ar:  `🎮 منطقة الألعاب AJ — اضاعف كوينزك!\n\n• افتح "Gaming" من الرئيسية\n• الألعاب: Rider King، Pulse Racer، Subsea Surge، Neon Strike، Volcano Escape\n• العب 1v1 لمضاعفة الكوينز 🔥\n• قريباً: Ludo Elite Royal، Puck Pulse Elite 🔜`,
+      en:  `🎮 AJ Gaming Zone — Play & Multiply Coins!\n\n• Access: Tap "Gaming" from the main Hub\n• Games: Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\n• Play 1v1 style games to multiply your AJ Coins\n• Coming soon: Ludo Elite Royal, Puck Pulse Elite 🔜`,
+      hin: `🎮 AJ Gaming Zone:\n\nBhai, yeh games hain:\n• Main Hub → "Gaming"\n• Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\n• 1v1 games khelo, coins multiply honge 🔥\n• Jald: Ludo Elite Royal, Puck Pulse Elite 🔜`,
+      ur:  `🎮 AJ Gaming Zone:\n\n• Main Hub → "Gaming"\n• Rider King، Pulse Racer، Subsea Surge، Neon Strike، Volcano Escape\n• Coins multiply کریں 🔥\n• جلد: Ludo Elite Royal، Puck Pulse Elite 🔜`,
+      hi:  `🎮 AJ Gaming Zone:\n\n• Main Hub → "Gaming"\n• Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\n• Coins multiply करो 🔥\n• जल्द: Ludo Elite Royal 🔜`,
+      ar:  `🎮 منطقة الألعاب:\n\n• "Gaming" من الرئيسية\n• Rider King، Pulse Racer، Subsea Surge، Neon Strike، Volcano Escape\n• اضاعف كوينزك 🔥\n• قريباً: Ludo Elite Royal 🔜`,
     },
 
-    // ─── REFER ────────────────────────────────────────────────
     refer: {
-      en:  `👥 Referral System — Earn Free Coins!\n\n• Your Referral Code = your User ID (find it in Wallet or Social Hub)\n• Share your ID with friends\n• They go to Wallet → "Enter Referral Code" and paste your ID\n• You receive +${REFERRAL_COINS} Coins per successful referral 🎉\n• No limit — refer as many people as you want!\n\nTip: Copy your ID from the Social Hub referral card and share on WhatsApp/Instagram 📤`,
-      hin: `👥 Referral System — Free Coins kamao!\n\nBhai, ekdum simple:\n• Tera Referral Code = tera User ID (Wallet ya Social Hub mein milega)\n• ID apne doston ko share karo\n• Wo Wallet → "Enter Referral Code" mein tera ID daalen\n• Tujhe +${REFERRAL_COINS} Coins milenge 🎉\n• Koi limit nahi — jitne dost lao, utna kamao!\n\nTip: Social Hub ka referral card se copy karo aur WhatsApp pe share karo 📤`,
-      ur:  `👥 Referral System — مفت Coins کمائیں!\n\n• آپ کا Referral Code = آپ کا User ID (Wallet یا Social Hub میں)\n• ID اپنے دوستوں کو شیئر کریں\n• وہ Wallet → "Enter Referral Code" میں ڈالیں\n• آپ کو +${REFERRAL_COINS} Coins ملیں گے 🎉\n• کوئی حد نہیں — جتنے دوست لائیں!\n\nTip: Social Hub سے copy کریں اور WhatsApp پر شیئر کریں 📤`,
-      hi:  `👥 Referral System — Free Coins कमाओ!\n\n• तुम्हारा Referral Code = तुम्हारा User ID (Wallet या Social Hub में)\n• ID दोस्तों को share करो\n• वो Wallet → "Enter Referral Code" में डालें\n• तुम्हें +${REFERRAL_COINS} Coins मिलेंगे 🎉\n• कोई limit नहीं — जितने दोस्त लाओ!\n\nTip: Social Hub से copy करके WhatsApp पर share करो 📤`,
-      ar:  `👥 نظام الإحالة — اكسب كوينز مجاناً!\n\n• رمز الإحالة = معرّفك (في المحفظة أو Social Hub)\n• شارك معرّفك مع أصدقائك\n• يذهبون إلى المحفظة → "أدخل رمز الإحالة"\n• تحصل على +${REFERRAL_COINS} كوين 🎉\n• بلا حدود — كلما زادت الإحالات زادت الكوينز!\n\nنصيحة: انسخ من Social Hub وشارك عبر واتساب 📤`,
+      en:  `👥 Referral System — Earn Free Coins!\n\n• Your Referral Code = your User ID (find it in Wallet or Social Hub)\n• Share your ID with friends\n• They go to Wallet → "Enter Referral Code" and paste your ID\n• You receive +${REFERRAL_COINS} Coins per successful referral 🎉\n• No limit — refer as many as you want!\n\nTip: Copy your ID from the Social Hub referral card and share on WhatsApp/Instagram 📤`,
+      hin: `👥 Referral System:\n\n• Tera Referral Code = tera User ID (Wallet ya Social Hub mein)\n• ID apne doston ko share karo\n• Wo Wallet → "Enter Referral Code" mein tera ID daalen\n• Tujhe +${REFERRAL_COINS} Coins milenge 🎉\n• Koi limit nahi!\n\nTip: Social Hub se copy karo aur WhatsApp pe share karo 📤`,
+      ur:  `👥 Referral System:\n\n• آپ کا Referral Code = آپ کا User ID\n• ID شیئر کریں\n• Wallet → "Enter Referral Code"\n• +${REFERRAL_COINS} Coins 🎉\n• کوئی حد نہیں!\n\nTip: WhatsApp پر شیئر کریں 📤`,
+      hi:  `👥 Referral System:\n\n• Referral Code = User ID\n• ID दोस्तों को share करो\n• Wallet → "Enter Referral Code"\n• +${REFERRAL_COINS} Coins 🎉\n• कोई limit नहीं!\n\nTip: WhatsApp पर share करो 📤`,
+      ar:  `👥 نظام الإحالة:\n\n• رمز الإحالة = معرّفك\n• شارك المعرّف\n• المحفظة → "أدخل رمز الإحالة"\n• +${REFERRAL_COINS} كوين 🎉\n• بلا حدود!\n\nنصيحة: شارك عبر واتساب 📤`,
     },
 
-    // ─── WITHDRAW ─────────────────────────────────────────────
     withdraw: {
-      en:  `💸 Withdrawal — How to Cash Out:\n\n• Minimum: ${WITHDRAW_MIN.toLocaleString()} Coins = ${WITHDRAW_MIN/CASH_RATE} USD\n• Rate: ${CASH_RATE} Coins = $1\n• Go to: Wallet → Withdraw\n\n📋 Payment Methods:\n1. EasyPaisa (mobile number)\n2. JazzCash (mobile number)\n3. Binance USDT TRC20 (wallet address)\n4. AirTM (email)\n5. Bank / Visa / Mastercard (global)\n\n⏱️ Processed within 24 hours after request. Ensure your details are correct!`,
-      hin: `💸 Withdraw kaise karo — poori detail:\n\n• Minimum: ${WITHDRAW_MIN.toLocaleString()} Coins = ${WITHDRAW_MIN/CASH_RATE}\n• Rate: ${CASH_RATE} Coins = $1\n• Jao: Wallet → Withdraw\n\n📋 Payment Methods:\n1. EasyPaisa\n2. JazzCash\n3. Binance USDT TRC20\n4. AirTM\n5. Bank / Visa / Mastercard (worldwide)\n\n⏱️ 24 ghante mein process hota hai, dost! Details sahi bharo 🙏`,
-      ur:  `💸 نکاسی — مکمل تفصیل:\n\n• کم از کم: ${WITHDRAW_MIN.toLocaleString()} Coins = ${WITHDRAW_MIN/CASH_RATE}\n• شرح: ${CASH_RATE} Coins = $1\n• جائیں: Wallet → Withdraw\n\n📋 ادائیگی کے طریقے:\n1. EasyPaisa\n2. JazzCash\n3. Binance USDT TRC20\n4. AirTM\n5. Bank / Visa / Mastercard (عالمی)\n\n⏱️ 24 گھنٹوں میں مکمل — تفصیلات درست بھریں!`,
-      hi:  `💸 Withdrawal — पूरी जानकारी:\n\n• Minimum: ${WITHDRAW_MIN.toLocaleString()} Coins = ${WITHDRAW_MIN/CASH_RATE}\n• Rate: ${CASH_RATE} Coins = $1\n• Wallet → Withdraw जाएं\n\n📋 Payment Methods:\n1. EasyPaisa\n2. JazzCash\n3. Binance USDT TRC20\n4. AirTM\n5. Bank / Visa / Mastercard\n\n⏱️ 24 घंटे में process होता है!`,
-      ar:  `💸 السحب — كيفية صرف الكوينز:\n\n• الحد الأدنى: ${WITHDRAW_MIN.toLocaleString()} كوين = ${WITHDRAW_MIN/CASH_RATE}\n• السعر: ${CASH_RATE} كوين = $1\n• اذهب إلى: المحفظة → السحب\n\n📋 طرق الدفع:\n1. EasyPaisa\n2. JazzCash\n3. Binance USDT TRC20\n4. AirTM\n5. بنك / فيزا / ماستركارد\n\n⏱️ يُعالج خلال 24 ساعة!`,
+      en:  `💸 Withdrawal — How to Cash Out:\n\n• Minimum: ${WITHDRAW_MIN.toLocaleString()} Coins = $${WITHDRAW_MIN/CASH_RATE} USD\n• Rate: ${CASH_RATE} Coins = $1\n• Go to: Wallet → Withdraw\n\n📋 Methods:\n1. EasyPaisa\n2. JazzCash\n3. Binance USDT TRC20\n4. AirTM\n5. Bank / Visa / Mastercard\n\n⏱️ Processed within 24 hours!`,
+      hin: `💸 Withdraw kaise karo:\n\n• Minimum: ${WITHDRAW_MIN.toLocaleString()} Coins = $${WITHDRAW_MIN/CASH_RATE}\n• Rate: ${CASH_RATE} Coins = $1\n• Wallet → Withdraw\n\n📋 Methods:\n1. EasyPaisa\n2. JazzCash\n3. Binance USDT TRC20\n4. AirTM\n5. Bank / Visa / Mastercard\n\n⏱️ 24 ghante mein process hota hai, dost! 🙏`,
+      ur:  `💸 نکاسی:\n\n• کم از کم: ${WITHDRAW_MIN.toLocaleString()} Coins = $${WITHDRAW_MIN/CASH_RATE}\n• Wallet → Withdraw\n\n📋 طریقے:\n1. EasyPaisa\n2. JazzCash\n3. Binance USDT TRC20\n4. AirTM\n5. Bank / Visa / Mastercard\n\n⏱️ 24 گھنٹوں میں!`,
+      hi:  `💸 Withdrawal:\n\n• Minimum: ${WITHDRAW_MIN.toLocaleString()} Coins = $${WITHDRAW_MIN/CASH_RATE}\n• Wallet → Withdraw\n\n📋 Methods:\n1. EasyPaisa\n2. JazzCash\n3. Binance USDT TRC20\n4. AirTM\n5. Bank / Visa / Mastercard\n\n⏱️ 24 घंटे में!`,
+      ar:  `💸 السحب:\n\n• الحد الأدنى: ${WITHDRAW_MIN.toLocaleString()} كوين = $${WITHDRAW_MIN/CASH_RATE}\n• المحفظة → السحب\n\n📋 الطرق:\n1. EasyPaisa\n2. JazzCash\n3. Binance USDT TRC20\n4. AirTM\n5. بنك / فيزا / ماستركارد\n\n⏱️ 24 ساعة!`,
     },
 
-    // ─── PURCHASE / BUY COINS ─────────────────────────────────
     buy: {
-      en:  `💰 Purchase AJ Coins:\n\n• Minimum: ${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\n• Rate: $1 = ${COIN_RATE} Coins\n• Go to: Wallet → Purchase\n\n📋 Payment options:\n1. Binance USDT TRC20 (auto invoice)\n2. Airtm (Gmail account)\n3. EasyPaisa\n4. JazzCash\n5. Bank / Visa / Mastercard (global)\n\nFor EasyPaisa/JazzCash/Bank → send payment → enter Transaction ID → submit.\nCoins credited within minutes after verification! ✅`,
-      hin: `💰 Coins kaise kharido — poori detail:\n\n• Minimum: ${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\n• Rate: $1 = ${COIN_RATE} Coins\n• Jao: Wallet → Purchase\n\n📋 Payment options:\n1. Binance USDT TRC20 (auto invoice milega)\n2. Airtm\n3. EasyPaisa\n4. JazzCash\n5. Bank / Visa / Mastercard\n\nPayment karo → Transaction ID daalo → Submit!\nVerification ke baad Coins kuch hi minute mein! ✅`,
-      ur:  `💰 Coins کیسے خریدیں:\n\n• کم از کم: ${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\n• شرح: $1 = ${COIN_RATE} Coins\n• Wallet → Purchase\n\n📋 ادائیگی:\n1. Binance USDT TRC20\n2. Airtm\n3. EasyPaisa\n4. JazzCash\n5. Bank / Visa / Mastercard\n\nPayment → Transaction ID → Submit!\nTھوڑی دیر میں Coins ✅`,
-      hi:  `💰 Coins कैसे खरीदें:\n\n• Minimum: ${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\n• Rate: $1 = ${COIN_RATE} Coins\n• Wallet → Purchase\n\n📋 Payment:\n1. Binance USDT TRC20\n2. Airtm\n3. EasyPaisa\n4. JazzCash\n5. Bank / Visa / Mastercard\n\nPayment → Transaction ID → Submit!\nकुछ मिनट में Coins ✅`,
-      ar:  `💰 شراء كوينز:\n\n• الحد الأدنى: ${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} كوين\n• السعر: $1 = ${COIN_RATE} كوين\n• المحفظة → شراء\n\n📋 طرق الدفع:\n1. Binance USDT TRC20\n2. Airtm\n3. EasyPaisa\n4. JazzCash\n5. بنك / فيزا / ماستركارد\n\nادفع → أدخل معرّف المعاملة → أرسل!\nكوينز خلال دقائق ✅`,
+      en:  `💰 Purchase AJ Coins:\n\n• Minimum: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\n• Rate: $1 = ${COIN_RATE} Coins\n• Wallet → Purchase\n\n📋 Options:\n1. Binance USDT TRC20 (auto invoice)\n2. Airtm\n3. EasyPaisa\n4. JazzCash\n5. Bank / Visa / Mastercard\n\nSend payment → enter TX ID → submit. Coins credited within minutes! ✅`,
+      hin: `💰 Coins kharido:\n\n• Minimum: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\n• $1 = ${COIN_RATE} Coins\n• Wallet → Purchase\n\n📋 Options:\n1. Binance USDT TRC20\n2. Airtm\n3. EasyPaisa\n4. JazzCash\n5. Bank / Visa / Mastercard\n\nPayment → TX ID → Submit! Kuch minute mein Coins ✅`,
+      ur:  `💰 Coins خریدیں:\n\n• کم از کم: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\n• Wallet → Purchase\n\n📋 طریقے:\n1. Binance\n2. Airtm\n3. EasyPaisa\n4. JazzCash\n5. Bank / Visa\n\nPayment → TX ID → Submit ✅`,
+      hi:  `💰 Coins खरीदें:\n\n• Minimum: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\n• Wallet → Purchase\n\nPayment → TX ID → Submit!\nकुछ मिनट में Coins ✅`,
+      ar:  `💰 شراء كوينز:\n\n• الحد الأدنى: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} كوين\n• المحفظة → شراء\n\nادفع → أدخل TX ID → أرسل!\nكوينز خلال دقائق ✅`,
     },
 
-    // ─── GO LIVE ──────────────────────────────────────────────
     live: {
-      en:  `📡 Go Live on AJ Portal:\n\n1. Social Hub → tap "GO LIVE" (red button)\n2. Allow camera + microphone permission\n3. Your live starts in HD via Agora engine\n4. Share your Room ID — viewers paste it to join\n5. Viewers send you gifts → you keep 60% of every gift! 💰\n\n⚔️ PK Battle during live:\n• Tap PK button → enter rival's User ID\n• 100 Coins deducted from each\n• 5-minute timer — whoever gets most gifts wins 🏆\n\nLive chat is visible to you in real time 💬`,
-      hin: `📡 AJ Portal pe Live kaise jaao:\n\nBhai, easy hai:\n1. Social Hub → "GO LIVE" (red button)\n2. Camera + mic ki permission do\n3. Agora HD streaming shuru\n4. Room ID share karo → viewers paste karein → join!\n5. Viewers gifts bhejein → 60% tera! 💰\n\n⚔️ PK Battle:\n• PK button dabao → rival ka User ID daalo\n• Dono se 100 Coins katenge\n• 5 minute, jyada gifts = jeet 🏆\n\nLive chat real-time mein dikhe ga 💬`,
-      ur:  `📡 AJ Portal پر Live کیسے جائیں:\n\n1. Social Hub → "GO LIVE" (سرخ بٹن)\n2. Camera + microphone اجازت دیں\n3. Agora HD streaming شروع\n4. Room ID شیئر کریں → Viewers join کریں\n5. Viewers تحفے بھیجیں → 60% آپ کا! 💰\n\n⚔️ PK Battle:\n• PK بٹن → حریف User ID\n• دونوں سے 100 Coins\n• 5 منٹ، زیادہ تحفے = فاتح 🏆\n\nLive chat real-time 💬`,
-      hi:  `📡 AJ Portal पर Live कैसे जाएं:\n\n1. Social Hub → "GO LIVE" (लाल बटन)\n2. Camera + mic permission दें\n3. Agora HD streaming शुरू\n4. Room ID share करें → viewers join करें\n5. Viewers gifts भेजें → 60% आपका! 💰\n\n⚔️ PK Battle:\n• PK button → rival User ID\n• दोनों से 100 Coins\n• 5 मिनट, ज़्यादा gifts = जीत 🏆\n\nLive chat real-time 💬`,
-      ar:  `📡 البث المباشر على AJ Portal:\n\n1. Social Hub → "GO LIVE"\n2. اسمح بالكاميرا والميكروفون\n3. بث HD عبر Agora\n4. شارك Room ID ليتمكن المشاهدون من الانضمام\n5. المشاهدون يرسلون هدايا → 60% لك! 💰\n\n⚔️ PK Battle:\n• زر PK → معرّف المنافس\n• 100 كوين من كل منهما\n• 5 دقائق، أكثر هدايا = فوز 🏆\n\nالدردشة المباشرة في الوقت الفعلي 💬`,
+      en:  `📡 Go Live on AJ Portal:\n\n1. Social Hub → tap "GO LIVE"\n2. Allow camera + microphone\n3. Live starts in HD\n4. Share your Room ID — viewers paste it to join\n5. Viewers send gifts → you keep 60%! 💰\n\n⚔️ PK Battle:\n• PK button → rival's User ID\n• 100 Coins from each\n• 5 min timer — most gifts wins 🏆`,
+      hin: `📡 AJ Portal pe Live:\n\n1. Social Hub → "GO LIVE"\n2. Camera + mic allow karo\n3. HD streaming shuru\n4. Room ID share karo\n5. Viewers gifts bhejein → 60% tera! 💰\n\n⚔️ PK: rival ID → 100 Coins → 5 min → jyada gifts = jeet 🏆`,
+      ur:  `📡 Live:\n\n1. GO LIVE\n2. Camera allow\n3. Room ID شیئر\n4. gifts → 60% آپ کا 💰\n\n⚔️ PK: User ID → 100 Coins → 5 منٹ 🏆`,
+      hi:  `📡 Live:\n\n1. GO LIVE\n2. Camera allow\n3. Room ID share\n4. Gifts → 60% आपका 💰\n\n⚔️ PK: User ID → 100 Coins → 5 min 🏆`,
+      ar:  `📡 البث المباشر:\n\n1. GO LIVE\n2. اسمح بالكاميرا\n3. شارك Room ID\n4. هدايا → 60% لك 💰\n\n⚔️ PK: User ID → 100 كوين → 5 دقائق 🏆`,
     },
 
-    // ─── GIFTS ────────────────────────────────────────────────
     gift: {
-      en:  `🎁 Gift System — Reward Your Favourite Creators!\n\n☕ Coffee — 500 Coins\n🍕 Pizza Party — 1,000 Coins\n❤️ Mega Heart — 2,500 Coins\n🏎️ Super Car — 5,000 Coins\n🛩️ Private Jet — 8,000 Coins\n🏰 AJ Mansion — 10,000 Coins\n\n• Send gifts during live streams or on AJ Pulse posts\n• Creator receives 60% of the gift value\n• A cinematic animation plays when a gift is sent 🎊\n• Gifts are paid from your Coin balance`,
-      hin: `🎁 Gift System — Creators ko support karo!\n\nBhai, yeh gifts hain:\n☕ Coffee — 500 Coins\n🍕 Pizza Party — 1,000 Coins\n❤️ Mega Heart — 2,500 Coins\n🏎️ Super Car — 5,000 Coins\n🛩️ Private Jet — 8,000 Coins\n🏰 AJ Mansion — 10,000 Coins\n\n• Live ya Pulse posts pe gifts bhejo\n• Creator ko 60% milte hain\n• Gift bhejne par cinematic animation chale ga 🎊\n• Tumhare Coin balance se katenge`,
-      ur:  `🎁 Gift System:\n\n☕ Coffee — 500 Coins\n🍕 Pizza Party — 1,000 Coins\n❤️ Mega Heart — 2,500 Coins\n🏎️ Super Car — 5,000 Coins\n🛩️ Private Jet — 8,000 Coins\n🏰 AJ Mansion — 10,000 Coins\n\n• Live یا Pulse posts پر بھیجیں\n• Creator کو 60% ملتا ہے\n• Cinematic animation چلے گا 🎊`,
-      hi:  `🎁 Gift System:\n\n☕ Coffee — 500 Coins\n🍕 Pizza Party — 1,000 Coins\n❤️ Mega Heart — 2,500 Coins\n🏎️ Super Car — 5,000 Coins\n🛩️ Private Jet — 8,000 Coins\n🏰 AJ Mansion — 10,000 Coins\n\n• Live या Pulse posts पर भेजें\n• Creator को 60% मिलता है\n• Cinematic animation चलेगा 🎊`,
-      ar:  `🎁 نظام الهدايا:\n\n☕ قهوة — 500 كوين\n🍕 حفلة بيتزا — 1,000 كوين\n❤️ قلب ضخم — 2,500 كوين\n🏎️ سيارة رياضية — 5,000 كوين\n🛩️ طائرة خاصة — 8,000 كوين\n🏰 قصر AJ — 10,000 كوين\n\n• أرسل هدايا في البث المباشر أو المنشورات\n• المنشئ يحصل على 60% من قيمة الهدية\n• رسوم متحركة سينمائية عند الإرسال 🎊`,
+      en:  `🎁 Gift System:\n\n☕ Coffee — 500 Coins\n🍕 Pizza Party — 1,000 Coins\n❤️ Mega Heart — 2,500 Coins\n🏎️ Super Car — 5,000 Coins\n🛩️ Private Jet — 8,000 Coins\n🏰 AJ Mansion — 10,000 Coins\n\n• Send in live streams or Pulse posts\n• Creator gets 60% 🎊`,
+      hin: `🎁 Gift System:\n\n☕ Coffee — 500 Coins\n🍕 Pizza — 1,000 Coins\n❤️ Mega Heart — 2,500 Coins\n🏎️ Super Car — 5,000 Coins\n🛩️ Private Jet — 8,000 Coins\n🏰 AJ Mansion — 10,000 Coins\n\n• Live ya Pulse pe bhejo\n• Creator ko 60% 🎊`,
+      ur:  `🎁 Gift System:\n\n☕ Coffee — 500\n🍕 Pizza — 1,000\n❤️ Mega Heart — 2,500\n🏎️ Car — 5,000\n🛩️ Jet — 8,000\n🏰 Mansion — 10,000 Coins\n\n• 60% Creator کا 🎊`,
+      hi:  `🎁 Gift System:\n\n☕ Coffee — 500\n🍕 Pizza — 1,000\n❤️ Heart — 2,500\n🏎️ Car — 5,000\n🛩️ Jet — 8,000\n🏰 Mansion — 10,000 Coins\n\n• Creator को 60% 🎊`,
+      ar:  `🎁 نظام الهدايا:\n\n☕ قهوة — 500\n🍕 بيتزا — 1,000\n❤️ قلب — 2,500\n🏎️ سيارة — 5,000\n🛩️ طائرة — 8,000\n🏰 قصر — 10,000 كوين\n\n• المنشئ يحصل على 60% 🎊`,
     },
 
-    // ─── PK BATTLE ────────────────────────────────────────────
     pk: {
-      en:  `⚔️ PK Battle — Live Competition Mode!\n\n• You must be LIVE to start a PK\n• Tap the PK button → enter rival's User ID\n• Both players lose 100 Coins as entry fee\n• A 5-minute countdown begins\n• Viewers send gifts to their favourite streamer\n• Whoever gets the MOST gift coins wins 🏆\n• Winner gets glory, loser gets a screen animation!\n\nTip: Tell your viewers in advance so they're ready to gift! 😄`,
-      hin: `⚔️ PK Battle — Live Competition!\n\nBhai, yeh karo:\n• Pehle Live jao\n• PK button dabao → rival ka User ID daalo\n• Dono se 100 Coins entry fee katenge\n• 5 minute ka countdown shuru\n• Viewers apne favourite ko gifts bhejein\n• Jyada gifts milein = jeet 🏆\n• Winner glory, loser animation!\n\nTip: Pehle se viewers ko batao taaki ready rahein 😄`,
-      ur:  `⚔️ PK Battle:\n\n• پہلے Live جائیں\n• PK بٹن → حریف User ID\n• دونوں سے 100 Coins entry fee\n• 5 منٹ کا countdown\n• Viewers پسندیدہ کو gifts بھیجیں\n• زیادہ gifts = فاتح 🏆\n\nTip: پہلے سے viewers کو بتائیں 😄`,
-      hi:  `⚔️ PK Battle:\n\n• पहले Live जाएं\n• PK button → rival User ID\n• दोनों से 100 Coins entry fee\n• 5 मिनट countdown\n• Viewers अपने favourite को gifts भेजें\n• ज़्यादा gifts = जीत 🏆\n\nTip: पहले से viewers को बताएं 😄`,
-      ar:  `⚔️ PK Battle:\n\n• يجب أن تكون في البث المباشر\n• زر PK → معرّف المنافس\n• 100 كوين رسوم دخول من كلا المتنافسين\n• عدّ تنازلي 5 دقائق\n• المشاهدون يرسلون هدايا\n• أكثر كوينز هدايا = الفائز 🏆\n\nنصيحة: أخبر متابعيك مسبقاً! 😄`,
+      en:  `⚔️ PK Battle — Live Competition!\n\n• Must be LIVE to start\n• PK button → rival's User ID\n• Both lose 100 Coins as entry\n• 5-minute countdown\n• Most gift coins = Winner 🏆`,
+      hin: `⚔️ PK Battle:\n\n• Pehle Live jao\n• PK button → rival User ID\n• Dono se 100 Coins\n• 5 minute\n• Jyada gifts = jeet 🏆`,
+      ur:  `⚔️ PK Battle:\n\n• Live جائیں\n• PK → حریف ID\n• 100 Coins دونوں سے\n• 5 منٹ\n• زیادہ gifts = فاتح 🏆`,
+      hi:  `⚔️ PK Battle:\n\n• Live जाएं\n• PK → rival ID\n• 100 Coins\n• 5 min\n• ज़्यादा gifts = जीत 🏆`,
+      ar:  `⚔️ PK Battle:\n\n• في البث المباشر\n• PK → معرّف المنافس\n• 100 كوين من كل\n• 5 دقائق\n• أكثر هدايا = فوز 🏆`,
     },
 
-    // ─── AI BOT (TRADING) ─────────────────────────────────────
     aibot: {
-      en:  `🤖 AI Trading Bot — Passive Income!\n\n• Access: Main Hub → "AI Trading Bot"\n\n💎 Basic Plan: 25,000 Coins\n  → 2% daily profit on invested amount\n\n👑 VVIP Plan: 75,000 Coins\n  → 5% daily profit on invested amount\n\n• Profits are added to your balance automatically every second\n• The bot runs 24/7 — set and forget!\n• You can withdraw profits anytime (once minimum is reached)`,
-      hin: `🤖 AI Trading Bot — Passive Income!\n\nBhai, yeh features hain:\n• Main Hub → "AI Trading Bot"\n\n💎 Basic Plan: 25,000 Coins invest karo\n  → 2% daily profit milega\n\n👑 VVIP Plan: 75,000 Coins\n  → 5% daily profit 🔥\n\n• Profits automatically har second add hote hain\n• 24/7 chalta rehta hai — set karke bhool jao!\n• Jab minimum ho jaye, withdraw karo`,
-      ur:  `🤖 AI Trading Bot — Passive Income!\n\n• Main Hub → "AI Trading Bot"\n\n💎 Basic Plan: 25,000 Coins\n  → 2% روزانہ منافع\n\n👑 VVIP Plan: 75,000 Coins\n  → 5% روزانہ منافع 🔥\n\n• منافع خودکار add ہوتا ہے\n• 24/7 چلتا ہے\n• جب minimum ہو جائے، withdraw کریں`,
-      hi:  `🤖 AI Trading Bot — Passive Income!\n\n• Main Hub → "AI Trading Bot"\n\n💎 Basic: 25,000 Coins → 2% daily profit\n\n👑 VVIP: 75,000 Coins → 5% daily profit 🔥\n\n• Profits automatically add होते हैं\n• 24/7 चलता है\n• Minimum होने पर withdraw करें`,
-      ar:  `🤖 روبوت التداول AI:\n\n• الرئيسية → "AI Trading Bot"\n\n💎 الخطة الأساسية: 25,000 كوين\n  → 2% ربح يومي\n\n👑 خطة VVIP: 75,000 كوين\n  → 5% ربح يومي 🔥\n\n• الأرباح تُضاف تلقائياً\n• يعمل 24/7\n• اسحب متى وصلت للحد الأدنى`,
+      en:  `🤖 AI Trading Bot — Passive Income!\n\n• Main Hub → "AI Trading Bot"\n\n💎 Basic: 25,000 Coins → 2% daily profit\n👑 VVIP: 75,000 Coins → 5% daily profit 🔥\n\n• Profits added to your balance every second\n• Runs 24/7 — set and forget!\n• Withdraw profits anytime (once minimum reached)`,
+      hin: `🤖 AI Trading Bot:\n\n• Main Hub → "AI Trading Bot"\n\n💎 Basic: 25,000 Coins → 2% daily\n👑 VVIP: 75,000 Coins → 5% daily 🔥\n\n• Profits har second add hote hain\n• 24/7 chalta hai\n• Jab minimum ho withdraw karo`,
+      ur:  `🤖 AI Trading Bot:\n\n• Main Hub → "AI Trading Bot"\n\n💎 Basic: 25,000 → 2% daily\n👑 VVIP: 75,000 → 5% daily 🔥\n\n• منافع خودکار add\n• 24/7`,
+      hi:  `🤖 AI Bot:\n\n• Main Hub → "AI Trading Bot"\n\n💎 Basic: 25,000 → 2% daily\n👑 VVIP: 75,000 → 5% daily 🔥`,
+      ar:  `🤖 روبوت التداول:\n\n• الرئيسية → "AI Trading Bot"\n\n💎 أساسي: 25,000 → 2% يومياً\n👑 VVIP: 75,000 → 5% يومياً 🔥`,
     },
 
-    // ─── TRANSFER ─────────────────────────────────────────────
     transfer: {
-      en:  `🔄 Coin Transfer:\n\n• Go to Wallet → Transfer\n• Enter recipient's User ID\n• Enter amount to send\n• Confirm — coins move instantly!\n\n⚠️ Notes:\n• Cannot transfer to yourself\n• Recipient must be a valid AJ Portal user\n• Transfers are instant and irreversible`,
-      hin: `🔄 Coin Transfer kaise karo:\n\nBhai, easy hai:\n• Wallet → Transfer\n• Recipient ka User ID daalo\n• Amount daalo\n• Confirm — Coins turant pahunch jaate hain!\n\n⚠️ Note:\n• Apne aap ko transfer nahi kar sakte\n• ID sahi honi chahiye\n• Transfer instant aur undo nahi hota`,
-      ur:  `🔄 Coin Transfer:\n\n• Wallet → Transfer\n• وصول کنندہ کا User ID\n• رقم داخل کریں\n• Confirm — Coins فوری!\n\n⚠️ نوٹ:\n• خود کو transfer نہیں کر سکتے\n• صحیح User ID ضروری ہے\n• Transfer ناقابل واپسی ہے`,
-      hi:  `🔄 Coin Transfer:\n\n• Wallet → Transfer\n• Recipient User ID डालें\n• Amount डालें\n• Confirm — Coins तुरंत!\n\n⚠️ Note:\n• खुद को transfer नहीं\n• Valid User ID जरूरी\n• Transfer irreversible है`,
-      ar:  `🔄 تحويل الكوينز:\n\n• المحفظة → تحويل\n• أدخل معرّف المستلم\n• أدخل المبلغ\n• تأكيد — الكوينز تصل فوراً!\n\n⚠️ ملاحظة:\n• لا يمكن التحويل لنفسك\n• يجب أن يكون المعرّف صحيحاً\n• التحويل غير قابل للتراجع`,
+      en:  `🔄 Coin Transfer:\n\n• Wallet → Transfer\n• Enter recipient's User ID\n• Enter amount\n• Confirm — instant transfer!\n\n⚠️ Cannot transfer to yourself. Irreversible.`,
+      hin: `🔄 Transfer:\n\n• Wallet → Transfer\n• Recipient User ID\n• Amount\n• Confirm — turant!\n\n⚠️ Apne aap ko nahi, undo nahi hota`,
+      ur:  `🔄 Transfer:\n\n• Wallet → Transfer\n• User ID\n• رقم\n• Confirm — فوری!\n\n⚠️ ناقابل واپسی`,
+      hi:  `🔄 Transfer:\n\n• Wallet → Transfer\n• User ID + Amount\n• Confirm — तुरंत!\n\n⚠️ Irreversible`,
+      ar:  `🔄 تحويل:\n\n• المحفظة → تحويل\n• معرّف + مبلغ\n• تأكيد — فوري!\n\n⚠️ غير قابل للتراجع`,
     },
 
-    // ─── WECHAT / MESSENGER ───────────────────────────────────
     wechat: {
-      en:  `💬 AJ WeChat — VVIP Encrypted Messenger:\n\n• Go to Social → AJ WeChat\n• Sync your contacts or add manually\n• Tap any contact to open private chat\n• 📞 Audio call & 📹 Video call buttons in chat header\n• Camera sharing supported\n• All messages are encrypted end-to-end 🔒\n• Perfect for private conversations on AJ Portal!`,
-      hin: `💬 AJ WeChat — Private Encrypted Messenger!\n\nBhai, yeh features hain:\n• Social → AJ WeChat\n• Contacts sync karo ya manually add karo\n• Kisi bhi contact pe tap karo → private chat khulega\n• Audio 📞 aur Video 📹 call buttons chat mein hain\n• Camera sharing bhi supported hai\n• Sab messages encrypted hain 🔒`,
-      ur:  `💬 AJ WeChat — خفیہ Messenger:\n\n• Social → AJ WeChat\n• Contacts sync یا manually add کریں\n• کسی پر tap → private chat\n• Audio 📞 اور Video 📹 call\n• Camera sharing\n• تمام messages encrypted 🔒`,
-      hi:  `💬 AJ WeChat — Private Encrypted Messenger:\n\n• Social → AJ WeChat\n• Contacts sync या manually add करें\n• Tap → private chat\n• Audio 📞 और Video 📹 call\n• Camera sharing\n• Messages encrypted 🔒`,
-      ar:  `💬 AJ WeChat — مراسلة مشفرة:\n\n• Social → AJ WeChat\n• زامن جهات الاتصال أو أضفها يدوياً\n• اضغط للمحادثة الخاصة\n• مكالمة صوتية 📞 ومرئية 📹\n• مشاركة الكاميرا\n• جميع الرسائل مشفرة 🔒`,
+      en:  `💬 AJ WeChat — Encrypted Messenger:\n\n• Social → AJ WeChat\n• Sync contacts or add manually\n• Tap any contact → private chat\n• Audio 📞 & Video 📹 calls in chat header\n• All messages end-to-end encrypted 🔒`,
+      hin: `💬 AJ WeChat:\n\n• Social → AJ WeChat\n• Contacts sync ya manually add\n• Tap → private chat\n• Audio 📞 + Video 📹 call\n• Sab messages encrypted 🔒`,
+      ur:  `💬 AJ WeChat:\n\n• Social → AJ WeChat\n• Contacts add\n• Tap → private chat\n• Audio 📞 Video 📹\n• encrypted 🔒`,
+      hi:  `💬 AJ WeChat:\n\n• Social → AJ WeChat\n• Tap → private chat\n• Audio 📞 Video 📹\n• Encrypted 🔒`,
+      ar:  `💬 AJ WeChat:\n\n• Social → AJ WeChat\n• اضغط → محادثة خاصة\n• مكالمة 📞 📹\n• مشفر 🔒`,
     },
 
-    // ─── PAYMENT FAILURE (only topic that shows CEO contact) ──
     payment_issue: {
       en:  `⚠️ Payment / Technical Issue:\n\nIf your coins haven't arrived after submitting a Transaction ID, or you're facing a technical bug:\n\n👇 Contact CEO directly on WhatsApp:`,
-      hin: `⚠️ Payment ya Technical Problem:\n\nBhai, agar Transaction ID submit karne ke baad bhi Coins nahi aaye, ya koi technical bug hai:\n\n👇 CEO se seedha WhatsApp pe baat karo:`,
-      ur:  `⚠️ Payment / Technical مسئلہ:\n\nاگر Transaction ID submit کرنے کے بعد بھی Coins نہیں آئے یا کوئی technical bug ہے:\n\n👇 CEO سے براہ راست WhatsApp پر رابطہ کریں:`,
-      hi:  `⚠️ Payment / Technical Issue:\n\nTransaction ID submit करने के बाद भी Coins नहीं आए, या technical bug है:\n\n👇 CEO से WhatsApp पर contact करें:`,
-      ar:  `⚠️ مشكلة في الدفع / تقنية:\n\nإذا لم تصل كوينزك بعد إرسال معرّف المعاملة أو واجهت خطأ تقنياً:\n\n👇 تواصل مع المدير التنفيذي عبر واتساب:`,
+      hin: `⚠️ Payment ya Technical Problem:\n\nBhai, agar Transaction ID submit karne ke baad bhi Coins nahi aaye:\n\n👇 CEO se seedha WhatsApp pe baat karo:`,
+      ur:  `⚠️ Payment / Technical مسئلہ:\n\nاگر Coins نہیں آئے یا bug ہے:\n\n👇 CEO سے WhatsApp:`,
+      hi:  `⚠️ Payment / Technical Issue:\n\nCoins नहीं आए या bug है:\n\n👇 CEO WhatsApp:`,
+      ar:  `⚠️ مشكلة:\n\nلم تصل كوينزك أو خطأ تقني:\n\n👇 واتساب CEO:`,
     },
 
-    // ─── GENERAL FALLBACK (no "Contact CEO") ──────────────────
     general: {
-      en:  `I'm here to help! 😊 Here's everything AJ Portal offers:\n\n🎬 TikReels — short videos, earn per upload\n📡 AJ Pulse — live stream, earn from gifts\n🎮 Gaming Zone — 1v1 coin games\n🪙 Coins — 100 = $1, signup bonus 500\n👥 Referral — +${REFERRAL_COINS} coins per friend\n💸 Withdraw — min ${WITHDRAW_MIN.toLocaleString()} coins via EasyPaisa/JazzCash/Binance/AirTM/Bank\n🎁 Gifts — Coffee to Mansion\n⚔️ PK Battle — live competition\n🤖 AI Bot — 2-5% daily passive income\n💬 WeChat — private encrypted chat\n\nAsk me specifically about any of these! 👆`,
-      hin: `Bhai, main yahan hoon! 😊 AJ Portal mein yeh sab hai:\n\n🎬 TikReels — videos upload karo, Coins kamao\n📡 AJ Pulse — Live karo, gifts se kamao\n🎮 Gaming — 1v1 coin games\n🪙 Coins — 100 = $1, signup bonus 500\n👥 Referral — +${REFERRAL_COINS} Coins har dost ke liye\n💸 Withdraw — min ${WITHDRAW_MIN.toLocaleString()} Coins\n🎁 Gifts — Coffee se Mansion tak\n⚔️ PK Battle — Live competition\n🤖 AI Bot — 2-5% daily passive income\n💬 WeChat — private chat\n\nKisi bhi topic ke baare mein pooch! 🔥`,
-      ur:  `میں حاضر ہوں! 😊 AJ Portal میں یہ سب ہے:\n\n🎬 TikReels — ویڈیوز اپلوڈ، Coins کمائیں\n📡 AJ Pulse — Live، gifts سے کمائیں\n🎮 Gaming — 1v1 coin games\n🪙 Coins — 100 = $1، signup bonus 500\n👥 Referral — +${REFERRAL_COINS} Coins\n💸 Withdraw — min ${WITHDRAW_MIN.toLocaleString()} Coins\n🎁 Gifts — Coffee سے Mansion\n⚔️ PK Battle\n🤖 AI Bot — 2-5% daily\n💬 WeChat\n\nکوئی بھی سوال پوچھیں!`,
-      hi:  `मैं यहां हूं! 😊 AJ Portal में यह सब है:\n\n🎬 TikReels — videos upload, Coins कमाएं\n📡 AJ Pulse — Live, gifts से कमाएं\n🎮 Gaming — 1v1 coin games\n🪙 Coins — 100 = $1, signup bonus 500\n👥 Referral — +${REFERRAL_COINS} Coins\n💸 Withdraw — min ${WITHDRAW_MIN.toLocaleString()} Coins\n🎁 Gifts\n⚔️ PK Battle\n🤖 AI Bot — 2-5% daily\n💬 WeChat\n\nकुछ भी पूछो!`,
-      ar:  `أنا هنا للمساعدة! 😊 AJ Portal يقدم:\n\n🎬 TikReels — فيديوهات وكوينز\n📡 AJ Pulse — بث مباشر وهدايا\n🎮 Gaming — ألعاب 1v1\n🪙 كوينز — 100 = $1، بونص 500\n👥 إحالة — +${REFERRAL_COINS} كوين\n💸 سحب — min ${WITHDRAW_MIN.toLocaleString()}\n🎁 هدايا\n⚔️ PK Battle\n🤖 AI Bot — 2-5% يومياً\n💬 WeChat\n\nاسألني عن أي شيء!`,
+      en:  `I'm here to help! 😊 AJ Portal offers:\n\n🎬 TikReels — earn per upload\n📡 AJ Pulse — live + gifts\n🎮 Gaming — 1v1 coin games\n🪙 Coins — $1 = ${COIN_RATE} Coins, 500 signup bonus\n👥 Referral — +${REFERRAL_COINS} coins per friend\n💸 Withdraw — min ${WITHDRAW_MIN.toLocaleString()} coins\n🎁 Gifts — Coffee to Mansion\n⚔️ PK Battle\n🤖 AI Bot — 2-5% daily\n💬 WeChat — private chat\n\nAsk about any of these! 👆`,
+      hin: `Bhai, main yahan hoon! 😊\n\n🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\n🪙 $1=${COIN_RATE} Coins, 500 bonus\n👥 Referral +${REFERRAL_COINS} • 💸 Withdraw\n🎁 Gifts • ⚔️ PK • 🤖 AI Bot 2-5%\n💬 WeChat\n\nKisi bhi topic ke baare mein pooch! 🔥`,
+      ur:  `میں حاضر ہوں! 😊\n\n🎬 TikReels • 📡 Pulse • 🎮 Gaming\n🪙 Coins • 💸 Withdraw • 🎁 Gifts\n⚔️ PK • 🤖 AI Bot • 💬 WeChat\n\nکوئی بھی سوال پوچھیں!`,
+      hi:  `मैं यहां हूं! 😊\n\n🎬 TikReels • 📡 Pulse • 🎮 Gaming\n🪙 Coins • 💸 Withdraw • 🎁 Gifts\n⚔️ PK • 🤖 AI Bot • 💬 WeChat\n\nकुछ भी पूछो!`,
+      ar:  `أنا هنا! 😊\n\n🎬 TikReels • 📡 Pulse • 🎮 Gaming\n🪙 كوينز • 💸 سحب • 🎁 هدايا\n⚔️ PK • 🤖 AI Bot • 💬 WeChat\n\nاسألني!`,
     },
   };
 
-  // ── BOT: Topic matcher (context-aware)
   const matchBotTopic = (q: string, lastTopic: string): string => {
     const t = q.toLowerCase();
-
-    // Greeting
     if (/^(hi|hey|hello|salam|assalam|hii|helo|yo|sup|wassup|kia haal|kya haal|namaste|namaskar|bonjour|hola|ciao|merhaba|привет|halo)\b/.test(t)) return 'greeting';
-
-    // Payment failure / technical bug → ONLY topic that shows CEO
     if (/payment.*(fail|not.*arriv|problem|issue|stuck|error|wrong|bug)|coin.*not.*arriv|deposit.*not|transaction.*id.*(not|fail|wrong)|technical.*bug|bug.*report|refund/.test(t)) return 'payment_issue';
-
-    // TikReels
     if (/tikreel|tik.*reel|tiktok|short.*video|video.*upload|reel|view.*count|view.*format/.test(t)) return 'tikreels';
-
-    // AJ Pulse / Live
     if (/pulse|aj.*pulse|live|room.*id|join.*room|go.*live|stream|broadcast/.test(t)) return 'pulse';
-
-    // Social features
-    if (/follow|unfollow|profile|dm|direct.*message|message.*button|message.*karna|private.*chat|avatar|profile.*pic/.test(t)) return 'social';
-
-    // Gaming
+    if (/follow|unfollow|profile|dm|direct.*message|message.*button|private.*chat|avatar|profile.*pic/.test(t)) return 'social';
     if (/game|gaming|play|rider|racer|surge|neon|volcano|ludo|puck|arcade/.test(t)) return 'gaming';
-
-    // Coin / earning / balance
     if (/coin|balance|earn|earning|paise|kamao|کوئن|رصيد|بيلنس|سکے|bonus|signup.*bonus|welcome.*bonus/.test(t)) return 'coin';
-
-    // Referral
     if (/refer|referral|ریفرل|friend.*code|code.*share|invite/.test(t)) return 'refer';
-
-    // Withdraw / cashout
     if (/withdraw|cashout|cash.*out|nikalna|نکالنا|سحب|paisa.*nikalo|money.*out|easypaisa|jazzcash|binance|airtm|bank.*transfer/.test(t)) return 'withdraw';
-
-    // Purchase / buy
     if (/buy|purchase|recharge|top.*up|kharido|خریدنا|شراء|coins.*khareed|add.*coin/.test(t)) return 'buy';
-
-    // AI Bot
     if (/bot|ai.*bot|trading|profit|invest|passive|daily.*earn|vvip/.test(t)) return 'aibot';
-
-    // Transfer
     if (/transfer|send.*coin|bhejo|coin.*bhejo|transfer.*karo/.test(t)) return 'transfer';
-
-    // WeChat / messaging
     if (/wechat|chat|messenger|contact|audio.*call|video.*call|encrypted/.test(t)) return 'wechat';
-
-    // Gift
-    if (/gift|tحفہ|هدية|present|coffee|pizza|heart|mansion|jet|car/.test(t)) return 'gift';
-
-    // PK Battle
+    if (/gift|تحفہ|هدية|present|coffee|pizza|heart|mansion|jet|car/.test(t)) return 'gift';
     if (/pk|battle|challenge|rival|competition/.test(t)) return 'pk';
-
-    // Context carry-over: if question is short/unclear, reuse last topic
-    if (t.split(' ').length <= 3 && lastTopic && lastTopic !== 'greeting' && lastTopic !== 'general') {
-      return lastTopic;
-    }
-
+    if (/live.*stream|go.*live|stream.*now|broadcast/.test(t)) return 'live';
+    if (t.split(' ').length <= 3 && lastTopic && lastTopic !== 'greeting' && lastTopic !== 'general') return lastTopic;
     return 'general';
   };
 
-  // ── BOT: Get localised reply from knowledge base
   const getBotReply = (topic: string, lang: string): string => {
     const topicData = BOT_KB[topic];
     if (!topicData) return getBotReply('general', lang);
-    // Priority: exact lang → 'hin' fallback for Hinglish → 'en'
     return topicData[lang] ?? topicData['hin'] ?? topicData['en'] ?? getBotReply('general', 'en');
   };
 
+  // Fix #8: Language matching after first English message
   const handleBotSend = () => {
     if (!botInput.trim()) return;
     const input = botInput.trim();
@@ -1608,7 +1588,7 @@ export default function AJSuperPortal() {
 
       {/* HOME HUB */}
       <section className="min-h-screen flex flex-col items-center justify-center p-4 pt-24 relative">
-        {/* AI ASSISTANT — Hub Top Right Only */}
+        {/* AI ASSISTANT — Hub Top Right */}
         <div className="fixed top-20 right-4 z-[150]">
           <button onClick={() => setBotOpen(!botOpen)}
             className="w-12 h-12 bg-gradient-to-br from-cyan-500 to-green-500 rounded-full shadow-[0_0_20px_rgba(6,182,212,0.6)] flex items-center justify-center text-black hover:scale-110 transition-all active:scale-90 border-2 border-white/20">
@@ -1666,7 +1646,7 @@ export default function AJSuperPortal() {
           </div>
           <div className="p-4 border-t border-white/10 flex gap-3">
             <input type="text" value={botInput} onChange={e => setBotInput(e.target.value)}
-              onKeyDown={e => e.key==='Enter'&&handleBotSend()} placeholder="Ask about Coins, Referral..."
+              onKeyDown={e => e.key==='Enter'&&handleBotSend()} placeholder="Ask about Coins, Referral, Live..."
               className="flex-1 bg-white/5 border border-white/10 rounded-full px-4 py-3 text-xs text-white outline-none focus:ring-1 focus:ring-cyan-500 font-bold"/>
             <button onClick={handleBotSend} className="bg-cyan-500 p-3 rounded-full text-black shadow-lg active:scale-90 transition-all">
               <Send size={16}/>
@@ -1825,7 +1805,6 @@ export default function AJSuperPortal() {
                   { n:'AJ TikReels', i:Video,        d:'TikTok Style Videos', s:'tikreels'  },
                   { n:'AJ Pulse',    i:Users,         d:'Insta Style Feed',    s:'pulse'     },
                   { n:'AJ WeChat',   i:MessageSquare, d:'VVIP Messenger',      s:'chatlist'  },
-                  { n:'AJ Discover', i:Globe,         d:'Crypto & Tech News',  s:'discover'  },
                 ].map(mod => (
                   <div key={mod.n} onClick={() => enterSocialMode(mod.s)}
                     className="p-8 bg-white/5 border border-white/10 rounded-[3rem] text-center hover:border-pink-500 transition-all cursor-pointer group shadow-lg">
@@ -1837,7 +1816,7 @@ export default function AJSuperPortal() {
               </div>
             )}
 
-            {/* USER PROFILE — Fix #1: Never shows 404, always renders with defaults */}
+            {/* Fix #5: USER PROFILE — Always renders, never shows 404 */}
             {socialScreen==='profile' && (
               <div className="max-w-md mx-auto pb-24">
                 {profileLoading && (
@@ -1873,7 +1852,7 @@ export default function AJSuperPortal() {
                       ))}
                     </div>
 
-                    {/* FOLLOW + MESSAGE BUTTONS — Fix #6: Message button opens DM */}
+                    {/* FOLLOW + MESSAGE BUTTONS */}
                     {viewingUid !== user?.uid && (
                       <div className="flex gap-3 mt-6 justify-center">
                         <button
@@ -1881,12 +1860,9 @@ export default function AJSuperPortal() {
                           className={`flex-1 py-3 rounded-2xl font-black text-sm uppercase tracking-widest flex items-center justify-center gap-2 transition-all active:scale-95 ${isFollowing?'bg-white/10 border border-white/20 text-white':'bg-pink-600 text-white shadow-lg'}`}>
                           {isFollowing ? <><UserCheck size={16}/> Following</> : <><UserPlus size={16}/> Follow</>}
                         </button>
-                        {/* Fix #6: Message button — opens/creates DM chat in 'chats' collection */}
                         <button
                           onClick={() => {
-                            if (viewingUid && viewProfile) {
-                              openOrCreateChat(viewingUid, viewProfile);
-                            }
+                            if (viewingUid && viewProfile) openOrCreateChat(viewingUid, viewProfile);
                           }}
                           className="flex-1 py-3 rounded-2xl font-black text-sm uppercase tracking-widest flex items-center justify-center gap-2 bg-cyan-600/20 border border-cyan-500/40 text-cyan-400 hover:bg-cyan-600/30 transition-all active:scale-95">
                           <MessageCircle size={16}/> Message
@@ -1903,26 +1879,25 @@ export default function AJSuperPortal() {
                       ))}
                     </div>
 
-                    {/* Fix #3 & #4: Video grid with formatViews + empty state */}
+                    {/* Fix #6: Video grid with formatViews on every thumbnail */}
                     <div className="grid grid-cols-3 gap-1 mt-4">
                       {[...profilePosts, ...profileVideos].map((p:any) => (
                         <div key={p.id} className="aspect-square bg-white/5 rounded-xl overflow-hidden relative">
                           {(p.image||p.url||p.thumbnail)
-                            ? <img src={p.image||p.url||p.thumbnail} className="w-full h-full object-cover"/>
+                            ? <img src={p.image||p.url||p.thumbnail} className="w-full h-full object-cover" loading="lazy" decoding="async"/>
                             : <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-pink-600/20 to-cyan-600/20"><Film size={24} className="text-pink-400"/></div>
                           }
-                          {/* Fix #4: View counter bottom-left */}
+                          {/* Fix #6: View counter bottom-left with formatViews */}
                           <div className="absolute bottom-1 left-1 flex items-center gap-0.5 bg-black/60 px-1.5 py-0.5 rounded-full">
                             <Film size={8} className="text-white opacity-70"/>
                             <span className="text-[8px] font-black text-white">{formatViews(p.views ?? 0)}</span>
                           </div>
                         </div>
                       ))}
-                      {/* Fix #3: Empty state when no videos */}
                       {profileVideos.length===0 && profilePosts.length===0 && (
                         <div className="col-span-3 py-12 text-center">
                           <Film size={36} className="text-gray-600 mx-auto mb-3"/>
-                          <p className="text-gray-500 text-xs font-black uppercase tracking-widest">No videos uploaded yet</p>
+                          <p className="text-gray-500 text-xs font-black uppercase tracking-widest">No posts uploaded yet</p>
                         </div>
                       )}
                     </div>
@@ -2067,7 +2042,7 @@ export default function AJSuperPortal() {
                           )}
                           {/* RIGHT SIDEBAR ACTIONS */}
                           <div className="absolute right-4 bottom-32 flex flex-col gap-6 items-center z-10">
-                            {/* Fix #5: Clickable avatar in TikReels — always clickable */}
+                            {/* Fix #7: Clickable avatar in TikReels */}
                             <div className="flex flex-col items-center gap-0.5">
                               <div className="relative">
                                 <img
@@ -2077,7 +2052,6 @@ export default function AJSuperPortal() {
                                     if ((vid as any).uid) {
                                       openProfile((vid as any).uid);
                                     } else {
-                                      // YouTube video — show channel name info
                                       alert(`@${vid.user}\nThis creator's full profile is only available for AJ Portal members.`);
                                     }
                                   }}
@@ -2104,7 +2078,7 @@ export default function AJSuperPortal() {
                               <MessageCircle size={35} className="text-white"/>
                               <span className="text-[10px] font-bold text-white">842</span>
                             </div>
-                            <div onClick={() => handleShare('AJ TikReels')} className="flex flex-col items-center cursor-pointer text-white">
+                            <div onClick={() => handleShare(`Watch ${vid.title} on AJ Portal!`)} className="flex flex-col items-center cursor-pointer text-white">
                               <Share2 size={35}/><span className="text-[10px] font-bold">Share</span>
                             </div>
                             <div className="flex flex-col items-center cursor-pointer text-yellow-400" onClick={() => setPulseGiftPostId(vid.id)}>
@@ -2233,10 +2207,10 @@ export default function AJSuperPortal() {
               </div>
             )}
 
-            {/* AJ PULSE — Fix #5: Clickable avatars via openProfile */}
+            {/* Fix #3 & #7: AJ PULSE — pulse_posts collection + clickable avatars */}
             {socialScreen==='pulse' && (
               <div className="max-w-md mx-auto flex flex-col h-full">
-                {/* CREATE POST at TOP */}
+                {/* CREATE POST */}
                 <div className="bg-slate-900/98 p-4 border-b border-pink-500/20 shadow-md sticky top-0 z-10">
                   <div className="flex gap-3">
                     <img src={user?.photoURL||'/logo.png'} className="w-9 h-9 rounded-full border-2 border-pink-500 flex-shrink-0"/>
@@ -2253,9 +2227,9 @@ export default function AJSuperPortal() {
                   </div>
                 </div>
 
-                {/* Vertical Snap Scrolling Feed */}
+                {/* Vertical Snap Scrolling Feed — Fix #3: reads from pulsePosts */}
                 <div className="snap-y snap-mandatory overflow-y-auto flex-1" style={{ touchAction:'pan-y', overscrollBehavior:'contain' }}>
-                  {userPosts.map((post:any, idx:number) => (
+                  {pulsePosts.map((post:any, idx:number) => (
                     <React.Fragment key={post.id}>
                       {idx > 0 && idx % 4 === 0 && (
                         <div className="snap-start w-full px-4 py-3">
@@ -2264,7 +2238,7 @@ export default function AJSuperPortal() {
                       )}
                       <div className="snap-start bg-slate-900/95 border-b border-white/5 overflow-hidden shadow-xl relative min-h-[70vh] flex flex-col" style={{ contain:'layout style paint', willChange:'transform' }}>
                         <div className="flex items-center justify-between p-4">
-                          {/* Fix #5: Clickable avatar in AJ Pulse */}
+                          {/* Fix #7: Clickable avatar in AJ Pulse */}
                           <div className="flex items-center gap-3 cursor-pointer" onClick={() => openProfile(post.uid)}>
                             <img src={post.photo||'/logo.png'} loading="lazy" decoding="async" className="w-10 h-10 rounded-full border-2 border-pink-500"/>
                             <p className="font-black text-xs text-white tracking-widest">@{post.username}</p>
@@ -2292,7 +2266,7 @@ export default function AJSuperPortal() {
                             {pulseMuted ? <VolumeX size={14}/> : <Volume2 size={14}/>}
                             {pulseMuted ? 'Tap to Unmute' : 'Muted'}
                           </button>
-                          {/* GIFTING — only for other users' posts */}
+                          {/* GIFTING */}
                           {post.uid!==user?.uid && (
                             <div className="border-t border-white/5 pt-4 mt-4">
                               <p className="text-[10px] text-pink-400 font-black tracking-widest mb-3 uppercase flex items-center gap-1">
@@ -2440,22 +2414,6 @@ export default function AJSuperPortal() {
               </div>
             )}
 
-            {/* DISCOVER */}
-            {socialScreen==='discover' && (
-              <div className="max-w-md mx-auto p-4 pb-24 space-y-6 overflow-y-auto h-[85vh]">
-                <h3 className="text-3xl font-black italic uppercase text-cyan-400 border-b border-white/10 pb-4 tracking-widest">AJ Discover</h3>
-                {newsData.length>0 ? newsData.map((article:any, idx:number) => (
-                  <div key={idx} className="bg-white/5 border border-white/10 p-5 rounded-3xl space-y-3">
-                    {(article.image||article.urlToImage) && (
-                      <img src={article.image||article.urlToImage} className="w-full h-40 object-cover rounded-2xl" alt="news"/>
-                    )}
-                    <h4 className="font-black text-sm uppercase text-white leading-tight">{article.title}</h4>
-                    <p className="text-[10px] text-gray-400 line-clamp-3">{article.description}</p>
-                    <a href={article.url} target="_blank" className="inline-block text-cyan-400 text-[9px] font-black uppercase tracking-widest">Read More →</a>
-                  </div>
-                )) : <p className="text-center text-gray-500 text-xs mt-10">Loading AJ News...</p>}
-              </div>
-            )}
           </div>
 
           {/* PULSE GIFT MODAL */}
@@ -2510,7 +2468,11 @@ export default function AJSuperPortal() {
         </div>
       )}
 
-      {/* GO LIVE (REAL CAMERA + PK CHALLENGE) */}
+      {/* ============================================================
+          Fix #1 & #2: GO LIVE — Fixed UI layout (no overlap)
+          Share Room ID box is stacked ABOVE END LIVE in a flex-col
+          Fix #2: Copy & Share uses navigator.share (native app list)
+          ============================================================ */}
       {liveActive && (
         <div className="fixed inset-0 z-[600] bg-black flex flex-col">
 
@@ -2580,7 +2542,7 @@ export default function AJSuperPortal() {
               )}
             </div>
           ) : (
-            /* NORMAL LIVE VIEW */
+            /* Fix #1: NORMAL LIVE VIEW — proper stacked layout, no overlap */
             <div className="relative flex-1 bg-black">
               <video ref={liveVideoRef} autoPlay playsInline muted className="w-full h-full object-cover"/>
               {!cameraReady && (
@@ -2596,17 +2558,49 @@ export default function AJSuperPortal() {
                   <span className="text-white font-black text-xs uppercase">LIVE</span>
                 </div>
               )}
-              <div className="absolute top-6 right-4 z-20">
-                <div className="bg-black/80 border border-cyan-500/40 rounded-2xl px-3 py-2 backdrop-blur-md shadow-xl">
+
+              {/* Fix #1: Share Room ID + END LIVE stacked vertically — no overlap */}
+              <div className="absolute top-5 right-4 z-20 flex flex-col items-end gap-3">
+                {/* Share Room ID box */}
+                <div className="bg-black/85 border border-cyan-500/50 rounded-2xl px-3 py-2.5 backdrop-blur-md shadow-xl w-44">
                   <p className="text-[8px] text-cyan-400 font-black uppercase tracking-widest mb-1">Share Room ID</p>
-                  <p className="text-white font-black text-[11px] font-mono tracking-wider">{liveRoomId.slice(-14)}</p>
+                  <p className="text-white font-black text-[11px] font-mono tracking-wider truncate">{liveRoomId.slice(-14)}</p>
+                  {/* Fix #2: Use navigator.share for native app sheet */}
                   <button
-                    onClick={() => { navigator.clipboard?.writeText(liveRoomId); alert('Room ID copied! Share it so viewers can join.'); }}
-                    className="mt-1 w-full bg-cyan-600 text-black text-[8px] font-black uppercase rounded-lg py-0.5 tracking-widest active:scale-95 transition-all">
-                    Copy & Share
+                    onClick={() => {
+                      const shareText = `Join my live stream on AJ Super Portal! Room ID: ${liveRoomId}`;
+                      if (navigator.share) {
+                        navigator.share({
+                          title: 'AJ Super Portal — Live Stream',
+                          text: shareText,
+                          url: window.location.href,
+                        }).catch(() => {
+                          navigator.clipboard?.writeText(liveRoomId);
+                          alert('Room ID copied!');
+                        });
+                      } else {
+                        navigator.clipboard?.writeText(liveRoomId);
+                        alert('Room ID copied! Share it so viewers can join.');
+                      }
+                    }}
+                    className="mt-1.5 w-full bg-cyan-600 text-black text-[8px] font-black uppercase rounded-lg py-1 tracking-widest active:scale-95 transition-all flex items-center justify-center gap-1">
+                    <Share2 size={9}/> Copy & Share
                   </button>
                 </div>
+                {/* END LIVE button — below the Share box, no overlap */}
+                <button
+                  onClick={stopLive}
+                  className="bg-red-600 px-5 py-2.5 rounded-full font-black text-white text-xs uppercase shadow-xl active:scale-95 transition-all w-44 text-center">
+                  ⏹ END LIVE
+                </button>
               </div>
+
+              {/* PK Button — left side, unchanged */}
+              <button onClick={() => setPkChallengeOpen(true)}
+                className="absolute top-20 left-6 bg-yellow-500 px-4 py-2 rounded-full font-black text-black text-xs uppercase shadow-xl active:scale-95 flex items-center gap-2">
+                <Swords size={14}/> PK
+              </button>
+
               <div className="absolute left-3 bottom-48 w-[55%] max-h-36 overflow-y-auto bg-black/30 backdrop-blur-sm rounded-2xl p-3 border border-white/10 pointer-events-none">
                 {chatMessages.slice(-8).map((m:any, i:number) => (
                   <p key={i} className="text-[9px] text-white font-bold mb-1 leading-tight">
@@ -2614,13 +2608,7 @@ export default function AJSuperPortal() {
                   </p>
                 ))}
               </div>
-              <button onClick={stopLive} className="absolute top-20 right-6 bg-red-600 px-4 py-2 rounded-full font-black text-white text-xs uppercase shadow-xl active:scale-95">
-                END LIVE
-              </button>
-              <button onClick={() => setPkChallengeOpen(true)}
-                className="absolute top-20 left-6 bg-yellow-500 px-4 py-2 rounded-full font-black text-black text-xs uppercase shadow-xl active:scale-95 flex items-center gap-2">
-                <Swords size={14}/> PK
-              </button>
+
               <button
                 onClick={() => setLiveChatOpen(o => !o)}
                 className="absolute bottom-36 right-6 bg-cyan-600 w-12 h-12 rounded-full flex items-center justify-center shadow-2xl border-2 border-cyan-400 active:scale-90 transition-all z-20">
@@ -2881,13 +2869,13 @@ export default function AJSuperPortal() {
                       </div>
                       <div>
                         <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest block mb-1">Bank Name <span className="text-gray-600 normal-case">(optional)</span></label>
-                        <input type="text" placeholder="e.g. Al Rajhi, HDFC, Barclays, Chase, HBL..."
+                        <input type="text" placeholder="e.g. Al Rajhi, HDFC, Barclays..."
                           value={cardBank} onChange={e => setCardBank(e.target.value)}
                           className="w-full bg-black border border-white/10 p-3 rounded-xl text-xs font-bold text-white outline-none focus:border-pink-500"/>
                       </div>
                       <div>
                         <label className="text-[9px] font-black text-pink-500 uppercase tracking-widest block mb-1">Country</label>
-                        <input type="text" placeholder="e.g. Saudi Arabia, Pakistan, India, UK, USA..."
+                        <input type="text" placeholder="e.g. Pakistan, India, UK, USA..."
                           value={cardCountry} onChange={e => setCardCountry(e.target.value)}
                           className="w-full bg-black border border-white/10 p-3 rounded-xl text-xs font-bold text-white outline-none focus:border-pink-500"/>
                       </div>
