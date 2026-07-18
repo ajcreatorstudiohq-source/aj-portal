@@ -97,11 +97,13 @@ const uploadToCloudinary = async (file: File): Promise<string> => {
   const fd = new FormData();
   fd.append('file', file);
   fd.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+  // Use /video/upload for video files, /image/upload for images
+  const isVideo = file.type.startsWith('video/');
+  const endpoint = isVideo
+    ? `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/video/upload`
+    : `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload?f_auto=true&q_auto=true`;
   try {
-    const res  = await fetch(
-      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload?f_auto=true&q_auto=true`,
-      { method: 'POST', body: fd }
-    );
+    const res  = await fetch(endpoint, { method: 'POST', body: fd });
     const data = await res.json();
     return data.secure_url || "";
   } catch { return ""; }
@@ -207,8 +209,10 @@ export default function AJSuperPortal() {
   const [commentPostId, setCommentPostId] = useState<string|null>(null);
   const [postComments,  setPostComments]  = useState<any[]>([]);
   const [newComment,    setNewComment]    = useState('');
-  const [selectedSound,   setSelectedSound]   = useState<string|null>(null);
-  const [tiktokAudioFile, setTiktokAudioFile] = useState<File|null>(null);
+  const [selectedSound,      setSelectedSound]      = useState<string|null>(null);
+  const [tiktokAudioFile,    setTiktokAudioFile]    = useState<File|null>(null);
+  const [tiktokPostIsVideo,  setTiktokPostIsVideo]  = useState(false);  // TikReel media type
+  const [pulsePostIsVideo,   setPulsePostIsVideo]   = useState(false);  // Pulse media type
   const [copied,        setCopied]        = useState(false);
 
   // ── AI
@@ -1125,13 +1129,13 @@ export default function AJSuperPortal() {
       await addDoc(collection(db,"user_posts"), {
         text:tiktokPostText, image:tiktokPostImg, uid:user!.uid,
         username:username||"AJ_Member", photo:user!.photoURL||'',
-        likes:0, isVideo:true, createdAt:serverTimestamp()
+        likes:0, isVideo:tiktokPostIsVideo, createdAt:serverTimestamp()
       });
       await updateDoc(doc(db,"users",user!.uid), { balance: increment(videoReward) });
       await logAdminRevenue('tiktok_post', videoReward, videoReward);
-      setTiktokPostText(''); setTiktokPostImg('');
+      setTiktokPostText(''); setTiktokPostImg(''); setTiktokPostIsVideo(false);
       setTiktabMode('feed');
-      alert(`🎬 Video post published! +${videoReward} Coins 🪩`);
+      alert(`🎬 Post published! +${videoReward} Coins 🪩`);
     } catch(e) { console.error('handleTiktokPost', e); alert('Post failed. Please try again.'); }
   };
 
@@ -1161,12 +1165,16 @@ export default function AJSuperPortal() {
 
   const handleFileChange = async (e:any) => {
     const file = e.target.files?.[0]; if (!file) return;
+    const isVid = file.type.startsWith('video/');
+    setPulsePostIsVideo(isVid);
     const url = await uploadToCloudinary(file);
     setTempPhoto(url || URL.createObjectURL(file));
   };
 
   const handleTiktokFileChange = async (e:any) => {
     const file = e.target.files?.[0]; if (!file) return;
+    const isVid = file.type.startsWith('video/');
+    setTiktokPostIsVideo(isVid);
     const url = await uploadToCloudinary(file);
     setTiktokPostImg(url || URL.createObjectURL(file));
   };
@@ -1210,16 +1218,16 @@ export default function AJSuperPortal() {
   const handleCreatePost = async () => {
     if (!postText.trim() && !tempPhoto) return alert("Empty Post!");
     try {
-      const photoReward = 5; // Fix 6: flat 5 coins for photo post
+      const photoReward = 5; // Fix 6: flat 5 coins for photo/video post
       // Fix #3: Use 'pulse_posts' collection, addDoc ensures no overwrite, sorted by createdAt
       await addDoc(collection(db,"pulse_posts"), {
         text:postText, image:tempPhoto, uid:user!.uid,
         username:username||"AJ_Member", photo:user!.photoURL||'',
-        likes:0, isVideo:false, createdAt:serverTimestamp()
+        likes:0, isVideo:pulsePostIsVideo, createdAt:serverTimestamp()
       });
       await updateDoc(doc(db,"users",user!.uid), { balance: increment(photoReward) });
       await logAdminRevenue('pulse_post', photoReward, photoReward);
-      setPostText(''); setTempPhoto('');
+      setPostText(''); setTempPhoto(''); setPulsePostIsVideo(false);
       alert(`🚀 Post Published! +${photoReward} Coins 🪩`);
     } catch(e) { console.error('handleCreatePost', e); alert('Post failed. Please try again.'); }
   };
@@ -1642,7 +1650,7 @@ export default function AJSuperPortal() {
   // ==========================================================
   return (
     <main className="min-h-screen bg-[#020617] text-white font-sans overflow-x-hidden relative">
-      <input type="file" ref={fileInputRef}  onChange={handleFileChange}       accept="image/*"        className="hidden"/>
+      <input type="file" ref={fileInputRef}  onChange={handleFileChange}       accept="image/*,video/*" className="hidden"/>
       <input type="file" ref={tiktokFileRef} onChange={handleTiktokFileChange} accept="image/*,video/*" className="hidden"/>
       <input type="file" ref={audioFileRef}  onChange={e => { const f = e.target.files?.[0]; if(f) setTiktokAudioFile(f); }} accept="audio/*" className="hidden"/>
 
@@ -2260,18 +2268,21 @@ export default function AJSuperPortal() {
                             )}
                           </div>
                           {(i+1)%4===0 && (
-                             /* Fix 5: Real YouTube video ad every 4 TikReels */
+                             /* Video Ad every 4 TikReels — mute=1 required for mobile autoplay */
                              <div className="h-[85vh] w-full snap-start relative overflow-hidden bg-black">
                                <iframe
-                                 src={`https://www.youtube.com/embed/${PULSE_AD_VIDEO_ID}?autoplay=1&mute=0&controls=1&loop=1&playlist=${PULSE_AD_VIDEO_ID}&rel=0&modestbranding=1`}
+                                 src={`https://www.youtube.com/embed/${PULSE_AD_VIDEO_ID}?autoplay=1&mute=1&controls=1&loop=1&playlist=${PULSE_AD_VIDEO_ID}&rel=0&modestbranding=1&playsinline=1&enablejsapi=1`}
                                  className="absolute inset-0 w-full h-full"
-                                 allow="autoplay; encrypted-media; gyroscope; picture-in-picture"
+                                 allow="autoplay; encrypted-media; gyroscope; picture-in-picture; web-share"
                                  allowFullScreen
                                  frameBorder="0"
                                  title="Sponsored Video"
                                />
-                               <div className="absolute top-4 right-5 pointer-events-none">
-                                 <span className="bg-pink-600/80 backdrop-blur-sm text-white text-[8px] font-black px-2 py-1 rounded-full uppercase tracking-widest">Sponsored</span>
+                               <div className="absolute top-4 left-4 z-10 pointer-events-none">
+                                 <span className="bg-pink-600/90 backdrop-blur-sm text-white text-[8px] font-black px-3 py-1 rounded-full uppercase tracking-widest shadow-lg">📢 Sponsored</span>
+                               </div>
+                               <div className="absolute bottom-8 left-0 right-0 flex justify-center z-10 pointer-events-none">
+                                 <span className="bg-black/60 backdrop-blur-sm text-white text-[9px] font-black px-4 py-2 rounded-full uppercase tracking-widest">🔇 Tap Controls to Unmute</span>
                                </div>
                              </div>
                            )}
@@ -2288,7 +2299,9 @@ export default function AJSuperPortal() {
                     <h3 className="text-xl font-black text-pink-500 uppercase tracking-widest">📹 Create Video Post</h3>
                     <div className="border-2 border-dashed border-pink-500/40 rounded-3xl p-8 text-center cursor-pointer bg-white/5 hover:bg-white/10 transition-all" onClick={handleTiktokImage}>
                       {tiktokPostImg
-                        ? <img src={tiktokPostImg} className="w-full max-h-48 object-cover rounded-2xl"/>
+                        ? tiktokPostIsVideo
+                          ? <video src={tiktokPostImg} controls className="w-full max-h-64 rounded-2xl object-cover" playsInline/>
+                          : <img src={tiktokPostImg} className="w-full max-h-48 object-cover rounded-2xl"/>
                         : <><Film size={48} className="text-pink-500/40 mx-auto mb-3"/><p className="text-[10px] text-gray-500 uppercase font-black">Tap to select Video / Image</p></>
                       }
                     </div>
@@ -2390,15 +2403,27 @@ export default function AJSuperPortal() {
                  <div className="bg-slate-950/98 p-3 border-b border-pink-500/20 sticky top-0 z-20 shrink-0">
                    <div className="flex gap-2 items-center">
                      <img src={user?.photoURL||'/logo.png'} className="w-8 h-8 rounded-full border-2 border-pink-500 flex-shrink-0 object-cover"/>
-                     <textarea value={postText} onChange={e => setPostText(e.target.value)}
-                       placeholder="Share your moment..."
-                       className="flex-1 bg-white/5 rounded-xl px-3 py-2 text-xs outline-none border border-white/10 h-9 text-white font-bold resize-none leading-tight"/>
+                     <div className="flex-1 flex flex-col gap-1">
+                       <textarea value={postText} onChange={e => setPostText(e.target.value)}
+                         placeholder="Share your moment..."
+                         className="w-full bg-white/5 rounded-xl px-3 py-2 text-xs outline-none border border-white/10 h-9 text-white font-bold resize-none leading-tight"/>
+                       {tempPhoto && (
+                         <div className="relative w-full rounded-xl overflow-hidden border border-pink-500/30">
+                           {pulsePostIsVideo
+                             ? <video src={tempPhoto} controls className="w-full max-h-40 object-cover" playsInline/>
+                             : <img src={tempPhoto} className="w-full max-h-40 object-cover"/>
+                           }
+                           <button onClick={() => { setTempPhoto(''); setPulsePostIsVideo(false); }}
+                             className="absolute top-1 right-1 bg-black/70 text-white text-[9px] font-black px-2 py-0.5 rounded-full">✕</button>
+                         </div>
+                       )}
+                     </div>
                      <button onClick={handleImageClick} className="text-gray-400 hover:text-pink-400 transition-all p-1.5 shrink-0">
                        <Camera size={18}/>
                      </button>
                      <button onClick={handleCreatePost}
                        className="bg-pink-600 px-3 py-1.5 rounded-full text-[10px] font-black shadow-lg hover:scale-105 transition-all text-white whitespace-nowrap shrink-0">
-                       POST +0.75🪙
+                       POST +5🪙
                      </button>
                    </div>
                  </div>
