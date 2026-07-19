@@ -147,54 +147,99 @@ function MonetagBanner({ siteId }: { siteId: number }) {
 // ============================================================
 function VVIPAlert({ msg, icon, onClose }: { msg: string; icon?: string; onClose: () => void }) {
   useEffect(() => {
-    const t = setTimeout(onClose, 4000);
+    const t = setTimeout(onClose, 5000);
     return () => clearTimeout(t);
   }, [onClose]);
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6 pointer-events-none">
-      <div className="pointer-events-auto max-w-sm w-full bg-[#050505]/90 backdrop-blur-2xl border border-pink-500/40 rounded-3xl p-6 shadow-[0_0_60px_rgba(236,72,153,0.35)] animate-in fade-in zoom-in-95 duration-300">
-        <div className="flex flex-col items-center gap-3 text-center">
-          {icon && <div className="text-4xl">{icon}</div>}
-          <div className="w-10 h-0.5 bg-gradient-to-r from-pink-500 via-cyan-400 to-purple-500 rounded-full"/>
-          <p className="text-white font-black text-sm leading-relaxed whitespace-pre-wrap">{msg}</p>
-          <button onClick={onClose}
-            className="mt-2 px-6 py-2 bg-gradient-to-r from-pink-600 to-purple-600 rounded-full text-white text-xs font-black uppercase tracking-widest shadow-lg hover:scale-105 active:scale-95 transition-all">
-            OK
+    <div
+      className="fixed inset-0 z-[9999] flex items-end justify-center pb-12 px-4 pointer-events-none"
+      style={{ backdropFilter:'blur(3px)' }}
+    >
+      <div
+        className="pointer-events-auto w-full max-w-sm rounded-3xl overflow-hidden shadow-[0_0_80px_rgba(236,72,153,0.5),0_0_40px_rgba(34,211,238,0.25)]"
+        style={{
+          background: 'linear-gradient(135deg,rgba(5,5,5,0.97) 0%,rgba(20,5,35,0.97) 100%)',
+          border: '1px solid rgba(236,72,153,0.4)',
+        }}
+      >
+        {/* Neon top bar */}
+        <div className="h-[2px] w-full bg-gradient-to-r from-pink-500 via-cyan-400 to-purple-500"/>
+
+        <div className="p-6 flex flex-col items-center gap-4 text-center">
+          {/* Icon */}
+          {icon && (
+            <div
+              className="text-5xl leading-none"
+              style={{ filter:'drop-shadow(0 0 18px rgba(236,72,153,0.9))' }}
+            >
+              {icon}
+            </div>
+          )}
+
+          {/* Glow divider */}
+          <div className="w-20 h-[1.5px] bg-gradient-to-r from-pink-500 via-cyan-400 to-purple-500 rounded-full opacity-80"/>
+
+          {/* Message */}
+          <p className="text-white font-black text-sm leading-relaxed whitespace-pre-wrap tracking-wide">
+            {msg}
+          </p>
+
+          {/* OK button */}
+          <button
+            onClick={onClose}
+            className="mt-1 px-8 py-2.5 rounded-full text-white text-[11px] font-black uppercase tracking-[0.2em] transition-all hover:scale-105 active:scale-95 shadow-[0_0_22px_rgba(236,72,153,0.55)]"
+            style={{ background: 'linear-gradient(135deg,#ec4899 0%,#8b5cf6 100%)' }}
+          >
+            OK ✓
           </button>
         </div>
+
+        {/* Neon bottom bar */}
+        <div className="h-[1px] w-full bg-gradient-to-r from-purple-500/40 via-pink-500/40 to-cyan-400/40"/>
       </div>
     </div>
   );
 }
 
 // ============================================================
-// MONETAG VIDEO AD COMPONENT
+// MONETAG VIDEO AD COMPONENT — YouTube embed (no black screen)
 // ============================================================
+const AJ_AD_VIDEO_ID = 'aqz-KE-bpKQ';
+
 function MonetagVideoAd({ publisherId }: { publisherId: number }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!ref.current) return;
-    try {
-      const s = document.createElement('script');
-      s.src = `https://cdn.monetag.com/interstitial.js?pub=${publisherId}`;
-      s.async = true;
-      s.setAttribute('data-cfasync', 'false');
-      ref.current.appendChild(s);
-    } catch {}
-  }, [publisherId]);
+  const [adMuted, setAdMuted] = React.useState(true);
+  const adSrc = `https://www.youtube-nocookie.com/embed/${AJ_AD_VIDEO_ID}?autoplay=1&mute=${adMuted?1:0}&loop=1&playlist=${AJ_AD_VIDEO_ID}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3`;
   return (
-    <div
-      ref={ref}
-      className="absolute inset-0 w-full h-full bg-[#050505] flex items-center justify-center overflow-hidden"
-    >
-      <div className="absolute top-4 left-4 z-10 pointer-events-none">
-        <span className="bg-pink-600/90 backdrop-blur-sm text-white text-[8px] font-black px-3 py-1 rounded-full uppercase tracking-widest shadow-lg">
+    <div className="absolute inset-0 w-full h-full bg-[#050505] overflow-hidden">
+      {/* Working YouTube ad — no more black screen */}
+      <iframe
+        src={adSrc}
+        className="absolute inset-0 w-full h-full"
+        style={{ transform:'scale(1.15)', transformOrigin:'center center', pointerEvents:'none' }}
+        allow="autoplay; encrypted-media; gyroscope; picture-in-picture"
+        allowFullScreen
+        frameBorder="0"
+        title="Sponsored Ad"
+      />
+      {/* Sponsored badge */}
+      <div className="absolute top-4 left-4 z-20 pointer-events-none">
+        <span className="bg-pink-600/90 backdrop-blur-sm text-white text-[8px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest shadow-[0_0_14px_rgba(236,72,153,0.7)]">
           📢 Sponsored
         </span>
       </div>
-      <div className="absolute bottom-8 left-0 right-0 flex justify-center z-10 pointer-events-none">
-        <span className="bg-[#050505]/60 backdrop-blur-sm text-white text-[9px] font-black px-4 py-2 rounded-full uppercase tracking-widest">
-          Ad
+      {/* Sound toggle */}
+      <button
+        onClick={() => setAdMuted(m => !m)}
+        className="absolute bottom-6 right-4 z-20 bg-[#050505]/70 backdrop-blur-sm border border-white/20 rounded-full p-2 text-white active:scale-90 transition-all"
+      >
+        {adMuted
+          ? <VolumeX size={16} className="text-red-400"/>
+          : <Volume2 size={16} className="text-green-400"/>}
+      </button>
+      {/* Skip hint */}
+      <div className="absolute bottom-6 left-4 z-20 pointer-events-none">
+        <span className="bg-[#050505]/60 backdrop-blur-sm text-gray-400 text-[9px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest">
+          Ad · Scroll to skip
         </span>
       </div>
     </div>
@@ -1245,7 +1290,7 @@ export function AJSuperPortal() {
   const handleTiktokPost = async () => {
     if (!tiktokPostText.trim() && !tiktokPostImg) return setVvipAlert({msg:"Add caption or image!"});
     try {
-      const videoReward = 20; // Req 6: +20 Coins for video post
+      const videoReward = 10; // +10 AJ Coins for TikReel video post
       await addDoc(collection(db,"user_posts"), {
         text:tiktokPostText, image:tiktokPostImg, uid:user!.uid,
         username:username||"AJ_Member", photo:user!.photoURL||'',
@@ -1350,7 +1395,7 @@ export function AJSuperPortal() {
   const handleCreatePost = async () => {
     if (!postText.trim() && !tempPhoto) return setVvipAlert({msg:"Empty Post!"});
     try {
-      const photoReward = pulsePostIsVideo ? 20 : 10; // Req 6: Video +20, Photo +10 Coins
+      const photoReward = pulsePostIsVideo ? 10 : 5; // Video +10, Photo +5 AJ Coins
       // Fix #3: Use 'pulse_posts' collection, addDoc ensures no overwrite, sorted by createdAt
       await addDoc(collection(db,"pulse_posts"), {
         text:postText, image:tempPhoto, uid:user!.uid,
@@ -2012,7 +2057,7 @@ export function AJSuperPortal() {
               ? <button onClick={() => setScreen('hub')} className="text-pink-500 font-black text-xs uppercase">← HUB</button>
               : <button onClick={() => setSocialScreen('hub')} className="text-pink-500 font-black text-xs uppercase">← BACK</button>
             }
-            <h2 className="text-4xl font-black italic text-pink-500 uppercase text-center flex-1 tracking-tighter drop-shadow-[0_0_15px_#ec4899] animate-pulse">Dashboard</h2>
+            <h2 className="text-xl font-black uppercase text-center flex-1 tracking-[0.12em] bg-gradient-to-r from-pink-500 via-cyan-400 to-pink-400 bg-clip-text text-transparent drop-shadow-[0_0_20px_rgba(236,72,153,0.9)] animate-pulse select-none">⚡ AJ SUPER PORTAL</h2>
             <button onClick={() => setSocialScreen('settings_menu')} className="bg-white/5 backdrop-blur-xl border border-white/10 p-2 rounded-full text-pink-500 hover:bg-white/20 shadow-lg">
               <Settings size={22}/>
             </button>
@@ -2441,6 +2486,16 @@ export function AJSuperPortal() {
                               )}
                               {/* RIGHT SIDEBAR ACTIONS */}
                               <div className="absolute right-4 bottom-32 flex flex-col gap-6 items-center z-10">
+                                {/* 🔴 GO LIVE — TikTok-style inside video overlay */}
+                                <div
+                                  className="flex flex-col items-center cursor-pointer group"
+                                  onClick={() => { setSocialScreen('hub'); setTimeout(startLive, 300); }}
+                                >
+                                  <div className="w-10 h-10 rounded-full bg-red-600 flex items-center justify-center shadow-[0_0_18px_rgba(239,68,68,0.8)] animate-pulse group-active:scale-90 transition-all">
+                                    <Radio size={18} className="text-white"/>
+                                  </div>
+                                  <span className="text-[9px] font-black text-red-400 mt-0.5 uppercase tracking-widest">LIVE</span>
+                                </div>
                                 {/* Avatar — clickable only for AJ member posts (have uid) */}
                                 <div className="flex flex-col items-center gap-0.5">
                                   <div className="relative">
@@ -2742,7 +2797,7 @@ export function AJSuperPortal() {
                          });
                      }
                      return pulseFeed.map((post: any, idx: number) => (
-                       <React.Fragment key={post.id || idx}>
+                       <React.Fragment key={post.id || `pf-${idx}`}>
                          {/* Monetag Video Ad every 5 Pulse posts */}
                          {idx > 0 && idx % 5 === 0 && (
                            <div className="h-[85vh] w-full snap-start relative overflow-hidden bg-[#050505]">
@@ -2852,9 +2907,65 @@ export function AJSuperPortal() {
                        <p className="text-gray-600 text-[11px] font-bold">Be the first to share your moment!</p>
                      </div>
                    )}
-                 </div>
-               </div>
-             )}
+                 </div> {/* /snap-y feed */}
+                 </div> /* /flex-1 feed wrapper */
+               ) /* /pulseTab===feed */}
+                 {/* PULSE CREATE TAB */}
+                 {pulseTab==='create' && (
+                   <div className="flex-1 overflow-y-auto p-6 space-y-5 max-w-md mx-auto w-full">
+                     <h3 className="text-xl font-black uppercase text-center tracking-[0.12em] bg-gradient-to-r from-pink-500 via-cyan-400 to-pink-400 bg-clip-text text-transparent drop-shadow-[0_0_16px_rgba(236,72,153,0.7)]">
+                       📡 Share Your Moment
+                     </h3>
+
+                     {/* Media picker */}
+                     <div
+                       className="border-2 border-dashed border-pink-500/50 rounded-3xl p-8 text-center cursor-pointer bg-white/5 hover:bg-pink-500/5 transition-all active:scale-[0.98]"
+                       onClick={handleImageClick}
+                     >
+                       {tempPhoto ? (
+                         pulsePostIsVideo
+                           ? <video src={tempPhoto} controls className="w-full max-h-64 rounded-2xl object-cover" playsInline/>
+                           : <img src={tempPhoto} className="w-full max-h-48 object-cover rounded-2xl" alt="preview"/>
+                       ) : (
+                         <>
+                           <Camera size={52} className="text-pink-500/50 mx-auto mb-3"/>
+                           <p className="text-[11px] text-gray-400 uppercase font-black tracking-widest">Tap to add Photo / Video</p>
+                           <p className="text-[9px] text-gray-600 mt-1">JPG · PNG · MP4 supported</p>
+                         </>
+                       )}
+                     </div>
+
+                     {/* Caption */}
+                     <textarea
+                       value={postText}
+                       onChange={e => setPostText(e.target.value)}
+                       placeholder="Write a caption..."
+                       className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm text-white outline-none focus:border-pink-500 h-28 font-bold resize-none transition-colors"
+                     />
+
+                     {/* Media type toggle */}
+                     <div className="flex gap-2">
+                       <button
+                         onClick={() => setPulsePostIsVideo(false)}
+                         className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${!pulsePostIsVideo ? 'bg-pink-600 border-pink-600 text-white shadow-[0_0_14px_rgba(236,72,153,0.5)]' : 'bg-white/5 border-white/10 text-gray-400'}`}
+                       >📸 Photo (+5 🪙)</button>
+                       <button
+                         onClick={() => setPulsePostIsVideo(true)}
+                         className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${pulsePostIsVideo ? 'bg-purple-600 border-purple-600 text-white shadow-[0_0_14px_rgba(139,92,246,0.5)]' : 'bg-white/5 border-white/10 text-gray-400'}`}
+                       >🎬 Video (+10 🪙)</button>
+                     </div>
+
+                     {/* Publish button */}
+                     <button
+                       onClick={() => { handleCreatePost(); setPulseTab('feed'); }}
+                       className="w-full py-4 rounded-2xl font-black uppercase text-white tracking-[0.15em] shadow-[0_0_30px_rgba(236,72,153,0.45)] hover:scale-[1.02] active:scale-[0.98] transition-all"
+                       style={{background:'linear-gradient(135deg,#ec4899,#8b5cf6)'}}
+                     >
+                       PUBLISH (+{pulsePostIsVideo ? 10 : 5} 🪙)
+                     </button>
+                   </div>
+                 )} {/* /pulseTab===create */}
+
                  {/* MY PROFILE (Pulse) — Req 3 */}
                  {pulseTab==='profile' && (
                    <div className="flex-1 overflow-y-auto max-w-md mx-auto w-full pb-24">
@@ -2889,18 +3000,45 @@ export function AJSuperPortal() {
                        <div className="grid grid-cols-3 gap-1">
                          {pulsePosts.filter((p:any)=>p.uid===user?.uid).map((p:any)=>(
                            <div key={p.id} className="aspect-square bg-white/5 rounded-xl overflow-hidden">
-                             {p.image ? <img src={p.image} className="w-full h-full object-cover" loading="lazy"/> : <div className="w-full h-full flex items-center justify-center text-[9px] text-gray-500 font-bold p-2 text-center">{p.text?.slice(0,30)}</div>}
+                             {(p.image || p.thumbnail) ? (
+                               p.isVideo
+                                 ? <div className="relative w-full h-full">
+                                     <img
+                                       src={p.thumbnail || p.image}
+                                       className="w-full h-full object-cover"
+                                       loading="lazy"
+                                       onError={e => { (e.target as HTMLImageElement).style.display='none'; }}
+                                     />
+                                     <div className="absolute inset-0 flex items-center justify-center">
+                                       <div className="w-7 h-7 rounded-full bg-[#050505]/60 flex items-center justify-center">
+                                         <svg width="12" height="12" viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21"/></svg>
+                                       </div>
+                                     </div>
+                                   </div>
+                                 : <img
+                                     src={p.image || p.thumbnail}
+                                     className="w-full h-full object-cover"
+                                     loading="lazy"
+                                     onError={e => { (e.target as HTMLImageElement).src='/logo.png'; }}
+                                   />
+                             ) : (
+                               <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-gradient-to-br from-pink-900/20 to-cyan-900/20">
+                                 <Film size={20} className="text-white/20"/>
+                                 <p className="text-[8px] text-gray-600 font-bold px-1 text-center line-clamp-2">{p.text?.slice(0,25)}</p>
+                               </div>
+                             )}
                            </div>
                          ))}
                        </div>
                      </div>
                    </div>
-                 )}
+                 )} {/* /pulseTab===profile */}
                </div>
-             )}
+             )} {/* /outer flex flex-col h-full */}
+              {/* /socialScreen===pulse */}
 
-            {/* WECHAT CONTACT LIST */}
-            {socialScreen==='chatlist' && (
+             {/* WECHAT CONTACT LIST */}
+             {socialScreen==='chatlist' && (
               <div className="max-w-md mx-auto bg-[#111b21] min-h-screen pb-24">
                 <div className="bg-[#202c33] p-5 flex justify-between items-center border-b border-white/5">
                   <h2 className="font-black text-xl text-white uppercase tracking-widest">AJ WeChat</h2>
@@ -2948,7 +3086,7 @@ export function AJSuperPortal() {
                   ))}
                 </div>
               </div>
-            )} {/* /socialScreen===chatlist */}
+            )}
 
             {/* WECHAT CHAT */}
             {socialScreen==='chat' && (
