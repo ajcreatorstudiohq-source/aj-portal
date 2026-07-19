@@ -2041,7 +2041,7 @@ export function AJSuperPortal() {
           </button>
         </div>
 
-        <h1 className="text-4xl md:text-8xl font-black text-center mb-12 uppercase drop-shadow-[0_0_20px_#22d3ee]">Oman's #1 Social Earnings Platform</h1>
+        <h1 className="text-4xl md:text-8xl font-black text-center mb-12 uppercase bg-gradient-to-r from-pink-500 via-cyan-400 to-pink-400 bg-clip-text text-transparent drop-shadow-[0_0_20px_rgba(236,72,153,0.9)]">AJ SUPER PORTAL</h1>
         <div className="grid grid-cols-2 gap-4 md:gap-16 w-full max-w-4xl relative z-30">
           {[
             { label:'Gaming',        icon:<Trophy className="text-cyan-400 w-10 h-10 md:w-20 md:h-20 mb-2"/>, sc:'arcade', hover:'hover:border-cyan-400' },
@@ -2057,7 +2057,7 @@ export function AJSuperPortal() {
           ))}
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-50">
             <div className="relative w-24 h-24 md:w-96 md:h-96 bg-[#050505] border-[15px] border-cyan-500 rounded-full flex items-center justify-center shadow-[0_0_100px_#06b6d4] overflow-hidden">
-              <img src="/logo.png" className="w-full h-full object-cover opacity-60 animate-pulse"/>
+              <img src="/logo.png" style={{ zIndex: 50, position: 'relative' }} className="w-full h-full object-cover opacity-60 animate-pulse"/>
             </div>
           </div>
         </div>
@@ -2376,8 +2376,8 @@ export function AJSuperPortal() {
                     <div className="grid grid-cols-3 gap-1 mt-4">
                       {[...profilePosts, ...profileVideos].map((p:any) => (
                         <div key={p.id} className="aspect-square bg-white/5 rounded-xl overflow-hidden relative">
-                          {(p.image||p.url||p.thumbnail)
-                            ? <img src={p.image||p.url||p.thumbnail} className="w-full h-full object-cover" loading="lazy" decoding="async"/>
+                          {(p.thumbnail || p.videoUrl || p.image || p.url)
+                            ? <img src={p.thumbnail || p.videoUrl || p.image || p.url} onError={(e:any)=>{ e.currentTarget.src='/placeholder.png'; }} className="w-full h-full object-cover" loading="lazy" decoding="async"/>
                             : <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-pink-600/20 to-cyan-600/20"><Film size={24} className="text-pink-400"/></div>
                           }
                           {/* Fix #6: View counter bottom-left with formatViews */}
@@ -2515,8 +2515,17 @@ export function AJSuperPortal() {
                             data-vidx={i}
                             className="h-[85vh] w-full snap-start relative border-b border-white/5"
                             style={{ contain:'layout style paint', willChange:'transform', transform:'translate3d(0,0,0)' }}
-                            onClick={() => {
+                            onClick={(e) => {
                               if (!isActive) return;
+                              // Only toggle pause when clicking the CENTER area (avoid side button clicks)
+                              const el = e.currentTarget as HTMLElement;
+                              const rect = el.getBoundingClientRect();
+                              const cx = rect.left + rect.width / 2;
+                              const cy = rect.top + rect.height / 2;
+                              const clickX = (e as React.MouseEvent).clientX;
+                              const clickY = (e as React.MouseEvent).clientY;
+                              const withinCenter = Math.abs(clickX - cx) <= rect.width * 0.25 && Math.abs(clickY - cy) <= rect.height * 0.25;
+                              if (!withinCenter) return;
                               const newPaused = !reelPaused;
                               setReelPaused(newPaused);
                               // Pause/Resume YouTube iframe via postMessage API
@@ -2668,23 +2677,23 @@ export function AJSuperPortal() {
                                     )}
                                   </div>
                                 </div>
-                                <div onClick={() => handleLike(vid.id)} className="flex flex-col items-center cursor-pointer active:scale-125 transition-all">
+                                <div onClick={(e) => { e.stopPropagation(); handleLike(vid.id); }} className="flex flex-col items-center cursor-pointer active:scale-125 transition-all">
                                   <Heart size={35} className={likedPosts[vid.id]?"text-red-500 fill-red-500":"text-white"}/>
                                   <span className="text-[10px] font-bold text-white">12k</span>
                                 </div>
-                                <div className="flex flex-col items-center cursor-pointer" onClick={() => setCommentPostId(vid.id)}>
+                                <div className="flex flex-col items-center cursor-pointer" onClick={(e) => { e.stopPropagation(); setCommentPostId(vid.id); }}>
                                   <MessageCircle size={35} className="text-white"/>
                                   <span className="text-[10px] font-bold text-white">842</span>
                                 </div>
-                                <div onClick={() => handleShare(`Watch ${vid.title||vid.text||''} on AJ Portal!`)} className="flex flex-col items-center cursor-pointer text-white">
+                                <div onClick={(e) => { e.stopPropagation(); handleShare(`Watch ${vid.title||vid.text||''} on AJ Portal!`); }} className="flex flex-col items-center cursor-pointer text-white">
                                   <Share2 size={35}/><span className="text-[10px] font-bold">Share</span>
                                 </div>
-                                <div className="flex flex-col items-center cursor-pointer text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text" onClick={() => setPulseGiftPostId(vid.id)}>
+                                <div className="flex flex-col items-center cursor-pointer text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text" onClick={(e) => { e.stopPropagation(); setPulseGiftPostId(vid.id); }}>
                                   <Gift size={28}/><span className="text-[10px] font-bold">Gift</span>
                                 </div>
                                 {!isUserPost && (
                                   <div className="flex flex-col items-center cursor-pointer text-white"
-                                    onClick={() => setGlobalSoundOn(s => !s)}>
+                                    onClick={(e) => { e.stopPropagation(); setGlobalSoundOn(s => !s); }}>
                                     {globalSoundOn ? <Volume2 size={28} className="text-green-400"/> : <VolumeX size={28} className="text-red-400"/>}
                                     <span className="text-[10px] font-bold">{globalSoundOn?'Sound':'Muted'}</span>
                                   </div>
@@ -2889,7 +2898,7 @@ export function AJSuperPortal() {
                         </button>
                         <button onClick={handleCreatePost}
                           className="bg-pink-600 px-3 py-1.5 rounded-full text-[10px] font-black shadow-lg hover:scale-105 active:scale-95 transition-all duration-200 text-white whitespace-nowrap shrink-0">
-                          POST +10🪙
+                          {pulsePostIsVideo ? 'POST +10🪙' : 'POST +5🪙'}
                         </button>
                       </div>
                     </div>
