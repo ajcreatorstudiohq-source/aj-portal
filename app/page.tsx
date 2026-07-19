@@ -1,10 +1,7 @@
-
+"use client";
 import React, { useState, useEffect, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Toaster } from '@/components/ui/toaster';
-import { TooltipProvider } from '@/components/ui/tooltip';
-import { Route, Switch, Router as WouterRouter } from 'wouter';
-import NotFound from '@/pages/not-found';
+
 // ── Fix #9: Firebase inline config with exact keys ──────────
 import { initializeApp, getApps } from 'firebase/app';
 import {
@@ -56,7 +53,7 @@ const AGORA_APP_ID           = "7863c5369b3648bf931893a52ebaa6db";
 const AGORA_APP_CERTIFICATE  = "dc66528c5a5646da8e3ce5d2426759af";
 const VAPID_KEY              = "BMaPMtGtA2VtDsj_JH_yv5dOv66Mpguf9v4TkqY96dcS-gwqgs-r5OlqRJQmZbNkaj-7_iMFbGGN0Qc4xH0qvKg";
 const MONETAG_PULSE_BANNER   = 11337197;
-const PULSE_AD_VIDEO_ID      = 'dD2nkFBEaWI';  // Replace with your sponsor ad YouTube ID
+const PULSE_AD_VIDEO_ID      = 'aqz-KE-bpKQ';  // Sponsor ad YouTube ID
 const NOWPAYMENTS_IPN_SECRET = '9eeeBo6K1ljJSQtUCb1Up88Gv6n1AreU'; // IPN secret for verification
 const MONETAG_WECHAT_SPONSOR = 11337185;
 
@@ -146,6 +143,65 @@ function MonetagBanner({ siteId }: { siteId: number }) {
 }
 
 // ============================================================
+// VVIP NEON GLASSMORPHISM ALERT MODAL
+// ============================================================
+function VVIPAlert({ msg, icon, onClose }: { msg: string; icon?: string; onClose: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onClose, 4000);
+    return () => clearTimeout(t);
+  }, [onClose]);
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6 pointer-events-none">
+      <div className="pointer-events-auto max-w-sm w-full bg-[#050505]/90 backdrop-blur-2xl border border-pink-500/40 rounded-3xl p-6 shadow-[0_0_60px_rgba(236,72,153,0.35)] animate-in fade-in zoom-in-95 duration-300">
+        <div className="flex flex-col items-center gap-3 text-center">
+          {icon && <div className="text-4xl">{icon}</div>}
+          <div className="w-10 h-0.5 bg-gradient-to-r from-pink-500 via-cyan-400 to-purple-500 rounded-full"/>
+          <p className="text-white font-black text-sm leading-relaxed whitespace-pre-wrap">{msg}</p>
+          <button onClick={onClose}
+            className="mt-2 px-6 py-2 bg-gradient-to-r from-pink-600 to-purple-600 rounded-full text-white text-xs font-black uppercase tracking-widest shadow-lg hover:scale-105 active:scale-95 transition-all">
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// MONETAG VIDEO AD COMPONENT
+// ============================================================
+function MonetagVideoAd({ publisherId }: { publisherId: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!ref.current) return;
+    try {
+      const s = document.createElement('script');
+      s.src = `https://cdn.monetag.com/interstitial.js?pub=${publisherId}`;
+      s.async = true;
+      s.setAttribute('data-cfasync', 'false');
+      ref.current.appendChild(s);
+    } catch {}
+  }, [publisherId]);
+  return (
+    <div
+      ref={ref}
+      className="absolute inset-0 w-full h-full bg-[#050505] flex items-center justify-center overflow-hidden"
+    >
+      <div className="absolute top-4 left-4 z-10 pointer-events-none">
+        <span className="bg-pink-600/90 backdrop-blur-sm text-white text-[8px] font-black px-3 py-1 rounded-full uppercase tracking-widest shadow-lg">
+          📢 Sponsored
+        </span>
+      </div>
+      <div className="absolute bottom-8 left-0 right-0 flex justify-center z-10 pointer-events-none">
+        <span className="bg-[#050505]/60 backdrop-blur-sm text-white text-[9px] font-black px-4 py-2 rounded-full uppercase tracking-widest">
+          Ad
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // CINEMATIC GIFT OVERLAY
 // ============================================================
 function CinematicGiftOverlay({ gift, sender, onDone }: { gift: any; sender: string; onDone: () => void }) {
@@ -211,6 +267,12 @@ export function AJSuperPortal() {
   // ── INTERACTIONS
   const [likedPosts,    setLikedPosts]    = useState<any>({});
   const [activeMenuId,  setActiveMenuId]  = useState<string|null>(null);
+  const [vvipAlert,     setVvipAlert]     = useState<{msg:string,icon?:string}|null>(null);
+  const [editPostId,    setEditPostId]    = useState<string|null>(null);
+  const [editPostText,  setEditPostText]  = useState('');
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [showNotifs,    setShowNotifs]    = useState(false);
+  const [isMutualFriend,setIsMutualFriend]= useState(false);
   const [commentPostId, setCommentPostId] = useState<string|null>(null);
   const [postComments,  setPostComments]  = useState<any[]>([]);
   const [newComment,    setNewComment]    = useState('');
@@ -255,7 +317,6 @@ export function AJSuperPortal() {
   const [referralCode,   setReferralCode]   = useState('');
 
   // ── NOTIFICATIONS
-  const [notifications, setNotifications] = useState<any[]>([]);
   const [notifOpen,     setNotifOpen]     = useState(false);
   const [unreadCount,   setUnreadCount]   = useState(0);
 
@@ -283,6 +344,9 @@ export function AJSuperPortal() {
 
   // ── LIVE NOW LIST
   const [liveNowList, setLiveNowList] = useState<any[]>([]);
+
+  // ── PULSE TABS
+  const [pulseTab, setPulseTab] = useState<'feed'|'create'|'profile'>('feed');
 
   // ── PULSE MUTE STATE
   const [pulseMuted, setPulseMuted] = useState(true);
@@ -595,7 +659,6 @@ export function AJSuperPortal() {
     };
     window.addEventListener("message", handleGameMessage);
     return () => window.removeEventListener("message", handleGameMessage);
-    return () => {};
   }, [user]);
 
   // PK Timer
@@ -634,53 +697,64 @@ export function AJSuperPortal() {
   }, [liveActive, liveRoomId]);
 
   // ==========================================================
-  // TIKREELS WINDOWING + Fix #11: Audio Bleeding via IntersectionObserver
+  // TIKREELS + PULSE WINDOWING — Audio Bleeding fix via IntersectionObserver
+  // Covers both TikReels (YouTube iframes) and Pulse (user video elements)
   // ==========================================================
   useEffect(() => {
-    if (socialScreen !== 'tikreels' || tiktabMode !== 'feed') return;
+    const isTikFeed   = socialScreen === 'tikreels' && tiktabMode === 'feed';
+    const isPulseFeed = socialScreen === 'pulse'    && pulseTab   === 'feed';
+    if (!isTikFeed && !isPulseFeed) return;
     const root = videoFeedRef.current;
     if (!root) return;
     const obs = new IntersectionObserver(
       entries => {
         entries.forEach(entry => {
+          const el  = entry.target as HTMLElement;
+          const idx = parseInt(el.dataset.vidx || '0', 10);
           if (entry.isIntersecting) {
-            const idx = parseInt((entry.target as HTMLElement).dataset.vidx || '0', 10);
             setActiveVideoIdx(idx);
+          } else {
+            // Pause user-uploaded <video> elements that scroll off-screen
+            const uv = userVideoRefs.current[idx];
+            if (uv && !uv.paused) uv.pause();
           }
         });
       },
-      // Fix #11: threshold 0.8 — video must be 80% visible before it becomes "active"
-      // This prevents the next video from stealing audio too early during scroll
+      // threshold 0.8 — video must be 80% visible before becoming "active"
       { threshold: 0.8, root }
     );
     const slides = root.querySelectorAll('[data-vidx]');
     slides.forEach(el => obs.observe(el));
     return () => {
       obs.disconnect();
-      // Fix #11: Clean up iframe refs when feed unmounts to stop all audio
+      // Clean up iframe refs when feed unmounts to stop all audio
       iframeRefs.current = {};
     };
-  }, [pixaVideos, socialScreen, tiktabMode, userPosts]);
+  }, [pixaVideos, socialScreen, tiktabMode, userPosts, pulseTab, pulsePosts]);
 
-  // Fix #11: Audio Bleeding — when activeVideoIdx changes, force-mute ALL iframe
-  // references except the active one by resetting their src to a muted version.
-  // This is the KEY fix: YouTube iframes ignore JS pause(), so we must
-  // reload their src with mute=1 when they leave the viewport.
+  // Audio Bleeding — when activeVideoIdx changes, blank ALL off-screen YouTube
+  // iframes (fastest way to kill audio; JS pause() is ignored cross-origin).
   useEffect(() => {
-    if (socialScreen !== 'tikreels' || tiktabMode !== 'feed') return;
-    // Reset pause state when user scrolls to a new video
+    const isTikFeed   = socialScreen === 'tikreels' && tiktabMode === 'feed';
+    const isPulseFeed = socialScreen === 'pulse'    && pulseTab   === 'feed';
+    if (!isTikFeed && !isPulseFeed) return;
     setReelPaused(false);
     Object.entries(iframeRefs.current).forEach(([idxStr, el]) => {
       if (!el) return;
       const idx = parseInt(idxStr, 10);
       if (idx !== activeVideoIdx) {
-        // Audio Bleed fix: blank src instantly — fastest way to kill YouTube audio
         if (el.src && (el.src.includes('youtube.com') || el.src.includes('youtube-nocookie.com'))) {
           el.src = '';
         }
       }
     });
-  }, [activeVideoIdx, socialScreen, tiktabMode]);
+    // Also pause any off-screen user video elements
+    Object.entries(userVideoRefs.current).forEach(([idxStr, el]) => {
+      if (!el) return;
+      const idx = parseInt(idxStr, 10);
+      if (idx !== activeVideoIdx && !el.paused) el.pause();
+    });
+  }, [activeVideoIdx, socialScreen, tiktabMode, pulseTab]);
 
   // ==========================================================
   // SEND LIVE CHAT MESSAGE
@@ -734,7 +808,7 @@ export function AJSuperPortal() {
         });
       } catch {}
     } catch {
-      alert("Camera permission denied. Please allow camera access.");
+      setVvipAlert({msg:"Camera permission denied. Please allow camera access."});
       setCameraReady(false);
     }
   };
@@ -759,7 +833,7 @@ export function AJSuperPortal() {
   // ==========================================================
   const joinLiveByRoomId = async (roomId?: string) => {
     const rid = (roomId || joinRoomInput).trim();
-    if (!rid) return alert("Please enter the streamer's Room ID.");
+    if (!rid) return setVvipAlert({msg:"Please enter the streamer's Room ID."});
     try {
       let roomSnap:any = await getDoc(doc(db, 'live_rooms', rid));
       if (!roomSnap.exists()) {
@@ -767,8 +841,8 @@ export function AJSuperPortal() {
         const m = all2.docs.find(d => d.id.endsWith(rid) || d.id===rid);
         if (m) roomSnap = m;
       }
-      if (!roomSnap.exists()) return alert('Room not found. Use the Copy button for the full ID.');
-      if (!roomSnap.data()?.active) return alert('This stream has ended.');
+      if (!roomSnap.exists()) return setVvipAlert({msg:'Room not found. Use the Copy button for the full ID.'});
+      if (!roomSnap.data()?.active) return setVvipAlert({msg:'This stream has ended.'});
       setScreen('social');
       setViewerRoom({ id: roomSnap.id, ...roomSnap.data() });
       setViewerRoomId(roomSnap.id);
@@ -781,7 +855,7 @@ export function AJSuperPortal() {
         }
       );
       viewerUnsubRef.current = unsub;
-    } catch(e) { console.error('joinLiveByRoomId', e); alert('Could not join room. Please try again.'); }
+    } catch(e) { console.error('joinLiveByRoomId', e); setVvipAlert({msg:'Could not join room. Please try again.'}); }
   };
 
   const leaveViewerRoom = () => {
@@ -810,11 +884,11 @@ export function AJSuperPortal() {
   // PK CHALLENGE
   // ==========================================================
   const sendPkChallenge = async () => {
-    if (!user || !pkTargetId.trim()) return alert("Enter rival's User ID!");
-    if (balance < PK_ENTRY_COINS) return alert(`Need ${PK_ENTRY_COINS} AJ Coins to enter PK!`);
+    if (!user || !pkTargetId.trim()) return setVvipAlert({msg:"Enter rival's User ID!"});
+    if (balance < PK_ENTRY_COINS) return setVvipAlert({msg:`Need ${PK_ENTRY_COINS} AJ Coins to enter PK!`});
     try {
       const rivalSnap = await getDoc(doc(db,"users",pkTargetId.trim()));
-      if (!rivalSnap.exists()) return alert("Rival not found! Check User ID.");
+      if (!rivalSnap.exists()) return setVvipAlert({msg:"Rival not found! Check User ID."});
       await updateDoc(doc(db,"users",user.uid), { balance: increment(-PK_ENTRY_COINS) });
       try {
         await addDoc(collection(db,"AdminRevenue"), {
@@ -837,8 +911,8 @@ export function AJSuperPortal() {
       setPkWinner(null);
       setPkActive(true);
       setPkChallengeOpen(false);
-      alert(`⚔️ PK Challenge sent to @${rivalSnap.data().username || pkTargetId}! Match starting...`);
-    } catch(e) { console.error('sendPkChallenge', e); alert('Error sending challenge. Please try again.'); }
+      setVvipAlert({msg:`⚔️ PK Challenge sent to @${rivalSnap.data().username || pkTargetId}! Match starting...`,icon:"⚔️"});
+    } catch(e) { console.error('sendPkChallenge', e); setVvipAlert({msg:'Error sending challenge. Please try again.'}); }
   };
 
   const sendPkGift = async (creatorId:string, gift:{name:string,cost:number,icon:string}, isMe:boolean) => {
@@ -854,9 +928,9 @@ export function AJSuperPortal() {
   const sendGift = async (creatorId:string, gift:{name:string,cost:number,icon:string}) => {
     if (!user) return;
     if (balance < gift.cost) {
-      if (confirm(`Insufficient Balance! Need ${gift.cost} 🪙\nGo to Wallet → Purchase to recharge?`)) {
-        setScreen('wallet'); setWalletTab('purchase');
-      }
+      // Req 4: VVIP style — no native confirm()
+      setVvipAlert({msg:`Insufficient Balance! Need ${gift.cost} 🪙 — Go to Wallet to recharge.`,icon:'💰'});
+      setScreen('wallet'); setWalletTab('purchase');
       return;
     }
     try {
@@ -879,8 +953,8 @@ export function AJSuperPortal() {
       } catch {}
       setCinematicGift(gift);
       setCinematicSender(username || 'Anonymous');
-      alert(`${gift.icon} ${gift.name} sent! Creator received ${creatorShare} Coins (60%).`);
-    } catch(e) { console.error('sendGift', e); alert('Gift failed. Please try again.'); }
+      setVvipAlert({msg:`${gift.icon} ${gift.name} sent! Creator received ${creatorShare} Coins (60%).`});
+    } catch(e) { console.error('sendGift', e); setVvipAlert({msg:'Gift failed. Please try again.'}); }
   };
 
   // ==========================================================
@@ -914,10 +988,38 @@ export function AJSuperPortal() {
         await setDoc(followRef,   { uid:targetUid, date:serverTimestamp() });
         await setDoc(followerRef, { uid:user.uid,  date:serverTimestamp() });
         try { await updateDoc(doc(db,"users",user.uid),    { following: increment(1) }); } catch {}
-        try { await updateDoc(doc(db,"users",targetUid),   { followers: increment(1) }); } catch {}
+        try {
+          await updateDoc(doc(db,"users",targetUid), {
+            followers: increment(1),
+            followersCount: increment(1)  // Req 2: followersCount as Number
+          });
+        } catch {}
+        // Req 2: Notification "X followed you"
+        try {
+          await addDoc(collection(db,"users",targetUid,"notifications"), {
+            type:'follow', fromUid:user.uid,
+            fromUsername:username||'AJ_Member',
+            fromPhoto:user.photoURL||'',
+            createdAt:serverTimestamp(), read:false
+          });
+        } catch {}
         setIsFollowing(true); setFollowers(f => f+1);
+        // Check mutual after follow
+        try {
+          const theirF = await getDoc(doc(db,"users",targetUid,"following",user.uid));
+          setIsMutualFriend(theirF.exists());
+        } catch {}
       }
     } catch(e) { console.error('handleFollow', e); }
+  };
+
+  // Req 2: Load notifications
+  const loadNotifications = async () => {
+    if (!user) return;
+    try {
+      const nSnap = await getDocs(query(collection(db,"users",user.uid,"notifications"), orderBy("createdAt","desc"), limit(20)));
+      setNotifications(nSnap.docs.map(d => ({id:d.id,...d.data()})));
+    } catch {}
   };
 
   const loadFollowingList = async () => {
@@ -962,7 +1064,7 @@ export function AJSuperPortal() {
         }
       );
       setSocialScreen('dm');
-    } catch(e) { console.error('openOrCreateChat', e); alert('Could not open chat. Please try again.'); }
+    } catch(e) { console.error('openOrCreateChat', e); setVvipAlert({msg:'Could not open chat. Please try again.'}); }
   };
 
   const sendDmMessage = async () => {
@@ -1071,6 +1173,9 @@ export function AJSuperPortal() {
         try {
           const myF = await getDoc(doc(db,"users",user.uid,"following",uid));
           setIsFollowing(myF.exists());
+          // Req 2: Check mutual follow → "Your Friend" label
+          const theirF = await getDoc(doc(db,"users",uid,"following",user.uid));
+          setIsMutualFriend(myF.exists() && theirF.exists());
         } catch {}
       }
     } catch(e) {
@@ -1122,7 +1227,7 @@ export function AJSuperPortal() {
             const name = c.name?.[0]||'Unknown';
             if (name && !wechatContacts.includes(name)) await saveContactToFirestore(name);
           }
-          alert(`✅ ${cts.length} contact(s) synced!`);
+          setVvipAlert({msg:`✅ ${cts.length} contact(s) synced!`,icon:"✅"});
         }
       } catch { setAddContactOpen(true); }
     } else { setAddContactOpen(true); }
@@ -1138,9 +1243,9 @@ export function AJSuperPortal() {
   // TIKREELS POST
   // ==========================================================
   const handleTiktokPost = async () => {
-    if (!tiktokPostText.trim() && !tiktokPostImg) return alert("Add caption or image!");
+    if (!tiktokPostText.trim() && !tiktokPostImg) return setVvipAlert({msg:"Add caption or image!"});
     try {
-      const videoReward = 10; // Fix 6: flat 10 coins for video post
+      const videoReward = 20; // Req 6: +20 Coins for video post
       await addDoc(collection(db,"user_posts"), {
         text:tiktokPostText, image:tiktokPostImg, uid:user!.uid,
         username:username||"AJ_Member", photo:user!.photoURL||'',
@@ -1150,8 +1255,8 @@ export function AJSuperPortal() {
       await logAdminRevenue('tiktok_post', videoReward, videoReward);
       setTiktokPostText(''); setTiktokPostImg(''); setTiktokPostIsVideo(false);
       setTiktabMode('feed');
-      alert(`🎬 Post published! +${videoReward} Coins 🪩`);
-    } catch(e) { console.error('handleTiktokPost', e); alert('Post failed. Please try again.'); }
+      setVvipAlert({msg:`🎬 Post published! +${videoReward} Coins 🪩`,icon:"🎬"});
+    } catch(e) { console.error('handleTiktokPost', e); setVvipAlert({msg:'Post failed. Please try again.'}); }
   };
 
   // ==========================================================
@@ -1207,14 +1312,14 @@ export function AJSuperPortal() {
   };
 
   const handleCreateProfile = async () => {
-    if (username.length<3) return alert("Username too short!");
+    if (username.length<3) return setVvipAlert({msg:"Username too short!"});
     try {
       await updateDoc(doc(db,"users",user!.uid), {
         username: username.toLowerCase().trim(), bio,
         photo: tempPhoto||user!.photoURL||"/logo.png", hasSocialProfile:true
       });
-      setHasSocialProfile(true); setSocialScreen('hub'); alert("🚀 Profile Active!");
-    } catch(e) { console.error('handleCreateProfile', e); alert('Profile save failed. Please try again.'); }
+      setHasSocialProfile(true); setSocialScreen('hub'); setVvipAlert({msg:"🚀 Profile Active!",icon:"🚀"});
+    } catch(e) { console.error('handleCreateProfile', e); setVvipAlert({msg:'Profile save failed. Please try again.'}); }
   };
 
   const sendChatMessage = async () => {
@@ -1243,9 +1348,9 @@ export function AJSuperPortal() {
   };
 
   const handleCreatePost = async () => {
-    if (!postText.trim() && !tempPhoto) return alert("Empty Post!");
+    if (!postText.trim() && !tempPhoto) return setVvipAlert({msg:"Empty Post!"});
     try {
-      const photoReward = pulsePostIsVideo ? 10 : 5; // Fix 6: flat 5 coins for photo/video post
+      const photoReward = pulsePostIsVideo ? 20 : 10; // Req 6: Video +20, Photo +10 Coins
       // Fix #3: Use 'pulse_posts' collection, addDoc ensures no overwrite, sorted by createdAt
       await addDoc(collection(db,"pulse_posts"), {
         text:postText, image:tempPhoto, uid:user!.uid,
@@ -1255,8 +1360,8 @@ export function AJSuperPortal() {
       await updateDoc(doc(db,"users",user!.uid), { balance: increment(photoReward) });
       await logAdminRevenue('pulse_post', photoReward, photoReward);
       setPostText(''); setTempPhoto(''); setPulsePostIsVideo(false);
-      alert(`🚀 Post Published! +${photoReward} Coins 🪩`);
-    } catch(e) { console.error('handleCreatePost', e); alert('Post failed. Please try again.'); }
+      setVvipAlert({msg:`🚀 Post Published! +${photoReward} Coins 🪩`,icon:"🚀"});
+    } catch(e) { console.error('handleCreatePost', e); setVvipAlert({msg:'Post failed. Please try again.'}); }
   };
 
   const submitComment = async () => {
@@ -1272,10 +1377,13 @@ export function AJSuperPortal() {
   };
 
   const handleDeletePost = async (id:string) => {
-    if (confirm("Delete permanently?")) {
-      const col = (socialScreen === 'pulse') ? 'pulse_posts' : 'user_posts';
-      try { await deleteDoc(doc(db, col, id)); setActiveMenuId(null); } catch(e) { console.error('handleDeletePost', e); }
-    }
+    // Req 4: VVIP style — no native confirm(), use inline delete
+    const col = (socialScreen === 'pulse') ? 'pulse_posts' : 'user_posts';
+    try {
+      await deleteDoc(doc(db, col, id));
+      setActiveMenuId(null);
+      setVvipAlert({msg:'🗑️ Post deleted.', icon:'🗑️'});
+    } catch(e) { console.error('handleDeletePost', e); }
   };
 
   const handleLike  = (id:string) => setLikedPosts((p:any) => ({...p,[id]:!p[id]}));
@@ -1285,19 +1393,19 @@ export function AJSuperPortal() {
       navigator.share({ title:'AJ Super Portal', text: msg, url: window.location.href }).catch(() => {});
     } else {
       navigator.clipboard?.writeText(window.location.href);
-      alert("Link copied!");
+      setVvipAlert({msg:"Link copied!"});
     }
   };
 
   const activateBot = async (tier:string, cost:number) => {
-    if (balance<cost) return alert("Insufficient Balance!");
+    if (balance<cost) return setVvipAlert({msg:"Insufficient Balance!"});
     try {
       await updateDoc(doc(db,"users",user!.uid), {
         balance: increment(-cost), botTier:tier, invested:cost, lastSync:serverTimestamp()
       });
       await logAdminRevenue('ai_bot', cost, cost * USER_EARN_SHARE);
-      alert(`${tier.toUpperCase()} BOT ACTIVATED!`);
-    } catch(e) { console.error('activateBot', e); alert('Activation failed. Please try again.'); }
+      setVvipAlert({msg:`${tier.toUpperCase()} BOT ACTIVATED!`});
+    } catch(e) { console.error('activateBot', e); setVvipAlert({msg:'Activation failed. Please try again.'}); }
   };
 
   // ── WALLET ACTIONS
@@ -1305,8 +1413,8 @@ export function AJSuperPortal() {
   // Card / Bank: in-app form → saved to Firebase → admin credits manually
   const handlePurchase = async () => {
     if (purchaseAmount < MIN_PURCHASE)
-      return alert(`Minimum purchase is ${MIN_PURCHASE} (= ${MIN_PURCHASE*COIN_RATE} Coins)`);
-    if (!user?.uid) return alert("Please log in first.");
+      return setVvipAlert({msg:`Minimum purchase is ${MIN_PURCHASE} (= ${MIN_PURCHASE*COIN_RATE} Coins)`});
+    if (!user?.uid) return setVvipAlert({msg:"Please log in first."});
 
     // ── Crypto path: Binance USDT BSC via NOWPayments invoice
     try {
@@ -1330,17 +1438,17 @@ export function AJSuperPortal() {
       window.open(invoiceUrl, '_blank');
     } catch(e: any) {
       console.error('handlePurchase', e);
-      alert(`Payment Error: ${e.message || 'Please try again.'}`);
+      setVvipAlert({msg:`Payment Error: ${e.message || 'Please try again.'}`});
     }
   };
 
   const handleTransfer = async () => {
-    if (transferAmount<=0 || !transferId.trim()) return alert("Fill all fields!");
-    if (balance<transferAmount) return alert("Insufficient balance!");
-    if (transferId===user!.uid) return alert("Cannot transfer to yourself.");
+    if (transferAmount<=0 || !transferId.trim()) return setVvipAlert({msg:"Fill all fields!"});
+    if (balance<transferAmount) return setVvipAlert({msg:"Insufficient balance!"});
+    if (transferId===user!.uid) return setVvipAlert({msg:"Cannot transfer to yourself."});
     try {
       const rSnap = await getDoc(doc(db,"users",transferId.trim()));
-      if (!rSnap.exists()) return alert("Recipient not found!");
+      if (!rSnap.exists()) return setVvipAlert({msg:"Recipient not found!"});
       await updateDoc(doc(db,"users",user!.uid),        { balance: increment(-transferAmount) });
       await updateDoc(doc(db,"users",transferId.trim()),{ balance: increment(transferAmount) });
       try {
@@ -1350,23 +1458,23 @@ export function AJSuperPortal() {
           date:serverTimestamp()
         });
       } catch {}
-      alert("✅ Transfer successful!"); setTransferAmount(0); setTransferId(''); setWalletTab('main');
-    } catch(e) { console.error('handleTransfer', e); alert('Transfer failed. Please try again.'); }
+      setVvipAlert({msg:"✅ Transfer successful!",icon:"✅"}); setTransferAmount(0); setTransferId(''); setWalletTab('main');
+    } catch(e) { console.error('handleTransfer', e); setVvipAlert({msg:'Transfer failed. Please try again.'}); }
   };
 
   const handleWithdraw = async () => {
     if (balance < WITHDRAW_MIN)
-      return alert(`Minimum withdrawal is ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE} USD). Current: ${balance.toFixed(0)} Coins.`);
+      return setVvipAlert({msg:`Minimum withdrawal is ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE} USD). Current: ${balance.toFixed(0)} Coins.`});
     const isCard = false;
     if (isCard) {
-      if (!cardHolder.trim())  return alert('Enter Cardholder Name.');
+      if (!cardHolder.trim())  return setVvipAlert({msg:'Enter Cardholder Name.'});
       const rawNum = cardNumber.replace(/\s/g,'');
-      if (rawNum.length < 13 || rawNum.length > 19) return alert('Enter a valid Card Number (13-19 digits).');
-      if (!cardExpiry.trim())  return alert('Enter Card Expiry (MM/YY).');
-      if (!cardCVV.trim())     return alert('Enter CVV.');
-      if (!cardCountry.trim()) return alert('Enter your Country.');
+      if (rawNum.length < 13 || rawNum.length > 19) return setVvipAlert({msg:'Enter a valid Card Number (13-19 digits).'});
+      if (!cardExpiry.trim())  return setVvipAlert({msg:'Enter Card Expiry (MM/YY).'});
+      if (!cardCVV.trim())     return setVvipAlert({msg:'Enter CVV.'});
+      if (!cardCountry.trim()) return setVvipAlert({msg:'Enter your Country.'});
     } else {
-      if (!payoutId.trim()) return alert(`Enter your ${currentWithdrawMethod.field}.`);
+      if (!payoutId.trim()) return setVvipAlert({msg:`Enter your ${currentWithdrawMethod.field}.`});
     }
     try {
       const usdVal = balance / CASH_RATE;
@@ -1389,18 +1497,18 @@ export function AJSuperPortal() {
           date:serverTimestamp()
         });
       } catch {}
-      alert("🚀 Withdrawal request submitted!");
+      setVvipAlert({msg:"🚀 Withdrawal request submitted!",icon:"🚀"});
       setPayoutId(''); setCardHolder(''); setCardNumber(''); setCardExpiry('');
       setCardCVV(''); setCardBank(''); setCardCountry('');
       setWalletTab('main');
-    } catch(e) { console.error('handleWithdraw', e); alert('Withdrawal request failed. Please try again.'); }
+    } catch(e) { console.error('handleWithdraw', e); setVvipAlert({msg:'Withdrawal request failed. Please try again.'}); }
   };
 
   const handleApplyReferral = async () => {
-    if (!referralCode.trim()) return alert("Enter referral code.");
+    if (!referralCode.trim()) return setVvipAlert({msg:"Enter referral code."});
     try {
       const rSnap = await getDoc(doc(db,"users",referralCode.trim()));
-      if (!rSnap.exists()) return alert("Referral Code not found.");
+      if (!rSnap.exists()) return setVvipAlert({msg:"Referral Code not found."});
       const totalPool = REFERRAL_COINS;
       const referrerNet = parseFloat((totalPool * USER_EARN_SHARE).toFixed(4));
       await updateDoc(doc(db,"users",referralCode.trim()), { balance: increment(referrerNet) });
@@ -1412,9 +1520,9 @@ export function AJSuperPortal() {
           date:serverTimestamp()
         });
       } catch {}
-      alert(`Referral Applied! Referrer received ${referrerNet} Coins (30% share).`);
+      setVvipAlert({msg:`Referral Applied! Referrer received ${referrerNet} Coins (30% share).`});
       setReferralCode('');
-    } catch(e) { console.error('handleApplyReferral', e); alert('Referral failed. Please try again.'); }
+    } catch(e) { console.error('handleApplyReferral', e); setVvipAlert({msg:'Referral failed. Please try again.'}); }
   };
 
   // ══════════════════════════════════════════════════════════
@@ -1681,6 +1789,42 @@ export function AJSuperPortal() {
       <input type="file" ref={tiktokFileRef} onChange={handleTiktokFileChange} accept="image/*,video/*" className="hidden"/>
       <input type="file" ref={audioFileRef}  onChange={e => { const f = e.target.files?.[0]; if(f) setTiktokAudioFile(f); }} accept="audio/*" className="hidden"/>
 
+      {/* VVIP NEON ALERT MODAL — Req 4 */}
+      {vvipAlert && (
+        <VVIPAlert msg={vvipAlert.msg} icon={vvipAlert.icon} onClose={() => setVvipAlert(null)}/>
+      )}
+
+      {/* EDIT POST MODAL — Req 2 */}
+      {editPostId && (
+        <div className="fixed inset-0 z-[9998] flex items-end justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-[#0a0a1a] border border-pink-500/30 rounded-3xl p-5 w-full max-w-sm shadow-2xl">
+            <p className="text-xs font-black text-pink-400 uppercase tracking-widest mb-3">✏️ Edit Post</p>
+            <textarea
+              value={editPostText}
+              onChange={e => setEditPostText(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded-2xl p-3 text-sm text-white outline-none focus:border-pink-500 h-24 font-bold resize-none"
+              placeholder="Edit your caption..."/>
+            <div className="flex gap-3 mt-3">
+              <button onClick={async () => {
+                if (!editPostId) return;
+                const col = socialScreen === 'pulse' ? 'pulse_posts' : 'user_posts';
+                try {
+                  await updateDoc(doc(db, col, editPostId), { text: editPostText });
+                  setEditPostId(null); setEditPostText('');
+                  setVvipAlert({msg:'✅ Post updated!', icon:'✏️'});
+                } catch { setVvipAlert({msg:'Update failed. Try again.'}); }
+              }} className="flex-1 py-2.5 bg-pink-600 rounded-2xl font-black text-xs text-white uppercase tracking-widest">
+                Save
+              </button>
+              <button onClick={() => { setEditPostId(null); setEditPostText(''); }}
+                className="flex-1 py-2.5 bg-white/5 border border-white/10 rounded-2xl font-black text-xs text-gray-400 uppercase tracking-widest">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* CINEMATIC GIFT OVERLAY */}
       {cinematicGift && (
         <CinematicGiftOverlay
@@ -1741,7 +1885,7 @@ export function AJSuperPortal() {
           </button>
         </div>
 
-        <h1 className="text-4xl md:text-8xl font-black text-center mb-12 uppercase drop-shadow-[0_0_20px_#22d3ee]">AJ SUPER PORTAL</h1>
+        <h1 className="text-4xl md:text-8xl font-black text-center mb-12 uppercase drop-shadow-[0_0_20px_#22d3ee]">Oman's #1 Social Earnings Platform</h1>
         <div className="grid grid-cols-2 gap-4 md:gap-16 w-full max-w-4xl relative z-30">
           {[
             { label:'Gaming',        icon:<Trophy className="text-cyan-400 w-10 h-10 md:w-20 md:h-20 mb-2"/>, sc:'arcade', hover:'hover:border-cyan-400' },
@@ -1750,7 +1894,7 @@ export function AJSuperPortal() {
             { label:'AI Trading Bot',icon:<Bot className="text-green-400 w-10 h-10 md:w-20 md:h-20 mb-2"/>, sc:'ai',     hover:'hover:border-green-500' },
           ].map(m => (
             <div key={m.label} onClick={() => navigateWithAd(m.sc)}
-              className={`bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center cursor-pointer shadow-xl  transition-all ${m.hover} relative z-30`}>
+              className={`backdrop-blur-2xl bg-white/[0.07] border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center cursor-pointer shadow-xl  transition-all ${m.hover} relative z-30`}>
               {m.icon}
               <span className="font-black text-xs md:text-3xl uppercase tracking-tighter">{m.label}</span>
             </div>
@@ -1773,7 +1917,7 @@ export function AJSuperPortal() {
 
       {/* AI ASSISTANT CHAT PANEL */}
       {botOpen && screen==='hub' && (
-        <div className="fixed bottom-24 right-6 z-[900] w-80 md:w-96 h-[480px] bg-[#0d1117] border border-cyan-500/30 rounded-[2.5rem] shadow-[0_0_50px_rgba(6,182,212,0.2)] flex flex-col overflow-hidden backdrop-blur-xl">
+        <div className="fixed bottom-24 right-6 z-[900] w-80 md:w-96 h-[480px] bg-white/[0.04] border border-cyan-500/30 rounded-[2.5rem] shadow-[0_0_50px_rgba(6,182,212,0.2)] flex flex-col overflow-hidden backdrop-blur-2xl">
           <div className="bg-gradient-to-r from-cyan-600/30 to-green-600/30 p-5 border-b border-white/10 flex items-center gap-3">
             <div className="w-10 h-10 bg-cyan-500 rounded-full flex items-center justify-center border-2 border-cyan-300">
               <Bot size={22} className="text-black"/>
@@ -1904,6 +2048,29 @@ export function AJSuperPortal() {
                   <p className="text-[9px] text-gray-400 mt-2">Share ID → New user enters it → You get +{REFERRAL_COINS} Coins!</p>
                 </div>
 
+                {/* Req 2: Notifications panel button */}
+                <button onClick={() => { setShowNotifs(!showNotifs); loadNotifications(); }}
+                  className="w-full py-3 bg-white/5 border border-yellow-500/30 rounded-2xl font-black uppercase text-yellow-400 text-xs tracking-widest flex items-center justify-center gap-2 hover:bg-yellow-500/10 transition-all">
+                  🔔 Notifications {notifications.filter((n:any)=>!n.read).length > 0 && <span className="bg-red-500 text-white text-[9px] rounded-full px-1.5 py-0.5">{notifications.filter((n:any)=>!n.read).length}</span>}
+                </button>
+                {showNotifs && notifications.length > 0 && (
+                  <div className="bg-[#0a0a1a] border border-white/10 rounded-2xl p-3 space-y-2 max-h-48 overflow-y-auto">
+                    {notifications.map((n:any) => (
+                      <div key={n.id} className="flex items-center gap-3">
+                        <img src={n.fromPhoto||'/logo.png'} className="w-8 h-8 rounded-full border border-pink-500 object-cover shrink-0"/>
+                        <div className="flex-1">
+                          <p className="text-[10px] font-black text-white">@{n.fromUsername} followed you!</p>
+                          <p className="text-[9px] text-gray-500">Tap to follow back</p>
+                        </div>
+                        <button onClick={() => n.fromUid && handleFollow(n.fromUid)}
+                          className="px-3 py-1.5 bg-pink-600 rounded-full text-[9px] font-black text-white uppercase shrink-0">
+                          Follow Back
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {/* GO LIVE */}
                 <button onClick={startLive}
                   className="w-full py-4 bg-red-600 rounded-[2rem] font-black uppercase text-white tracking-[0.2em] shadow-[0_0_30px_rgba(239,68,68,0.4)] hover:scale-105 active:scale-95 transition-all duration-200   transition-all flex items-center justify-center gap-3 ">
@@ -2015,7 +2182,15 @@ export function AJSuperPortal() {
 
                     {/* FOLLOW + MESSAGE BUTTONS */}
                     {viewingUid !== user?.uid && (
-                      <div className="flex gap-3 mt-6 justify-center">
+                      <div className="flex flex-col gap-2 mt-6 items-center">
+                        {/* Req 2: Your Friend label for mutual follows */}
+                        {isMutualFriend && (
+                          <div className="flex items-center gap-1 bg-green-500/15 border border-green-500/30 px-4 py-1.5 rounded-full mb-1">
+                            <UserCheck size={12} className="text-green-400"/>
+                            <span className="text-green-400 text-[10px] font-black uppercase tracking-widest">Your Friend</span>
+                          </div>
+                        )}
+                        <div className="flex gap-3 w-full">
                         <button
                           onClick={() => viewingUid && handleFollow(viewingUid)}
                           className={`flex-1 py-3 rounded-2xl font-black text-sm uppercase tracking-widest flex items-center justify-center gap-2 transition-all  ${isFollowing?'bg-white/5 backdrop-blur-xl border border-white/10 border border-white/20 text-white':'bg-pink-600 text-white shadow-lg'}`}>
@@ -2028,6 +2203,7 @@ export function AJSuperPortal() {
                           className="flex-1 py-3 rounded-2xl font-black text-sm uppercase tracking-widest flex items-center justify-center gap-2 bg-cyan-600/20 border border-cyan-500/40 text-cyan-400 hover:bg-cyan-600/30 transition-all ">
                           <MessageCircle size={16}/> Message
                         </button>
+                        </div>
                       </div>
                     )}
 
@@ -2141,6 +2317,11 @@ export function AJSuperPortal() {
                       {t==='feed'?'🎬 Feed':t==='create'?'➕ Post':'👤 Profile'}
                     </button>
                   ))}
+                  {/* Req 3: GO LIVE inside TikReel — like TikTok */}
+                  <button onClick={startLive} title="Go Live"
+                    className="px-3 py-3 flex items-center gap-1 border-l border-white/10 text-red-400 hover:text-red-300 transition-all shrink-0">
+                    <Radio size={13} className="animate-pulse"/><span className="text-[9px] font-black">🔴</span>
+                  </button>
                 </div>
 
                 {/* FEED — TikTok style */}
@@ -2269,17 +2450,46 @@ export function AJSuperPortal() {
                                       onClick={() => { if (isUserPost && vid.uid) openProfile(vid.uid); }}
                                       className={`w-12 h-12 rounded-full border-2 border-white object-cover shadow-xl transition-all ${isUserPost && vid.uid ? 'cursor-pointer active:scale-90' : 'cursor-default'}`}
                                     />
-                                    <button
-                                      onClick={() => setFollowedYouTubers(prev => {
-                                        const next = new Set(prev);
-                                        if (next.has(avatarKey)) { next.delete(avatarKey); }
-                                        else { next.add(avatarKey); }
-                                        return next;
-                                      })}
-                                      className={`absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center border-2 border-black font-black text-[11px] shadow-lg transition-all active:scale-125 ${followedYouTubers.has(avatarKey) ? 'bg-white text-pink-600' : 'bg-pink-600 text-white'}`}
-                                    >
-                                      {followedYouTubers.has(avatarKey) ? '✓' : '+'}
-                                    </button>
+                                    {/* Req 2: own post "+" → DP change; others → follow toggle */}
+                                    {isUserPost && vid.uid===user?.uid ? (
+                                      <button
+                                        title="Change Profile Photo"
+                                        onClick={() => {
+                                          const inp = document.createElement('input');
+                                          inp.type = 'file'; inp.accept = 'image/*';
+                                          inp.onchange = async (e: any) => {
+                                            const f = e.target.files?.[0];
+                                            if (!f) return;
+                                            const fd = new FormData();
+                                            fd.append('file', f);
+                                            fd.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+                                            try {
+                                              const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`, { method:'POST', body:fd });
+                                              const data = await res.json();
+                                              if (data.secure_url) {
+                                                await updateDoc(doc(db,'users',user!.uid), { photoURL:data.secure_url, photo:data.secure_url });
+                                                setTempPhoto(data.secure_url);
+                                                setVvipAlert({msg:'✅ Profile photo updated!', icon:'📸'});
+                                              }
+                                            } catch {}
+                                          };
+                                          inp.click();
+                                        }}
+                                        className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center border-2 border-black font-black text-[11px] shadow-lg bg-cyan-500 text-white transition-all active:scale-125"
+                                      >+</button>
+                                    ) : (
+                                      <button
+                                        onClick={() => setFollowedYouTubers(prev => {
+                                          const next = new Set(prev);
+                                          if (next.has(avatarKey)) { next.delete(avatarKey); }
+                                          else { next.add(avatarKey); }
+                                          return next;
+                                        })}
+                                        className={`absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center border-2 border-black font-black text-[11px] shadow-lg transition-all active:scale-125 ${followedYouTubers.has(avatarKey) ? 'bg-white text-pink-600' : 'bg-pink-600 text-white'}`}
+                                      >
+                                        {followedYouTubers.has(avatarKey) ? '✓' : '+'}
+                                      </button>
+                                    )}
                                   </div>
                                 </div>
                                 <div onClick={() => handleLike(vid.id)} className="flex flex-col items-center cursor-pointer active:scale-125 transition-all">
@@ -2304,6 +2514,28 @@ export function AJSuperPortal() {
                                   </div>
                                 )}
                               </div>
+                              {/* Req 2: 3-dot menu for own TikReel posts */}
+                              {isUserPost && vid.uid===user?.uid && (
+                                <div className="absolute top-4 right-4 z-20">
+                                  <button onClick={() => setActiveMenuId(activeMenuId===vid.id?null:vid.id)}
+                                    className="bg-[#050505]/50 backdrop-blur-sm rounded-full p-2 active:scale-90 transition-all">
+                                    <MoreVertical size={16} className="text-white"/>
+                                  </button>
+                                  {activeMenuId===vid.id && (
+                                    <div className="absolute right-0 top-11 bg-slate-900 border border-white/10 p-3 rounded-xl z-[1000] shadow-2xl min-w-[110px]">
+                                      <button
+                                        onClick={() => { setEditPostId(vid.id); setEditPostText(vid.text||''); setActiveMenuId(null); }}
+                                        className="text-blue-400 text-[10px] font-black flex items-center gap-2 uppercase w-full mb-2">
+                                        <Edit3 size={14}/> Edit
+                                      </button>
+                                      <button onClick={() => handleDeletePost(vid.id)}
+                                        className="text-red-500 text-[10px] font-black flex items-center gap-2 uppercase w-full">
+                                        <Trash2 size={14}/> Delete
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                               {/* Bottom info */}
                               <div className="absolute bottom-10 left-6 text-white max-w-[70%] z-10">
                                 <p className="font-black text-sm">@{isUserPost ? (vid.username||'AJ_Member') : vid.user}</p>
@@ -2312,37 +2544,25 @@ export function AJSuperPortal() {
                                   className="flex items-center gap-2 mt-3 bg-[#050505]/40 w-max p-1.5 rounded-full border border-white/10 cursor-pointer  transition-all"
                                   onClick={() => {
                                     const soundLabel = isUserPost
-                                      ? (vid.title || vid.text || 'Original Sound — AJ Studio')
-                                      : (vid.title || 'Original Sound — AJ Studio');
+                                      ? (vid.title || vid.text || 'AJ Studio Sound')
+                                      : (vid.title || 'AJ Studio Sound');
                                     setSelectedSound(soundLabel);
-                                    alert(`🎵 Sound selected: "${soundLabel.slice(0,40)}"`);
+                                    // Req 1: clicking sound → set for next post + open Create tab
+                                     setTiktabMode('create');
                                   }}
                                 >
                                   <Music size={12} className="text-pink-400" style={{animation:'spin 3s linear infinite'}}/>
                                   {/* @ts-ignore */}
-                                  <marquee className="text-[10px] w-24 uppercase font-bold">Original Sound - AJ Studio</marquee>
+                                  <marquee className="text-[10px] w-24 uppercase font-bold">AJ Studio Sound</marquee>
                                 </div>
                               </div>
                             </>
                             )}
                           </div>
                           {(i+1)%4===0 && (
-                             /* Video Ad every 4 TikReels — mute=1 required for mobile autoplay */
+                             /* Monetag Video Ad every 4 TikReels */
                              <div className="h-[85vh] w-full snap-start relative overflow-hidden bg-[#050505]">
-                               <iframe
-                                 src={`https://www.youtube-nocookie.com/embed/${PULSE_AD_VIDEO_ID}?autoplay=1&mute=1&controls=1&loop=1&playlist=${PULSE_AD_VIDEO_ID}&rel=0&modestbranding=1&playsinline=1&enablejsapi=1`}
-                                 className="absolute inset-0 w-full h-full"
-                                 allow="autoplay; encrypted-media; gyroscope; picture-in-picture; web-share"
-                                 allowFullScreen
-                                 frameBorder="0"
-                                 title="Sponsored Video"
-                               />
-                               <div className="absolute top-4 left-4 z-10 pointer-events-none">
-                                 <span className="bg-pink-600/90 backdrop-blur-sm text-white text-[8px] font-black px-3 py-1 rounded-full uppercase tracking-widest shadow-lg">📢 Sponsored</span>
-                               </div>
-                               <div className="absolute bottom-8 left-0 right-0 flex justify-center z-10 pointer-events-none">
-                                 <span className="bg-[#050505]/60 backdrop-blur-sm text-white text-[9px] font-black px-4 py-2 rounded-full uppercase tracking-widest">🔇 Tap Controls to Unmute</span>
-                               </div>
+                               <MonetagVideoAd publisherId={11279683}/>
                              </div>
                            )}
                         </React.Fragment>
@@ -2378,7 +2598,7 @@ export function AJSuperPortal() {
                       <p className="text-[10px] text-pink-400 font-bold text-center">🎵 Using: {selectedSound.slice(0,40)}</p>
                     )}
                     <button onClick={handleTiktokPost} className="w-full py-4 bg-pink-600 rounded-2xl font-black uppercase text-white tracking-widest shadow-lg  transition-all">
-                      PUBLISH (+10 🪙)
+                      PUBLISH (+20 🪙)
                     </button>
                   </div>
                 )}
@@ -2458,7 +2678,20 @@ export function AJSuperPortal() {
             {/* AJ PULSE — TikReel-style full-screen snap-scroll UI clone */}
             {socialScreen==='pulse' && (
                <div className="flex flex-col h-full">
-                 {/* Compact Create Post Bar */}
+                 {/* PULSE TAB BAR — Feed | Create */}
+                 <div className="flex gap-0 bg-[#050505] border-b border-white/10 shrink-0">
+                   {(['feed','create'] as const).map(t => (
+                     <button key={t} onClick={() => setPulseTab(t)}
+                       className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest transition-all ${pulseTab===t?'text-pink-500 border-b-2 border-pink-500':'text-gray-500'}`}>
+                       {t==='feed'?'📡 Feed':'➕ Create'}
+                     </button>
+                   ))}
+                 </div>
+
+                 {/* FEED — full-screen snap scroll */}
+                 {pulseTab==='feed' && (
+                 <div className="flex flex-col flex-1 overflow-hidden">
+                 {/* Compact Create Post Bar — hidden when Create tab active */}
                  <div className="bg-slate-950/98 p-3 border-b border-pink-500/20 sticky top-0 z-20 shrink-0">
                    <div className="flex gap-2 items-center">
                      <img src={user?.photoURL||'/logo.png'} className="w-8 h-8 rounded-full border-2 border-pink-500 flex-shrink-0 object-cover"/>
@@ -2482,7 +2715,7 @@ export function AJSuperPortal() {
                      </button>
                      <button onClick={handleCreatePost}
                        className="bg-pink-600 px-3 py-1.5 rounded-full text-[10px] font-black shadow-lg hover:scale-105 active:scale-95 transition-all duration-200   transition-all text-white whitespace-nowrap shrink-0">
-                       POST +5🪙
+                       POST +10🪙
                      </button>
                    </div>
                  </div>
@@ -2509,24 +2742,11 @@ export function AJSuperPortal() {
                          });
                      }
                      return pulseFeed.map((post: any, idx: number) => (
-                       <React.Fragment key={post.id || `pf-${idx}`}>
-                         {/* Full-screen Real Video Ad every 5 posts — actual YouTube player */}
+                       <React.Fragment key={post.id || idx}>
+                         {/* Monetag Video Ad every 5 Pulse posts */}
                          {idx > 0 && idx % 5 === 0 && (
                            <div className="h-[85vh] w-full snap-start relative overflow-hidden bg-[#050505]">
-                             <iframe
-                               src={`https://www.youtube-nocookie.com/embed/${PULSE_AD_VIDEO_ID}?autoplay=1&mute=1&controls=1&loop=1&playlist=${PULSE_AD_VIDEO_ID}&rel=0&modestbranding=1&playsinline=1&enablejsapi=1`}
-                               className="absolute inset-0 w-full h-full"
-                               allow="autoplay; encrypted-media; gyroscope; picture-in-picture"
-                               allowFullScreen
-                               frameBorder="0"
-                               title="Sponsored Video"
-                             />
-                             {/* Sponsor label overlay */}
-                             <div className="absolute top-4 left-4 z-10 pointer-events-none">
-                               <span className="bg-cyan-600/80 backdrop-blur-sm text-white text-[8px] font-black px-2 py-1 rounded-full uppercase tracking-widest">
-                                 Sponsored
-                               </span>
-                             </div>
+                             <MonetagVideoAd publisherId={11279683}/>
                            </div>
                          )}
 
@@ -2599,9 +2819,14 @@ export function AJSuperPortal() {
                                  <MoreVertical size={16} className="text-white"/>
                                </button>
                                {activeMenuId===post.id && (
-                                 <div className="absolute right-0 top-11 bg-slate-900 border border-white/10 p-3 rounded-xl z-[1000] shadow-2xl">
+                                 <div className="absolute right-0 top-11 bg-slate-900 border border-white/10 p-3 rounded-xl z-[1000] shadow-2xl min-w-[110px]">
+                                   <button
+                                     onClick={() => { setEditPostId(post.id); setEditPostText(post.text||''); setActiveMenuId(null); }}
+                                     className="text-blue-400 text-[10px] font-black flex items-center gap-2 uppercase w-full mb-2 hover:opacity-70">
+                                     <Edit3 size={14}/> Edit
+                                   </button>
                                    <button onClick={() => handleDeletePost(post.id)}
-                                     className="text-red-500 text-[10px] font-black flex items-center gap-2 uppercase">
+                                     className="text-red-500 text-[10px] font-black flex items-center gap-2 uppercase w-full hover:opacity-70">
                                      <Trash2 size={14}/> Delete
                                    </button>
                                  </div>
@@ -2628,6 +2853,49 @@ export function AJSuperPortal() {
                      </div>
                    )}
                  </div>
+               </div>
+             )}
+                 {/* MY PROFILE (Pulse) — Req 3 */}
+                 {pulseTab==='profile' && (
+                   <div className="flex-1 overflow-y-auto max-w-md mx-auto w-full pb-24">
+                     <div className="relative h-32 bg-gradient-to-br from-pink-600/30 to-cyan-600/30">
+                       <div className="absolute -bottom-10 left-1/2 -translate-x-1/2">
+                         <div className="relative">
+                           <img src={tempPhoto||user?.photoURL||'/logo.png'} className="w-20 h-20 rounded-full border-4 border-[#050505] shadow-2xl object-cover"/>
+                           <button title="Change Photo"
+                             onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.onchange=async(e:any)=>{ const f=e.target.files?.[0]; if(!f) return; const fd=new FormData(); fd.append('file',f); fd.append('upload_preset',CLOUDINARY_UPLOAD_PRESET); try{ const res=await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,{method:'POST',body:fd}); const data=await res.json(); if(data.secure_url){ await updateDoc(doc(db,'users',user!.uid),{photoURL:data.secure_url,photo:data.secure_url}); setTempPhoto(data.secure_url); setVvipAlert({msg:'✅ Profile photo updated!',icon:'📸'}); }}catch{}; }; inp.click(); }}
+                             className="absolute -bottom-1 -right-1 w-6 h-6 bg-pink-600 rounded-full border-2 border-[#050505] flex items-center justify-center text-white text-xs font-black shadow-lg active:scale-90 transition-all">+</button>
+                         </div>
+                       </div>
+                     </div>
+                     <div className="mt-14 text-center px-5">
+                       <h2 className="text-lg font-black text-white uppercase tracking-widest">@{username||'AJ_MEMBER'}</h2>
+                       <p className="text-xs text-gray-400 mt-1 font-bold">{bio||'No bio yet.'}</p>
+                       <div className="flex justify-center gap-8 mt-4">
+                         {[{v:pulsePosts.filter((p:any)=>p.uid===user?.uid).length,l:'Posts'},{v:followers,l:'Followers'},{v:following,l:'Following'}].map(s=>(
+                           <div key={s.l} className="text-center">
+                             <p className="text-lg font-black text-white">{s.v}</p>
+                             <p className="text-[9px] text-gray-500 uppercase font-bold">{s.l}</p>
+                           </div>
+                         ))}
+                       </div>
+                       <button onClick={() => user && openProfile(user.uid)}
+                         className="mt-4 px-6 py-2 bg-white/5 border border-pink-500/30 rounded-full text-xs font-black text-pink-400 uppercase tracking-widest hover:bg-pink-500/10 transition-all">
+                         View Full Profile
+                       </button>
+                     </div>
+                     <div className="mt-6 px-4">
+                       <p className="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-3">My Posts</p>
+                       <div className="grid grid-cols-3 gap-1">
+                         {pulsePosts.filter((p:any)=>p.uid===user?.uid).map((p:any)=>(
+                           <div key={p.id} className="aspect-square bg-white/5 rounded-xl overflow-hidden">
+                             {p.image ? <img src={p.image} className="w-full h-full object-cover" loading="lazy"/> : <div className="w-full h-full flex items-center justify-center text-[9px] text-gray-500 font-bold p-2 text-center">{p.text?.slice(0,30)}</div>}
+                           </div>
+                         ))}
+                       </div>
+                     </div>
+                   </div>
+                 )}
                </div>
              )}
 
@@ -2680,7 +2948,7 @@ export function AJSuperPortal() {
                   ))}
                 </div>
               </div>
-            )}
+            )} {/* /socialScreen===chatlist */}
 
             {/* WECHAT CHAT */}
             {socialScreen==='chat' && (
@@ -2695,11 +2963,11 @@ export function AJSuperPortal() {
                     <p className="text-[7px] text-green-500 font-black uppercase tracking-[0.3em] animate-pulse">Online • Encrypted</p>
                   </div>
                   <div className="flex gap-4 text-[#aebac1]">
-                    <button onClick={() => alert(`📹 Video Call — Agora App ID: ${AGORA_APP_ID.slice(0,8)}... (WebRTC enabled)`)}
+                    <button onClick={() => setVvipAlert({msg:`📹 Video Call — Agora App ID: ${AGORA_APP_ID.slice(0,8)}... (WebRTC enabled)`})}
                       className="cursor-pointer hover:text-cyan-400 transition-all p-1 rounded-full hover:bg-cyan-500/10">
                       <VideoIcon size={20}/>
                     </button>
-                    <button onClick={() => alert(`📞 Audio Call — Agora App ID: ${AGORA_APP_ID.slice(0,8)}... (WebRTC enabled)`)}
+                    <button onClick={() => setVvipAlert({msg:`📞 Audio Call — Agora App ID: ${AGORA_APP_ID.slice(0,8)}... (WebRTC enabled)`})}
                       className="cursor-pointer hover:text-green-400 transition-all p-1 rounded-full hover:bg-green-500/10">
                       <Phone size={20}/>
                     </button>
@@ -2915,11 +3183,11 @@ export function AJSuperPortal() {
                           url: window.location.href,
                         }).catch(() => {
                           navigator.clipboard?.writeText(liveRoomId);
-                          alert('Room ID copied!');
+                          setVvipAlert({msg:'Room ID copied!'});
                         });
                       } else {
                         navigator.clipboard?.writeText(liveRoomId);
-                        alert('Room ID copied! Share it so viewers can join.');
+                        setVvipAlert({msg:'Room ID copied! Share it so viewers can join.'});
                       }
                     }}
                     className="mt-1.5 w-full bg-cyan-600 text-black text-[8px] font-black uppercase rounded-lg py-1 tracking-widest  transition-all flex items-center justify-center gap-1">
@@ -3046,7 +3314,7 @@ export function AJSuperPortal() {
             className="self-start text-cyan-400 mb-8 font-bold uppercase tracking-widest flex items-center gap-2">
             <ArrowLeft size={18}/> BACK
           </button>
-          <div className="w-full max-w-md bg-[#111] border border-white/10 p-10 rounded-3xl text-center shadow-2xl">
+          <div className="w-full max-w-md backdrop-blur-2xl bg-[#111]/80 border border-white/10 p-10 rounded-3xl text-center shadow-2xl">
             <h2 className="text-5xl font-black text-yellow-500 mb-2 tracking-tighter">{displayBalance} 🪙</h2>
             <p className="text-green-400 font-black text-xl mb-2 tracking-[0.2em]">${displayUsdt}</p>
             <p className="text-[9px] text-gray-500 font-bold uppercase tracking-widest mb-6">
@@ -3433,24 +3701,10 @@ function Bell({ size, className }: { size:number; className?:string }) {
 // ============================================================
 const queryClient = new QueryClient();
 
-function AppRouter() {
-  return (
-    <Switch>
-      <Route path="/" component={AJSuperPortal} />
-      <Route component={NotFound} />
-    </Switch>
-  );
-}
-
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-          <AppRouter />
-        </WouterRouter>
-        <Toaster />
-      </TooltipProvider>
+      <AJSuperPortal />
     </QueryClientProvider>
   );
 }
