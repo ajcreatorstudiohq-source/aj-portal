@@ -14,6 +14,12 @@ import {
   addDoc, getDoc, serverTimestamp, query, orderBy, limit, deleteDoc, getDocs
 } from 'firebase/firestore';
 import {
+  getDatabase, ref, onDisconnect, set
+} from 'firebase/database';
+import {
+  getMessaging, getToken, onMessage
+} from 'firebase/messaging';
+import {
   MessageCircle, Trophy, Zap, Bot, LogOut, ChevronRight,
   Send, X, Download, Video, Users, Heart, MessageSquare, Camera,
   Settings, Edit3, Mail, DollarSign, Share2, Music, PlusSquare,
@@ -112,6 +118,80 @@ const uploadToCloudinary = async (file: File): Promise<string> => {
 };
 
 // ============================================================
+// PRESENCE + FCM HELPERS
+// ============================================================
+const requestNotificationPermission = async (): Promise<boolean> => {
+  if (typeof window === 'undefined' || !('Notification' in window)) return false;
+  if (Notification.permission === 'granted') return true;
+  return (await Notification.requestPermission()) === 'granted';
+};
+
+const registerFcmToken = async (uid: string) => {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('Notification' in window)) return;
+  try {
+    const granted = await requestNotificationPermission();
+    if (!granted) return;
+    const swReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+    const messaging = getMessaging(app);
+    const token = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: swReg });
+    if (token) {
+      await updateDoc(doc(db, 'users', uid), { fcmToken: token });
+    }
+  } catch (e) {
+    console.error('registerFcmToken', e);
+  }
+};
+
+const setUserOnlinePresence = async (currentUser: any) => {
+  if (typeof window === 'undefined' || !currentUser?.uid) return;
+  try {
+    const rtdb = getDatabase(app);
+    const presenceRef = ref(rtdb, `presence/${currentUser.uid}`);
+    const presenceData = {
+      state: 'online',
+      uid: currentUser.uid,
+      username: currentUser.displayName || 'AJ Member',
+      lastChanged: Date.now(),
+    };
+    await set(presenceRef, presenceData);
+    onDisconnect(presenceRef).set({
+      ...presenceData,
+      state: 'offline',
+      lastChanged: Date.now(),
+    });
+    await updateDoc(doc(db, 'users', currentUser.uid), { status: 'online' });
+    registerFcmToken(currentUser.uid);
+  } catch (e) {
+    console.error('setUserOnlinePresence', e);
+  }
+};
+
+const setUserOfflineStatus = async (uid: string | null) => {
+  if (!uid) return;
+  try {
+    await updateDoc(doc(db, 'users', uid), { status: 'offline' });
+  } catch (e) {
+    console.error('setUserOfflineStatus', e);
+  }
+};
+
+const setupForegroundNotificationListener = () => {
+  if (typeof window === 'undefined' || !('Notification' in window)) return;
+  try {
+    const messaging = getMessaging(app);
+    onMessage(messaging, (payload) => {
+      const title = payload.notification?.title || 'AJ Super Portal';
+      const body = payload.notification?.body || '';
+      if (Notification.permission === 'granted') {
+        new Notification(title, { body });
+      }
+    });
+  } catch (e) {
+    console.error('setupForegroundNotificationListener', e);
+  }
+};
+
+// ============================================================
 // Fix #6: formatCount — 1k/2k/1.5M view counter for thumbnails
 // ============================================================
 const formatViews = (v: number): string => {
@@ -162,29 +242,21 @@ function VVIPAlert({ msg, icon, onClose }: { msg: string; icon?: string; onClose
           border: '1px solid rgba(236,72,153,0.4)',
         }}
       >
-        {/* Neon top bar */}
         <div className="h-[2px] w-full bg-gradient-to-r from-pink-500 via-cyan-400 to-purple-500"/>
 
         <div className="p-6 flex flex-col items-center gap-4 text-center">
-          {/* Icon */}
           {icon && (
-            <div
-              className="text-5xl leading-none"
-              style={{ filter:'drop-shadow(0 0 18px rgba(236,72,153,0.9))' }}
-            >
+            <div className="text-5xl leading-none" style={{ filter:'drop-shadow(0 0 18px rgba(236,72,153,0.9))' }}>
               {icon}
             </div>
           )}
 
-          {/* Glow divider */}
           <div className="w-20 h-[1.5px] bg-gradient-to-r from-pink-500 via-cyan-400 to-purple-500 rounded-full opacity-80"/>
 
-          {/* Message */}
           <p className="text-white font-black text-sm leading-relaxed whitespace-pre-wrap tracking-wide">
             {msg}
           </p>
 
-          {/* OK button */}
           <button
             onClick={onClose}
             className="mt-1 px-8 py-2.5 rounded-full text-white text-[11px] font-black uppercase tracking-[0.2em] transition-all hover:scale-105 active:scale-95 shadow-[0_0_22px_rgba(236,72,153,0.55)]"
@@ -194,7 +266,6 @@ function VVIPAlert({ msg, icon, onClose }: { msg: string; icon?: string; onClose
           </button>
         </div>
 
-        {/* Neon bottom bar */}
         <div className="h-[1px] w-full bg-gradient-to-r from-purple-500/40 via-pink-500/40 to-cyan-400/40"/>
       </div>
     </div>
@@ -648,6 +719,8 @@ export function AJSuperPortal() {
               followersCount:0,                // Fix #4: Number field
               followingCount:0,                // Fix #4: Number field
               totalLikes:0,                    // Fix #4: Number field
+              status:'online',
+              fcmToken:'',
             });
             setHasSocialProfile(true);
           }
@@ -659,11 +732,24 @@ export function AJSuperPortal() {
             }
           });
         } catch(e) { console.error('Auth init error', e); }
+        await setUserOnlinePresence(cu);
         setScreen('hub');
       } else { setUser(null); setScreen('auth'); }
     });
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    setupForegroundNotificationListener();
+    setUserOnlinePresence(user);
+    const handleUnload = () => { setUserOfflineStatus(user.uid); };
+    window.addEventListener('beforeunload', handleUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleUnload);
+      setUserOfflineStatus(user.uid);
+    };
+  }, [user]);
 
   // AI profit ticker
   useEffect(() => {
@@ -1179,14 +1265,14 @@ export function AJSuperPortal() {
         // Pulse posts
         const pq1 = query(collection(db,"pulse_posts"), orderBy("createdAt","desc"), limit(30));
         const ps1 = await getDocs(pq1);
-        const pulseAll = ps1.docs.map(d => ({id:d.id,...d.data() as any}));
+        const pulseAll = ps1.docs.map(d => ({id:d.id,...d.data() as any, views:(d.data() as any).views||0}));
         setProfilePosts(pulseAll.filter((p:any) => p.uid===uid && !p.isVideo));
 
         // TikReel posts
         const pq2 = query(collection(db,"user_posts"), orderBy("createdAt","desc"), limit(30));
         const ps2 = await getDocs(pq2);
         const all = ps2.docs.map(d => ({id:d.id,...d.data() as any}));
-        const feedVideos = all.filter((p:any) => p.uid===uid && p.isVideo);
+        const feedVideos = all.filter((p:any) => p.uid===uid && p.isVideo).map((v:any) => ({...v, views:v.views||0}));
 
         // Fix #6: Fetch from users/{uid}/videos sub-collection
         let subVideos: any[] = [];
@@ -1194,7 +1280,7 @@ export function AJSuperPortal() {
           const vSnap = await getDocs(
             query(collection(db,"users",uid,"videos"), orderBy("createdAt","desc"), limit(50))
           );
-          subVideos = vSnap.docs.map(d => ({id:d.id,...d.data() as any, isVideo:true}));
+          subVideos = vSnap.docs.map(d => ({id:d.id,...d.data() as any, isVideo:true, views:(d.data() as any).views||0}));
         } catch {}
 
         const subIds = new Set(subVideos.map((v:any) => v.id));
@@ -1294,7 +1380,7 @@ export function AJSuperPortal() {
       await addDoc(collection(db,"user_posts"), {
         text:tiktokPostText, image:tiktokPostImg, uid:user!.uid,
         username:username||"AJ_Member", photo:user!.photoURL||'',
-        likes:0, isVideo:tiktokPostIsVideo, createdAt:serverTimestamp()
+        likes:0, views:0, isVideo:tiktokPostIsVideo, createdAt:serverTimestamp()
       });
       await updateDoc(doc(db,"users",user!.uid), { balance: increment(videoReward) });
       await logAdminRevenue('tiktok_post', videoReward, videoReward);
@@ -1352,7 +1438,10 @@ export function AJSuperPortal() {
   };
 
   const handleSignOut = async () => {
-    try { await signOut(auth); } catch {}
+    try {
+      if (user?.uid) await setUserOfflineStatus(user.uid);
+      await signOut(auth);
+    } catch {}
     setSocialScreen('hub'); setScreen('auth');
   };
 
@@ -1400,7 +1489,7 @@ export function AJSuperPortal() {
       await addDoc(collection(db,"pulse_posts"), {
         text:postText, image:tempPhoto, uid:user!.uid,
         username:username||"AJ_Member", photo:user!.photoURL||'',
-        likes:0, isVideo:pulsePostIsVideo, createdAt:serverTimestamp()
+        likes:0, views:0, isVideo:pulsePostIsVideo, createdAt:serverTimestamp()
       });
       await updateDoc(doc(db,"users",user!.uid), { balance: increment(photoReward) });
       await logAdminRevenue('pulse_post', photoReward, photoReward);
@@ -1743,6 +1832,24 @@ export function AJSuperPortal() {
       ar:  `⚠️ مشكلة:\n\nلم تصل كوينزك أو خطأ تقني:\n\n👇 واتساب CEO:`,
     },
 
+    // Do NOT provide sensitive purchase/withdrawal step-by-step details in chat
+    sensitive_payment: {
+      en: `⚠️ I cannot provide detailed purchase or withdrawal instructions here. Please use the Wallet → Purchase or Wallet → Withdraw pages in the app for transaction flows, or contact support if something failed.`,
+      hin: `⚠️ Main yahan purchase/withdrawal ki puri detail nahi de sakta. Wallet → Purchase ya Wallet → Withdraw use karo, ya support se rabta karo.`,
+      ur: `⚠️ میں یہاں خریداری یا نکاسی کی مکمل تفصیلات نہیں دے سکتا۔ براہِ مہربانی Wallet → Purchase یا Wallet → Withdraw استعمال کریں یا سپورٹ سے رابطہ کریں۔`,
+      hi: `⚠️ मैं यहाँ purchase/withdrawal की पूरी जानकारी नहीं दे सकता। Wallet → Purchase या Wallet → Withdraw का उपयोग करें या सपोर्ट से संपर्क करें।`,
+      ar: `⚠️ لا أستطيع تقديم تفاصيل الشراء/السحب هنا. الرجاء استخدام Wallet → Purchase أو Wallet → Withdraw أو التواصل مع الدعم.`,
+    },
+
+    // Bug reports should be routed to the CEO with WhatsApp and email contact
+    bug_report: {
+      en: `⚠️ Thanks for reporting this. Please contact our CEO directly on WhatsApp: ${CEO_WHATSAPP} or email: ${CEO_EMAIL} so we can investigate your issue promptly.`,
+      hin: `⚠️ Shukriya bug report karne ke liye. CEO se WhatsApp par baat karein: ${CEO_WHATSAPP} ya email bhejein: ${CEO_EMAIL}`,
+      ur: `⚠️ مسئلہ رپورٹ کرنے کے لیے شکریہ۔ براہِ کرم CEO سے WhatsApp پر رابطہ کریں: ${CEO_WHATSAPP} یا ای میل کریں: ${CEO_EMAIL}`,
+      hi: `⚠️ रिपोर्ट करने के लिए धन्यवाद। CEO से WhatsApp पर बात करें: ${CEO_WHATSAPP} या मेल करें: ${CEO_EMAIL}`,
+      ar: `⚠️ شكراً لتبليغك عن المشكلة. يرجى التواصل مع المدير التنفيذي عبر واتساب: ${CEO_WHATSAPP} أو البريد الإلكتروني: ${CEO_EMAIL}`,
+    },
+
     general: {
       en:  `I'm here to help! 😊 AJ Portal offers:\n\n🎬 TikReels — earn per upload\n📡 AJ Pulse — live + gifts\n🎮 Gaming — 1v1 coin games\n🪙 Coins — $1 = ${COIN_RATE} Coins, 500 signup bonus\n👥 Referral — +${REFERRAL_COINS} coins per friend\n💸 Withdraw — min ${WITHDRAW_MIN.toLocaleString()} coins\n🎁 Gifts — Coffee to Mansion\n⚔️ PK Battle\n🤖 AI Bot — 2-5% daily\n💬 WeChat — private chat\n\nAsk about any of these! 👆`,
       hin: `Bhai, main yahan hoon! 😊\n\n🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\n🪙 $1=${COIN_RATE} Coins, 500 bonus\n👥 Referral +${REFERRAL_COINS} • 💸 Withdraw\n🎁 Gifts • ⚔️ PK • 🤖 AI Bot 2-5%\n💬 WeChat\n\nKisi bhi topic ke baare mein pooch! 🔥`,
@@ -1755,6 +1862,10 @@ export function AJSuperPortal() {
   const matchBotTopic = (q: string, lastTopic: string): string => {
     const t = q.toLowerCase();
     if (/^(hi|hey|hello|salam|assalam|hii|helo|yo|sup|wassup|kia haal|kya haal|namaste|namaskar|bonjour|hola|ciao|merhaba|привет|halo)\b/.test(t)) return 'greeting';
+    // Bug/issue reporting should be routed to CEO contact
+    if (/bug|issue|error|problem|crash|not working|masla|mushkil|masky|khata|bug report|report bug/.test(t)) return 'bug_report';
+    // Sensitive payment topics: refuse to give detailed purchase/withdrawal flow in chat
+    if (/withdraw|withdrawal|cash out|cashout|payout|purchase|buy|payment|invoice|charge|refund|top up|recharge|buy coins|how to withdraw|how to purchase|wallet/.test(t)) return 'sensitive_payment';
     if (/payment.*(fail|not.*arriv|problem|issue|stuck|error|wrong|bug)|coin.*not.*arriv|deposit.*not|transaction.*id.*(not|fail|wrong)|technical.*bug|bug.*report|refund/.test(t)) return 'payment_issue';
     if (/tikreel|tik.*reel|tiktok|short.*video|video.*upload|reel|view.*count|view.*format/.test(t)) return 'tikreels';
     if (/pulse|aj.*pulse|live|room.*id|join.*room|go.*live|stream|broadcast/.test(t)) return 'pulse';
@@ -1944,8 +2055,8 @@ export function AJSuperPortal() {
               <span className="font-black text-xs md:text-3xl uppercase tracking-tighter">{m.label}</span>
             </div>
           ))}
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
-            <div className="w-24 h-24 md:w-96 md:h-96 bg-[#050505] border-[15px] border-cyan-500 rounded-full flex items-center justify-center shadow-[0_0_100px_#06b6d4] overflow-hidden">
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-50">
+            <div className="relative w-24 h-24 md:w-96 md:h-96 bg-[#050505] border-[15px] border-cyan-500 rounded-full flex items-center justify-center shadow-[0_0_100px_#06b6d4] overflow-hidden">
               <img src="/logo.png" className="w-full h-full object-cover opacity-60 animate-pulse"/>
             </div>
           </div>
@@ -2473,6 +2584,16 @@ export function AJSuperPortal() {
                                   </div>
                                 </div>
                               )}
+                              {isActive && (
+                                <div className="absolute top-4 right-4 z-30 flex flex-col items-end gap-2">
+                                  <button
+                                    onClick={() => { setSocialScreen('hub'); setTimeout(startLive, 300); }}
+                                    className="flex items-center gap-2 rounded-full bg-red-600/95 px-3 py-2 text-[10px] font-black uppercase tracking-[0.2em] text-white shadow-[0_0_20px_rgba(239,68,68,0.6)] hover:scale-105 transition-all"
+                                  >
+                                    <Radio size={14} className="animate-pulse"/> LIVE
+                                  </button>
+                                </div>
+                              )}
                               {/* Sound tap hint — Fix #11: only for active YouTube video */}
                               {!soundOn && !isUserPost && isActive && !reelPaused && (
                                 <div
@@ -2732,313 +2853,283 @@ export function AJSuperPortal() {
 
             {/* AJ PULSE — TikReel-style full-screen snap-scroll UI clone */}
             {socialScreen==='pulse' && (
-               <div className="flex flex-col h-full">
-                 {/* PULSE TAB BAR — Feed | Create */}
-                 <div className="flex gap-0 bg-[#050505] border-b border-white/10 shrink-0">
-                   {(['feed','create'] as const).map(t => (
-                     <button key={t} onClick={() => setPulseTab(t)}
-                       className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest transition-all ${pulseTab===t?'text-pink-500 border-b-2 border-pink-500':'text-gray-500'}`}>
-                       {t==='feed'?'📡 Feed':'➕ Create'}
-                     </button>
-                   ))}
-                 </div>
+              <div className="flex flex-col h-full">
+                {/* PULSE TAB BAR — Feed | Create | Profile */}
+                <div className="flex gap-0 bg-[#050505] border-b border-white/10 shrink-0">
+                  {(['feed','create','profile'] as const).map(t => (
+                    <button key={t} onClick={() => setPulseTab(t)}
+                      className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest transition-all ${pulseTab===t ? 'text-pink-500 border-b-2 border-pink-500' : 'text-gray-500'}`}>
+                      {t==='feed' ? '📡 Feed' : t==='create' ? '➕ Create' : '👤 Profile'}
+                    </button>
+                  ))}
+                </div>
 
-                 {/* FEED — full-screen snap scroll */}
-                 {pulseTab==='feed' && (
-                 <div className="flex flex-col flex-1 overflow-hidden">
-                 {/* Compact Create Post Bar — hidden when Create tab active */}
-                 <div className="bg-slate-950/98 p-3 border-b border-pink-500/20 sticky top-0 z-20 shrink-0">
-                   <div className="flex gap-2 items-center">
-                     <img src={user?.photoURL||'/logo.png'} className="w-8 h-8 rounded-full border-2 border-pink-500 flex-shrink-0 object-cover"/>
-                     <div className="flex-1 flex flex-col gap-1">
-                       <textarea value={postText} onChange={e => setPostText(e.target.value)}
-                         placeholder="Share your moment..."
-                         className="w-full bg-white/5 rounded-xl px-3 py-2 text-xs outline-none border border-white/10 h-9 text-white font-bold resize-none leading-tight"/>
-                       {tempPhoto && (
-                         <div className="relative w-full rounded-xl overflow-hidden border border-pink-500/30">
-                           {pulsePostIsVideo
-                             ? <video src={tempPhoto} controls className="w-full max-h-40 object-cover" playsInline/>
-                             : <img src={tempPhoto} className="w-full max-h-40 object-cover"/>
-                           }
-                           <button onClick={() => { setTempPhoto(''); setPulsePostIsVideo(false); }}
-                             className="absolute top-1 right-1 bg-[#050505]/70 text-white text-[9px] font-black px-2 py-0.5 rounded-full">✕</button>
-                         </div>
-                       )}
-                     </div>
-                     <button onClick={handleImageClick} className="text-gray-400 hover:text-pink-400 transition-all p-1.5 shrink-0">
-                       <Camera size={18}/>
-                     </button>
-                     <button onClick={handleCreatePost}
-                       className="bg-pink-600 px-3 py-1.5 rounded-full text-[10px] font-black shadow-lg hover:scale-105 active:scale-95 transition-all duration-200   transition-all text-white whitespace-nowrap shrink-0">
-                       POST +10🪙
-                     </button>
-                   </div>
-                 </div>
+                {pulseTab==='feed' ? (
+                  <div className="flex flex-col flex-1 overflow-hidden">
+                    <div className="bg-slate-950/98 p-3 border-b border-pink-500/20 sticky top-0 z-20 shrink-0">
+                      <div className="flex gap-2 items-center">
+                        <img src={user?.photoURL||'/logo.png'} className="w-8 h-8 rounded-full border-2 border-pink-500 flex-shrink-0 object-cover"/>
+                        <div className="flex-1 flex flex-col gap-1">
+                          <textarea value={postText} onChange={e => setPostText(e.target.value)}
+                            placeholder="Share your moment..."
+                            className="w-full bg-white/5 rounded-xl px-3 py-2 text-xs outline-none border border-white/10 h-9 text-white font-bold resize-none leading-tight"/>
+                          {tempPhoto && (
+                            <div className="relative w-full rounded-xl overflow-hidden border border-pink-500/30">
+                              {pulsePostIsVideo
+                                ? <video src={tempPhoto} controls className="w-full max-h-40 object-cover" playsInline/>
+                                : <img src={tempPhoto} className="w-full max-h-40 object-cover"/>
+                              }
+                              <button onClick={() => { setTempPhoto(''); setPulsePostIsVideo(false); }}
+                                className="absolute top-1 right-1 bg-[#050505]/70 text-white text-[9px] font-black px-2 py-0.5 rounded-full">✕</button>
+                            </div>
+                          )}
+                        </div>
+                        <button onClick={handleImageClick} className="text-gray-400 hover:text-pink-400 transition-all p-1.5 shrink-0">
+                          <Camera size={18}/>
+                        </button>
+                        <button onClick={handleCreatePost}
+                          className="bg-pink-600 px-3 py-1.5 rounded-full text-[10px] font-black shadow-lg hover:scale-105 active:scale-95 transition-all duration-200 text-white whitespace-nowrap shrink-0">
+                          POST +10🪙
+                        </button>
+                      </div>
+                    </div>
 
-                 {/* Full-screen TikReel-style snap feed — Unsplash mix + Firestore posts */}
-                 <div className="snap-y snap-mandatory overflow-y-auto flex-1 bg-[#050505]" style={{ touchAction:'pan-y', overscrollBehavior:'contain' }}>
-                   {(() => {
-                     // Mix user posts (Firestore) with Unsplash lifestyle images for rich feed
-                     // New posts from addDoc always appear at top — existing posts never deleted
-                     const pulseFeed: any[] = [];
-                     const maxK = Math.max(pulsePosts.length, pixaData.length);
-                     for (let k = 0; k < maxK; k++) {
-                       if (k < pulsePosts.length)
-                         pulseFeed.push({ ...pulsePosts[k], _src: 'user' });
-                       if (k < pixaData.length)
-                         pulseFeed.push({
-                           _src:   'unsplash',
-                           id:     `unsp-${k}`,
-                           image:  pixaData[k]?.urls?.regular,
-                           username: pixaData[k]?.user?.name || 'AJ Creator',
-                           text:   pixaData[k]?.alt_description || 'AJ Lifestyle',
-                           photo:  pixaData[k]?.user?.profile_image?.small || '/logo.png',
-                           likes:  pixaData[k]?.likes || 0,
-                         });
-                     }
-                     return pulseFeed.map((post: any, idx: number) => (
-                       <React.Fragment key={post.id || `pf-${idx}`}>
-                         {/* Monetag Video Ad every 5 Pulse posts */}
-                         {idx > 0 && idx % 5 === 0 && (
-                           <div className="h-[85vh] w-full snap-start relative overflow-hidden bg-[#050505]">
-                             <MonetagVideoAd publisherId={11279683}/>
-                           </div>
-                         )}
+                    <div className="snap-y snap-mandatory overflow-y-auto flex-1 bg-[#050505]" style={{ touchAction:'pan-y', overscrollBehavior:'contain' }}>
+                      {(() => {
+                        const pulseFeed: any[] = [];
+                        const maxK = Math.max(pulsePosts.length, pixaData.length);
+                        for (let k = 0; k < maxK; k++) {
+                          if (k < pulsePosts.length) pulseFeed.push({ ...pulsePosts[k], _src: 'user' });
+                          if (k < pixaData.length) pulseFeed.push({
+                            _src:   'unsplash',
+                            id:     `unsp-${k}`,
+                            image:  pixaData[k]?.urls?.regular,
+                            username: pixaData[k]?.user?.name || 'AJ Creator',
+                            text:   pixaData[k]?.alt_description || 'AJ Lifestyle',
+                            photo:  pixaData[k]?.user?.profile_image?.small || '/logo.png',
+                            likes:  pixaData[k]?.likes || 0,
+                          });
+                        }
+                        return pulseFeed.map((post: any, idx: number) => (
+                          <React.Fragment key={post.id || `pf-${idx}`}>
+                            {idx > 0 && idx % 5 === 0 && (
+                              <div className="h-[85vh] w-full snap-start relative overflow-hidden bg-[#050505]">
+                                <MonetagVideoAd publisherId={11279683}/>
+                              </div>
+                            )}
 
-                         {/* Full-screen Post Card */}
-                         <div className="h-[85vh] w-full snap-start relative bg-[#050505] overflow-hidden"
-                           style={{ contain:'layout style paint', willChange:'transform' }}>
-                           {/* Background image (user upload or Unsplash) */}
-                           {post.image
-                             ? <img src={post.image} className="absolute inset-0 w-full h-full object-cover" loading="lazy" decoding="async"/>
-                             : <div className="absolute inset-0 bg-gradient-to-br from-pink-950/60 via-slate-900 to-black"/>
-                           }
-                           <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-black/25 pointer-events-none"/>
+                            <div className="h-[85vh] w-full snap-start relative bg-[#050505] overflow-hidden"
+                              style={{ contain:'layout style paint', willChange:'transform' }}>
+                              {post.image
+                                ? <img src={post.image} className="absolute inset-0 w-full h-full object-cover" loading="lazy" decoding="async"/>
+                                : <div className="absolute inset-0 bg-gradient-to-br from-pink-950/60 via-slate-900 to-black"/>
+                              }
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-black/25 pointer-events-none"/>
 
-                           {/* RIGHT SIDEBAR — Avatar ABOVE Like > Comment > Share > Gift > Mute */}
-                           <div className="absolute right-3 bottom-24 flex flex-col gap-5 items-center z-10">
-                             {/* Circular Avatar — ABOVE Like, clickable → openProfile (user posts only) */}
-                             <div className="relative cursor-pointer"
-                               onClick={() => post._src==='user' && post.uid && openProfile(post.uid)}>
-                               <img src={post.photo||'/logo.png'} loading="lazy" decoding="async"
-                                 className="w-12 h-12 rounded-full border-2 border-white object-cover shadow-xl active:scale-90 transition-all"/>
-                               {post._src==='user' && (
-                                 <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-5 h-5 bg-pink-600 rounded-full flex items-center justify-center border-2 border-black text-white text-[11px] font-black shadow-lg">+</div>
-                               )}
-                             </div>
-                             {/* Like */}
-                             <div onClick={() => post._src==='user' && handleLike(post.id)}
-                               className="flex flex-col items-center cursor-pointer active:scale-125 transition-all">
-                               <Heart size={32} className={likedPosts[post.id]?"text-red-500 fill-red-500":"text-white"}/>
-                               <span className="text-[9px] font-bold text-white mt-0.5">{formatViews(post.likes||0)}</span>
-                             </div>
-                             {/* Comment */}
-                             <div className="flex flex-col items-center cursor-pointer"
-                               onClick={() => post._src==='user' && setCommentPostId(post.id)}>
-                               <MessageCircle size={32} className="text-white"/>
-                               <span className="text-[9px] font-bold text-white mt-0.5">{formatViews(post.comments||0)}</span>
-                             </div>
-                             {/* Share */}
-                             <div onClick={() => handleShare(post.text||'' )} className="flex flex-col items-center cursor-pointer text-white">
-                               <Share2 size={30}/><span className="text-[9px] font-bold mt-0.5">Share</span>
-                             </div>
-                             {/* Gift — only for other users' posts */}
-                             {post._src==='user' && post.uid!==user?.uid && (
-                               <div className="flex flex-col items-center cursor-pointer text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text"
-                                 onClick={() => setPulseGiftPostId(post.id)}>
-                                 <Gift size={28}/><span className="text-[9px] font-bold mt-0.5">Gift</span>
-                               </div>
-                             )}
+                              <div className="absolute right-3 bottom-24 flex flex-col gap-5 items-center z-10">
+                                <div className="relative cursor-pointer"
+                                  onClick={() => post._src==='user' && post.uid && openProfile(post.uid)}>
+                                  <img src={post.photo||'/logo.png'} loading="lazy" decoding="async"
+                                    className="w-12 h-12 rounded-full border-2 border-white object-cover shadow-xl active:scale-90 transition-all"/>
+                                  {post._src==='user' && (
+                                    <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-5 h-5 bg-pink-600 rounded-full flex items-center justify-center border-2 border-black text-white text-[11px] font-black shadow-lg">+</div>
+                                  )}
+                                </div>
+                                <div onClick={() => post._src==='user' && handleLike(post.id)}
+                                  className="flex flex-col items-center cursor-pointer active:scale-125 transition-all">
+                                  <Heart size={32} className={likedPosts[post.id]?"text-red-500 fill-red-500":"text-white"}/>
+                                  <span className="text-[9px] font-bold text-white mt-0.5">{formatViews(post.likes||0)}</span>
+                                </div>
+                                <div className="flex flex-col items-center cursor-pointer"
+                                  onClick={() => post._src==='user' && setCommentPostId(post.id)}>
+                                  <MessageCircle size={32} className="text-white"/>
+                                  <span className="text-[9px] font-bold text-white mt-0.5">{formatViews(post.comments||0)}</span>
+                                </div>
+                                <div onClick={() => handleShare(post.text||'' )} className="flex flex-col items-center cursor-pointer text-white">
+                                  <Share2 size={30}/><span className="text-[9px] font-bold mt-0.5">Share</span>
+                                </div>
+                                {post._src==='user' && post.uid!==user?.uid && (
+                                  <div className="flex flex-col items-center cursor-pointer text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text"
+                                    onClick={() => setPulseGiftPostId(post.id)}>
+                                    <Gift size={28}/><span className="text-[9px] font-bold mt-0.5">Gift</span>
+                                  </div>
+                                )}
+                              </div>
 
-                           </div>
+                              <div className="absolute bottom-8 left-4 text-white max-w-[72%] z-10">
+                                <p className="font-black text-sm cursor-pointer drop-shadow-[0_1px_4px_rgba(0,0,0,0.8)]"
+                                  onClick={() => post._src==='user' && post.uid && openProfile(post.uid)}>
+                                  @{post.username||'AJ_Creator'}
+                                </p>
+                                {post.text && (
+                                  <p className="text-[11px] text-gray-200 mt-0.5 line-clamp-2 font-medium leading-snug">
+                                    {post.text}
+                                  </p>
+                                )}
+                              </div>
 
-                           {/* BOTTOM-LEFT — @username, Caption, Scrolling Music */}
-                           <div className="absolute bottom-8 left-4 text-white max-w-[72%] z-10">
-                             <p className="font-black text-sm cursor-pointer drop-shadow-[0_1px_4px_rgba(0,0,0,0.8)]"
-                               onClick={() => post._src==='user' && post.uid && openProfile(post.uid)}>
-                               @{post.username||'AJ_Creator'}
-                             </p>
-                             {post.text && (
-                               <p className="text-[11px] text-gray-200 mt-0.5 line-clamp-2 font-medium leading-snug">
-                                 {post.text}
-                               </p>
-                             )}
+                              {post._src==='user' && post.uid===user?.uid && (
+                                <div className="absolute top-4 right-4 z-20">
+                                  <button onClick={() => setActiveMenuId(activeMenuId===post.id?null:post.id)}
+                                    className="bg-[#050505]/50 backdrop-blur-sm rounded-full p-2 active:scale-90 transition-all">
+                                    <MoreVertical size={16} className="text-white"/>
+                                  </button>
+                                  {activeMenuId===post.id && (
+                                    <div className="absolute right-0 top-11 bg-slate-900 border border-white/10 p-3 rounded-xl z-[1000] shadow-2xl min-w-[110px]">
+                                      <button
+                                        onClick={() => { setEditPostId(post.id); setEditPostText(post.text||''); setActiveMenuId(null); }}
+                                        className="text-blue-400 text-[10px] font-black flex items-center gap-2 uppercase w-full mb-2 hover:opacity-70">
+                                        <Edit3 size={14}/> Edit
+                                      </button>
+                                      <button onClick={() => handleDeletePost(post.id)}
+                                        className="text-red-500 text-[10px] font-black flex items-center gap-2 uppercase w-full hover:opacity-70">
+                                        <Trash2 size={14}/> Delete
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                              {post._src==='unsplash' && (
+                                <div className="absolute top-4 left-4 z-10 pointer-events-none">
+                                  <span className="text-[7px] font-bold text-white/50 bg-[#050505]/40 px-2 py-0.5 rounded-full">
+                                    📸 Unsplash
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </React.Fragment>
+                        ));
+                      })()}
 
-                           </div>
+                      {pulsePosts.length===0 && pixaData.length===0 && (
+                        <div className="h-[60vh] flex flex-col items-center justify-center gap-4 text-center px-8">
+                          <Users size={56} className="text-pink-500/30"/>
+                          <p className="text-gray-400 font-black uppercase tracking-widest text-sm">Loading feed...</p>
+                          <p className="text-gray-600 text-[11px] font-bold">Be the first to share your moment!</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : pulseTab==='create' ? (
+                  <div className="flex-1 overflow-y-auto p-6 space-y-5 max-w-md mx-auto w-full">
+                    <h3 className="text-xl font-black uppercase text-center tracking-[0.12em] bg-gradient-to-r from-pink-500 via-cyan-400 to-pink-400 bg-clip-text text-transparent drop-shadow-[0_0_16px_rgba(236,72,153,0.7)]">
+                      📡 Share Your Moment
+                    </h3>
 
-                           {/* Delete menu (own Firestore posts only) */}
-                           {post._src==='user' && post.uid===user?.uid && (
-                             <div className="absolute top-4 right-4 z-20">
-                               <button onClick={() => setActiveMenuId(activeMenuId===post.id?null:post.id)}
-                                 className="bg-[#050505]/50 backdrop-blur-sm rounded-full p-2 active:scale-90 transition-all">
-                                 <MoreVertical size={16} className="text-white"/>
-                               </button>
-                               {activeMenuId===post.id && (
-                                 <div className="absolute right-0 top-11 bg-slate-900 border border-white/10 p-3 rounded-xl z-[1000] shadow-2xl min-w-[110px]">
-                                   <button
-                                     onClick={() => { setEditPostId(post.id); setEditPostText(post.text||''); setActiveMenuId(null); }}
-                                     className="text-blue-400 text-[10px] font-black flex items-center gap-2 uppercase w-full mb-2 hover:opacity-70">
-                                     <Edit3 size={14}/> Edit
-                                   </button>
-                                   <button onClick={() => handleDeletePost(post.id)}
-                                     className="text-red-500 text-[10px] font-black flex items-center gap-2 uppercase w-full hover:opacity-70">
-                                     <Trash2 size={14}/> Delete
-                                   </button>
-                                 </div>
-                               )}
-                             </div>
-                           )}
-                           {/* Unsplash attribution badge */}
-                           {post._src==='unsplash' && (
-                             <div className="absolute top-4 left-4 z-10 pointer-events-none">
-                               <span className="text-[7px] font-bold text-white/50 bg-[#050505]/40 px-2 py-0.5 rounded-full">
-                                 📸 Unsplash
-                               </span>
-                             </div>
-                           )}
-                         </div>
-                       </React.Fragment>
-                     ));
-                   })()}
-                   {pulsePosts.length===0 && pixaData.length===0 && (
-                     <div className="h-[60vh] flex flex-col items-center justify-center gap-4 text-center px-8">
-                       <Users size={56} className="text-pink-500/30"/>
-                       <p className="text-gray-400 font-black uppercase tracking-widest text-sm">Loading feed...</p>
-                       <p className="text-gray-600 text-[11px] font-bold">Be the first to share your moment!</p>
-                     </div>
-                   )}
-                 </div> {/* /snap-y feed */}
-                 </div> /* /flex-1 feed wrapper */
-               ) /* /pulseTab===feed */}
-                 {/* PULSE CREATE TAB */}
-                 {pulseTab==='create' && (
-                   <div className="flex-1 overflow-y-auto p-6 space-y-5 max-w-md mx-auto w-full">
-                     <h3 className="text-xl font-black uppercase text-center tracking-[0.12em] bg-gradient-to-r from-pink-500 via-cyan-400 to-pink-400 bg-clip-text text-transparent drop-shadow-[0_0_16px_rgba(236,72,153,0.7)]">
-                       📡 Share Your Moment
-                     </h3>
+                    <div
+                      className="border-2 border-dashed border-pink-500/50 rounded-3xl p-8 text-center cursor-pointer bg-white/5 hover:bg-pink-500/5 transition-all active:scale-[0.98]"
+                      onClick={handleImageClick}
+                    >
+                      {tempPhoto ? (
+                        pulsePostIsVideo
+                          ? <video src={tempPhoto} controls className="w-full max-h-64 rounded-2xl object-cover" playsInline/>
+                          : <img src={tempPhoto} className="w-full max-h-48 object-cover rounded-2xl" alt="preview"/>
+                      ) : (
+                        <>
+                          <Camera size={52} className="text-pink-500/50 mx-auto mb-3"/>
+                          <p className="text-[11px] text-gray-400 uppercase font-black tracking-widest">Tap to add Photo / Video</p>
+                          <p className="text-[9px] text-gray-600 mt-1">JPG · PNG · MP4 supported</p>
+                        </>
+                      )}
+                    </div>
 
-                     {/* Media picker */}
-                     <div
-                       className="border-2 border-dashed border-pink-500/50 rounded-3xl p-8 text-center cursor-pointer bg-white/5 hover:bg-pink-500/5 transition-all active:scale-[0.98]"
-                       onClick={handleImageClick}
-                     >
-                       {tempPhoto ? (
-                         pulsePostIsVideo
-                           ? <video src={tempPhoto} controls className="w-full max-h-64 rounded-2xl object-cover" playsInline/>
-                           : <img src={tempPhoto} className="w-full max-h-48 object-cover rounded-2xl" alt="preview"/>
-                       ) : (
-                         <>
-                           <Camera size={52} className="text-pink-500/50 mx-auto mb-3"/>
-                           <p className="text-[11px] text-gray-400 uppercase font-black tracking-widest">Tap to add Photo / Video</p>
-                           <p className="text-[9px] text-gray-600 mt-1">JPG · PNG · MP4 supported</p>
-                         </>
-                       )}
-                     </div>
+                    <textarea
+                      value={postText}
+                      onChange={e => setPostText(e.target.value)}
+                      placeholder="Write a caption..."
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm text-white outline-none focus:border-pink-500 h-28 font-bold resize-none transition-colors"
+                    />
 
-                     {/* Caption */}
-                     <textarea
-                       value={postText}
-                       onChange={e => setPostText(e.target.value)}
-                       placeholder="Write a caption..."
-                       className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm text-white outline-none focus:border-pink-500 h-28 font-bold resize-none transition-colors"
-                     />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setPulsePostIsVideo(false)}
+                        className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${!pulsePostIsVideo ? 'bg-pink-600 border-pink-600 text-white shadow-[0_0_14px_rgba(236,72,153,0.5)]' : 'bg-white/5 border-white/10 text-gray-400'}`}
+                      >📸 Photo (+5 🪙)</button>
+                      <button
+                        onClick={() => setPulsePostIsVideo(true)}
+                        className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${pulsePostIsVideo ? 'bg-purple-600 border-purple-600 text-white shadow-[0_0_14px_rgba(139,92,246,0.5)]' : 'bg-white/5 border-white/10 text-gray-400'}`}
+                      >🎬 Video (+10 🪙)</button>
+                    </div>
 
-                     {/* Media type toggle */}
-                     <div className="flex gap-2">
-                       <button
-                         onClick={() => setPulsePostIsVideo(false)}
-                         className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${!pulsePostIsVideo ? 'bg-pink-600 border-pink-600 text-white shadow-[0_0_14px_rgba(236,72,153,0.5)]' : 'bg-white/5 border-white/10 text-gray-400'}`}
-                       >📸 Photo (+5 🪙)</button>
-                       <button
-                         onClick={() => setPulsePostIsVideo(true)}
-                         className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${pulsePostIsVideo ? 'bg-purple-600 border-purple-600 text-white shadow-[0_0_14px_rgba(139,92,246,0.5)]' : 'bg-white/5 border-white/10 text-gray-400'}`}
-                       >🎬 Video (+10 🪙)</button>
-                     </div>
+                    <button
+                      onClick={() => { handleCreatePost(); setPulseTab('feed'); }}
+                      className="w-full py-4 rounded-2xl font-black uppercase text-white tracking-[0.15em] shadow-[0_0_30px_rgba(236,72,153,0.45)] hover:scale-[1.02] active:scale-[0.98] transition-all"
+                      style={{background:'linear-gradient(135deg,#ec4899,#8b5cf6)'}}
+                    >
+                      PUBLISH (+{pulsePostIsVideo ? 10 : 5} 🪙)
+                    </button>
+                  </div>
+                ) : pulseTab==='profile' ? (
+                  <div className="flex-1 overflow-y-auto max-w-md mx-auto w-full pb-24">
+                    <div className="relative h-32 bg-gradient-to-br from-pink-600/30 to-cyan-600/30">
+                      <div className="absolute -bottom-10 left-1/2 -translate-x-1/2">
+                        <div className="relative">
+                          <img src={tempPhoto||user?.photoURL||'/logo.png'} className="w-20 h-20 rounded-full border-4 border-[#050505] shadow-2xl object-cover"/>
+                          <button title="Change Photo"
+                            onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.onchange=async(e:any)=>{ const f=e.target.files?.[0]; if(!f) return; const fd=new FormData(); fd.append('file',f); fd.append('upload_preset',CLOUDINARY_UPLOAD_PRESET); try{ const res=await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,{method:'POST',body:fd}); const data=await res.json(); if(data.secure_url){ await updateDoc(doc(db,'users',user!.uid),{photoURL:data.secure_url,photo:data.secure_url}); setTempPhoto(data.secure_url); setVvipAlert({msg:'✅ Profile photo updated!',icon:'📸'}); }}catch{}; }; inp.click(); }}
+                            className="absolute -bottom-1 -right-1 w-6 h-6 bg-pink-600 rounded-full border-2 border-[#050505] flex items-center justify-center text-white text-xs font-black shadow-lg active:scale-90 transition-all">+</button>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-14 text-center px-5">
+                      <h2 className="text-lg font-black text-white uppercase tracking-widest">@{username||'AJ_MEMBER'}</h2>
+                      <p className="text-xs text-gray-400 mt-1 font-bold">{bio||'No bio yet.'}</p>
+                      <div className="flex justify-center gap-8 mt-4">
+                        {[{v:pulsePosts.filter((p:any)=>p.uid===user?.uid).length,l:'Posts'},{v:followers,l:'Followers'},{v:following,l:'Following'}].map(s=>(
+                          <div key={s.l} className="text-center">
+                            <p className="text-lg font-black text-white">{s.v}</p>
+                            <p className="text-[9px] text-gray-500 uppercase font-bold">{s.l}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <button onClick={() => user && openProfile(user.uid)}
+                        className="mt-4 px-6 py-2 bg-white/5 border border-pink-500/30 rounded-full text-xs font-black text-pink-400 uppercase tracking-widest hover:bg-pink-500/10 transition-all">
+                        View Full Profile
+                      </button>
+                    </div>
+                    <div className="mt-6 px-4">
+                      <p className="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-3">My Posts</p>
+                      <div className="grid grid-cols-3 gap-1">
+                        {pulsePosts.filter((p:any)=>p.uid===user?.uid).map((p:any)=>(
+                          <div key={p.id} className="aspect-square bg-white/5 rounded-xl overflow-hidden">
+                            {(p.image || p.thumbnail) ? (
+                              p.isVideo
+                                ? <div className="relative w-full h-full">
+                                    <img
+                                      src={p.thumbnail || p.image}
+                                      className="w-full h-full object-cover"
+                                      loading="lazy"
+                                      onError={e => { (e.target as HTMLImageElement).style.display='none'; }}
+                                    />
+                                    <div className="absolute inset-0 flex items-center justify-center">
+                                      <div className="w-7 h-7 rounded-full bg-[#050505]/60 flex items-center justify-center">
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21"/></svg>
+                                      </div>
+                                    </div>
+                                  </div>
+                                : <img
+                                    src={p.image || p.thumbnail}
+                                    className="w-full h-full object-cover"
+                                    loading="lazy"
+                                    onError={e => { (e.target as HTMLImageElement).src='/logo.png'; }}
+                                  />
+                            ) : (
+                              <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-gradient-to-br from-pink-900/20 to-cyan-900/20">
+                                <Film size={20} className="text-white/20"/>
+                                <p className="text-[8px] text-gray-600 font-bold px-1 text-center line-clamp-2">{p.text?.slice(0,25)}</p>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            )}
 
-                     {/* Publish button */}
-                     <button
-                       onClick={() => { handleCreatePost(); setPulseTab('feed'); }}
-                       className="w-full py-4 rounded-2xl font-black uppercase text-white tracking-[0.15em] shadow-[0_0_30px_rgba(236,72,153,0.45)] hover:scale-[1.02] active:scale-[0.98] transition-all"
-                       style={{background:'linear-gradient(135deg,#ec4899,#8b5cf6)'}}
-                     >
-                       PUBLISH (+{pulsePostIsVideo ? 10 : 5} 🪙)
-                     </button>
-                   </div>
-                 )} {/* /pulseTab===create */}
-
-                 {/* MY PROFILE (Pulse) — Req 3 */}
-                 {pulseTab==='profile' && (
-                   <div className="flex-1 overflow-y-auto max-w-md mx-auto w-full pb-24">
-                     <div className="relative h-32 bg-gradient-to-br from-pink-600/30 to-cyan-600/30">
-                       <div className="absolute -bottom-10 left-1/2 -translate-x-1/2">
-                         <div className="relative">
-                           <img src={tempPhoto||user?.photoURL||'/logo.png'} className="w-20 h-20 rounded-full border-4 border-[#050505] shadow-2xl object-cover"/>
-                           <button title="Change Photo"
-                             onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.onchange=async(e:any)=>{ const f=e.target.files?.[0]; if(!f) return; const fd=new FormData(); fd.append('file',f); fd.append('upload_preset',CLOUDINARY_UPLOAD_PRESET); try{ const res=await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,{method:'POST',body:fd}); const data=await res.json(); if(data.secure_url){ await updateDoc(doc(db,'users',user!.uid),{photoURL:data.secure_url,photo:data.secure_url}); setTempPhoto(data.secure_url); setVvipAlert({msg:'✅ Profile photo updated!',icon:'📸'}); }}catch{}; }; inp.click(); }}
-                             className="absolute -bottom-1 -right-1 w-6 h-6 bg-pink-600 rounded-full border-2 border-[#050505] flex items-center justify-center text-white text-xs font-black shadow-lg active:scale-90 transition-all">+</button>
-                         </div>
-                       </div>
-                     </div>
-                     <div className="mt-14 text-center px-5">
-                       <h2 className="text-lg font-black text-white uppercase tracking-widest">@{username||'AJ_MEMBER'}</h2>
-                       <p className="text-xs text-gray-400 mt-1 font-bold">{bio||'No bio yet.'}</p>
-                       <div className="flex justify-center gap-8 mt-4">
-                         {[{v:pulsePosts.filter((p:any)=>p.uid===user?.uid).length,l:'Posts'},{v:followers,l:'Followers'},{v:following,l:'Following'}].map(s=>(
-                           <div key={s.l} className="text-center">
-                             <p className="text-lg font-black text-white">{s.v}</p>
-                             <p className="text-[9px] text-gray-500 uppercase font-bold">{s.l}</p>
-                           </div>
-                         ))}
-                       </div>
-                       <button onClick={() => user && openProfile(user.uid)}
-                         className="mt-4 px-6 py-2 bg-white/5 border border-pink-500/30 rounded-full text-xs font-black text-pink-400 uppercase tracking-widest hover:bg-pink-500/10 transition-all">
-                         View Full Profile
-                       </button>
-                     </div>
-                     <div className="mt-6 px-4">
-                       <p className="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-3">My Posts</p>
-                       <div className="grid grid-cols-3 gap-1">
-                         {pulsePosts.filter((p:any)=>p.uid===user?.uid).map((p:any)=>(
-                           <div key={p.id} className="aspect-square bg-white/5 rounded-xl overflow-hidden">
-                             {(p.image || p.thumbnail) ? (
-                               p.isVideo
-                                 ? <div className="relative w-full h-full">
-                                     <img
-                                       src={p.thumbnail || p.image}
-                                       className="w-full h-full object-cover"
-                                       loading="lazy"
-                                       onError={e => { (e.target as HTMLImageElement).style.display='none'; }}
-                                     />
-                                     <div className="absolute inset-0 flex items-center justify-center">
-                                       <div className="w-7 h-7 rounded-full bg-[#050505]/60 flex items-center justify-center">
-                                         <svg width="12" height="12" viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21"/></svg>
-                                       </div>
-                                     </div>
-                                   </div>
-                                 : <img
-                                     src={p.image || p.thumbnail}
-                                     className="w-full h-full object-cover"
-                                     loading="lazy"
-                                     onError={e => { (e.target as HTMLImageElement).src='/logo.png'; }}
-                                   />
-                             ) : (
-                               <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-gradient-to-br from-pink-900/20 to-cyan-900/20">
-                                 <Film size={20} className="text-white/20"/>
-                                 <p className="text-[8px] text-gray-600 font-bold px-1 text-center line-clamp-2">{p.text?.slice(0,25)}</p>
-                               </div>
-                             )}
-                           </div>
-                         ))}
-                       </div>
-                     </div>
-                   </div>
-                 )} {/* /pulseTab===profile */}
-               </div>
-             )} {/* /outer flex flex-col h-full */}
-              {/* /socialScreen===pulse */}
-
-             {/* WECHAT CONTACT LIST */}
-             {socialScreen==='chatlist' && (
+            {/* WECHAT CONTACT LIST */}
+            {socialScreen==='chatlist' && (
               <div className="max-w-md mx-auto bg-[#111b21] min-h-screen pb-24">
                 <div className="bg-[#202c33] p-5 flex justify-between items-center border-b border-white/5">
                   <h2 className="font-black text-xl text-white uppercase tracking-widest">AJ WeChat</h2>
