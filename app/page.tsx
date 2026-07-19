@@ -1,5 +1,10 @@
-"use client";
+
 import React, { useState, useEffect, useRef } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Toaster } from '@/components/ui/toaster';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import { Route, Switch, Router as WouterRouter } from 'wouter';
+import NotFound from '@/pages/not-found';
 // ── Fix #9: Firebase inline config with exact keys ──────────
 import { initializeApp, getApps } from 'firebase/app';
 import {
@@ -87,7 +92,7 @@ const WITHDRAW_METHODS = [
   { label: 'JazzCash',                     field: 'Mobile Number',      placeholder: '03XX-XXXXXXX',                 type:'simple' },
   { label: 'Binance (USDT BSC)',           field: 'USDT BSC Address',   placeholder: '0x... BSC wallet address',     type:'simple' },
   { label: 'AirTM',                        field: 'AirTM Email',        placeholder: 'your@email.com',               type:'simple' },
-  { label: 'Bank / Visa-Mastercard (Global)', field: '',                placeholder: '',                             type:'card'   },
+  
 ];
 
 // ============================================================
@@ -152,7 +157,7 @@ function CinematicGiftOverlay({ gift, sender, onDone }: { gift: any; sender: str
     <div className="fixed inset-0 z-[9999] flex items-center justify-center pointer-events-none">
       <div className="flex flex-col items-center gap-4 animate-bounce">
         <div className="text-9xl drop-shadow-[0_0_40px_rgba(255,215,0,0.8)] animate-pulse">{gift.icon}</div>
-        <p className="text-2xl font-black text-yellow-400 uppercase tracking-widest drop-shadow-[0_0_20px_gold]">{gift.name}!</p>
+        <p className="text-2xl font-black text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text uppercase tracking-widest drop-shadow-[0_0_20px_gold]">{gift.name}!</p>
         <p className="text-sm text-white font-bold opacity-80">from @{sender}</p>
         <div className="flex gap-4 text-4xl">
           <span className="animate-spin">✨</span>
@@ -171,7 +176,7 @@ function CinematicGiftOverlay({ gift, sender, onDone }: { gift: any; sender: str
 // ============================================================
 // COMPONENT
 // ============================================================
-export default function AJSuperPortal() {
+export function AJSuperPortal() {
 
   // ── SCREENS
   const [screen,       setScreen]       = useState('splash');
@@ -449,6 +454,7 @@ export default function AJSuperPortal() {
         return onSnapshot(q, snap => setPostComments(snap.docs.map(d=>({id:d.id,...d.data()}))));
       } catch {}
     }
+    return () => {};
   }, [socialScreen, activeContact, commentPostId]);
 
   useEffect(() => {
@@ -461,6 +467,7 @@ export default function AJSuperPortal() {
         setUnreadCount(items.length);
       });
     } catch {}
+    return () => {};
   }, [user]);
 
   useEffect(() => {
@@ -468,6 +475,7 @@ export default function AJSuperPortal() {
       const unsub = fetchLiveNow();
       return unsub;
     }
+    return () => {};
   }, [socialScreen]);
 
   // Fix: Re-fetch fresh random YouTube videos every time TikReel tab is opened
@@ -502,6 +510,7 @@ export default function AJSuperPortal() {
       } catch(e) { console.log('TikReel refresh error', e); }
     };
     fetchFreshVideos();
+    return () => {};
   }, [socialScreen]);
 
   useEffect(() => {
@@ -563,30 +572,30 @@ export default function AJSuperPortal() {
       const tm = setTimeout(() => setScreen('hub'), 2000);
       return () => { clearInterval(iv); clearTimeout(tm); };
     }
+    return () => {};
   }, [screen]);
 
   // ── GAME COINS: postMessage listener
-  // Game HTML sends: window.parent.postMessage({ type:'AJ_GAME_COINS', coins: N }, '*')
-  // 1 game point = 0.01 AJ Coins
   useEffect(() => {
     if (!user) return;
     const handleGameMessage = async (e: MessageEvent) => {
-      if (!e.data || e.data.type !== 'AJ_GAME_COINS') return;
-      const coinsEarned = parseFloat(e.data.coins);
+      if (!e.data || e.data.type !== "GAME_SCORE") return;
+      const coinsEarned = e.data.score * 0.010;
       if (!coinsEarned || coinsEarned <= 0 || isNaN(coinsEarned)) return;
       try {
-        await updateDoc(doc(db, 'users', user.uid), { balance: increment(coinsEarned) });
+        await updateDoc(doc(db, "users", user.uid), { balance: increment(coinsEarned) });
         try {
-          await addDoc(collection(db, 'notifications'), {
-            title: '🎮 Game Reward!',
+          await addDoc(collection(db, "notifications"), {
+            title: "🎮 Game Reward!",
             message: `+${coinsEarned.toFixed(2)} Coins earned from Gaming Zone!`,
             date: serverTimestamp(),
           });
         } catch {}
-      } catch(err) { console.error('Game coin credit error', err); }
+      } catch(err) { console.error("Game coin credit error", err); }
     };
-    window.addEventListener('message', handleGameMessage);
-    return () => window.removeEventListener('message', handleGameMessage);
+    window.addEventListener("message", handleGameMessage);
+    return () => window.removeEventListener("message", handleGameMessage);
+    return () => {};
   }, [user]);
 
   // PK Timer
@@ -621,6 +630,7 @@ export default function AJSuperPortal() {
       });
       return () => unsub();
     } catch {}
+    return () => {};
   }, [liveActive, liveRoomId]);
 
   // ==========================================================
@@ -1092,6 +1102,7 @@ export default function AJSuperPortal() {
       });
       return unsub;
     } catch {}
+    return () => {};
   }, [user]);
 
   const saveContactToFirestore = async (name: string) => {
@@ -1219,10 +1230,22 @@ export default function AJSuperPortal() {
   };
 
   // Fix #3: AJ Pulse posts go to 'pulse_posts' collection with addDoc (no overwrite)
+  
+  const handlePhotoUpdate = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || !e.target.files[0] || !user) return;
+    setLoading(10);
+    const url = await uploadToCloudinary(e.target.files[0]);
+    if (url) {
+      await updateDoc(doc(db, "users", user.uid), { photo: url });
+      setTempPhoto(url);
+    }
+    setLoading(0);
+  };
+
   const handleCreatePost = async () => {
     if (!postText.trim() && !tempPhoto) return alert("Empty Post!");
     try {
-      const photoReward = 5; // Fix 6: flat 5 coins for photo/video post
+      const photoReward = pulsePostIsVideo ? 10 : 5; // Fix 6: flat 5 coins for photo/video post
       // Fix #3: Use 'pulse_posts' collection, addDoc ensures no overwrite, sorted by createdAt
       await addDoc(collection(db,"pulse_posts"), {
         text:postText, image:tempPhoto, uid:user!.uid,
@@ -1334,7 +1357,7 @@ export default function AJSuperPortal() {
   const handleWithdraw = async () => {
     if (balance < WITHDRAW_MIN)
       return alert(`Minimum withdrawal is ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE} USD). Current: ${balance.toFixed(0)} Coins.`);
-    const isCard = currentWithdrawMethod.type === 'card';
+    const isCard = false;
     if (isCard) {
       if (!cardHolder.trim())  return alert('Enter Cardholder Name.');
       const rawNum = cardNumber.replace(/\s/g,'');
@@ -1626,8 +1649,8 @@ export default function AJSuperPortal() {
   // SPLASH
   // ==========================================================
   if (screen==='splash') return (
-    <main className="h-screen bg-black flex flex-col items-center justify-center text-white text-center">
-      <div className="w-40 h-40 bg-black rounded-full border-4 border-cyan-500 shadow-[0_0_60px_#06b6d4] overflow-hidden mb-8">
+    <main className="h-screen bg-[#050505] flex flex-col items-center justify-center text-white text-center">
+      <div className="w-40 h-40 bg-[#050505] rounded-full border-4 border-cyan-500 shadow-[0_0_60px_#06b6d4] overflow-hidden mb-8">
         <img src="/logo.png" className="w-full h-full object-cover" alt="AJ"/>
       </div>
       <h1 className="text-3xl font-black tracking-widest uppercase animate-pulse">AJ PORTAL</h1>
@@ -1638,10 +1661,10 @@ export default function AJSuperPortal() {
   // AUTH
   // ==========================================================
   if (screen==='auth') return (
-    <main className="min-h-screen bg-black flex flex-col items-center justify-center p-6 text-white text-center">
+    <main className="min-h-screen bg-[#050505] flex flex-col items-center justify-center p-6 text-white text-center">
       <div className="w-full max-w-sm bg-white/[0.03] border border-white/10 p-12 rounded-[3rem] shadow-2xl">
         <h2 className="text-6xl font-black mb-10 italic text-cyan-400 uppercase">AJ <span className="text-white">ID</span></h2>
-        <button onClick={handleGoogleLogin} className="w-full py-5 bg-white text-black font-black text-xl rounded-2xl active:scale-95 transition-all shadow-xl">
+        <button onClick={handleGoogleLogin} className="w-full py-5 bg-white text-black font-black text-xl rounded-2xl  transition-all shadow-xl">
           CONTINUE WITH GOOGLE
         </button>
         <p className="mt-8 text-yellow-500 font-bold tracking-widest">+500 COINS WELCOME BONUS</p>
@@ -1668,18 +1691,18 @@ export default function AJSuperPortal() {
       )}
 
       {/* HEADER */}
-      <header className="fixed top-0 w-full p-4 flex justify-between items-center z-[100] bg-black/80 backdrop-blur-xl border-b border-white/5 shadow-2xl">
+      <header className="fixed top-0 w-full p-4 flex justify-between items-center z-[100] bg-[#050505]/80 backdrop-blur-xl border-b border-white/5 shadow-2xl">
         <div className="text-xl font-black italic text-cyan-400">AJ STUDIO</div>
         <div className="flex items-center gap-3">
           <div className="relative cursor-pointer" onClick={() => { setNotifOpen(!notifOpen); setUnreadCount(0); }}>
-            <Bell size={22} className="text-white hover:text-yellow-400 transition-all"/>
+            <Bell size={22} className="text-white hover:text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text transition-all"/>
             {unreadCount>0 && (
               <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[8px] font-black text-white flex items-center justify-center border border-black animate-pulse">
                 {unreadCount>9?'9+':unreadCount}
               </span>
             )}
           </div>
-          <div onClick={() => navigateWithAd('wallet')} className="flex items-center gap-3 bg-white/5 px-4 py-2 rounded-full border border-white/10 cursor-pointer hover:bg-white/10 transition-all">
+          <div onClick={() => navigateWithAd('wallet')} className="flex items-center gap-3 bg-white/5 px-4 py-2 rounded-full border border-white/10 cursor-pointer hover:bg-white/5 backdrop-blur-xl border border-white/10 transition-all">
             <span className="text-xs font-black text-yellow-500">{displayBalance} 🪙</span>
             <span className="text-[10px] text-green-400 font-black">${displayUsdt}</span>
             {user && <img src={tempPhoto||user.photoURL||'/logo.png'} className="w-8 h-8 rounded-full border border-cyan-500 shadow-[0_0_10px_#06b6d4]"/>}
@@ -1727,13 +1750,13 @@ export default function AJSuperPortal() {
             { label:'AI Trading Bot',icon:<Bot className="text-green-400 w-10 h-10 md:w-20 md:h-20 mb-2"/>, sc:'ai',     hover:'hover:border-green-500' },
           ].map(m => (
             <div key={m.label} onClick={() => navigateWithAd(m.sc)}
-              className={`bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center cursor-pointer shadow-xl active:scale-95 transition-all ${m.hover} relative z-30`}>
+              className={`bg-white/5 border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center cursor-pointer shadow-xl  transition-all ${m.hover} relative z-30`}>
               {m.icon}
               <span className="font-black text-xs md:text-3xl uppercase tracking-tighter">{m.label}</span>
             </div>
           ))}
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
-            <div className="w-24 h-24 md:w-96 md:h-96 bg-black border-[15px] border-cyan-500 rounded-full flex items-center justify-center shadow-[0_0_100px_#06b6d4] overflow-hidden">
+            <div className="w-24 h-24 md:w-96 md:h-96 bg-[#050505] border-[15px] border-cyan-500 rounded-full flex items-center justify-center shadow-[0_0_100px_#06b6d4] overflow-hidden">
               <img src="/logo.png" className="w-full h-full object-cover opacity-60 animate-pulse"/>
             </div>
           </div>
@@ -1763,7 +1786,7 @@ export default function AJSuperPortal() {
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
             {botMessages.map((msg, i) => (
               <div key={i} className={`flex ${msg.from==='user'?'justify-end':'justify-start'}`}>
-                <div className={`max-w-[85%] p-3 rounded-2xl text-[11px] leading-relaxed font-bold whitespace-pre-line ${msg.from==='user'?'bg-cyan-600 text-white rounded-tr-none':'bg-white/10 text-gray-200 rounded-tl-none border border-white/10'}`}>
+                <div className={`max-w-[85%] p-3 rounded-2xl text-[11px] leading-relaxed font-bold whitespace-pre-line ${msg.from==='user'?'bg-cyan-600 text-white rounded-tr-none':'bg-white/5 backdrop-blur-xl border border-white/10 text-gray-200 rounded-tl-none border border-white/10'}`}>
                   {msg.text}
                   {msg.from==='bot' && (msg as any).topic === 'payment_issue' && (
                     <a href={CEO_WHATSAPP} target="_blank" className="block mt-2 bg-green-500 text-black text-[10px] font-black uppercase px-3 py-2 rounded-xl text-center hover:bg-green-400 transition-all">
@@ -1787,7 +1810,7 @@ export default function AJSuperPortal() {
 
       {/* ARCADE */}
       {screen==='arcade' && (
-        <div className="fixed inset-0 z-[300] bg-black flex flex-col h-screen overflow-hidden">
+        <div className="fixed inset-0 z-[300] bg-[#050505] flex flex-col h-screen overflow-hidden">
           {!selectedGame ? (
             <div className="p-8 overflow-y-auto flex-1">
               <button onClick={() => { setScreen('hub'); setSelectedGame(null); }}
@@ -1818,15 +1841,15 @@ export default function AJSuperPortal() {
                     <div className="w-full aspect-square rounded-xl mb-4 bg-gradient-to-br from-yellow-500/10 to-black flex items-center justify-center border border-yellow-500/20">
                       <Trophy size={50} className="text-yellow-500 opacity-40"/>
                     </div>
-                    <h3 className="font-black text-sm uppercase text-yellow-400">{game}</h3>
-                    <button disabled className="mt-4 w-full py-2 rounded-full font-black text-[10px] bg-yellow-500/20 text-yellow-400 uppercase cursor-not-allowed">Coming Soon</button>
+                    <h3 className="font-black text-sm uppercase text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text">{game}</h3>
+                    <button disabled className="mt-4 w-full py-2 rounded-full font-black text-[10px] bg-yellow-500/20 text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text uppercase cursor-not-allowed">Coming Soon</button>
                   </div>
                 ))}
               </div>
             </div>
           ) : (
             <div className="flex-1 flex flex-col h-full">
-              <div className="w-full bg-black h-12 flex items-center px-4 border-b border-white/10 shrink-0">
+              <div className="w-full bg-[#050505] h-12 flex items-center px-4 border-b border-white/10 shrink-0">
                 <button onClick={() => setSelectedGame(null)} className="text-cyan-400 font-black text-[10px] uppercase tracking-widest">← BACK</button>
                 <div className="flex-1 text-center font-black uppercase text-[10px] opacity-40">{selectedGame}</div>
               </div>
@@ -1840,13 +1863,13 @@ export default function AJSuperPortal() {
       {/* SOCIAL */}
       {screen==='social' && (
         <div className="fixed inset-0 z-[400] bg-slate-950 flex flex-col h-screen overflow-hidden">
-          <header className="sticky top-0 w-full p-4 bg-black/90 backdrop-blur-md border-b border-white/10 flex justify-between items-center z-[500] rounded-b-3xl shrink-0">
+          <header className="sticky top-0 w-full p-4 bg-[#050505]/90 backdrop-blur-md border-b border-white/10 flex justify-between items-center z-[500] rounded-b-3xl shrink-0">
             {socialScreen==='hub'
               ? <button onClick={() => setScreen('hub')} className="text-pink-500 font-black text-xs uppercase">← HUB</button>
               : <button onClick={() => setSocialScreen('hub')} className="text-pink-500 font-black text-xs uppercase">← BACK</button>
             }
             <h2 className="text-4xl font-black italic text-pink-500 uppercase text-center flex-1 tracking-tighter drop-shadow-[0_0_15px_#ec4899] animate-pulse">Dashboard</h2>
-            <button onClick={() => setSocialScreen('settings_menu')} className="bg-white/10 p-2 rounded-full text-pink-500 hover:bg-white/20 shadow-lg">
+            <button onClick={() => setSocialScreen('settings_menu')} className="bg-white/5 backdrop-blur-xl border border-white/10 p-2 rounded-full text-pink-500 hover:bg-white/20 shadow-lg">
               <Settings size={22}/>
             </button>
           </header>
@@ -1871,10 +1894,10 @@ export default function AJSuperPortal() {
 
                 {/* Referral card */}
                 <div className="bg-gradient-to-r from-yellow-500/10 to-orange-500/10 border border-yellow-500/30 p-5 rounded-3xl text-left shadow-xl">
-                  <p className="text-[10px] font-black text-yellow-400 uppercase tracking-widest mb-2">🎁 Refer & Earn — Your Referral Code</p>
-                  <div className="flex items-center justify-between bg-black/40 px-3 py-2 rounded-xl">
+                  <p className="text-[10px] font-black text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text uppercase tracking-widest mb-2">🎁 Refer & Earn — Your Referral Code</p>
+                  <div className="flex items-center justify-between bg-[#050505]/40 px-3 py-2 rounded-xl">
                     <span className="text-xs font-mono text-yellow-300 truncate max-w-[200px]">{user?.uid}</span>
-                    <button onClick={() => copyToClipboard(user?.uid||"")} className="text-yellow-400 text-[10px] font-black uppercase">
+                    <button onClick={() => copyToClipboard(user?.uid||"")} className="text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text text-[10px] font-black uppercase">
                       {copied?"Copied ✓":"Copy"}
                     </button>
                   </div>
@@ -1883,7 +1906,7 @@ export default function AJSuperPortal() {
 
                 {/* GO LIVE */}
                 <button onClick={startLive}
-                  className="w-full py-4 bg-red-600 rounded-[2rem] font-black uppercase text-white tracking-[0.2em] shadow-[0_0_30px_rgba(239,68,68,0.4)] hover:scale-105 transition-all flex items-center justify-center gap-3 active:scale-95">
+                  className="w-full py-4 bg-red-600 rounded-[2rem] font-black uppercase text-white tracking-[0.2em] shadow-[0_0_30px_rgba(239,68,68,0.4)] hover:scale-105 active:scale-95 transition-all duration-200   transition-all flex items-center justify-center gap-3 ">
                   <Radio size={22} className="animate-pulse"/> GO LIVE (Camera + Gifts)
                 </button>
 
@@ -1899,11 +1922,11 @@ export default function AJSuperPortal() {
                       onChange={e => setJoinRoomInput(e.target.value)}
                       onKeyDown={e => e.key === 'Enter' && joinLiveByRoomId()}
                       placeholder="Paste Room ID here..."
-                      className="flex-1 bg-black border border-white/10 rounded-xl px-3 py-2.5 text-xs font-bold text-white outline-none focus:border-cyan-500 font-mono"
+                      className="flex-1 bg-[#050505] border border-white/10 rounded-xl px-3 py-2.5 text-xs font-bold text-white outline-none focus:border-cyan-500 font-mono"
                     />
                     <button
                       onClick={() => joinLiveByRoomId()}
-                      className="bg-cyan-600 px-4 py-2.5 rounded-xl text-[10px] font-black text-black uppercase tracking-widest active:scale-95 transition-all shadow-lg">
+                      className="bg-cyan-600 px-4 py-2.5 rounded-xl text-[10px] font-black text-black uppercase tracking-widest  transition-all shadow-lg">
                       Join
                     </button>
                   </div>
@@ -1920,7 +1943,7 @@ export default function AJSuperPortal() {
                     ? <p className="text-[10px] text-gray-500 text-center py-4 font-bold">No one is live right now. Be the first!</p>
                     : <div className="space-y-3 max-h-48 overflow-y-auto">
                         {liveNowList.map((room:any) => (
-                          <div key={room.id} className="flex items-center gap-3 bg-black/40 p-3 rounded-2xl border border-red-500/20 cursor-pointer hover:border-red-500 transition-all active:scale-95"
+                          <div key={room.id} className="flex items-center gap-3 bg-[#050505]/40 p-3 rounded-2xl border border-red-500/20 cursor-pointer hover:border-red-500 transition-all "
                             onClick={() => joinLiveByRoomId(room.roomId)}>
                             <div className="relative">
                               <img src={room.photo||'/logo.png'} className="w-10 h-10 rounded-full border-2 border-red-500"/>
@@ -1938,6 +1961,7 @@ export default function AJSuperPortal() {
                 </div>
 
                 {/* MODULE CARDS */}
+<div className="mb-4"><MonetagBanner siteId={11337197} /></div>
                 {[
                   { n:'AJ TikReels', i:Video,        d:'TikTok Style Videos', s:'tikreels'  },
                   { n:'AJ Pulse',    i:Users,         d:'Insta Style Feed',    s:'pulse'     },
@@ -1994,14 +2018,14 @@ export default function AJSuperPortal() {
                       <div className="flex gap-3 mt-6 justify-center">
                         <button
                           onClick={() => viewingUid && handleFollow(viewingUid)}
-                          className={`flex-1 py-3 rounded-2xl font-black text-sm uppercase tracking-widest flex items-center justify-center gap-2 transition-all active:scale-95 ${isFollowing?'bg-white/10 border border-white/20 text-white':'bg-pink-600 text-white shadow-lg'}`}>
+                          className={`flex-1 py-3 rounded-2xl font-black text-sm uppercase tracking-widest flex items-center justify-center gap-2 transition-all  ${isFollowing?'bg-white/5 backdrop-blur-xl border border-white/10 border border-white/20 text-white':'bg-pink-600 text-white shadow-lg'}`}>
                           {isFollowing ? <><UserCheck size={16}/> Following</> : <><UserPlus size={16}/> Follow</>}
                         </button>
                         <button
                           onClick={() => {
                             if (viewingUid && viewProfile) openOrCreateChat(viewingUid, viewProfile);
                           }}
-                          className="flex-1 py-3 rounded-2xl font-black text-sm uppercase tracking-widest flex items-center justify-center gap-2 bg-cyan-600/20 border border-cyan-500/40 text-cyan-400 hover:bg-cyan-600/30 transition-all active:scale-95">
+                          className="flex-1 py-3 rounded-2xl font-black text-sm uppercase tracking-widest flex items-center justify-center gap-2 bg-cyan-600/20 border border-cyan-500/40 text-cyan-400 hover:bg-cyan-600/30 transition-all ">
                           <MessageCircle size={16}/> Message
                         </button>
                       </div>
@@ -2025,7 +2049,7 @@ export default function AJSuperPortal() {
                             : <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-pink-600/20 to-cyan-600/20"><Film size={24} className="text-pink-400"/></div>
                           }
                           {/* Fix #6: View counter bottom-left with formatViews */}
-                          <div className="absolute bottom-1 left-1 flex items-center gap-0.5 bg-black/60 px-1.5 py-0.5 rounded-full">
+                          <div className="absolute bottom-1 left-1 flex items-center gap-0.5 bg-[#050505]/60 px-1.5 py-0.5 rounded-full">
                             <Film size={8} className="text-white opacity-70"/>
                             <span className="text-[8px] font-black text-white">{formatViews(p.views ?? 0)}</span>
                           </div>
@@ -2049,7 +2073,7 @@ export default function AJSuperPortal() {
               <div className="max-w-md mx-auto p-10 flex flex-col gap-6">
                 <h2 className="text-3xl font-black text-cyan-400 italic mb-4 uppercase tracking-widest">Settings</h2>
                 <button onClick={() => setSocialScreen('setup')}
-                  className="bg-white/5 border border-white/10 p-6 rounded-3xl flex items-center gap-4 hover:bg-white/10 transition-all shadow-xl">
+                  className="bg-white/5 border border-white/10 p-6 rounded-3xl flex items-center gap-4 hover:bg-white/5 backdrop-blur-xl border border-white/10 transition-all shadow-xl">
                   <Edit3 className="text-pink-500" size={24}/><span className="font-black text-sm uppercase tracking-widest">Edit Profile</span>
                 </button>
                 <button onClick={handleSignOut}
@@ -2063,7 +2087,7 @@ export default function AJSuperPortal() {
             {/* DM CHAT */}
             {socialScreen==='dm' && activeChatUser && (
               <div className="fixed inset-0 z-[500] bg-[#0a0a0a] flex flex-col">
-                <div className="flex items-center gap-3 px-4 py-3 bg-black/90 border-b border-white/10 shrink-0">
+                <div className="flex items-center gap-3 px-4 py-3 bg-[#050505]/90 border-b border-white/10 shrink-0">
                   <button onClick={() => { setSocialScreen('profile'); if(dmUnsubRef.current){dmUnsubRef.current();dmUnsubRef.current=null;} }}
                     className="text-pink-500 font-black text-xs uppercase tracking-widest">Back</button>
                   <img src={activeChatUser.photo||'/logo.png'} className="w-9 h-9 rounded-full border-2 border-cyan-500 object-cover"/>
@@ -2086,19 +2110,19 @@ export default function AJSuperPortal() {
                       <div key={m.id} className={`flex gap-2 items-end ${isMe?'flex-row-reverse':''}`}>
                         <img src={m.photo||'/logo.png'} className="w-7 h-7 rounded-full border border-pink-500 object-cover shrink-0"/>
                         <div className={`max-w-[72%] px-4 py-2.5 rounded-2xl text-xs font-bold break-words ${
-                          isMe?'bg-pink-600 text-white rounded-br-sm':'bg-white/10 text-gray-200 rounded-bl-sm'
+                          isMe?'bg-pink-600 text-white rounded-br-sm':'bg-white/5 backdrop-blur-xl border border-white/10 text-gray-200 rounded-bl-sm'
                         }`}>{m.text}</div>
                       </div>
                     );
                   })}
                   <div ref={dmEndRef}/>
                 </div>
-                <div className="flex gap-2 px-3 py-3 bg-black/90 border-t border-white/10 shrink-0">
+                <div className="flex gap-2 px-3 py-3 bg-[#050505]/90 border-t border-white/10 shrink-0">
                   <img src={tempPhoto||user?.photoURL||'/logo.png'} className="w-8 h-8 rounded-full border border-pink-500 shrink-0 object-cover"/>
                   <input type="text" value={dmInput} onChange={e=>setDmInput(e.target.value)}
                     onKeyDown={e=>e.key==='Enter'&&sendDmMessage()}
                     placeholder={'Message @'+(activeChatUser.username||'user')+'...'}
-                    className="flex-1 bg-white/10 border border-white/10 rounded-full px-4 py-2 text-[11px] text-white outline-none focus:ring-1 focus:ring-cyan-500 font-bold"
+                    className="flex-1 bg-white/5 backdrop-blur-xl border border-white/10 border border-white/10 rounded-full px-4 py-2 text-[11px] text-white outline-none focus:ring-1 focus:ring-cyan-500 font-bold"
                   />
                   <button onClick={sendDmMessage} className="bg-cyan-500 p-2 rounded-full text-black active:scale-90 transition-all shadow-lg">
                     <Send size={14}/>
@@ -2110,7 +2134,7 @@ export default function AJSuperPortal() {
             {/* TIKREELS */}
             {socialScreen==='tikreels' && (
               <div className="flex flex-col h-full">
-                <div className="flex gap-0 bg-black border-b border-white/10 shrink-0">
+                <div className="flex gap-0 bg-[#050505] border-b border-white/10 shrink-0">
                   {(['feed','create','profile'] as const).map(t => (
                     <button key={t} onClick={() => { setTiktabMode(t); if(t==='profile') loadFollowingList(); }}
                       className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest transition-all ${tiktabMode===t?'text-pink-500 border-b-2 border-pink-500':'text-gray-500'}`}>
@@ -2121,11 +2145,11 @@ export default function AJSuperPortal() {
 
                 {/* FEED — TikTok style */}
                 {tiktabMode==='feed' && (
-                  <div ref={videoFeedRef} className="h-full w-full max-w-md mx-auto snap-y snap-mandatory overflow-y-auto bg-black" style={{ touchAction:'pan-y', overscrollBehavior:'contain' }}>
-                    <div className="sticky top-0 z-30 flex justify-end px-4 py-2 bg-black/80 backdrop-blur-sm border-b border-white/10">
+                  <div ref={videoFeedRef} className="h-full w-full max-w-md mx-auto snap-y snap-mandatory overflow-y-auto bg-[#050505]" style={{ touchAction:'pan-y', overscrollBehavior:'contain' }}>
+                    <div className="sticky top-0 z-30 flex justify-end px-4 py-2 bg-[#050505]/80 backdrop-blur-sm border-b border-white/10">
                       <button
                         onClick={() => setGlobalSoundOn(s => !s)}
-                        className="flex items-center gap-2 bg-white/10 border border-white/20 px-4 py-2 rounded-full text-[11px] font-black uppercase text-white hover:bg-white/20 transition-all active:scale-95">
+                        className="flex items-center gap-2 bg-white/5 backdrop-blur-xl border border-white/10 border border-white/20 px-4 py-2 rounded-full text-[11px] font-black uppercase text-white hover:bg-white/20 transition-all ">
                         {globalSoundOn ? <Volume2 size={14} className="text-green-400"/> : <VolumeX size={14} className="text-red-400"/>}
                         {globalSoundOn ? 'Sound ON' : 'Sound OFF'}
                       </button>
@@ -2172,7 +2196,7 @@ export default function AJSuperPortal() {
                               if (uv) { newPaused ? uv.pause() : uv.play().catch(()=>{}); }
                             }}>
                             {!inWindow ? (
-                              <div className="absolute inset-0 bg-black flex items-center justify-center">
+                              <div className="absolute inset-0 bg-[#050505] flex items-center justify-center">
                                 {(vid.thumb||vid.image)
                                   ? <img src={vid.thumb||vid.image} alt="" loading="lazy" decoding="async"
                                       className="w-full h-full object-cover opacity-40"/>
@@ -2182,7 +2206,7 @@ export default function AJSuperPortal() {
                             <>
                               {/* CONTENT */}
                               {isUserPost ? (
-                                <div className="absolute inset-0 overflow-hidden bg-black">
+                                <div className="absolute inset-0 overflow-hidden bg-[#050505]">
                                   {vid.image
                                     ? vid.isVideo
                                       ? <video
@@ -2218,7 +2242,7 @@ export default function AJSuperPortal() {
                               {/* Pause overlay — shows play icon when paused */}
                               {isActive && reelPaused && (
                                 <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none">
-                                  <div className="w-20 h-20 bg-black/60 backdrop-blur-sm rounded-full flex items-center justify-center border-2 border-white/30 shadow-2xl animate-ping-once">
+                                  <div className="w-20 h-20 bg-[#050505]/60 backdrop-blur-sm rounded-full flex items-center justify-center border-2 border-white/30 shadow-2xl animate-ping-once">
                                     <svg width="32" height="32" viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21"/></svg>
                                   </div>
                                 </div>
@@ -2228,7 +2252,7 @@ export default function AJSuperPortal() {
                                 <div
                                   className="absolute inset-0 flex items-end justify-center pb-48 z-20 cursor-pointer"
                                   onClick={e => { e.stopPropagation(); setGlobalSoundOn(true); }}>
-                                  <div className="flex items-center gap-2 bg-black/60 backdrop-blur-sm border border-white/20 px-4 py-2 rounded-full shadow-xl animate-pulse">
+                                  <div className="flex items-center gap-2 bg-[#050505]/60 backdrop-blur-sm border border-white/20 px-4 py-2 rounded-full shadow-xl animate-pulse">
                                     <VolumeX size={16} className="text-white"/>
                                     <span className="text-white text-[11px] font-black uppercase tracking-widest">Tap for Sound</span>
                                   </div>
@@ -2269,7 +2293,7 @@ export default function AJSuperPortal() {
                                 <div onClick={() => handleShare(`Watch ${vid.title||vid.text||''} on AJ Portal!`)} className="flex flex-col items-center cursor-pointer text-white">
                                   <Share2 size={35}/><span className="text-[10px] font-bold">Share</span>
                                 </div>
-                                <div className="flex flex-col items-center cursor-pointer text-yellow-400" onClick={() => setPulseGiftPostId(vid.id)}>
+                                <div className="flex flex-col items-center cursor-pointer text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text" onClick={() => setPulseGiftPostId(vid.id)}>
                                   <Gift size={28}/><span className="text-[10px] font-bold">Gift</span>
                                 </div>
                                 {!isUserPost && (
@@ -2285,7 +2309,7 @@ export default function AJSuperPortal() {
                                 <p className="font-black text-sm">@{isUserPost ? (vid.username||'AJ_Member') : vid.user}</p>
                                 {isUserPost && vid.text && <p className="text-[11px] text-gray-300 mt-1 line-clamp-2">{vid.text}</p>}
                                 <div
-                                  className="flex items-center gap-2 mt-3 bg-black/40 w-max p-1.5 rounded-full border border-white/10 cursor-pointer active:scale-95 transition-all"
+                                  className="flex items-center gap-2 mt-3 bg-[#050505]/40 w-max p-1.5 rounded-full border border-white/10 cursor-pointer  transition-all"
                                   onClick={() => {
                                     const soundLabel = isUserPost
                                       ? (vid.title || vid.text || 'Original Sound — AJ Studio')
@@ -2304,7 +2328,7 @@ export default function AJSuperPortal() {
                           </div>
                           {(i+1)%4===0 && (
                              /* Video Ad every 4 TikReels — mute=1 required for mobile autoplay */
-                             <div className="h-[85vh] w-full snap-start relative overflow-hidden bg-black">
+                             <div className="h-[85vh] w-full snap-start relative overflow-hidden bg-[#050505]">
                                <iframe
                                  src={`https://www.youtube-nocookie.com/embed/${PULSE_AD_VIDEO_ID}?autoplay=1&mute=1&controls=1&loop=1&playlist=${PULSE_AD_VIDEO_ID}&rel=0&modestbranding=1&playsinline=1&enablejsapi=1`}
                                  className="absolute inset-0 w-full h-full"
@@ -2317,7 +2341,7 @@ export default function AJSuperPortal() {
                                  <span className="bg-pink-600/90 backdrop-blur-sm text-white text-[8px] font-black px-3 py-1 rounded-full uppercase tracking-widest shadow-lg">📢 Sponsored</span>
                                </div>
                                <div className="absolute bottom-8 left-0 right-0 flex justify-center z-10 pointer-events-none">
-                                 <span className="bg-black/60 backdrop-blur-sm text-white text-[9px] font-black px-4 py-2 rounded-full uppercase tracking-widest">🔇 Tap Controls to Unmute</span>
+                                 <span className="bg-[#050505]/60 backdrop-blur-sm text-white text-[9px] font-black px-4 py-2 rounded-full uppercase tracking-widest">🔇 Tap Controls to Unmute</span>
                                </div>
                              </div>
                            )}
@@ -2332,7 +2356,7 @@ export default function AJSuperPortal() {
                 {tiktabMode==='create' && (
                   <div className="max-w-md mx-auto p-6 space-y-6">
                     <h3 className="text-xl font-black text-pink-500 uppercase tracking-widest">📹 Create Video Post</h3>
-                    <div className="border-2 border-dashed border-pink-500/40 rounded-3xl p-8 text-center cursor-pointer bg-white/5 hover:bg-white/10 transition-all" onClick={handleTiktokImage}>
+                    <div className="border-2 border-dashed border-pink-500/40 rounded-3xl p-8 text-center cursor-pointer bg-white/5 hover:bg-white/5 backdrop-blur-xl border border-white/10 transition-all" onClick={handleTiktokImage}>
                       {tiktokPostImg
                         ? tiktokPostIsVideo
                           ? <video src={tiktokPostImg} controls className="w-full max-h-64 rounded-2xl object-cover" playsInline/>
@@ -2346,14 +2370,14 @@ export default function AJSuperPortal() {
                     <button
                       type="button"
                       onClick={() => audioFileRef.current?.click()}
-                      className="w-full py-3 bg-white/5 border border-pink-500/30 rounded-2xl font-black uppercase text-pink-400 text-xs tracking-widest flex items-center justify-center gap-2 hover:bg-pink-500/10 active:scale-95 transition-all"
+                      className="w-full py-3 bg-white/5 border border-pink-500/30 rounded-2xl font-black uppercase text-pink-400 text-xs tracking-widest flex items-center justify-center gap-2 hover:bg-pink-500/10  transition-all"
                     >
                       <Music size={14}/> {tiktokAudioFile ? `🎵 ${tiktokAudioFile.name}` : 'Select Audio / Music from Phone'}
                     </button>
                     {selectedSound && !tiktokAudioFile && (
                       <p className="text-[10px] text-pink-400 font-bold text-center">🎵 Using: {selectedSound.slice(0,40)}</p>
                     )}
-                    <button onClick={handleTiktokPost} className="w-full py-4 bg-pink-600 rounded-2xl font-black uppercase text-white tracking-widest shadow-lg active:scale-95 transition-all">
+                    <button onClick={handleTiktokPost} className="w-full py-4 bg-pink-600 rounded-2xl font-black uppercase text-white tracking-widest shadow-lg  transition-all">
                       PUBLISH (+10 🪙)
                     </button>
                   </div>
@@ -2449,7 +2473,7 @@ export default function AJSuperPortal() {
                              : <img src={tempPhoto} className="w-full max-h-40 object-cover"/>
                            }
                            <button onClick={() => { setTempPhoto(''); setPulsePostIsVideo(false); }}
-                             className="absolute top-1 right-1 bg-black/70 text-white text-[9px] font-black px-2 py-0.5 rounded-full">✕</button>
+                             className="absolute top-1 right-1 bg-[#050505]/70 text-white text-[9px] font-black px-2 py-0.5 rounded-full">✕</button>
                          </div>
                        )}
                      </div>
@@ -2457,14 +2481,14 @@ export default function AJSuperPortal() {
                        <Camera size={18}/>
                      </button>
                      <button onClick={handleCreatePost}
-                       className="bg-pink-600 px-3 py-1.5 rounded-full text-[10px] font-black shadow-lg hover:scale-105 transition-all text-white whitespace-nowrap shrink-0">
+                       className="bg-pink-600 px-3 py-1.5 rounded-full text-[10px] font-black shadow-lg hover:scale-105 active:scale-95 transition-all duration-200   transition-all text-white whitespace-nowrap shrink-0">
                        POST +5🪙
                      </button>
                    </div>
                  </div>
 
                  {/* Full-screen TikReel-style snap feed — Unsplash mix + Firestore posts */}
-                 <div className="snap-y snap-mandatory overflow-y-auto flex-1 bg-black" style={{ touchAction:'pan-y', overscrollBehavior:'contain' }}>
+                 <div className="snap-y snap-mandatory overflow-y-auto flex-1 bg-[#050505]" style={{ touchAction:'pan-y', overscrollBehavior:'contain' }}>
                    {(() => {
                      // Mix user posts (Firestore) with Unsplash lifestyle images for rich feed
                      // New posts from addDoc always appear at top — existing posts never deleted
@@ -2488,7 +2512,7 @@ export default function AJSuperPortal() {
                        <React.Fragment key={post.id || `pf-${idx}`}>
                          {/* Full-screen Real Video Ad every 5 posts — actual YouTube player */}
                          {idx > 0 && idx % 5 === 0 && (
-                           <div className="h-[85vh] w-full snap-start relative overflow-hidden bg-black">
+                           <div className="h-[85vh] w-full snap-start relative overflow-hidden bg-[#050505]">
                              <iframe
                                src={`https://www.youtube-nocookie.com/embed/${PULSE_AD_VIDEO_ID}?autoplay=1&mute=1&controls=1&loop=1&playlist=${PULSE_AD_VIDEO_ID}&rel=0&modestbranding=1&playsinline=1&enablejsapi=1`}
                                className="absolute inset-0 w-full h-full"
@@ -2507,7 +2531,7 @@ export default function AJSuperPortal() {
                          )}
 
                          {/* Full-screen Post Card */}
-                         <div className="h-[85vh] w-full snap-start relative bg-black overflow-hidden"
+                         <div className="h-[85vh] w-full snap-start relative bg-[#050505] overflow-hidden"
                            style={{ contain:'layout style paint', willChange:'transform' }}>
                            {/* Background image (user upload or Unsplash) */}
                            {post.image
@@ -2545,7 +2569,7 @@ export default function AJSuperPortal() {
                              </div>
                              {/* Gift — only for other users' posts */}
                              {post._src==='user' && post.uid!==user?.uid && (
-                               <div className="flex flex-col items-center cursor-pointer text-yellow-400"
+                               <div className="flex flex-col items-center cursor-pointer text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text"
                                  onClick={() => setPulseGiftPostId(post.id)}>
                                  <Gift size={28}/><span className="text-[9px] font-bold mt-0.5">Gift</span>
                                </div>
@@ -2571,7 +2595,7 @@ export default function AJSuperPortal() {
                            {post._src==='user' && post.uid===user?.uid && (
                              <div className="absolute top-4 right-4 z-20">
                                <button onClick={() => setActiveMenuId(activeMenuId===post.id?null:post.id)}
-                                 className="bg-black/50 backdrop-blur-sm rounded-full p-2 active:scale-90 transition-all">
+                                 className="bg-[#050505]/50 backdrop-blur-sm rounded-full p-2 active:scale-90 transition-all">
                                  <MoreVertical size={16} className="text-white"/>
                                </button>
                                {activeMenuId===post.id && (
@@ -2587,7 +2611,7 @@ export default function AJSuperPortal() {
                            {/* Unsplash attribution badge */}
                            {post._src==='unsplash' && (
                              <div className="absolute top-4 left-4 z-10 pointer-events-none">
-                               <span className="text-[7px] font-bold text-white/50 bg-black/40 px-2 py-0.5 rounded-full">
+                               <span className="text-[7px] font-bold text-white/50 bg-[#050505]/40 px-2 py-0.5 rounded-full">
                                  📸 Unsplash
                                </span>
                              </div>
@@ -2625,10 +2649,10 @@ export default function AJSuperPortal() {
                   <div className="p-4 bg-[#2a3942] border-b border-white/5">
                     <p className="text-[10px] font-black text-cyan-400 uppercase tracking-widest mb-2">Add Contact Manually</p>
                     <input type="text" value={newContact} onChange={e => setNewContact(e.target.value)}
-                      placeholder="Enter contact name..." className="w-full bg-black border border-white/10 p-3 rounded-xl text-xs text-white outline-none focus:border-cyan-500 font-bold mb-2"/>
+                      placeholder="Enter contact name..." className="w-full bg-[#050505] border border-white/10 p-3 rounded-xl text-xs text-white outline-none focus:border-cyan-500 font-bold mb-2"/>
                     <div className="flex gap-2">
                       <button onClick={addManualContact} className="flex-1 bg-cyan-500 py-2 rounded-xl text-[10px] font-black text-black uppercase">Add</button>
-                      <button onClick={() => setAddContactOpen(false)} className="flex-1 bg-white/10 py-2 rounded-xl text-[10px] font-black text-white uppercase">Cancel</button>
+                      <button onClick={() => setAddContactOpen(false)} className="flex-1 bg-white/5 backdrop-blur-xl border border-white/10 py-2 rounded-xl text-[10px] font-black text-white uppercase">Cancel</button>
                     </div>
                   </div>
                 )}
@@ -2716,12 +2740,12 @@ export default function AJSuperPortal() {
                 <div className="space-y-5 text-left">
                   <label className="text-[10px] font-black text-pink-500 ml-1 uppercase tracking-widest">Username</label>
                   <input type="text" placeholder="@unique_name" value={username} onChange={e => setUsername(e.target.value)}
-                    className="w-full bg-black/40 border border-white/10 p-4 rounded-2xl font-bold text-white outline-none focus:border-pink-500"/>
+                    className="w-full bg-[#050505]/40 border border-white/10 p-4 rounded-2xl font-bold text-white outline-none focus:border-pink-500"/>
                   <label className="text-[10px] font-black text-pink-500 ml-1 uppercase tracking-widest">Bio</label>
                   <textarea placeholder="Tell the world about you..." value={bio} onChange={e => setBio(e.target.value)}
-                    className="w-full bg-black/40 border border-white/10 p-4 rounded-2xl text-xs text-white outline-none h-28 focus:border-pink-500"/>
+                    className="w-full bg-[#050505]/40 border border-white/10 p-4 rounded-2xl text-xs text-white outline-none h-28 focus:border-pink-500"/>
                   <button onClick={handleCreateProfile}
-                    className="w-full mt-8 py-5 bg-pink-600 rounded-[1.5rem] font-black uppercase shadow-[0_10px_30px_rgba(236,72,153,0.3)] active:scale-95 transition-all text-white border-b-4 border-pink-800 tracking-[0.2em]">
+                    className="w-full mt-8 py-5 bg-pink-600 rounded-[1.5rem] font-black uppercase shadow-[0_10px_30px_rgba(236,72,153,0.3)]  transition-all text-white border-b-4 border-pink-800 tracking-[0.2em]">
                     ACTIVATE PROFILE
                   </button>
                 </div>
@@ -2733,16 +2757,16 @@ export default function AJSuperPortal() {
 
           {/* PULSE GIFT MODAL */}
           {pulseGiftPostId && (
-            <div className="fixed inset-0 z-[1000] bg-black/70 backdrop-blur-md flex items-end">
+            <div className="fixed inset-0 z-[1000] bg-[#050505]/70 backdrop-blur-md flex items-end">
               <div className="w-full bg-[#111b21] rounded-t-[3rem] border-t-2 border-yellow-500 p-6 shadow-2xl">
                 <div className="flex justify-between items-center mb-5">
-                  <h3 className="text-lg font-black text-yellow-400 uppercase tracking-widest flex items-center gap-2"><Gift size={18}/> Send Gift</h3>
+                  <h3 className="text-lg font-black text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text uppercase tracking-widest flex items-center gap-2"><Gift size={18}/> Send Gift</h3>
                   <X className="cursor-pointer text-gray-500" onClick={() => setPulseGiftPostId(null)}/>
                 </div>
                 <div className="grid grid-cols-3 gap-3">
                   {giftItems.map(g => (
                     <button key={g.id} onClick={() => { sendGift(pulseGiftPostId, g); setPulseGiftPostId(null); }}
-                      className="bg-white/5 border border-white/10 py-3 rounded-2xl text-[9px] font-black uppercase hover:border-yellow-500 transition-all flex flex-col items-center gap-1 active:scale-95">
+                      className="bg-white/5 border border-white/10 py-3 rounded-2xl text-[9px] font-black uppercase hover:border-yellow-500 transition-all flex flex-col items-center gap-1 ">
                       <span className="text-2xl">{g.icon}</span>
                       <span className="text-white">{g.name}</span>
                       <span className="text-yellow-500 text-[8px]">{g.cost.toLocaleString()} 🪙</span>
@@ -2755,7 +2779,7 @@ export default function AJSuperPortal() {
 
           {/* COMMENT BOARD */}
           {commentPostId && !commentPostId.startsWith('gift_') && (
-            <div className="fixed inset-0 z-[1000] bg-black/70 backdrop-blur-md flex items-end">
+            <div className="fixed inset-0 z-[1000] bg-[#050505]/70 backdrop-blur-md flex items-end">
               <div className="w-full h-[65vh] bg-[#111b21] rounded-t-[3rem] border-t-2 border-pink-500 p-6 flex flex-col shadow-2xl">
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="text-lg font-black text-pink-500 uppercase tracking-widest">Comments</h3>
@@ -2774,7 +2798,7 @@ export default function AJSuperPortal() {
                 </div>
                 <div className="mt-4 pt-4 border-t border-white/10 flex gap-3">
                   <input type="text" value={newComment} onChange={e => setNewComment(e.target.value)} placeholder="Write a comment..."
-                    className="flex-1 bg-black/40 border border-white/10 rounded-xl p-4 text-xs outline-none focus:ring-1 focus:ring-pink-500 text-white font-bold"/>
+                    className="flex-1 bg-[#050505]/40 border border-white/10 rounded-xl p-4 text-xs outline-none focus:ring-1 focus:ring-pink-500 text-white font-bold"/>
                   <button onClick={submitComment} className="bg-pink-600 p-4 rounded-xl active:scale-90 transition-all text-white"><Send size={18}/></button>
                 </div>
               </div>
@@ -2789,19 +2813,19 @@ export default function AJSuperPortal() {
           Fix #2: Copy & Share uses navigator.share (native app list)
           ============================================================ */}
       {liveActive && (
-        <div className="fixed inset-0 z-[600] bg-black flex flex-col">
+        <div className="fixed inset-0 z-[600] bg-[#050505] flex flex-col">
 
           {/* PK ACTIVE — Split Screen */}
           {pkActive ? (
             <div className="flex-1 flex flex-col">
-              <div className="bg-black/90 p-3 flex items-center justify-between border-b border-yellow-500/30">
+              <div className="bg-[#050505]/90 p-3 flex items-center justify-between border-b border-yellow-500/30">
                 <div className="flex items-center gap-2">
-                  <Swords size={18} className="text-yellow-400"/>
-                  <span className="font-black text-xs text-yellow-400 uppercase tracking-widest">PK BATTLE</span>
+                  <Swords size={18} className="text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text"/>
+                  <span className="font-black text-xs text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text uppercase tracking-widest">PK BATTLE</span>
                 </div>
                 <div className="flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/30 px-3 py-1 rounded-full">
-                  <Clock size={14} className="text-yellow-400"/>
-                  <span className="font-black text-sm text-yellow-400 tabular-nums">{formatPkTime(pkTimer)}</span>
+                  <Clock size={14} className="text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text"/>
+                  <span className="font-black text-sm text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text tabular-nums">{formatPkTime(pkTimer)}</span>
                 </div>
                 <div className="text-[10px] font-black text-white">
                   <span className="text-cyan-400">{pkScore.me}</span>
@@ -2817,11 +2841,11 @@ export default function AJSuperPortal() {
                     <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"/>
                     <span className="text-white font-black text-[9px]">YOU</span>
                   </div>
-                  <div className="absolute bottom-3 left-3 bg-black/50 px-2 py-1 rounded-lg">
+                  <div className="absolute bottom-3 left-3 bg-[#050505]/50 px-2 py-1 rounded-lg">
                     <span className="text-cyan-400 font-black text-[10px]">🪙 {pkScore.me}</span>
                   </div>
                 </div>
-                <div className="flex-1 relative bg-gray-900">
+                <div className="flex-1 relative bg-[#050505] backdrop-blur-xl border border-white/10">
                   <div className="w-full h-full flex items-center justify-center flex-col gap-3">
                     <img src={pkRivalData?.photo||'/logo.png'} className="w-20 h-20 rounded-full border-4 border-pink-500"/>
                     <p className="font-black text-white text-sm uppercase">@{pkRivalData?.username||'Rival'}</p>
@@ -2831,24 +2855,24 @@ export default function AJSuperPortal() {
                   <div className="absolute top-3 right-3 bg-pink-600 px-3 py-1 rounded-full">
                     <span className="text-white font-black text-[9px]">RIVAL</span>
                   </div>
-                  <div className="absolute bottom-3 right-3 bg-black/50 px-2 py-1 rounded-lg">
+                  <div className="absolute bottom-3 right-3 bg-[#050505]/50 px-2 py-1 rounded-lg">
                     <span className="text-pink-400 font-black text-[10px]">🪙 {pkScore.rival}</span>
                   </div>
                 </div>
               </div>
 
-              <div className="absolute left-3 bottom-[200px] w-[45%] max-h-32 overflow-y-auto bg-black/30 backdrop-blur-sm rounded-2xl p-2 border border-white/10 pointer-events-none">
+              <div className="absolute left-3 bottom-[200px] w-[45%] max-h-32 overflow-y-auto bg-[#050505]/30 backdrop-blur-sm rounded-2xl p-2 border border-white/10 pointer-events-none">
                 {chatMessages.slice(-6).map((m:any, i:number) => (
                   <p key={i} className="text-[9px] text-white font-bold mb-0.5 leading-tight">
-                    <span className="text-yellow-400">@{m.username}: </span>{m.text}
+                    <span className="text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text">@{m.username}: </span>{m.text}
                   </p>
                 ))}
               </div>
 
               {pkWinner && (
-                <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-50 flex-col gap-6">
+                <div className="absolute inset-0 bg-[#050505]/80 flex items-center justify-center z-50 flex-col gap-6">
                   <div className="text-8xl animate-bounce">🏆</div>
-                  <h2 className="text-3xl font-black text-yellow-400 uppercase tracking-widest">
+                  <h2 className="text-3xl font-black text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text uppercase tracking-widest">
                     {pkWinner === (username||'You') ? '🎉 YOU WIN!' : `@${pkWinner} Wins!`}
                   </h2>
                   <button onClick={() => { setPkWinner(null); setPkActive(false); setPkTimer(PK_DURATION); setPkScore({me:0,rival:0}); }}
@@ -2858,10 +2882,10 @@ export default function AJSuperPortal() {
             </div>
           ) : (
             /* Fix #1: NORMAL LIVE VIEW — proper stacked layout, no overlap */
-            <div className="relative flex-1 bg-black">
+            <div className="relative flex-1 bg-[#050505]">
               <video ref={liveVideoRef} autoPlay playsInline muted className="w-full h-full object-cover"/>
               {!cameraReady && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black flex-col gap-4">
+                <div className="absolute inset-0 flex items-center justify-center bg-[#050505] flex-col gap-4">
                   <Radio size={60} className="text-red-500 animate-pulse"/>
                   <p className="text-white font-black uppercase tracking-widest">Opening Camera...</p>
                   <p className="text-gray-400 text-xs">Please allow camera access</p>
@@ -2877,7 +2901,7 @@ export default function AJSuperPortal() {
               {/* Fix #1: Share Room ID + END LIVE stacked vertically — no overlap */}
               <div className="absolute top-5 right-4 z-20 flex flex-col items-end gap-3">
                 {/* Share Room ID box */}
-                <div className="bg-black/85 border border-cyan-500/50 rounded-2xl px-3 py-2.5 backdrop-blur-md shadow-xl w-44">
+                <div className="bg-[#050505]/85 border border-cyan-500/50 rounded-2xl px-3 py-2.5 backdrop-blur-md shadow-xl w-44">
                   <p className="text-[8px] text-cyan-400 font-black uppercase tracking-widest mb-1">Share Room ID</p>
                   <p className="text-white font-black text-[11px] font-mono tracking-wider truncate">{liveRoomId.slice(-14)}</p>
                   {/* Fix #2: Use navigator.share for native app sheet */}
@@ -2898,28 +2922,28 @@ export default function AJSuperPortal() {
                         alert('Room ID copied! Share it so viewers can join.');
                       }
                     }}
-                    className="mt-1.5 w-full bg-cyan-600 text-black text-[8px] font-black uppercase rounded-lg py-1 tracking-widest active:scale-95 transition-all flex items-center justify-center gap-1">
+                    className="mt-1.5 w-full bg-cyan-600 text-black text-[8px] font-black uppercase rounded-lg py-1 tracking-widest  transition-all flex items-center justify-center gap-1">
                     <Share2 size={9}/> Copy & Share
                   </button>
                 </div>
                 {/* END LIVE button — below the Share box, no overlap */}
                 <button
                   onClick={stopLive}
-                  className="bg-red-600 px-5 py-2.5 rounded-full font-black text-white text-xs uppercase shadow-xl active:scale-95 transition-all w-44 text-center">
+                  className="bg-red-600 px-5 py-2.5 rounded-full font-black text-white text-xs uppercase shadow-xl  transition-all w-44 text-center">
                   ⏹ END LIVE
                 </button>
               </div>
 
               {/* PK Button — left side, unchanged */}
               <button onClick={() => setPkChallengeOpen(true)}
-                className="absolute top-20 left-6 bg-yellow-500 px-4 py-2 rounded-full font-black text-black text-xs uppercase shadow-xl active:scale-95 flex items-center gap-2">
+                className="absolute top-20 left-6 bg-yellow-500 px-4 py-2 rounded-full font-black text-black text-xs uppercase shadow-xl  flex items-center gap-2">
                 <Swords size={14}/> PK
               </button>
 
-              <div className="absolute left-3 bottom-48 w-[55%] max-h-36 overflow-y-auto bg-black/30 backdrop-blur-sm rounded-2xl p-3 border border-white/10 pointer-events-none">
+              <div className="absolute left-3 bottom-48 w-[55%] max-h-36 overflow-y-auto bg-[#050505]/30 backdrop-blur-sm rounded-2xl p-3 border border-white/10 pointer-events-none">
                 {chatMessages.slice(-8).map((m:any, i:number) => (
                   <p key={i} className="text-[9px] text-white font-bold mb-1 leading-tight">
-                    <span className="text-yellow-400">@{m.username}: </span>{m.text}
+                    <span className="text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text">@{m.username}: </span>{m.text}
                   </p>
                 ))}
               </div>
@@ -2934,8 +2958,8 @@ export default function AJSuperPortal() {
 
           {/* LIVE CHAT OVERLAY */}
           {liveChatOpen && liveActive && (
-            <div className="absolute bottom-[80px] left-3 w-72 h-64 z-30 flex flex-col bg-black/60 backdrop-blur-md rounded-3xl border border-cyan-500/30 overflow-hidden shadow-2xl">
-              <div className="flex items-center justify-between px-4 py-2 border-b border-white/10 bg-black/40">
+            <div className="absolute bottom-[80px] left-3 w-72 h-64 z-30 flex flex-col bg-[#050505]/60 backdrop-blur-md rounded-3xl border border-cyan-500/30 overflow-hidden shadow-2xl">
+              <div className="flex items-center justify-between px-4 py-2 border-b border-white/10 bg-[#050505]/40">
                 <p className="text-[10px] font-black text-cyan-400 uppercase tracking-widest flex items-center gap-1">
                   <MessageCircle size={12}/> Live Chat
                 </p>
@@ -2946,20 +2970,20 @@ export default function AJSuperPortal() {
                   ? <p className="text-[9px] text-gray-500 text-center mt-4 italic">No messages yet...</p>
                   : liveChatMessages.map((m:any) => (
                     <p key={m.id} className="text-[9px] text-white font-bold leading-tight">
-                      <span className="text-yellow-400">@{m.username}: </span>{m.text}
+                      <span className="text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text">@{m.username}: </span>{m.text}
                     </p>
                   ))
                 }
                 <div ref={liveChatEndRef}/>
               </div>
-              <div className="flex gap-2 p-2 border-t border-white/10 bg-black/40">
+              <div className="flex gap-2 p-2 border-t border-white/10 bg-[#050505]/40">
                 <input
                   type="text"
                   value={liveChatInput}
                   onChange={e => setLiveChatInput(e.target.value)}
                   onKeyDown={e => e.key==='Enter' && sendLiveChatMessage()}
                   placeholder="Say something..."
-                  className="flex-1 bg-white/10 border border-white/10 rounded-full px-3 py-1.5 text-[10px] text-white outline-none focus:ring-1 focus:ring-cyan-500 font-bold"
+                  className="flex-1 bg-white/5 backdrop-blur-xl border border-white/10 border border-white/10 rounded-full px-3 py-1.5 text-[10px] text-white outline-none focus:ring-1 focus:ring-cyan-500 font-bold"
                 />
                 <button onClick={sendLiveChatMessage} className="bg-cyan-500 p-1.5 rounded-full text-black active:scale-90 transition-all">
                   <Send size={12}/>
@@ -2970,11 +2994,11 @@ export default function AJSuperPortal() {
 
           {/* PK CHALLENGE MODAL */}
           {pkChallengeOpen && (
-            <div className="absolute inset-0 z-[800] bg-black/80 flex items-center justify-center p-6">
+            <div className="absolute inset-0 z-[800] bg-[#050505]/80 flex items-center justify-center p-6">
               <div className="bg-[#0d1117] border-2 border-yellow-500/40 rounded-[2.5rem] p-8 w-full max-w-sm shadow-2xl">
                 <div className="flex items-center gap-3 mb-6">
-                  <Swords size={28} className="text-yellow-400"/>
-                  <h3 className="font-black text-xl text-yellow-400 uppercase tracking-widest">PK Challenge</h3>
+                  <Swords size={28} className="text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text"/>
+                  <h3 className="font-black text-xl text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text uppercase tracking-widest">PK Challenge</h3>
                 </div>
                 <p className="text-[10px] text-gray-400 mb-4 font-bold">
                   ⚠️ {PK_ENTRY_COINS} AJ Coins will be deducted from BOTH participants. 5-minute battle!
@@ -2982,15 +3006,15 @@ export default function AJSuperPortal() {
                 <div className="space-y-3">
                   <label className="text-[9px] font-black text-yellow-500 uppercase tracking-widest">Rival's User ID</label>
                   <input type="text" value={pkTargetId} onChange={e => setPkTargetId(e.target.value)}
-                    placeholder="Paste rival user ID..." className="w-full bg-black/40 border border-white/10 p-4 rounded-xl text-xs text-white outline-none focus:border-yellow-500 font-bold"/>
+                    placeholder="Paste rival user ID..." className="w-full bg-[#050505]/40 border border-white/10 p-4 rounded-xl text-xs text-white outline-none focus:border-yellow-500 font-bold"/>
                 </div>
                 <div className="flex gap-3 mt-6">
                   <button onClick={sendPkChallenge}
-                    className="flex-1 bg-yellow-500 py-3 rounded-xl font-black uppercase text-black active:scale-95 transition-all flex items-center justify-center gap-2">
+                    className="flex-1 bg-yellow-500 py-3 rounded-xl font-black uppercase text-black  transition-all flex items-center justify-center gap-2">
                     <Swords size={16}/> Challenge!
                   </button>
                   <button onClick={() => setPkChallengeOpen(false)}
-                    className="flex-1 bg-white/10 py-3 rounded-xl font-black uppercase text-white active:scale-95 transition-all">Cancel</button>
+                    className="flex-1 bg-white/5 backdrop-blur-xl border border-white/10 py-3 rounded-xl font-black uppercase text-white  transition-all">Cancel</button>
                 </div>
               </div>
             </div>
@@ -2998,16 +3022,16 @@ export default function AJSuperPortal() {
 
           {/* GIFT PANEL */}
           <div className="bg-[#0d1117] border-t border-white/10 p-4 shrink-0">
-            <p className="text-[10px] text-yellow-400 font-black uppercase tracking-widest mb-3 flex items-center gap-2">
+            <p className="text-[10px] text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text font-black uppercase tracking-widest mb-3 flex items-center gap-2">
               <Gift size={14}/> Send Gifts to Creator 🎁
             </p>
             <div className="flex gap-3 overflow-x-auto pb-2">
               {giftItems.map(g => (
                 <button key={g.id} onClick={() => sendGift(user!.uid, g)}
-                  className="flex-shrink-0 bg-white/5 border border-white/10 px-4 py-3 rounded-2xl text-center hover:border-yellow-500 transition-all active:scale-95">
+                  className="flex-shrink-0 bg-white/5 border border-white/10 px-4 py-3 rounded-2xl text-center hover:border-yellow-500 transition-all ">
                   <div className="text-2xl mb-1">{g.icon}</div>
                   <p className="text-[9px] font-black uppercase text-white">{g.name}</p>
-                  <p className="text-[8px] text-yellow-400">{g.cost.toLocaleString()} 🪙</p>
+                  <p className="text-[8px] text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text">{g.cost.toLocaleString()} 🪙</p>
                 </button>
               ))}
             </div>
@@ -3017,7 +3041,7 @@ export default function AJSuperPortal() {
 
       {/* WALLET */}
       {screen==='wallet' && (
-        <div className="fixed inset-0 z-[300] bg-black/98 flex flex-col items-center p-8 overflow-y-auto">
+        <div className="fixed inset-0 z-[300] bg-[#050505]/98 flex flex-col items-center p-8 overflow-y-auto">
           <button onClick={() => { setScreen('hub'); setWalletTab('main'); }}
             className="self-start text-cyan-400 mb-8 font-bold uppercase tracking-widest flex items-center gap-2">
             <ArrowLeft size={18}/> BACK
@@ -3031,7 +3055,7 @@ export default function AJSuperPortal() {
 
             <div className="bg-white/5 p-4 rounded-2xl border border-white/10 mb-6 text-left">
               <p className="text-[9px] text-gray-400 uppercase font-black tracking-widest mb-1">Your Referral Code (User ID)</p>
-              <div className="flex justify-between items-center bg-black/40 px-3 py-2 rounded-xl">
+              <div className="flex justify-between items-center bg-[#050505]/40 px-3 py-2 rounded-xl">
                 <span className="text-xs font-mono text-cyan-400 truncate max-w-[200px]">{user?.uid}</span>
                 <button onClick={() => copyToClipboard(user?.uid||"")} className="text-cyan-400 text-[10px] font-black uppercase">
                   {copied?"Copied ✓":"Copy"}
@@ -3049,10 +3073,10 @@ export default function AJSuperPortal() {
 
             {walletTab==='main' && (
               <div className="flex flex-col gap-4">
-                <button onClick={() => setWalletTab('purchase')} className="bg-white text-black py-4 rounded-[1.5rem] font-black uppercase shadow-lg hover:scale-105 transition-all">Purchase</button>
-                <button onClick={() => setWalletTab('transfer')} className="bg-white/10 text-cyan-400 py-4 rounded-[1.5rem] font-black border border-cyan-500/30 uppercase hover:bg-white/5 transition-all">Transfer</button>
-                <button onClick={() => setWalletTab('withdraw')} className="bg-white/10 text-pink-500 py-4 rounded-[1.5rem] font-black border border-pink-500/30 uppercase hover:bg-white/5 transition-all">Withdraw</button>
-                <button onClick={() => setWalletTab('referral')} className="bg-white/10 text-yellow-500 py-4 rounded-[1.5rem] font-black border border-yellow-500/30 uppercase hover:bg-white/5 transition-all">Enter Referral Code</button>
+                <button onClick={() => setWalletTab('purchase')} className="bg-white text-black py-4 rounded-[1.5rem] font-black uppercase shadow-lg hover:scale-105 active:scale-95 transition-all duration-200   transition-all">Purchase</button>
+                <button onClick={() => setWalletTab('transfer')} className="bg-white/5 backdrop-blur-xl border border-white/10 text-cyan-400 py-4 rounded-[1.5rem] font-black border border-cyan-500/30 uppercase hover:bg-white/5 transition-all">Transfer</button>
+                <button onClick={() => setWalletTab('withdraw')} className="bg-white/5 backdrop-blur-xl border border-white/10 text-pink-500 py-4 rounded-[1.5rem] font-black border border-pink-500/30 uppercase hover:bg-white/5 transition-all">Withdraw</button>
+                <button onClick={() => setWalletTab('referral')} className="bg-white/5 backdrop-blur-xl border border-white/10 text-yellow-500 py-4 rounded-[1.5rem] font-black border border-yellow-500/30 uppercase hover:bg-white/5 transition-all">Enter Referral Code</button>
               </div>
             )}
 
@@ -3074,7 +3098,7 @@ export default function AJSuperPortal() {
                   </div>
                 </div>
                 {/* Amount box — always visible */}
-                <div className="bg-black border-2 border-white/10 p-6 rounded-[2rem] text-center shadow-inner">
+                <div className="bg-[#050505] border-2 border-white/10 p-6 rounded-[2rem] text-center shadow-inner">
                   <p className="text-[10px] text-gray-500 uppercase font-black mb-3 tracking-[0.3em]">You will receive</p>
                   <p className="text-yellow-500 text-5xl font-black mb-5">{(purchaseAmount*COIN_RATE).toLocaleString()} 🪙</p>
                   <div className="flex items-center justify-center gap-3 bg-white/5 p-4 rounded-2xl border border-white/10">
@@ -3095,7 +3119,7 @@ export default function AJSuperPortal() {
                     <p className="text-[9px] text-gray-400 font-bold mt-0.5">Coins credited automatically after payment confirmation</p>
                   </div>
                 </div>
-                <button onClick={handlePurchase} className="bg-cyan-500 py-5 rounded-2xl font-black uppercase shadow-xl hover:scale-[1.02] active:scale-95 transition-all text-black tracking-widest">
+                <button onClick={handlePurchase} className="bg-cyan-500 py-5 rounded-2xl font-black uppercase shadow-xl hover:scale-[1.02]  transition-all text-black tracking-widest">
                   Proceed to Payment →
                 </button>
                 <button onClick={() => setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase font-black">Cancel</button>
@@ -3109,16 +3133,16 @@ export default function AJSuperPortal() {
                   <div>
                     <label className="text-[9px] font-black text-cyan-400 uppercase tracking-widest block mb-1">Recipient User ID</label>
                     <input type="text" placeholder="Paste target user ID" value={transferId} onChange={e => setTransferId(e.target.value)}
-                      className="w-full bg-black border border-white/10 p-4 rounded-xl text-xs font-bold text-white outline-none focus:border-cyan-500"/>
+                      className="w-full bg-[#050505] border border-white/10 p-4 rounded-xl text-xs font-bold text-white outline-none focus:border-cyan-500"/>
                   </div>
                   <div>
                     <label className="text-[9px] font-black text-cyan-400 uppercase tracking-widest block mb-1">Coins to Transfer</label>
                     <input type="number" placeholder="Amount" value={transferAmount||''}
                       onChange={e => setTransferAmount(Number(e.target.value))}
-                      className="w-full bg-black border border-white/10 p-4 rounded-xl text-xs font-bold text-white outline-none focus:border-cyan-500"/>
+                      className="w-full bg-[#050505] border border-white/10 p-4 rounded-xl text-xs font-bold text-white outline-none focus:border-cyan-500"/>
                   </div>
                 </div>
-                <button onClick={handleTransfer} className="bg-cyan-500 py-4 rounded-2xl font-black uppercase tracking-wider text-black active:scale-95 transition-all">
+                <button onClick={handleTransfer} className="bg-cyan-500 py-4 rounded-2xl font-black uppercase tracking-wider text-black  transition-all">
                   Submit Transfer
                 </button>
                 <button onClick={() => setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase font-black">Cancel</button>
@@ -3142,7 +3166,7 @@ export default function AJSuperPortal() {
                         setPayoutId(''); setCardHolder(''); setCardNumber('');
                         setCardExpiry(''); setCardCVV(''); setCardBank(''); setCardCountry('');
                       }}
-                      className="w-full bg-gray-900 border border-white/10 p-4 rounded-xl text-white font-bold outline-none">
+                      className="w-full bg-[#050505] backdrop-blur-xl border border-white/10 border border-white/10 p-4 rounded-xl text-white font-bold outline-none">
                       {WITHDRAW_METHODS.map(m => <option key={m.label}>{m.label}</option>)}
                     </select>
                   </div>
@@ -3152,7 +3176,7 @@ export default function AJSuperPortal() {
                       <label className="text-[9px] font-black text-pink-500 uppercase tracking-widest block mb-1">{currentWithdrawMethod.field}</label>
                       <input type="text" placeholder={currentWithdrawMethod.placeholder} value={payoutId}
                         onChange={e => setPayoutId(e.target.value)}
-                        className="w-full bg-black border border-white/10 p-4 rounded-xl text-xs font-bold text-white outline-none focus:border-pink-500"/>
+                        className="w-full bg-[#050505] border border-white/10 p-4 rounded-xl text-xs font-bold text-white outline-none focus:border-pink-500"/>
                     </div>
                   )}
 
@@ -3166,7 +3190,7 @@ export default function AJSuperPortal() {
                         <label className="text-[9px] font-black text-pink-500 uppercase tracking-widest block mb-1">Cardholder Name</label>
                         <input type="text" placeholder="JOHN DOE" value={cardHolder}
                           onChange={e => setCardHolder(e.target.value.toUpperCase())}
-                          className="w-full bg-black border border-white/10 p-3 rounded-xl text-xs font-black text-white outline-none focus:border-pink-500 tracking-widest uppercase"/>
+                          className="w-full bg-[#050505] border border-white/10 p-3 rounded-xl text-xs font-black text-white outline-none focus:border-pink-500 tracking-widest uppercase"/>
                       </div>
                       <div>
                         <label className="text-[9px] font-black text-pink-500 uppercase tracking-widest block mb-1">Card Number</label>
@@ -3177,7 +3201,7 @@ export default function AJSuperPortal() {
                             const fmt = raw.match(/.{1,4}/g)?.join(' ') || raw;
                             setCardNumber(fmt);
                           }}
-                          className="w-full bg-black border border-white/10 p-3 rounded-xl text-sm font-black text-white outline-none focus:border-pink-500 tracking-[0.2em]"/>
+                          className="w-full bg-[#050505] border border-white/10 p-3 rounded-xl text-sm font-black text-white outline-none focus:border-pink-500 tracking-[0.2em]"/>
                       </div>
                       <div className="flex gap-3">
                         <div className="flex-1">
@@ -3189,37 +3213,37 @@ export default function AJSuperPortal() {
                               if (v.length >= 2) v = v.slice(0,2) + '/' + v.slice(2,4);
                               setCardExpiry(v);
                             }}
-                            className="w-full bg-black border border-white/10 p-3 rounded-xl text-sm font-black text-white outline-none focus:border-pink-500 tracking-widest"/>
+                            className="w-full bg-[#050505] border border-white/10 p-3 rounded-xl text-sm font-black text-white outline-none focus:border-pink-500 tracking-widest"/>
                         </div>
                         <div className="w-28">
                           <label className="text-[9px] font-black text-pink-500 uppercase tracking-widest block mb-1">CVV</label>
                           <input type="password" inputMode="numeric" placeholder="•••"
                             value={cardCVV} maxLength={4}
                             onChange={e => setCardCVV(e.target.value.replace(/\D/g,''))}
-                            className="w-full bg-black border border-white/10 p-3 rounded-xl text-sm font-black text-white outline-none focus:border-pink-500 tracking-widest"/>
+                            className="w-full bg-[#050505] border border-white/10 p-3 rounded-xl text-sm font-black text-white outline-none focus:border-pink-500 tracking-widest"/>
                         </div>
                       </div>
                       <div>
                         <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest block mb-1">Bank Name <span className="text-gray-600 normal-case">(optional)</span></label>
                         <input type="text" placeholder="e.g. Al Rajhi, HDFC, Barclays..."
                           value={cardBank} onChange={e => setCardBank(e.target.value)}
-                          className="w-full bg-black border border-white/10 p-3 rounded-xl text-xs font-bold text-white outline-none focus:border-pink-500"/>
+                          className="w-full bg-[#050505] border border-white/10 p-3 rounded-xl text-xs font-bold text-white outline-none focus:border-pink-500"/>
                       </div>
                       <div>
                         <label className="text-[9px] font-black text-pink-500 uppercase tracking-widest block mb-1">Country</label>
                         <input type="text" placeholder="e.g. Pakistan, India, UK, USA..."
                           value={cardCountry} onChange={e => setCardCountry(e.target.value)}
-                          className="w-full bg-black border border-white/10 p-3 rounded-xl text-xs font-bold text-white outline-none focus:border-pink-500"/>
+                          className="w-full bg-[#050505] border border-white/10 p-3 rounded-xl text-xs font-bold text-white outline-none focus:border-pink-500"/>
                       </div>
                     </div>
                   )}
                 </div>
                 <div className="bg-white/5 border border-white/10 p-3 rounded-xl">
                   <p className="text-[9px] text-gray-400 font-bold">
-                    Your balance: <span className="text-yellow-400 font-black">{balance.toFixed(0)} Coins</span> ≈ <span className="text-green-400 font-black">${(balance/CASH_RATE).toFixed(2)} USD</span>
+                    Your balance: <span className="text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text font-black">{balance.toFixed(0)} Coins</span> ≈ <span className="text-green-400 font-black">${(balance/CASH_RATE).toFixed(2)} USD</span>
                   </p>
                 </div>
-                <button onClick={handleWithdraw} className="bg-pink-600 py-4 rounded-2xl font-black uppercase tracking-wider text-white active:scale-95 transition-all">
+                <button onClick={handleWithdraw} className="bg-pink-600 py-4 rounded-2xl font-black uppercase tracking-wider text-white  transition-all">
                   Request Cashout
                 </button>
                 <button onClick={() => setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase font-black">Cancel</button>
@@ -3232,10 +3256,10 @@ export default function AJSuperPortal() {
                 <div className="space-y-2">
                   <label className="text-[9px] font-black text-yellow-500 uppercase tracking-widest">Referrer's User ID</label>
                   <input type="text" placeholder="Paste referrer ID" value={referralCode} onChange={e => setReferralCode(e.target.value)}
-                    className="w-full bg-black border border-white/10 p-4 rounded-xl text-xs font-bold text-white outline-none focus:border-yellow-500"/>
+                    className="w-full bg-[#050505] border border-white/10 p-4 rounded-xl text-xs font-bold text-white outline-none focus:border-yellow-500"/>
                 </div>
                 <p className="text-[9px] text-gray-500">Referrer gets +{REFERRAL_COINS} Coins when you submit their ID (30% net share).</p>
-                <button onClick={handleApplyReferral} className="bg-yellow-500 py-4 rounded-2xl font-black uppercase tracking-wider text-black active:scale-95 transition-all">
+                <button onClick={handleApplyReferral} className="bg-yellow-500 py-4 rounded-2xl font-black uppercase tracking-wider text-black  transition-all">
                   Submit Referral
                 </button>
                 <button onClick={() => setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase font-black">Cancel</button>
@@ -3247,7 +3271,7 @@ export default function AJSuperPortal() {
 
       {/* AI BOT SCREEN */}
       {screen==='ai' && (
-        <div className="fixed inset-0 z-[600] bg-black flex flex-col items-center p-8 overflow-y-auto">
+        <div className="fixed inset-0 z-[600] bg-[#050505] flex flex-col items-center p-8 overflow-y-auto">
           <div className="w-full max-w-4xl pt-10">
             <button onClick={() => setScreen('hub')} className="text-green-400 font-bold text-sm mb-12 uppercase tracking-widest">← Back</button>
           </div>
@@ -3261,7 +3285,7 @@ export default function AJSuperPortal() {
           </div>
           {botTier!=='none' && (
             <div className="w-full max-w-2xl bg-white/5 border-2 border-green-500/40 p-8 rounded-[3.5rem] text-center mb-16 shadow-[0_0_50px_rgba(34,197,94,0.15)]">
-              <div className="w-full bg-black/50 border border-green-500/30 p-8 rounded-3xl font-mono text-left shadow-inner">
+              <div className="w-full bg-[#050505]/50 border border-green-500/30 p-8 rounded-3xl font-mono text-left shadow-inner">
                 <div className="flex justify-between items-center mb-6">
                   <span className="text-green-400 font-black text-xs uppercase tracking-widest">Neural Profit:</span>
                   <span className="text-white font-black text-2xl">+{visualProfit.toFixed(4)} 🪙</span>
@@ -3283,7 +3307,7 @@ export default function AJSuperPortal() {
                 </h3>
                 <p className="text-sm text-gray-400 mt-3 font-bold">Earn {b.rate} Daily Passive Income</p>
                 <button onClick={() => activateBot(b.tier,b.cost)}
-                  className={`mt-8 w-full py-5 rounded-2xl font-black uppercase tracking-widest transition-all shadow-xl hover:scale-105 ${botTier===b.tier?`bg-${b.color}-500 text-black cursor-not-allowed`:`bg-${b.color}-600 text-white`}`}>
+                  className={`mt-8 w-full py-5 rounded-2xl font-black uppercase tracking-widest transition-all shadow-xl hover:scale-105 active:scale-95 transition-all duration-200   ${botTier===b.tier?`bg-${b.color}-500 text-black cursor-not-allowed`:`bg-${b.color}-600 text-white`}`}>
                   {botTier===b.tier?"RUNNING":"ACTIVATE"}
                 </button>
               </div>
@@ -3293,14 +3317,14 @@ export default function AJSuperPortal() {
       )}
 
       {/* FOUNDER CARD */}
-      <section className="py-20 bg-black flex justify-center px-4 border-y border-white/5">
+      <section className="py-20 bg-[#050505] flex justify-center px-4 border-y border-white/5">
         <img src="/founder_card.jpg" className="w-full max-w-4xl rounded-[3rem] shadow-[0_20px_60px_rgba(0,0,0,0.9)] hover:scale-[1.01] transition-all border border-white/5" alt="Founder"/>
       </section>
 
       {/* VIEWER SCREEN */}
       {viewerRoom && !liveActive && (
-        <div className="fixed inset-0 z-[600] bg-black flex flex-col">
-          <div className="flex items-center justify-between px-4 py-3 bg-black/80 border-b border-white/10 z-10">
+        <div className="fixed inset-0 z-[600] bg-[#050505] flex flex-col">
+          <div className="flex items-center justify-between px-4 py-3 bg-[#050505]/80 border-b border-white/10 z-10">
             <div className="flex items-center gap-3">
               <img src={viewerRoom.photo||'/logo.png'} className="w-9 h-9 rounded-full border-2 border-red-500 object-cover"/>
               <div>
@@ -3312,7 +3336,7 @@ export default function AJSuperPortal() {
               </div>
             </div>
             <button onClick={leaveViewerRoom}
-              className="bg-red-600/20 border border-red-500/30 px-3 py-1.5 rounded-full text-[10px] font-black text-red-400 uppercase tracking-widest active:scale-95 transition-all">
+              className="bg-red-600/20 border border-red-500/30 px-3 py-1.5 rounded-full text-[10px] font-black text-red-400 uppercase tracking-widest  transition-all">
               Leave
             </button>
           </div>
@@ -3328,8 +3352,8 @@ export default function AJSuperPortal() {
               {viewerChatMessages.slice(-10).map((m:any) => (
                 <div key={m.id} className="flex items-start gap-1.5">
                   <img src={m.photo||'/logo.png'} className="w-5 h-5 rounded-full border border-pink-500 flex-shrink-0 mt-0.5"/>
-                  <p className="text-[10px] text-white font-bold leading-tight bg-black/40 rounded-xl px-2 py-1">
-                    <span className="text-yellow-400">@{m.username}: </span>{m.text}
+                  <p className="text-[10px] text-white font-bold leading-tight bg-[#050505]/40 rounded-xl px-2 py-1">
+                    <span className="text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text">@{m.username}: </span>{m.text}
                   </p>
                 </div>
               ))}
@@ -3338,12 +3362,12 @@ export default function AJSuperPortal() {
 
             <div className="absolute right-4 bottom-36 flex flex-col items-center gap-1 cursor-pointer"
               onClick={() => setPulseGiftPostId(viewerRoomId)}>
-              <Gift size={32} className="text-yellow-400"/>
-              <span className="text-[9px] font-black text-yellow-400">Gift</span>
+              <Gift size={32} className="text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text"/>
+              <span className="text-[9px] font-black text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text">Gift</span>
             </div>
           </div>
 
-          <div className="flex gap-2 px-3 py-3 bg-black/90 border-t border-white/10">
+          <div className="flex gap-2 px-3 py-3 bg-[#050505]/90 border-t border-white/10">
             <img src={user?.photoURL||'/logo.png'} className="w-8 h-8 rounded-full border border-pink-500 flex-shrink-0 object-cover"/>
             <input
               type="text"
@@ -3351,7 +3375,7 @@ export default function AJSuperPortal() {
               onChange={e => setViewerChatInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && sendViewerChatMessage()}
               placeholder="Say something to the streamer..."
-              className="flex-1 bg-white/10 border border-white/10 rounded-full px-4 py-2 text-[11px] text-white outline-none focus:ring-1 focus:ring-cyan-500 font-bold"
+              className="flex-1 bg-white/5 backdrop-blur-xl border border-white/10 border border-white/10 rounded-full px-4 py-2 text-[11px] text-white outline-none focus:ring-1 focus:ring-cyan-500 font-bold"
             />
             <button onClick={sendViewerChatMessage}
               className="bg-cyan-500 p-2 rounded-full text-black active:scale-90 transition-all shadow-lg">
@@ -3362,7 +3386,7 @@ export default function AJSuperPortal() {
       )}
 
       {/* FOOTER */}
-      <footer className="bg-black py-24 px-10 border-t border-white/5 text-center flex flex-col items-center relative overflow-hidden">
+      <footer className="bg-[#050505] py-24 px-10 border-t border-white/5 text-center flex flex-col items-center relative overflow-hidden">
         <div className="absolute inset-0 opacity-10 bg-[url('/logo.png')] bg-center bg-no-repeat bg-contain pointer-events-none scale-150"/>
         <div className="text-7xl md:text-[10rem] font-black italic text-cyan-400 drop-shadow-[0_0_50px_rgba(6,182,212,0.3)] mb-12 uppercase tracking-tighter relative z-10">AJ STUDIO</div>
         <div className="flex justify-center gap-4 md:gap-8 mb-12 relative z-10 flex-wrap">
@@ -3401,5 +3425,32 @@ function Bell({ size, className }: { size:number; className?:string }) {
       <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
       <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
     </svg>
+  );
+}
+
+// ============================================================
+// APP ROOT — all wiring lives here in page.tsx
+// ============================================================
+const queryClient = new QueryClient();
+
+function AppRouter() {
+  return (
+    <Switch>
+      <Route path="/" component={AJSuperPortal} />
+      <Route component={NotFound} />
+    </Switch>
+  );
+}
+
+export default function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+          <AppRouter />
+        </WouterRouter>
+        <Toaster />
+      </TooltipProvider>
+    </QueryClientProvider>
   );
 }
