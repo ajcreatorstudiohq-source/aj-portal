@@ -1,576 +1,340 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>PULSE RACER - PRECISION HIT</title>
-    
-    <!-- AJ SDK CONNECTED (DO NOT REMOVE) -->
-    <script src="../../aj-sdk.js"></script>
-
-    <!-- Stylish but Readable Font -->
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --neon-blue: #0ff;
-            --neon-pink: #ff0055;
-            --neon-gold: #ffd700;
-            --neon-purple: #a0f;
-            --main-bg: #0f172a; 
-        }
-
-        body { 
-            margin: 0; background-color: var(--main-bg); overflow: hidden; 
-            font-family: 'Orbitron', sans-serif; touch-action: none; color: #fff;
-        }
-
-        canvas { display: block; background-color: var(--main-bg); }
-        h1, h2 { text-transform: uppercase; letter-spacing: 3px; margin: 0; }
-        .neon-text-blue { text-shadow: 0 0 10px var(--neon-blue), 0 0 20px var(--neon-blue); }
-        .neon-text-pink { text-shadow: 0 0 10px var(--neon-pink), 0 0 20px var(--neon-pink); }
-
-        /* --- FIXED GLITCH EFFECT --- */
-        .glitch {
-            position: relative;
-            display: inline-block;
-            background: transparent;
-        }
-        .glitch::before, .glitch::after {
-            content: attr(data-text);
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: transparent;
-            pointer-events: none;
-        }
-        .glitch::before {
-            left: 3px;
-            text-shadow: -3px 0 var(--neon-pink);
-            clip: rect(44px, 450px, 56px, 0);
-            animation: glitch-anim 5s infinite linear alternate-reverse;
-        }
-        .glitch::after {
-            left: -3px;
-            text-shadow: -3px 0 var(--neon-blue), 3px 3px var(--neon-pink);
-            animation: glitch-anim2 1s infinite linear alternate-reverse;
-            clip: rect(10px, 450px, 30px, 0);
-        }
-        @keyframes glitch-anim {
-            0% { clip: rect(31px, 9999px, 94px, 0); }
-            20% { clip: rect(62px, 9999px, 42px, 0); }
-            40% { clip: rect(166px, 9999px, 78px, 0); }
-            60% { clip: rect(87px, 9999px, 11px, 0); }
-            80% { clip: rect(24px, 9999px, 63px, 0); }
-            100% { clip: rect(54px, 9999px, 21px, 0); }
-        }
-        @keyframes glitch-anim2 {
-            0% { clip: rect(65px, 9999px, 100px, 0); }
-            20% { clip: rect(12px, 9999px, 56px, 0); }
-            40% { clip: rect(78px, 9999px, 12px, 0); }
-            60% { clip: rect(5px, 9999px, 89px, 0); }
-            80% { clip: rect(43px, 9999px, 22px, 0); }
-            100% { clip: rect(91px, 9999px, 4px, 0); }
-        }
-
-        .game-logo {
-            width: 100%; max-width: 260px; height: auto; margin-bottom: 15px;
-            border-radius: 15px; box-shadow: 0 0 20px var(--neon-blue); border: 2px solid var(--neon-blue);
-        }
-
-        #gameHud {
-            position: absolute; top: 15px; width: 100%; pointer-events: none;
-            display: flex; justify-content: space-between; padding: 0 15px; box-sizing: border-box;
-            font-size: 10px; z-index: 10;
-        }
-        .hud-item { display: flex; flex-direction: column; align-items: center; }
-        .hud-val { font-size: 16px; font-weight: 900; }
-        
-        #comboText {
-            position: absolute; top: 80px; width: 100%; text-align: center;
-            color: #fff200; font-size: 28px; font-weight: 900; pointer-events: none;
-            text-shadow: 0 0 15px #fff200; display: none; z-index: 15;
-            animation: comboPop 0.4s ease-out;
-        }
-        @keyframes comboPop { 0% { transform: scale(0.5); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
-
-        .btn {
-            padding: 12px 30px; font-size: 14px; font-family: 'Orbitron', sans-serif;
-            background: rgba(0, 255, 255, 0.1); border: 2px solid var(--neon-blue);
-            color: var(--neon-blue); cursor: pointer; font-weight: 700;
-            text-transform: uppercase; border-radius: 8px; margin-top: 10px;
-            transition: 0.3s; box-shadow: 0 0 15px rgba(0, 255, 255, 0.3);
-        }
-        .btn:active { transform: scale(0.95); background: var(--neon-blue); color: #000; }
-
-        .overlay {
-            position: absolute; inset: 0; display: flex; flex-direction: column;
-            align-items: center; justify-content: center; z-index: 100;
-            background: var(--main-bg); backdrop-filter: blur(10px); text-align: center;
-        }
-
-        .glass-container {
-            background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 20px; padding: 25px 20px; width: 85%; max-width: 380px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-        }
-
-        .settings-panel {
-            margin-top: 15px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 12px;
-            border: 1px solid rgba(0, 255, 255, 0.2); width: 90%; margin-left: auto; margin-right: auto;
-        }
-        .settings-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; font-size: 12px; color: var(--neon-blue); }
-        
-        input[type=range] {
-            -webkit-appearance: none; width: 60%; background: transparent;
-        }
-        input[type=range]::-webkit-slider-runnable-track {
-            width: 100%; height: 6px; cursor: pointer; background: rgba(0, 255, 255, 0.2); border-radius: 5px;
-        }
-        input[type=range]::-webkit-slider-thumb {
-            height: 16px; width: 16px; border-radius: 50%; background: var(--neon-blue);
-            cursor: pointer; -webkit-appearance: none; margin-top: -5px; box-shadow: 0 0 10px var(--neon-blue);
-        }
-
-        #splashScreen { background-color: var(--main-bg); z-index: 200; }
-        .splash-title { font-size: 38px; font-weight: 900; color: var(--neon-blue); text-shadow: 0 0 20px var(--neon-blue); }
-        .splash-credit { position: absolute; bottom: 30px; left: 30px; font-size: 12px; color: var(--neon-gold); text-shadow: 0 0 10px var(--neon-gold); font-weight: bold; font-style: italic; letter-spacing: 2px; }
-        
-        .progress-track { width: 200px; height: 6px; background: rgba(255,255,255,0.1); border-radius: 10px; margin-top: 30px; overflow: hidden; }
-        .progress-fill { width: 0%; height: 100%; background: var(--neon-blue); box-shadow: 0 0 15px var(--neon-blue); }
-
-        .tap-btn { display: none; color: var(--neon-gold); border-color: var(--neon-gold); text-shadow: 0 0 10px var(--neon-gold); animation: blink 1.5s infinite; }
-        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-
-        .shop-container { width: 100%; height: 200px; overflow-y: scroll; margin-top: 15px; }
-        .shop-container::-webkit-scrollbar { width: 4px; }
-        .shop-container::-webkit-scrollbar-thumb { background: var(--neon-blue); border-radius: 10px; }
-        .shop-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; width: 100%; }
-        .shop-item { background: rgba(255,255,255,0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 12px 5px; cursor: pointer; display: flex; flex-direction: column; align-items: center; }
-        .shop-item.active { border-color: var(--neon-blue); background: rgba(0, 255, 255, 0.1); }
-
-        #pauseBtn { position: absolute; top: 85px; right: 20px; width: 45px; height: 45px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--neon-blue); border-radius: 10px; color: var(--neon-blue); font-size: 18px; cursor: pointer; z-index: 150; display: none; align-items: center; justify-content: center; }
-        
-        /* Help Section styles */
-        .help-row { display: flex; align-items: center; margin-bottom: 15px; text-align: left; gap: 15px; }
-        .help-text b { display: block; font-size: 14px; }
-        .help-text span { font-size: 10px; color: #aaa; }
-        .help-ring-gold { width: 40px; height: 40px; border: 3px solid var(--neon-gold); border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 10px var(--neon-gold); }
-        .inner-shield { width: 20px; height: 20px; background: var(--neon-gold); clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%); }
-        .help-ring-purple { width: 40px; height: 40px; border: 3px solid var(--neon-purple); border-radius: 50%; box-shadow: 0 0 10px var(--neon-purple); }
-        .help-ring-ghost { width: 40px; height: 40px; border: 3px dashed var(--neon-blue); border-radius: 50%; display: flex; align-items: center; justify-content: center; }
-        .inner-ghost { width: 22px; height: 22px; background: rgba(0, 255, 255, 0.3); border-radius: 50%; }
-
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pulse Racer - AJ Super Arcade</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+    body {
+      background-color: #050505;
+      color: #fff;
+      font-family: 'Courier New', Courier, monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+    #game-container {
+      position: relative;
+      width: 100%;
+      max-width: 480px;
+      height: 100vh;
+      max-height: 800px;
+      background: linear-gradient(180deg, #0b001a 0%, #03000a 100%);
+      border: 2px solid #ff007f;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 0 30px rgba(255, 0, 127, 0.3);
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      padding: 15px;
+      text-align: center;
+      border-bottom: 1px solid rgba(255, 0, 127, 0.2);
+      background: rgba(255, 0, 127, 0.05);
+    }
+    h1 {
+      font-size: 20px;
+      text-transform: uppercase;
+      letter-spacing: 4px;
+      color: #ff007f;
+      text-shadow: 0 0 10px #ff007f;
+    }
+    #canvas-container {
+      flex: 1;
+      position: relative;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+    #ui-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(5, 5, 5, 0.85);
+      z-index: 10;
+    }
+    .hidden {
+      display: none !important;
+    }
+    button {
+      background: linear-gradient(135deg, #ff007f 0%, #7000ff 100%);
+      color: #fff;
+      border: none;
+      padding: 12px 35px;
+      font-size: 14px;
+      font-weight: bold;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      border-radius: 30px;
+      cursor: pointer;
+      box-shadow: 0 0 15px rgba(255, 0, 127, 0.5);
+      margin-top: 20px;
+    }
+    button:active {
+      transform: scale(0.95);
+    }
+    #score-board {
+      font-size: 14px;
+      color: #00f0ff;
+      text-shadow: 0 0 8px #00f0ff;
+      margin-top: 10px;
+    }
+    #instructions {
+      font-size: 11px;
+      color: #888;
+      margin-top: 15px;
+      text-align: center;
+      padding: 0 20px;
+      line-height: 1.5;
+    }
+    #mobile-controls {
+      display: flex;
+      justify-content: space-around;
+      padding: 15px;
+      background: rgba(0, 0, 0, 0.5);
+      border-top: 1px solid rgba(0, 240, 255, 0.2);
+    }
+    .control-btn {
+      width: 80px;
+      height: 60px;
+      border-radius: 12px;
+      background: rgba(255, 0, 127, 0.1);
+      border: 1px solid #ff007f;
+      color: #ff007f;
+      font-size: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    .control-btn:active {
+      background: #ff007f;
+      color: #000;
+    }
+  </style>
 </head>
-<body onload="startLoading()">
+<body>
 
-    <!-- Splash Screen -->
-    <div id="splashScreen" class="overlay">
-        <h1 class="splash-title glitch" data-text="PULSE RACER">PULSE RACER</h1>
-        <p id="loadingText" style="color:#aaa; font-size:12px; margin-top:10px;">LOADING ENGINE...</p>
-        <div id="pBarTrack" class="progress-track"><div id="progressFill" class="progress-fill"></div></div>
-        <button id="tapToContinue" class="btn tap-btn" onclick="startEverything()">TAP TO CONTINUE</button>
-        <div class="splash-credit">BY AJ CREATOR</div>
+  <div id="game-container">
+    <header>
+      <h1>PULSE RACER</h1>
+      <div id="score-board">DISTANCE: <span id="current-score">0</span>m</div>
+    </header>
+
+    <div id="canvas-container">
+      <canvas id="gameCanvas"></canvas>
+
+      <div id="ui-overlay">
+        <h2 id="menu-title" style="color: #00f0ff; text-shadow: 0 0 10px #00f0ff; text-transform: uppercase; letter-spacing: 2px;">Ignition</h2>
+        <p id="menu-desc" style="font-size: 12px; margin-top: 10px; color: #aaa;">Speed down the pulsing cyber-highway!</p>
+        <button id="action-btn">Race Now</button>
+        <p id="instructions">Use [A]/[D] or Left/Right arrows, or the on-screen buttons to dodge incoming red roadblocks.</p>
+      </div>
     </div>
 
-    <!-- Main Menu -->
-    <div id="mainMenu" class="overlay" style="display:none">
-        <div class="glass-container">
-            <img src="logo.png" alt="Logo" class="game-logo" onerror="this.style.display='none'">
-            <h1 class="neon-text-blue glitch" data-text="PULSE RACER">PULSE RACER</h1>
-            <div style="margin: 10px 0;">
-                <p style="font-size:12px; color:#aaa;">BEST SCORE: <span id="menuBestScore" style="color:#fff;">0</span></p>
-                <p style="font-size:12px; color:#aaa;">TOTAL RINGS: <span id="menuTotalRings" style="color:var(--neon-pink);">0</span> | AJ: <span id="menuAJCoins" style="color:var(--neon-gold);">0.000</span></p>
-            </div>
-
-            <div class="settings-panel">
-                <div class="settings-row">
-                    <span>MUSIC</span>
-                    <input type="range" id="bgVolMain" min="0" max="1" step="0.1" value="0.5" oninput="syncVolume('music', this.value)">
-                </div>
-                <div class="settings-row">
-                    <span>SFX</span>
-                    <input type="range" id="sfxVolMain" min="0" max="1" step="0.1" value="0.7" oninput="syncVolume('sfx', this.value)">
-                </div>
-            </div>
-
-            <button class="btn" onclick="initGame()" style="width:100%">START GAME</button>
-            <button class="btn" style="width:100%; border-color:#fff; color:#fff; background:transparent;" onclick="openShop()">SHOP</button>
-            <button class="btn" style="width:100%; border-color:var(--neon-gold); color:var(--neon-gold); background:transparent;" onclick="openHelp()">HOW TO PLAY</button>
-        </div>
+    <div id="mobile-controls">
+      <div class="control-btn" id="left-btn">◀</div>
+      <div class="control-btn" id="right-btn">▶</div>
     </div>
+  </div>
 
-    <!-- Help Menu -->
-    <div id="helpMenu" class="overlay" style="display:none">
-        <div class="glass-container">
-            <h2 style="color:var(--neon-gold); margin-bottom:25px;">HOW TO PLAY</h2>
-            <div class="help-row">
-                <div class="help-ring-gold"><div class="inner-shield"></div></div>
-                <div class="help-text"><b>GOLD RING</b><span>SHIELD: Protects you from 1 crash.</span></div>
-            </div>
-            <div class="help-row">
-                <div class="help-ring-purple"></div>
-                <div class="help-text"><b>PURPLE RING</b><span>CURRENCY: Collect to buy new ships.</span></div>
-            </div>
-            <div class="help-row">
-                <div class="help-ring-ghost"><div class="inner-ghost"></div></div>
-                <div class="help-text"><b>GHOST RING</b><span>GHOST MODE: Pass through obstacles.</span></div>
-            </div>
-            <button class="btn" style="width:100%; border-color:#fff; color:#fff; margin-top:10px;" onclick="closeHelp()">GOT IT!</button>
-        </div>
-    </div>
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreVal = document.getElementById('current-score');
+    const uiOverlay = document.getElementById('ui-overlay');
+    const actionBtn = document.getElementById('action-btn');
+    const leftBtn = document.getElementById('left-btn');
+    const rightBtn = document.getElementById('right-btn');
+    const menuTitle = document.getElementById('menu-title');
+    const menuDesc = document.getElementById('menu-desc');
 
-    <div id="shopMenu" class="overlay" style="display:none">
-        <div class="glass-container">
-            <h2 class="neon-text-blue">SELECT SHIP</h2>
-            <p style="font-size:12px; color:#aaa; margin:10px 0;">YOUR RINGS: <span id="shopRings" style="color:var(--neon-pink);">0</span> | AJ: <span id="shopAJ" style="color:var(--neon-gold);">0.000</span></p>
-            <div class="shop-container"><div class="shop-grid" id="shopGrid"></div></div>
-            
-            <button id="adRewardBtn" class="btn" style="width:100%; border-color:var(--neon-gold); color:var(--neon-gold); margin-bottom:10px;" onclick="watchAdForRings()">GET FREE RINGS (+20 RINGS)</button>
-            
-            <button class="btn" style="border-color:#fff; color:#fff; width: 100%;" onclick="closeShop()">BACK</button>
-        </div>
-    </div>
-
-    <div id="msgPopup" class="overlay" style="display:none; z-index: 300; background: rgba(0,0,0,0.7);"><div class="glass-container" style="max-width: 280px; border-color: var(--neon-pink);"><h2 style="color: var(--neon-pink);">LOCKED</h2><p id="msgText" style="margin-top: 15px;">NOT ENOUGH RINGS!</p><button class="btn" style="border-color:var(--neon-pink); color:var(--neon-pink);" onclick="closePopup()">OK</button></div></div>
-    
-    <div id="gameHud">
-        <div class="hud-item" style="color:var(--neon-blue)">SCORE <span id="scoreVal" class="hud-val">0 / 300</span></div>
-        <div class="hud-item" style="color:var(--neon-pink)">RINGS <span id="ringVal" class="hud-val">0</span></div>
-        <div class="hud-item" style="color:var(--neon-gold)">AJ <span id="ajVal" class="hud-val">0.000</span></div>
-        <div class="hud-item" style="color:#fff200">LVL <span id="levelVal" class="hud-val">1</span></div>
-        <div class="hud-item" style="color:var(--neon-blue)">BEST <span id="targetVal" class="hud-val">0</span></div>
-    </div>
-    <div id="comboText">COMBO X2</div>
-    <div id="pauseBtn" onclick="togglePause()">II</div>
-
-    <!-- Pause Menu -->
-    <div id="pauseMenu" class="overlay" style="display:none">
-        <div class="glass-container">
-            <h1 class="neon-text-blue">PAUSED</h1>
-            
-            <div class="settings-panel" style="margin-bottom: 20px;">
-                <div class="settings-row">
-                    <span>MUSIC</span>
-                    <input type="range" id="bgVolPause" min="0" max="1" step="0.1" value="0.5" oninput="syncVolume('music', this.value)">
-                </div>
-                <div class="settings-row">
-                    <span>SFX</span>
-                    <input type="range" id="sfxVolPause" min="0" max="1" step="0.1" value="0.7" oninput="syncVolume('sfx', this.value)">
-                </div>
-            </div>
-
-            <button class="btn" onclick="togglePause()">RESUME</button>
-            <button class="btn" style="width:100%; border-color:#fff; color:#fff;" onclick="goToMenu()">MAIN MENU</button>
-        </div>
-    </div>
-
-    <!-- Game Over Screen -->
-    <div id="gameOverScreen" class="overlay" style="display:none">
-        <div class="glass-container" style="border-color: var(--neon-pink);">
-            <h1 class="neon-text-pink">CRASHED!</h1>
-            <div style="margin: 20px 0;">
-                <p>SCORE: <span id="finalScore" style="color:#fff;">0</span></p>
-                <p>NEW RINGS: <span id="finalSessionRings" style="color:var(--neon-pink);">0</span></p>
-                <p>AJ EARNED: <span id="finalAJ" style="color:var(--neon-gold);">0.000</span></p>
-            </div>
-            <button id="reviveBtn" class="btn" style="border-color:var(--neon-gold); color:var(--neon-gold); width:100%; margin-bottom:10px;" onclick="watchAdToRevive()">REVIVE</button>
-            <button class="btn" style="border-color:var(--neon-pink); color:var(--neon-pink); width:100%;" onclick="initGame()">TRY AGAIN</button>
-            <button class="btn" style="width:100%; border-color:#fff; color:#fff;" onclick="goToMenu()">MAIN MENU</button>
-        </div>
-    </div>
-
-    <canvas id="gameCanvas"></canvas>
-
-<script>
-// --- AUDIO SYSTEM ---
-let musicVol = 0.5;
-let sfxVol = 0.7;
-
-const sounds = {
-    bg: new Audio('bgmusic.mp3'),
-    crash: new Audio('crash.mp3'),
-    levelup: new Audio('levelup.mp3'),
-    click: new Audio('menuclick.mp3'),
-    collect: new Audio('ringcollect.mp3')
-};
-
-function unlockAudio() {
-    Object.values(sounds).forEach(s => {
-        s.play().then(()=>s.pause()).catch(()=>{});
-        s.currentTime = 0;
-    });
-}
-
-function playSfx(key) {
-    if(sounds[key]) {
-        sounds[key].volume = sfxVol;
-        sounds[key].currentTime = 0;
-        sounds[key].play().catch(e=>{});
+    function resize() {
+      canvas.width = canvas.parentElement.clientWidth;
+      canvas.height = canvas.parentElement.clientHeight;
     }
-}
-sounds.bg.loop = true;
+    window.addEventListener('resize', resize);
+    resize();
 
-// --- GAME LOGIC ---
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d', { alpha: false }); 
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
+    let score = 0;
+    let playing = false;
+    let racerX = 150;
+    const racerWidth = 40;
+    const racerHeight = 65;
+    let roadLines = [];
+    let roadblocks = [];
+    let roadSpeed = 6;
+    let obstacleTimer = 0;
 
-let score, level, bestScore = 0, playerX, targetX, speed, obstacles, stars, frame, gameActive = false;
-let isPaused = false, shake = 0, roadOffset = 0, totalRings = 0, sessionRings = 0; 
-let playerTilt = 0, nextLevelAt = 300, pointsForThisLevel = 300;
-let lastTouchX = 0, isTouching = false, shieldActive = false, ghostTimer = 0;
+    function sendScoreToPortal(score) {
+      if (window.parent) {
+        window.parent.postMessage({
+          type: 'GAME_SCORE',
+          score: score,
+          coinsEarned: score * 0.010
+        }, '*');
+      }
+    }
 
-const skins = [];
-for(let i=0; i<50; i++) {
-    let hue = (i * 137.5) % 360; 
-    skins.push({ id: 'skin_' + i, color: `hsl(${hue}, 100%, 50%)`, cost: i * 150 });
-}
-let currentSkin = 'skin_0', ownedSkins = ['skin_0'];
+    function init() {
+      score = 0;
+      roadblocks = [];
+      racerX = (canvas.width - racerWidth) / 2;
+      roadSpeed = 6;
+      obstacleTimer = 0;
+      scoreVal.textContent = '0';
+      
+      roadLines = [];
+      for (let i = 0; i < canvas.height; i += 80) {
+        roadLines.push(i);
+      }
+    }
 
-function syncVolume(type, val) {
-    if(type === 'music') { musicVol = val; sounds.bg.volume = musicVol; }
-    else { sfxVol = val; }
-}
+    let leftPressed = false;
+    let rightPressed = false;
 
-// --- SHIP DRAWING ---
-function drawLogoShip(x, y, scale, color, alpha = 1) {
-    ctx.save();
-    ctx.translate(x, y); ctx.scale(scale, scale);
-    ctx.globalAlpha = alpha; 
-    ctx.shadowBlur = 10; ctx.shadowColor = color;
-    ctx.fillStyle = color;
-    
-    ctx.beginPath(); 
-    ctx.moveTo(0, -45); 
-    ctx.lineTo(25, 15); 
-    ctx.lineTo(0, 5); 
-    ctx.lineTo(-25, 15); 
-    ctx.closePath(); 
-    ctx.fill();
-    
-    ctx.strokeStyle = "rgba(255,255,255,0.8)";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.restore();
-}
-
-function startLoading() {
-    let progress = 0;
-    const fill = document.getElementById('progressFill');
-    const interval = setInterval(() => {
-        progress += Math.random() * 8;
-        if (progress >= 100) { progress = 100; clearInterval(interval); document.getElementById('loadingText').style.display = 'none'; document.getElementById('pBarTrack').style.display = 'none'; document.getElementById('tapToContinue').style.display = 'inline-block'; }
-        fill.style.width = progress + "%";
-    }, 60);
-}
-
-function startEverything() { 
-    if(window.AJ_SDK) window.AJ_SDK.showAd(); 
-    unlockAudio(); playSfx('click'); 
-    document.getElementById('splashScreen').style.display = 'none'; 
-    document.getElementById('mainMenu').style.display = 'flex'; 
-    loadProgress();
-}
-
-function openShop() { playSfx('click'); isPaused = true; document.getElementById('mainMenu').style.display = 'none'; document.getElementById('shopMenu').style.display = 'flex'; renderShop(); }
-function closeShop() { playSfx('click'); isPaused = false; document.getElementById('shopMenu').style.display = 'none'; document.getElementById('mainMenu').style.display = 'flex'; }
-function openHelp() { playSfx('click'); document.getElementById('mainMenu').style.display = 'none'; document.getElementById('helpMenu').style.display = 'flex'; }
-function closeHelp() { playSfx('click'); document.getElementById('helpMenu').style.display = 'none'; document.getElementById('mainMenu').style.display = 'flex'; }
-
-function renderShop() {
-    document.getElementById('shopRings').innerText = totalRings;
-    document.getElementById('shopAJ').innerText = (totalRings * 0.01).toFixed(3);
-    const grid = document.getElementById('shopGrid'); grid.innerHTML = '';
-    skins.forEach(skin => {
-        const isOwned = ownedSkins.includes(skin.id), isActive = currentSkin === skin.id, item = document.createElement('div');
-        item.className = `shop-item ${isActive ? 'active' : ''}`;
-        item.onclick = () => buyOrEquipSkin(skin);
-        item.innerHTML = `<div style="width:20px; height:20px; background:${skin.color}; border-radius:50%; margin-bottom:5px; border:1px solid white;"></div><div style="font-size:10px;">${isOwned ? 'EQUIP' : skin.cost}</div>`;
-        grid.appendChild(item);
+    // Controls
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') leftPressed = true;
+      if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') rightPressed = true;
     });
-}
+    window.addEventListener('keyup', (e) => {
+      if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') leftPressed = false;
+      if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') rightPressed = false;
+    });
 
-function buyOrEquipSkin(skin) { 
-    if (ownedSkins.includes(skin.id)) { 
-        currentSkin = skin.id; 
-        saveProgress();
-    } 
-    else if (totalRings >= skin.cost) { 
-        if(window.AJ_SDK) window.AJ_SDK.showAd(); 
-        setTimeout(() => {
-            totalRings -= skin.cost; 
-            ownedSkins.push(skin.id); 
-            currentSkin = skin.id; 
-            saveProgress();
-            renderShop();
-        }, 1500);
-    } 
-    renderShop(); 
-}
+    leftBtn.addEventListener('mousedown', () => leftPressed = true);
+    leftBtn.addEventListener('mouseup', () => leftPressed = false);
+    leftBtn.addEventListener('touchstart', (e) => { e.preventDefault(); leftPressed = true; });
+    leftBtn.addEventListener('touchend', (e) => { e.preventDefault(); leftPressed = false; });
 
-function loadProgress() { 
-    const sS = localStorage.getItem('pulseRacerBest'), sR = localStorage.getItem('pulseRacerTotalRings'), sSk = localStorage.getItem('pulseRacerSkin'), sO = localStorage.getItem('pulseRacerOwned');
-    bestScore = sS ? Number(sS) : 0; totalRings = sR ? Number(sR) : 0; if(sSk) currentSkin = sSk; if(sO) ownedSkins = JSON.parse(sO); 
-    document.getElementById('targetVal').innerText = bestScore; 
-    document.getElementById('menuBestScore').innerText = bestScore; 
-    document.getElementById('menuTotalRings').innerText = totalRings; 
-    document.getElementById('menuAJCoins').innerText = (totalRings * 0.01).toFixed(3);
-}
+    rightBtn.addEventListener('mousedown', () => rightPressed = true);
+    rightBtn.addEventListener('mouseup', () => rightPressed = false);
+    rightBtn.addEventListener('touchstart', (e) => { e.preventDefault(); rightPressed = true; });
+    rightBtn.addEventListener('touchend', (e) => { e.preventDefault(); rightPressed = false; });
 
-function saveProgress() { 
-    localStorage.setItem('pulseRacerBest', Number(bestScore)); 
-    localStorage.setItem('pulseRacerTotalRings', Number(totalRings)); 
-    localStorage.setItem('pulseRacerSkin', currentSkin); 
-    localStorage.setItem('pulseRacerOwned', JSON.stringify(ownedSkins)); 
-    document.getElementById('menuBestScore').innerText = bestScore; 
-    document.getElementById('menuTotalRings').innerText = totalRings; 
-    document.getElementById('menuAJCoins').innerText = (totalRings * 0.01).toFixed(3);
-}
+    actionBtn.addEventListener('click', () => {
+      init();
+      playing = true;
+      uiOverlay.classList.add('hidden');
+      loop();
+    });
 
-function resetVariables() {
-    score = 0; level = 1; playerX = 0; targetX = 0; speed = 0.08; nextLevelAt = 300; sessionRings = 0; 
-    obstacles = []; stars = []; frame = 0; ghostTimer = 0; shieldActive = false;
-    document.getElementById('scoreVal').innerText = "0 / 300"; document.getElementById('ringVal').innerText = "0"; document.getElementById('ajVal').innerText = "0.000";
-    for(let i=0; i<80; i++) stars.push({ x: Math.random() * 120 - 60, y: Math.random() * -35 - 15, z: Math.random() * 60, size: Math.random() * 1.5 + 1.0 });
-}
+    function gameOver() {
+      playing = false;
+      uiOverlay.classList.remove('hidden');
+      menuTitle.textContent = "Engine Blown!";
+      menuDesc.textContent = `Completed ${score}m (+${(score * 0.010).toFixed(2)} Coins)`;
+      actionBtn.textContent = "Restart Engine";
+      sendScoreToPortal(score);
+    }
 
-function goToMenu() { playSfx('click'); sounds.bg.pause(); gameActive = false; isPaused = false; document.getElementById('gameOverScreen').style.display = 'none'; document.getElementById('mainMenu').style.display = 'flex'; loadProgress(); }
-function togglePause() { if(!gameActive) return; playSfx('click'); isPaused = !isPaused; document.getElementById('pauseMenu').style.display = isPaused ? 'flex' : 'none'; }
+    function loop() {
+      if (!playing) return;
 
-function initGame() { if(window.AJ_SDK) window.AJ_SDK.showAd(); resetVariables(); gameActive = true; sounds.bg.play().catch(()=>{}); document.getElementById('mainMenu').style.display = 'none'; document.getElementById('gameOverScreen').style.display = 'none'; document.getElementById('pauseBtn').style.display = 'flex'; loadProgress(); }
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-// --- PORTAL REAL-TIME SYNC ---
-function syncRealTimeAJ() {
-    if(window.AJ_SDK && typeof window.AJ_SDK.addBalance === 'function') {
-        window.AJ_SDK.addBalance({
-            game_coins: 1, 
-            aj_net: 0.01,
-            source: "Pulse Racer Collection"
+      // Move player
+      if (leftPressed && racerX > 20) racerX -= 5;
+      if (rightPressed && racerX < canvas.width - racerWidth - 20) racerX += 5;
+
+      // Draw road margins
+      ctx.strokeStyle = '#ff007f';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(15, 0); ctx.lineTo(15, canvas.height);
+      ctx.moveTo(canvas.width - 15, 0); ctx.lineTo(canvas.width - 15, canvas.height);
+      ctx.stroke();
+
+      // Draw highway lines
+      ctx.strokeStyle = 'rgba(0, 240, 255, 0.4)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([30, 30]);
+      for (let i = 0; i < roadLines.length; i++) {
+        roadLines[i] += roadSpeed;
+        if (roadLines[i] > canvas.height) roadLines[i] = 0;
+        
+        ctx.beginPath();
+        ctx.moveTo(canvas.width / 3, roadLines[i]);
+        ctx.lineTo(canvas.width / 3, roadLines[i] + canvas.height);
+        ctx.moveTo((canvas.width / 3) * 2, roadLines[i]);
+        ctx.lineTo((canvas.width / 3) * 2, roadLines[i] + canvas.height);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+
+      // Draw Racer Car
+      ctx.fillStyle = '#00f0ff';
+      ctx.shadowColor = '#00f0ff';
+      ctx.shadowBlur = 15;
+      ctx.fillRect(racerX, canvas.height - 100, racerWidth, racerHeight);
+      
+      // Car details
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(racerX + 5, canvas.height - 90, 8, 15);
+      ctx.fillRect(racerX + racerWidth - 13, canvas.height - 90, 8, 15);
+
+      // Obstacle management
+      obstacleTimer++;
+      if (obstacleTimer > 70) {
+        const lane = Math.floor(Math.random() * 3);
+        const obstacleWidth = 50;
+        const oX = 25 + lane * ((canvas.width - 70) / 3);
+        roadblocks.push({
+          x: oX,
+          y: -80,
+          width: obstacleWidth,
+          height: 30
         });
-    }
-}
+        obstacleTimer = 0;
+      }
 
-function triggerGameOver() { 
-    playSfx('crash'); gameActive = false; 
-    totalRings = Number(totalRings) + Number(sessionRings);
-    if (Number(score) > Number(bestScore)) { bestScore = Number(score); }
-    saveProgress(); 
-    document.getElementById('finalScore').innerText = score; 
-    document.getElementById('finalSessionRings').innerText = sessionRings; 
-    document.getElementById('finalAJ').innerText = (sessionRings * 0.01).toFixed(3);
-    document.getElementById('gameOverScreen').style.display = 'flex'; 
-    document.getElementById('pauseBtn').style.display = 'none';
-    
-    // Final Sync
-    if(window.AJ_SDK && typeof window.AJ_SDK.addBalance === 'function') {
-        window.AJ_SDK.addBalance({ 
-            game_coins: 0, 
-            aj_net: 0, 
-            source: "Pulse Racer Over" 
-        });
-    }
-}
+      for (let i = roadblocks.length - 1; i >= 0; i--) {
+        let block = roadblocks[i];
+        block.y += roadSpeed;
 
-function watchAdToRevive() {
-    if(window.AJ_SDK) window.AJ_SDK.showAd(); playSfx('click');
-    document.getElementById('gameOverScreen').style.display = 'none';
-    document.getElementById('pauseBtn').style.display = 'flex';
-    gameActive = true; isPaused = false;
-    obstacles = obstacles.filter(o => o.z > 5); ghostTimer = 150; 
-}
+        ctx.fillStyle = '#ff007f';
+        ctx.shadowColor = '#ff007f';
+        ctx.shadowBlur = 10;
+        ctx.fillRect(block.x, block.y, block.width, block.height);
 
-function watchAdForRings() {
-    playSfx('click');
-    if (window.AJ_SDK) {
-        window.AJ_SDK.showAd();
-        setTimeout(() => {
-            totalRings = Number(totalRings) + 20;
-            saveProgress();
-            renderShop();
-            alert("Congrats! 20 Free Rings added.");
-        }, 2000);
-    }
-}
-
-function project(wx, wy, wz) { let p = canvas.width * 0.8; let s = p / (wz + 0.1); return { x: (canvas.width/2) + (wx - playerX * (wy < 0 ? 0.35 : 1)) * s, y: (canvas.height/2) + (wy) * s, s: s }; }
-
-function draw() {
-    let hue = (level * 70) % 360; ctx.fillStyle = "#0f172a"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.save(); if (shake > 0) { ctx.translate(Math.random()*shake - shake/2, Math.random()*shake - shake/2); shake *= 0.9; }
-    stars.forEach(s => { 
-        if(!isPaused && gameActive) s.z -= speed * 8; if(s.z < 0.1) s.z = 60; 
-        let p = project(s.x, s.y, s.z); if(p.y < canvas.height * 0.55) { let o = Math.min(1, (1 - s.z/60) * 1.5); ctx.fillStyle = `rgba(255, 255, 255, ${o})`; ctx.beginPath(); ctx.arc(p.x, p.y, s.size * o, 0, Math.PI*2); ctx.fill(); } 
-    });
-    let l1 = project(-9.5, 0.5, 1), l2 = project(-9.5, 0.5, 60), r1 = project(9.5, 0.5, 1), r2 = project(9.5, 0.5, 60);
-    ctx.lineWidth = 4; ctx.strokeStyle = `hsl(${hue}, 100%, 50%)`; ctx.beginPath(); ctx.moveTo(l1.x, l1.y); ctx.lineTo(l2.x, l2.y); ctx.moveTo(r1.x, r1.y); ctx.lineTo(r2.x, r2.y); ctx.stroke();
-    obstacles.forEach((o) => {
-        let p = project(o.x, 0.5, o.z), sz = (canvas.width * 0.45) / o.z;
-        if(o.type === 'gem') { ctx.strokeStyle = "#f0f"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(p.x, p.y - sz/2, sz/2, 0, Math.PI * 2); ctx.stroke(); }
-        else if(o.type === 'shield') { ctx.fillStyle = "#ffcc00"; ctx.beginPath(); ctx.arc(p.x, p.y-sz/2, sz/2, 0, Math.PI*2); ctx.fill(); }
-        else { ctx.fillStyle = o.color; ctx.fillRect(p.x - sz/2, p.y - sz, sz, sz); }
-    });
-    if(!isPaused && gameActive) playerX += (targetX - playerX) * 0.15;
-    let skinColor = skins.find(s => s.id === currentSkin).color;
-    drawLogoShip(project(playerX, 0.5, 2.2).x, project(playerX, 0.5, 2.2).y, 0.8, skinColor, 1);
-    ctx.restore(); 
-}
-
-function update() {
-    if(gameActive && !isPaused) {
-        frame++; if(ghostTimer > 0) ghostTimer--;
-        targetX = Math.max(-8.5, Math.min(8.5, targetX));
-        if(frame % 40 === 0) {
-            let r = Math.random();
-            if(r < 0.15) obstacles.push({ x: Math.random()*14-7, z: 60, type: 'gem' });
-            else if(r < 0.17) obstacles.push({ x: Math.random()*14-7, z: 60, type: 'shield' });
-            else { obstacles.push({ x: Math.random()*14-7, z: 60, type: 'enemy', color: '#ff4d4d' }); }
+        // Crash check
+        if (
+          racerX < block.x + block.width &&
+          racerX + racerWidth > block.x &&
+          canvas.height - 100 < block.y + block.height &&
+          canvas.height - 100 + racerHeight > block.y
+        ) {
+          gameOver();
+          return;
         }
-        obstacles.forEach((o, i) => {
-            o.z -= speed * 6;
-            if(o.z < 0.5) { 
-                obstacles.splice(i, 1); score += 1; 
-                if(score >= nextLevelAt) { playSfx('levelup'); level++; nextLevelAt += 300; speed += 0.005; } 
-                document.getElementById('scoreVal').innerText = score + " / " + nextLevelAt; 
-            }
-            if (o.z < 2.5 && o.z > 1.9) {
-                let d = Math.abs(o.x - playerX);
-                if(d < 0.55) { 
-                    if(o.type === 'gem') { 
-                        playSfx('collect'); 
-                        sessionRings += 1; 
-                        score += 5; 
-                        obstacles.splice(i, 1); 
-                        // --- REAL-TIME UPDATES ---
-                        document.getElementById('ringVal').innerText = sessionRings; 
-                        document.getElementById('ajVal').innerText = (sessionRings * 0.01).toFixed(3);
-                        syncRealTimeAJ(); // Signal to portal
-                    }
-                    else if(o.type === 'shield') { playSfx('collect'); shieldActive = true; obstacles.splice(i, 1); }
-                    else { 
-                        if(!shieldActive && ghostTimer <= 0) { triggerGameOver(); } 
-                        else if(shieldActive) { shieldActive = false; obstacles.splice(i, 1); shake = 20; }
-                    }
-                }
-            }
-        });
+
+        if (block.y > canvas.height) {
+          roadblocks.splice(i, 1);
+          score += 10;
+          scoreVal.textContent = score;
+          if (score % 60 === 0) roadSpeed += 0.5;
+        }
+      }
+
+      ctx.shadowBlur = 0;
+      requestAnimationFrame(loop);
     }
-    if(gameActive) draw(); requestAnimationFrame(update);
-}
-window.addEventListener('keydown', (e) => { 
-    if (!gameActive || isPaused) return; 
-    if (e.key === "ArrowLeft") targetX -= 1.5; 
-    if (e.key === "ArrowRight") targetX += 1.5; 
-});
-window.addEventListener('touchmove', (e) => { 
-    if(!gameActive || isPaused) return; 
-    let touchPos = (e.touches[0].clientX / canvas.width) * 17 - 8.5;
-    targetX = Math.max(-8.5, Math.min(8.5, touchPos)); 
-});
-update();
-</script>
+  </script>
 </body>
 </html>

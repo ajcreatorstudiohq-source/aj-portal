@@ -1,525 +1,344 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Submarine Surge - AJ Creator</title>
-    
-    <!-- AJ SDK CONNECTED (DO NOT REMOVE) -->
-    <script src="../../aj-sdk.js"></script>
-
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
-    <style>
-        :root { 
-            --neon-blue: #00f2ff; 
-            --neon-gold: #ffd700; 
-            --neon-red: #ff0055; 
-            --deep-sea: #001a33;
-        }
-        /* --- FULL SCREEN MOBILE FIX --- */
-        html, body { 
-            margin: 0; padding: 0; width: 100%; height: 100%; 
-            overflow: hidden; background: #000; 
-            font-family: 'Orbitron', sans-serif; color: white; user-select: none;
-            position: fixed; /* Prevents bouncing */
-        }
-        canvas { 
-            display: block; touch-action: none; 
-            position: absolute; top: 0; left: 0; 
-            width: 100%; height: 100%; /* Forces Full Height */
-            z-index: 1; 
-        }
-        
-        .screen { 
-            position: fixed; inset: 0; display: none; flex-direction: column; 
-            align-items: center; justify-content: center; z-index: 2000; 
-            backdrop-filter: blur(20px) brightness(0.5); 
-            background: radial-gradient(circle at center, rgba(0,26,51,0.7) 0%, rgba(0,5,10,0.9) 100%);
-            text-align: center; 
-        }
-        .active-screen { display: flex !important; }
-
-        .coin-glow-box {
-            background: rgba(0, 0, 0, 0.4);
-            color: var(--neon-gold);
-            padding: 10px 30px;
-            border-radius: 50px;
-            border: 1px solid rgba(255, 215, 0, 0.4);
-            font-weight: 900;
-            font-size: 18px;
-            letter-spacing: 2px;
-            margin-bottom: 25px;
-            text-shadow: 0 0 10px var(--neon-gold), 0 0 20px #ff8c00;
-            box-shadow: 0 0 15px rgba(255, 215, 0, 0.2), inset 0 0 10px rgba(255, 215, 0, 0.1);
-            display: inline-block;
-            animation: coinPulse 2s infinite alternate;
-        }
-        @keyframes coinPulse {
-            0% { transform: scale(1); box-shadow: 0 0 15px rgba(255, 215, 0, 0.2); }
-            100% { transform: scale(1.05); box-shadow: 0 0 25px rgba(255, 215, 0, 0.4); }
-        }
-
-        #ui { position: absolute; top: 20px; left: 20px; pointer-events: none; z-index: 100; display: none; }
-        .score-box { font-size: 26px; font-weight: 900; color: var(--neon-gold); text-shadow: 0 0 15px var(--neon-gold); }
-        .oxy-label { font-size: 14px; font-weight: 900; color: var(--neon-blue); letter-spacing: 2px; margin-top: 10px; text-shadow: 0 0 10px var(--neon-blue); }
-        .oxy-container { width: 180px; height: 12px; background: rgba(0,0,0,0.5); border: 2px solid var(--neon-blue); border-radius: 10px; overflow: hidden; box-shadow: 0 0 15px rgba(0, 242, 255, 0.3); }
-        #oxyFill { width: 100%; height: 100%; background: linear-gradient(90deg, #00f2ff, #0066ff); transition: width 0.1s; }
-        .depth-box { font-size: 16px; color: #fff; margin-bottom: 5px; opacity: 0.8; }
-
-        #pauseBtn { position: absolute; top: 20px; right: 20px; width: 45px; height: 45px; background: rgba(255,255,255,0.1); border: 2px solid var(--neon-blue); border-radius: 10px; color: var(--neon-blue); font-size: 18px; cursor: pointer; z-index: 500; display: none; align-items: center; justify-content: center; box-shadow: 0 0 15px var(--neon-blue); }
-
-        .btn { 
-            padding: 16px 65px; 
-            background: linear-gradient(145deg, #ffd700, #ff8c00); 
-            color: #000; 
-            border: 2px solid #fff; 
-            border-radius: 50px; 
-            font-weight: 900; 
-            font-size: 22px; 
-            cursor: pointer; 
-            text-transform: uppercase; 
-            margin: 12px; 
-            transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); 
-            box-shadow: 0 0 20px var(--neon-gold), 0 8px 0 #b8860b;
-            text-shadow: 1px 1px 0px rgba(255,255,255,0.5);
-            pointer-events: auto !important;
-        }
-        .btn:hover { background: #fff; transform: scale(1.08) translateY(-5px); box-shadow: 0 0 40px var(--neon-gold), 0 12px 0 #b8860b; }
-        .btn-blue { background: linear-gradient(145deg, #00f2ff, #0066ff); box-shadow: 0 0 20px var(--neon-blue), 0 8px 0 #0099aa; }
-        .btn-green { background: linear-gradient(145deg, #2ecc71, #27ae60); color: white; box-shadow: 0 0 20px #2ecc71, 0 8px 0 #1e8449; }
-
-        .shop-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 25px 0; width: 98%; max-width: 600px; }
-        .shop-item { padding: 10px; background: rgba(255,255,255,0.05); border: 1.5px solid rgba(255,255,255,0.1); border-radius: 20px; cursor: pointer; transition: 0.3s; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-        .shop-item.selected { border-color: var(--neon-gold); background: rgba(255,215,0,0.15); box-shadow: 0 0 25px var(--neon-gold); }
-        .shop-item img { width: 60px; margin-bottom: 8px; filter: drop-shadow(0 0 10px rgba(0,0,0,0.5)); }
-
-        #splashScreen { position: fixed; inset: 0; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 5000; transition: opacity 0.8s; }
-        #splashImg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: -1; }
-        #loaderContainer { position: absolute; bottom: 10%; width: 260px; height: 10px; background: rgba(255,255,255,0.05); border-radius: 10px; overflow: hidden; border: 1.5px solid var(--neon-blue); box-shadow: 0 0 15px var(--neon-blue); }
-        #loaderFill { width: 0%; height: 100%; background: var(--neon-blue); box-shadow: 0 0 15px var(--neon-blue); }
-        
-        #achievePop { position: absolute; top: 25%; width: 100%; text-align: center; font-size: 32px; font-weight: 900; color: var(--neon-gold); text-shadow: 0 0 30px var(--neon-gold); display: none; z-index: 500; animation: recordPop 0.8s cubic-bezier(0.17, 0.89, 0.32, 1.49); }
-        .pc-controls-hint { position: fixed; bottom: 10px; right: 10px; font-size: 10px; color: rgba(255,255,255,0.3); pointer-events: none; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Subsea Surge - Deep Underwater Arcade</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+    body {
+      background-color: #020617;
+      color: #fff;
+      font-family: 'Courier New', Courier, monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+    #game-container {
+      position: relative;
+      width: 100%;
+      max-width: 480px;
+      height: 100vh;
+      max-height: 800px;
+      background: linear-gradient(180deg, #021526 0%, #010409 100%);
+      border: 2px solid #38bdf8;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 0 30px rgba(56, 189, 248, 0.3);
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      padding: 15px;
+      text-align: center;
+      border-bottom: 1px solid rgba(56, 189, 248, 0.2);
+      background: rgba(56, 189, 248, 0.05);
+    }
+    h1 {
+      font-size: 20px;
+      text-transform: uppercase;
+      letter-spacing: 4px;
+      color: #38bdf8;
+      text-shadow: 0 0 10px #38bdf8;
+    }
+    #canvas-container {
+      flex: 1;
+      position: relative;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+    #ui-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(2, 6, 23, 0.85);
+      z-index: 10;
+    }
+    .hidden {
+      display: none !important;
+    }
+    button {
+      background: linear-gradient(135deg, #38bdf8 0%, #3b82f6 100%);
+      color: #000;
+      border: none;
+      padding: 12px 35px;
+      font-size: 14px;
+      font-weight: bold;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      border-radius: 30px;
+      cursor: pointer;
+      box-shadow: 0 0 15px rgba(56, 189, 248, 0.5);
+      margin-top: 20px;
+    }
+    button:active {
+      transform: scale(0.95);
+    }
+    #score-board {
+      font-size: 14px;
+      color: #fb7185;
+      text-shadow: 0 0 8px #fb7185;
+      margin-top: 10px;
+    }
+    #instructions {
+      font-size: 11px;
+      color: #888;
+      margin-top: 15px;
+      text-align: center;
+      padding: 0 20px;
+      line-height: 1.5;
+    }
+    #mobile-controls {
+      display: flex;
+      justify-content: space-around;
+      padding: 15px;
+      background: rgba(0, 0, 0, 0.5);
+      border-top: 1px solid rgba(56, 189, 248, 0.2);
+    }
+    .control-btn {
+      width: 100%;
+      max-width: 250px;
+      height: 60px;
+      border-radius: 30px;
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid #38bdf8;
+      color: #38bdf8;
+      font-size: 16px;
+      font-weight: bold;
+      letter-spacing: 2px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    .control-btn:active {
+      background: #38bdf8;
+      color: #000;
+    }
+  </style>
 </head>
 <body>
 
-    <div id="splashScreen">
-        <img src="splashscreen.png" id="splashImg">
-        <div id="loaderContainer">
-            <div id="loaderFill"></div>
-        </div>
+  <div id="game-container">
+    <header>
+      <h1>SUBSEA SURGE</h1>
+      <div id="score-board">DEPTH TRACKER: <span id="current-score">0</span>m</div>
+    </header>
+
+    <div id="canvas-container">
+      <canvas id="gameCanvas"></canvas>
+
+      <div id="ui-overlay">
+        <h2 id="menu-title" style="color: #38bdf8; text-shadow: 0 0 10px #38bdf8; text-transform: uppercase; letter-spacing: 2px;">Dive Deep</h2>
+        <p id="menu-desc" style="font-size: 12px; margin-top: 10px; color: #aaa;">Propel your sub through deep sea obstacles!</p>
+        <button id="action-btn">Dive Now</button>
+        <p id="instructions">Press & hold [SPACE], click/tap the screen, or hold down the "PROPEL" button to rise. Release to dive.</p>
+      </div>
     </div>
 
-    <div id="achievePop">NEW RECORD BROKEN! 🏆</div>
-
-    <div id="mainMenu" class="screen">
-        <div class="settings-gear" onclick="openSettings(); playBtnSound();" style="position:absolute; top:25px; right:25px; font-size:35px; cursor:pointer;">⚙️</div>
-        <h1 style="font-size: 60px; color: var(--neon-blue); margin-bottom: 5px; text-shadow: 0 0 30px var(--neon-blue); font-style: italic; letter-spacing: -2px;">SUBSEA SURGE</h1>
-        <div style="background: rgba(255, 255, 255, 0.05); padding: 15px 45px; border-radius: 50px; border: 1.5px solid var(--neon-gold); margin-bottom: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
-            <p style="color: var(--neon-gold); font-size: 22px; margin: 0; font-weight: 900; letter-spacing: 1px;">🏆 BEST RECORD: <span id="bestDepthDisplay">0</span>M</p>
-        </div>
-        <div class="coin-glow-box">COINS: <span class="global-coins">0</span> | AJ: <span id="mainAJ">0.000</span></div>
-        <button class="btn" id="startBtn" onclick="initGameWithAd(); playBtnSound();">START MISSION</button>
-        <button class="btn btn-blue" id="openShopBtn" onclick="openShop(); playBtnSound();">GARAGE</button>
-        <p style="font-size: 12px; margin-top: 10px; opacity: 0.6;">PC: Press SPACE or CLICK to Dive</p>
+    <div id="mobile-controls">
+      <div class="control-btn" id="propel-btn">PROPEL ENGINE</div>
     </div>
+  </div>
 
-    <div id="settingsScreen" class="screen">
-        <div style="background: rgba(255, 255, 255, 0.05); padding: 40px; border-radius: 35px; border: 2px solid var(--neon-blue); width: 320px; box-shadow: 0 0 50px rgba(0, 242, 255, 0.2);">
-            <h2 style="color: var(--neon-blue); margin-bottom: 25px; letter-spacing: 3px;">SETTINGS</h2>
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;"><span>MUSIC</span><button id="musicToggle" class="btn" style="padding: 8px 20px; font-size: 14px; margin: 0; box-shadow: none;" onclick="toggleAudio('music'); playBtnSound();">ON</button></div>
-            <input type="range" id="musicVol" min="0" max="1" step="0.1" value="0.5" style="width:100%; margin-bottom: 25px;" oninput="changeVol('music', this.value)">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;"><span>SOUND</span><button id="sfxToggle" class="btn" style="padding: 8px 20px; font-size: 14px; margin: 0; box-shadow: none;" onclick="toggleAudio('sfx'); playBtnSound();">ON</button></div>
-            <input type="range" id="sfxVol" min="0" max="1" step="0.1" value="0.7" style="width:100%;" oninput="changeVol('sfx', this.value)">
-            <button class="btn btn-blue" style="width: 100%; margin-top: 40px; font-size: 18px; padding: 10px;" onclick="closeSettings(); playBtnSound();">CLOSE</button>
-        </div>
-    </div>
-
-    <div id="shopScreen" class="screen">
-        <h2 style="color: var(--neon-gold); letter-spacing: 4px;">GARAGE</h2>
-        <p style="font-weight: bold;">YOUR COINS: <span class="global-coins">0</span> | AJ: <span id="shopAJ">0.000</span></p>
-        <div class="shop-grid">
-            <div class="shop-item selected" id="sub_0" onclick="selectSub(0); playBtnSound();"><img src="sub.png"><b>CLASSIC</b><small id="price_0">OWNED</small></div>
-            <div class="shop-item" id="sub_1" onclick="selectSub(1); playBtnSound();"><img src="sub.png" style="filter: hue-rotate(150deg);"><b>SHARK</b><small id="price_1">5000 💰</small></div>
-            <div class="shop-item" id="sub_2" onclick="selectSub(2); playBtnSound();"><img src="sub.png" style="filter: grayscale(1) brightness(1.5);"><b>TITAN</b><small id="price_2">10000 💰</small></div>
-        </div>
-        <button class="btn btn-green" onclick="watchRewardAd(); playBtnSound();" style="font-size: 16px; padding: 10px 40px;">FREE COINS (+50 🎬)</button>
-        <button class="btn" id="closeShopBtn" onclick="closeShop(); playBtnSound();">BACK</button>
-    </div>
-
-    <div id="pauseBtn" onclick="togglePause(); playBtnSound();">II</div>
-
-    <div id="gameOver" class="screen">
-        <div style="background: rgba(255, 255, 255, 0.05); padding: 50px; border-radius: 40px; border: 1.5px solid rgba(255, 255, 255, 0.1); text-align: center; box-shadow: 0 0 60px rgba(255, 0, 85, 0.2);">
-            <h1 id="msgHeader" style="font-size: 55px; color: #ff0055; margin:0; text-shadow: 0 0 35px #ff0055; font-style: italic;">CRASHED!</h1>
-            <div style="margin: 30px 0;">
-                <p style="color: var(--neon-blue); font-size: 24px; font-weight: 900;">DEPTH: <span id="finalDepth">0</span>M</p>
-                <p style="color: var(--neon-gold); font-size: 24px; font-weight: 900;">COINS: <span id="finalScore">0</span></p>
-                <p style="color: var(--neon-gold); font-size: 18px; font-weight: 900;">AJ NET: <span id="finalAJ">0.000</span></p>
-            </div>
-            <button class="btn" id="retryBtn" onclick="initGameWithAd(); playBtnSound();">RETRY</button>
-            <button class="btn btn-green" id="reviveBtn" onclick="watchAdToRevive(); playBtnSound();">REVIVE (🎬)</button>
-            <button class="btn btn-blue" id="menuBtn" onclick="goToMenu(); playBtnSound();">MENU</button>
-        </div>
-    </div>
-
-    <div id="ui">
-        <div class="depth-box">DEPTH: <span id="depthVal">0</span>m</div>
-        <div class="score-box">COINS: <span id="coinCount">0</span> | AJ: <span id="liveAJ">0.000</span></div>
-        <div class="oxy-label">OXYGEN</div>
-        <div class="oxy-container"><div id="oxyFill"></div></div>
-    </div>
-
-    <div class="pc-controls-hint">Controls: SPACE / Mouse Click / Arrows</div>
-    <canvas id="gameCanvas"></canvas>
-
-<script>
+  <script>
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
-    
-    // --- FULL SCREEN RESIZE LOGIC ---
-    function resizeCanvas() {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
+    const scoreVal = document.getElementById('current-score');
+    const uiOverlay = document.getElementById('ui-overlay');
+    const actionBtn = document.getElementById('action-btn');
+    const propelBtn = document.getElementById('propel-btn');
+    const menuTitle = document.getElementById('menu-title');
+    const menuDesc = document.getElementById('menu-desc');
+
+    function resize() {
+      canvas.width = canvas.parentElement.clientWidth;
+      canvas.height = canvas.parentElement.clientHeight;
     }
-    window.addEventListener('resize', resizeCanvas);
-    resizeCanvas();
+    window.addEventListener('resize', resize);
+    resize();
 
-    const assets = { sub: new Image(), rockTop: new Image(), rockBot: new Image(), coin: new Image(), bg: new Image(), jelly: new Image(), fish: new Image() };
-    assets.sub.src = 'sub.png'; 
-    assets.rockTop.src = 'rock_top.png'; 
-    assets.rockBot.src = 'rock_bot.png'; 
-    assets.coin.src = 'coin.png'; 
-    assets.bg.src = 'bg.jpg';
-    assets.jelly.src = 'jellyfish.png'; 
-    assets.fish.src = 'fish_group.png';
-
-    const sounds = {
-        bg: new Audio('bg.mp3'), coin: new Audio('coincollect.mp3'), crash: new Audio('crash.mp3'),
-        beep: new Audio('oxygenbeep.mp3'), record: new Audio('targetbroken.mp3'),
-        click: new Audio('click.mp3')
+    let score = 0;
+    let playing = false;
+    let sub = {
+      x: 70,
+      y: 200,
+      width: 40,
+      height: 25,
+      gravity: 0.35,
+      lift: -0.7,
+      velocity: 0
     };
-    sounds.bg.loop = true;
+    let obstacles = [];
+    let obstacleTimer = 0;
+    let speed = 3;
+    let isPropelling = false;
 
-    function playBtnSound() { if(sfxOn) { sounds.click.currentTime = 0; sounds.click.volume = sVol; sounds.click.play().catch(()=>{}); } }
-
-    let totalCoins = parseInt(localStorage.getItem('aj_sub_coins')) || 0;
-    let bestDepth = parseInt(localStorage.getItem('aj_sub_depth')) || 0;
-    let unlockedSkins = JSON.parse(localStorage.getItem('aj_unlocked')) || [0];
-    let currentSubSkin = parseInt(localStorage.getItem('aj_active_skin')) || 0;
-    let musicOn = localStorage.getItem('aj_music') !== 'false', sfxOn = localStorage.getItem('aj_sfx') !== 'false';
-    let mVol = parseFloat(localStorage.getItem('aj_m_vol')) || 0.5, sVol = parseFloat(localStorage.getItem('aj_s_vol')) || 0.7;
-
-    let coinsCollected = 0, depth = 0, gameActive = false, isTouching = false, isPaused = false, frame = 0;
-    let obstacles = [], coins = [], floatTexts = [], ambientLife = [], lastAchievement = 0;
-    let bgX = 0, gameSpeed = 4.5, oxygen = 100, animationId, waveTimer = 0, recordBrokenInSession = false, hasShield = false;
-
-    let sub = { x: 50, y: canvas.height/2, w: 100, h: 55, vy: 0, accelUp: 0.11, accelDown: 0.16, friction: 0.98, maxSpeed: 5.5, angle: 0 };
-
-    let loadedCount = 0;
-    Object.values(assets).forEach(img => {
-        const checkLoaded = () => {
-            loadedCount++;
-            document.getElementById('loaderFill').style.width = (loadedCount / 7) * 100 + "%";
-            if(loadedCount >= 7) {
-                setTimeout(() => { 
-                    document.getElementById('splashScreen').style.opacity = "0"; 
-                    setTimeout(()=>document.getElementById('splashScreen').style.display = "none", 800); 
-                    applySettings(); goToMenu(); 
-                }, 1500);
-            }
-        };
-        img.onload = checkLoaded;
-        img.onerror = checkLoaded;
-    });
-
-    function playSfx(key) { if(sfxOn) { if(sounds[key]) { sounds[key].currentTime = 0; sounds[key].volume = sVol; sounds[key].play().catch(()=>{}); } } }
-    function applySettings() {
-        document.getElementById('musicToggle').innerText = musicOn ? "ON" : "OFF";
-        document.getElementById('sfxToggle').innerText = sfxOn ? "ON" : "OFF";
-        sounds.bg.volume = mVol;
-        if(musicOn && gameActive && !isPaused) sounds.bg.play().catch(()=>{}); else sounds.bg.pause();
-    }
-    function toggleAudio(type) { if(type === 'music') { musicOn = !musicOn; localStorage.setItem('aj_music', musicOn); } else { sfxOn = !sfxOn; localStorage.setItem('aj_sfx', sfxOn); } applySettings(); }
-    function changeVol(type, val) { if(type === 'music') { mVol = val; localStorage.setItem('aj_m_vol', val); } else { sVol = val; localStorage.setItem('aj_s_vol', val); } applySettings(); }
-    function openSettings() { document.getElementById('settingsScreen').classList.add('active-screen'); }
-    function closeSettings() { document.getElementById('settingsScreen').classList.remove('active-screen'); }
-
-    function initGameWithAd() { 
-        if(window.AJ_SDK) window.AJ_SDK.showAd(); 
-        startGame(); 
-    }
-    function watchAdToRevive() { 
-        if(window.AJ_SDK) window.AJ_SDK.showAd();
-        reviveGame(); 
-    }
-    
-    // --- INSTANT COIN REWARD LOGIC ---
-    function watchRewardAd() { 
-        if(window.AJ_SDK) {
-            window.AJ_SDK.showAd();
-            setTimeout(() => {
-                totalCoins = parseInt(totalCoins) + 50; 
-                localStorage.setItem('aj_sub_coins', totalCoins); 
-                updateCoinDisplays(); // INSTANT HUD/MENU UPDATE
-                renderShop(); // INSTANT SHOP BUTTON REFRESH
-                syncWithPortal();
-                alert("Success! 50 Free Coins Added.");
-            }, 2000);
-        } else {
-            alert("Ads not available.");
-        }
+    function sendScoreToPortal(score) {
+      if (window.parent) {
+        window.parent.postMessage({
+          type: 'GAME_SCORE',
+          score: score,
+          coinsEarned: score * 0.010
+        }, '*');
+      }
     }
 
-    function startGame() { document.getElementById('mainMenu').classList.remove('active-screen'); document.getElementById('ui').style.display = 'block'; document.getElementById('pauseBtn').style.display = 'flex'; resetGame(); }
-    function openShop() { document.getElementById('mainMenu').classList.remove('active-screen'); document.getElementById('shopScreen').classList.add('active-screen'); renderShop(); updateCoinDisplays(); }
-    function closeShop() { document.getElementById('shopScreen').classList.remove('active-screen'); document.getElementById('mainMenu').classList.add('active-screen'); updateCoinDisplays(); }
-    function togglePause() { if(!gameActive) return; isPaused = !isPaused; document.getElementById('pauseBtn').innerText = isPaused ? "▶" : "II"; if(isPaused) sounds.bg.pause(); else if(musicOn) sounds.bg.play().catch(()=>{}); }
-    
-    function reviveGame() { 
-        oxygen = 60; 
-        document.getElementById('gameOver').classList.remove('active-screen'); 
-        document.getElementById('pauseBtn').style.display = 'flex';
-        obstacles = obstacles.filter(o => o.x > sub.x + 500 || o.x < sub.x - 100);
-        gameActive = true; isPaused = false; 
-        loop(); 
-        if(musicOn) sounds.bg.play().catch(()=>{}); 
-    }
-    
-    function goToMenu() { 
-        document.getElementById('gameOver').classList.remove('active-screen'); 
-        document.getElementById('mainMenu').classList.add('active-screen'); 
-        document.getElementById('ui').style.display = 'none'; 
-        document.getElementById('pauseBtn').style.display = 'none'; 
-        bestDepth = parseInt(localStorage.getItem('aj_sub_depth')) || 0;
-        document.getElementById('bestDepthDisplay').innerText = bestDepth; 
-        updateCoinDisplays(); 
-        sounds.bg.pause(); 
-    }
-    
-    // --- HUD & MENU SYNC FUNCTION ---
-    function updateCoinDisplays() { 
-        document.querySelectorAll('.global-coins').forEach(el => el.innerText = totalCoins); 
-        let ajNet = (totalCoins * 0.01).toFixed(3);
-        if(document.getElementById('mainAJ')) document.getElementById('mainAJ').innerText = ajNet;
-        if(document.getElementById('shopAJ')) document.getElementById('shopAJ').innerText = ajNet;
+    function init() {
+      score = 0;
+      obstacles = [];
+      sub.y = canvas.height / 2;
+      sub.velocity = 0;
+      speed = 3;
+      obstacleTimer = 0;
+      scoreVal.textContent = '0';
     }
 
-    function syncWithPortal() {
-        if(window.AJ_SDK) {
-            window.AJ_SDK.addBalance({
-                game_coins: totalCoins,
-                aj_net: (totalCoins * 0.01),
-                source: "Subsea Surge Sync"
-            });
-        }
-    }
-
-    // --- INSTANT SKIN PURCHASE SYNC ---
-    function selectSub(id) {
-        const prices = [0, 5000, 10000];
-        if(unlockedSkins.includes(id)) { 
-            currentSubSkin = id; 
-            localStorage.setItem('aj_active_skin', id); 
-        }
-        else { 
-            if(totalCoins >= prices[id]) { 
-                if(window.AJ_SDK) window.AJ_SDK.showAd(); 
-                setTimeout(() => {
-                    totalCoins -= prices[id]; 
-                    unlockedSkins.push(id); 
-                    currentSubSkin = id; 
-                    localStorage.setItem('aj_sub_coins', totalCoins); 
-                    localStorage.setItem('aj_unlocked', JSON.stringify(unlockedSkins)); 
-                    localStorage.setItem('aj_active_skin', id); 
-                    syncWithPortal();
-                    updateCoinDisplays(); // Refresh balance immediately
-                    renderShop(); // Refresh lock icons immediately
-                }, 1500);
-            } else { alert("Need more coins!"); } 
-        }
-        renderShop();
-    }
-
-    function renderShop() {
-        const prices = [0, 5000, 10000];
-        for(let i=0; i<3; i++) {
-            const item = document.getElementById('sub_' + i);
-            const label = document.getElementById('price_' + i);
-            if(!item) continue;
-            item.classList.remove('selected');
-            if(currentSubSkin === i) item.classList.add('selected');
-            label.innerText = unlockedSkins.includes(i) ? (currentSubSkin === i ? "EQUIPPED" : "SELECT") : prices[i] + " 💰";
-        }
-    }
-
-    function resetGame() {
-        cancelAnimationFrame(animationId);
-        coinsCollected = 0; oxygen = 100; frame = 0; bgX = 0; depth = 0; obstacles = []; coins = []; floatTexts = []; recordBrokenInSession = false; isPaused = false;
-        hasShield = (currentSubSkin === 2); 
-        sub.y = canvas.height / 2; sub.vy = 0; sub.maxSpeed = (currentSubSkin === 1) ? 7.5 : 5.5;
-        document.getElementById('coinCount').innerText = "0"; 
-        document.getElementById('liveAJ').innerText = "0.000";
-        document.getElementById('oxyFill').style.width = "100%";
-        document.getElementById('gameOver').classList.remove('active-screen'); document.getElementById('reviveBtn').style.display = 'inline-block';
-        gameActive = true; loop(); if(musicOn) sounds.bg.play().catch(()=>{});
-        updateCoinDisplays();
-    }
-
-    // --- CONTROLS ---
-    function isUIElement(el) { return el.tagName === 'BUTTON' || el.id === 'pauseBtn' || el.closest('.shop-item') || el.closest('.settings-gear') || el.closest('.screen'); }
-    window.addEventListener('touchstart', (e) => { if (isUIElement(e.target)) return; if(gameActive && !isPaused) { isTouching = true; e.preventDefault(); } }, {passive: false});
-    window.addEventListener('touchend', () => isTouching = false);
+    // Controls
     window.addEventListener('keydown', (e) => {
-        if (["Space", "ArrowDown", "KeyS", "ArrowUp", "KeyW"].includes(e.code)) {
-            if(gameActive && !isPaused) { if (["Space", "ArrowDown", "KeyS"].includes(e.code)) isTouching = true; e.preventDefault(); }
-        }
-        if (e.code === "Escape") togglePause();
+      if (e.code === 'Space' || e.code === 'ArrowUp') {
+        e.preventDefault();
+        isPropelling = true;
+      }
     });
-    window.addEventListener('keyup', (e) => { if (["Space", "ArrowDown", "KeyS"].includes(e.code)) isTouching = false; });
-    window.addEventListener('mousedown', (e) => { if (isUIElement(e.target)) return; if(gameActive && !isPaused) isTouching = true; });
-    window.addEventListener('mouseup', () => isTouching = false);
+    window.addEventListener('keyup', (e) => {
+      if (e.code === 'Space' || e.code === 'ArrowUp') {
+        e.preventDefault();
+        isPropelling = false;
+      }
+    });
 
-    function update() {
-        if (!gameActive || isPaused) return;
-        frame++; bgX -= gameSpeed * 0.4; waveTimer += 0.015;
-        depth = Math.floor(Math.abs(bgX) / 10);
-        document.getElementById('depthVal').innerText = depth;
-        
-        if (depth > bestDepth && bestDepth > 0 && !recordBrokenInSession) { 
-            recordBrokenInSession = true; 
-            playSfx('record'); 
-            document.getElementById('achievePop').style.display = 'block'; 
-            setTimeout(() => document.getElementById('achievePop').style.display = 'none', 3000); 
-        }
+    propelBtn.addEventListener('mousedown', () => isPropelling = true);
+    propelBtn.addEventListener('mouseup', () => isPropelling = false);
+    propelBtn.addEventListener('touchstart', (e) => { e.preventDefault(); isPropelling = true; });
+    propelBtn.addEventListener('touchend', (e) => { e.preventDefault(); isPropelling = false; });
 
-        let drain = (depth < 2000) ? 0.035 : Math.min(0.11, 0.035 + (Math.floor((depth-2000)/500)*0.02));
-        if(currentSubSkin === 2) drain *= 0.8;
-        oxygen -= drain;
-        document.getElementById('oxyFill').style.width = oxygen + "%";
-        if(oxygen < 25 && frame % 120 === 0) playSfx('beep');
-        if(oxygen <= 0) { gameActive = false; document.getElementById('msgHeader').innerText = "OUT OF OXYGEN!"; playSfx('crash'); showGameOver(); return; }
+    actionBtn.addEventListener('click', () => {
+      init();
+      playing = true;
+      uiOverlay.classList.add('hidden');
+      loop();
+    });
 
-        if (isTouching) sub.vy += sub.accelDown; else sub.vy -= sub.accelUp;
-        sub.vy *= sub.friction; sub.y += sub.vy;
-
-        let targetAngle = sub.vy * 0.08;
-        sub.angle += (targetAngle - sub.angle) * 0.08;
-
-        if (sub.y < 0) { sub.y = 0; sub.vy = 0; }
-        if (sub.y > canvas.height - sub.h) { sub.y = canvas.height - sub.h; sub.vy = 0; }
-
-        if (frame % 150 === 0) { ambientLife.push({ x: canvas.width + 250, y: Math.random() * (canvas.height - 100) + 50, type: ['jelly', 'fish'][Math.floor(Math.random() * 2)], speed: Math.random() * 1.5 + 0.5, size: 80 }); }
-        ambientLife.forEach((al, i) => { al.x -= (gameSpeed * 0.6 + al.speed); if (al.x < -400) ambientLife.splice(i, 1); });
-
-        if (frame % 140 === 0) {
-            let h = Math.min(120 + (depth / 10), canvas.height * 0.45);
-            obstacles.push({ x: canvas.width + 250, y: Math.random()>0.5?0:canvas.height-h, w: 130, h: h, type: Math.random()>0.5?'top':'bot', missed: false });
-        }
-        obstacles.forEach((o, i) => {
-            o.x -= gameSpeed;
-            let sH = { left: sub.x + 35, right: sub.x + sub.w - 35, top: sub.y + 18, bottom: sub.y + sub.h - 18 };
-            let rH = { left: o.x + 30, right: o.x + o.w - 30, top: o.y + 20, bottom: o.y + o.h - 20 };
-            
-            if (sH.right > rH.left && sH.left < rH.right && sH.bottom > rH.top && sH.top < rH.bottom) {
-                if(hasShield) { 
-                    hasShield = false; 
-                    obstacles.splice(i, 1); 
-                    floatTexts.push({ x: sub.x, y: sub.y, text: "SHIELD USED!", color: "#fff", o: 1, speed: 2 });
-                } else { gameActive = false; playSfx('crash'); showGameOver(); }
-            }
-            if (o.x < -300) obstacles.splice(i, 1);
-        });
-        
-        if (frame % 100 === 0) coins.push({ x: canvas.width + 150, y: Math.random()*(canvas.height-200)+100, s: 45 });
-        coins.forEach((c, i) => {
-            c.x -= gameSpeed;
-            if (Math.sqrt(Math.pow((sub.x+sub.w/2)-(c.x+c.s/2), 2) + Math.pow((sub.y+sub.h/2)-(c.y+c.s/2), 2)) < 65) {
-                coinsCollected++; totalCoins++; oxygen = Math.min(100, oxygen + 25);
-                document.getElementById('coinCount').innerText = coinsCollected; 
-                document.getElementById('liveAJ').innerText = (coinsCollected * 0.01).toFixed(3);
-                playSfx('coin');
-                floatTexts.push({ x: c.x, y: c.y, text: "O2 REFILL", color: "#ffd700", o: 1, isPulse: true, speed: 1 });
-                coins.splice(i, 1);
-            }
-        });
-        floatTexts.forEach((ft, i) => { ft.y -= ft.speed; ft.o -= 0.02; if (ft.o <= 0) floatTexts.splice(i, 1); });
+    function gameOver() {
+      playing = false;
+      uiOverlay.classList.remove('hidden');
+      menuTitle.textContent = "Hull Breached!";
+      menuDesc.textContent = `Reached ${score}m deep (+${(score * 0.010).toFixed(2)} Coins)`;
+      actionBtn.textContent = "Dive Again";
+      sendScoreToPortal(score);
     }
 
-    function showGameOver() { 
-        if(window.AJ_SDK) window.AJ_SDK.showAd();
-        document.getElementById('gameOver').classList.add('active-screen'); 
-        document.getElementById('pauseBtn').style.display = 'none'; 
-        document.getElementById('finalScore').innerText = coinsCollected; 
-        document.getElementById('finalDepth').innerText = depth; 
-        document.getElementById('finalAJ').innerText = (coinsCollected * 0.01).toFixed(3);
-        if(depth > bestDepth) { bestDepth = depth; localStorage.setItem('aj_sub_depth', bestDepth); } 
-        localStorage.setItem('aj_sub_coins', totalCoins); 
-        syncWithPortal();
-        sounds.bg.pause(); 
+    function spawnObstacle() {
+      const topHeight = 50 + Math.random() * (canvas.height / 2.5);
+      const gap = 110 + Math.random() * 30;
+      obstacles.push({
+        x: canvas.width,
+        topHeight: topHeight,
+        bottomHeight: canvas.height - topHeight - gap,
+        width: 35,
+        passed: false
+      });
     }
 
-    function draw() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        if(!assets.bg.complete) return;
-        let imgW = assets.bg.width; let scrollX = Math.floor(bgX % (imgW * 2));
-        let hue = 210;
-        if (depth > 1000 && depth < 3000) hue = 210 + (depth - 1000) * 0.035;
-        else if (depth >= 3000) hue = Math.max(160, 280 - (depth - 3000) * 0.05);
-        ctx.fillStyle = `hsl(${hue}, 80%, 10%)`; ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-        ctx.save();
-        ctx.drawImage(assets.bg, scrollX, 0, imgW + 1, canvas.height);
-        ctx.drawImage(assets.bg, scrollX + (imgW * 2), 0, imgW + 1, canvas.height);
-        ctx.translate(scrollX + imgW, 0); ctx.scale(-1, 1);
-        ctx.drawImage(assets.bg, -imgW, 0, imgW + 1, canvas.height);
-        ctx.drawImage(assets.bg, imgW, 0, imgW + 1, canvas.height);
-        ctx.restore();
+    function loop() {
+      if (!playing) return;
 
-        [scrollX, scrollX + imgW, scrollX + (imgW * 2)].forEach(sx => { ctx.save(); ctx.filter = 'blur(25px)'; ctx.globalAlpha = 0.7; ctx.drawImage(assets.bg, sx - 40, 0, 80, canvas.height, sx - 40, 0, 80, canvas.height); ctx.restore(); });
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw active background water sparkles
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.03)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Submarine physics
+      if (isPropelling) {
+        sub.velocity += sub.lift;
+      } else {
+        sub.velocity += sub.gravity;
+      }
+      
+      sub.y += sub.velocity;
+
+      // Restrict boundaries
+      if (sub.y < 0) { sub.y = 0; sub.velocity = 0; }
+      if (sub.y > canvas.height - sub.height) {
+        gameOver();
+        return;
+      }
+
+      // Draw Submarine
+      ctx.fillStyle = '#e0f2fe';
+      ctx.shadowColor = '#38bdf8';
+      ctx.shadowBlur = 12;
+      // Main Body
+      ctx.fillRect(sub.x, sub.y, sub.width, sub.height);
+      // Scope
+      ctx.fillRect(sub.x + 20, sub.y - 8, 6, 8);
+      ctx.fillRect(sub.x + 26, sub.y - 8, 8, 3);
+      // Propeller spinner animation
+      ctx.fillStyle = '#fb7185';
+      ctx.fillRect(sub.x - 8, sub.y + 6, 8, 12);
+
+      // Spawn obstacles
+      obstacleTimer++;
+      if (obstacleTimer > 110) {
+        spawnObstacle();
+        obstacleTimer = 0;
+      }
+
+      // Obstacles
+      for (let i = obstacles.length - 1; i >= 0; i--) {
+        let obs = obstacles[i];
+        obs.x -= speed;
+
+        ctx.fillStyle = '#fb7185';
+        ctx.shadowColor = '#fb7185';
+        ctx.shadowBlur = 10;
         
-        ctx.save(); ctx.globalCompositeOperation = 'lighter';
-        for(let i=0; i<3; i++) {
-            let drift = Math.sin(waveTimer + i) * 60; let rayX = (i * canvas.width/2.2) + drift;
-            let rg = ctx.createLinearGradient(rayX, 0, rayX - 120, canvas.height);
-            rg.addColorStop(0, 'rgba(255, 255, 255, 0.05)'); rg.addColorStop(1, 'transparent');
-            ctx.fillStyle = rg; ctx.beginPath(); ctx.moveTo(rayX, 0); ctx.lineTo(rayX + 120, 0); ctx.lineTo(rayX - 150, canvas.height); ctx.lineTo(rayX - 400, canvas.height); ctx.fill();
+        // Top block
+        ctx.fillRect(obs.x, 0, obs.width, obs.topHeight);
+        // Bottom block
+        ctx.fillRect(obs.x, canvas.height - obs.bottomHeight, obs.width, obs.bottomHeight);
+
+        // Crash check
+        if (
+          sub.x < obs.x + obs.width &&
+          sub.x + sub.width > obs.x &&
+          (sub.y < obs.topHeight || sub.y + sub.height > canvas.height - obs.bottomHeight)
+        ) {
+          gameOver();
+          return;
         }
-        ctx.restore();
 
-        ctx.save(); ctx.globalCompositeOperation = 'screen';
-        ambientLife.forEach(al => { ctx.save(); ctx.globalAlpha = 0.5; let img = assets[al.type]; if(img && img.complete) ctx.drawImage(img, al.x, al.y, al.size * (img.width/img.height), al.size); ctx.restore(); });
-        ctx.save();
-        ctx.translate(sub.x + sub.w/2, sub.y + sub.h/2);
-        ctx.rotate(sub.angle);
-        if(currentSubSkin === 1) ctx.filter = "hue-rotate(150deg)";
-        if(currentSubSkin === 2) ctx.filter = "grayscale(1) brightness(1.5)";
-        if(assets.sub.complete) ctx.drawImage(assets.sub, -sub.w/2, -sub.h/2, sub.w, sub.h);
-        ctx.globalCompositeOperation = 'lighter';
-        let lg = ctx.createRadialGradient(sub.w/2, 0, 0, sub.w/2, 0, 400);
-        lg.addColorStop(0, 'rgba(0, 242, 255, 0.2)'); lg.addColorStop(1, 'transparent');
-        ctx.fillStyle = lg; ctx.beginPath();
-        ctx.moveTo(sub.w/2, 0); ctx.lineTo(sub.w/2+400, -150); ctx.lineTo(sub.w/2+400, 150); ctx.fill();
-        ctx.restore(); ctx.restore();
+        if (obs.x + obs.width < sub.x && !obs.passed) {
+          obs.passed = true;
+          score += 10;
+          scoreVal.textContent = score;
+          if (score % 60 === 0) speed += 0.5;
+        }
 
-        obstacles.forEach(o => {
-            let img = o.type === 'top' ? assets.rockTop : assets.rockBot;
-            if(img.complete) ctx.drawImage(img, o.x, o.y, o.w, o.h);
-        });
-        coins.forEach(c => { if(assets.coin.complete) ctx.drawImage(assets.coin, c.x, c.y, c.s, c.s); });
-        floatTexts.forEach(ft => {
-            ctx.save(); ctx.globalAlpha = ft.o;
-            if(ft.isPulse) { ctx.strokeStyle = "#ffd700"; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(ft.x, ft.y, (1 - ft.o) * 100, 0, Math.PI * 2); ctx.stroke(); }
-            ctx.fillStyle = ft.color; ctx.font = "bold 18px Orbitron"; ctx.fillText(ft.text, ft.x, ft.y);
-            ctx.restore();
-        });
-        let vig = ctx.createRadialGradient(canvas.width/2, canvas.height/2, canvas.width*0.2, canvas.width/2, canvas.height/2, canvas.width*0.8);
-        vig.addColorStop(0, "rgba(0, 10, 30, 0)"); vig.addColorStop(1, "rgba(0, 5, 15, 0.85)");
-        ctx.fillStyle = vig; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        if (obs.x < -40) {
+          obstacles.splice(i, 1);
+        }
+      }
+
+      ctx.shadowBlur = 0;
+      requestAnimationFrame(loop);
     }
-    function loop() { if (gameActive || isPaused) { if(!isPaused) update(); draw(); animationId = requestAnimationFrame(loop); } }
-    updateCoinDisplays();
-</script>
+  </script>
 </body>
 </html>
