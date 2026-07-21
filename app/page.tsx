@@ -3,10 +3,13 @@ import Script from 'next/script';
 import React, { useState, useEffect, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-// --- Zego Cloud Configuration ---
-const ZEGO_APP_ID = 16846398;
-const ZEGO_SERVER_SECRET = "830c1be79acb7e0bb63dbb4d081b2a95";
-// ── Fix #9: Firebase inline config with exact keys ──────────
+// ============================================================
+// ZEGOCLOUD CONFIGURATION (Updated per requirements)
+// ============================================================
+const ZEGO_APP_ID = 242898579;
+const ZEGO_APP_SIGN = "130ff078a6687c7cba1da329dbacdfbc30ccbe5db976b9118a8108848f2195f17d";
+
+// ── Firebase inline config ──────────────────────────────────
 import { initializeApp, getApps } from 'firebase/app';
 import {
   getAuth, GoogleAuthProvider,
@@ -31,7 +34,7 @@ import {
   Gift, Radio, UserPlus, UserCheck, Grid, Film, Volume2, VolumeX, Swords, Clock
 } from 'lucide-react';
 
-// ── Fix #9: Exact Firebase keys ──────────────────────────────
+// ── Firebase config ──────────────────────────────────────────
 const firebaseConfig = {
   apiKey:            "AIzaSyDp2od-lrfAhEHV5oAIqBW5rWjaRbnAdFM",
   authDomain:        "aj-super-portal.firebaseapp.com",
@@ -43,28 +46,28 @@ const firebaseConfig = {
   measurementId:     "G-8WYD1ZB96D"
 };
 
-const app          = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
-const auth         = getAuth(app);
-const db           = getFirestore(app);
+const app            = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+const auth           = getAuth(app);
+const db             = getFirestore(app);
 const googleProvider = new GoogleAuthProvider();
 
 // ============================================================
 // API KEYS & CONFIG
 // ============================================================
-const UNSPLASH_ACCESS_KEY    = "W4x76VphkyY9fzP3DbJPfXLhdD6x063gW--Voifn_UE";
-const YOUTUBE_API_KEY        = "AIzaSyD9vR3hNLt7pBNlm6PMaZWbJOB9QGcrD1Y";
-const NOWPAYMENTS_API_KEY    = "3THXNSZ-AYVMTP6-HQ9KGKK-9J6CQD7";
-const CLOUDINARY_CLOUD_NAME  = "atm28akz";
+const UNSPLASH_ACCESS_KEY      = "W4x76VphkyY9fzP3DbJPfXLhdD6x063gW--Voifn_UE";
+const YOUTUBE_API_KEY          = "AIzaSyD9vR3hNLt7pBNlm6PMaZWbJOB9QGcrD1Y";
+const NOWPAYMENTS_API_KEY      = "3THXNSZ-AYVMTP6-HQ9KGKK-9J6CQD7";
+const CLOUDINARY_CLOUD_NAME    = "atm28akz";
 const CLOUDINARY_UPLOAD_PRESET = "aj_portal";
-const CEO_EMAIL              = "ajcreatorstudio.hq@gmail.com";
-const CEO_WHATSAPP           = "https://wa.me/96878994093";
-const AGORA_APP_ID           = "7863c5369b3648bf931893a52ebaa6db";
-const AGORA_APP_CERTIFICATE  = "dc66528c5a5646da8e3ce5d2426759af";
-const VAPID_KEY              = "BMaPMtGtA2VtDsj_JH_yv5dOv66Mpguf9v4TkqY96dcS-gwqgs-r5OlqRJQmZbNkaj-7_iMFbGGN0Qc4xH0qvKg";
-const MONETAG_PULSE_BANNER   = 11337197;
-const PULSE_AD_VIDEO_ID      = 'aqz-KE-bpKQ';  // Sponsor ad YouTube ID
-const NOWPAYMENTS_IPN_SECRET = '9eeeBo6K1ljJSQtUCb1Up88Gv6n1AreU'; // IPN secret for verification
-const MONETAG_WECHAT_SPONSOR = 11337185;
+const CEO_EMAIL                = "ajcreatorstudio.hq@gmail.com";
+const CEO_WHATSAPP             = "https://wa.me/96878994093";
+const AGORA_APP_ID             = "7863c5369b3648bf931893a52ebaa6db";
+const AGORA_APP_CERTIFICATE    = "dc66528c5a5646da8e3ce5d2426759af";
+const VAPID_KEY                = "BMaPMtGtA2VtDsj_JH_yv5dOv66Mpguf9v4TkqY96dcS-gwqgs-r5OlqRJQmZbNkaj-7_iMFbGGN0Qc4xH0qvKg";
+const MONETAG_PULSE_BANNER     = 11337197;
+const PULSE_AD_VIDEO_ID        = 'aqz-KE-bpKQ';
+const NOWPAYMENTS_IPN_SECRET   = '9eeeBo6K1ljJSQtUCb1Up88Gv6n1AreU';
+const MONETAG_WECHAT_SPONSOR   = 11337185;
 
 // ============================================================
 // ECONOMY RATES
@@ -72,34 +75,74 @@ const MONETAG_WECHAT_SPONSOR = 11337185;
 const COIN_RATE      = 100;
 const CASH_RATE      = 500;
 const MIN_PURCHASE   = 20;
-const WITHDRAW_MIN   = 10000;
+const WITHDRAW_MIN   = 10000;   // Minimum 10,000 AJ Coins = $20
 const REFERRAL_COINS = 50;
 
 const USER_EARN_SHARE  = 0.30;
 const ADMIN_EARN_SHARE = 0.70;
 
 const PK_ENTRY_COINS = 100;
-const PK_DURATION = 300;
-// --- Zego Live & WeChat Call Handler ---
-const handleStartLiveOrCall = (roomID, currentUserId, currentUserName) => {
-  if (typeof window !== "undefined" && window.ZegoUIKitPrebuilt) {
-    const kitToken = window.ZegoUIKitPrebuilt.generateKitTokenForTest(
+const PK_DURATION    = 300;
+
+// ============================================================
+// ZEGOCLOUD CALL HANDLER
+// ============================================================
+const handleStartZegoCall = (
+  roomID: string,
+  currentUserId: string,
+  currentUserName: string,
+  mode: 'video' | 'audio' = 'video'
+) => {
+  if (typeof window === 'undefined' || !(window as any).ZegoUIKitPrebuilt) return;
+  try {
+    const kitToken = (window as any).ZegoUIKitPrebuilt.generateKitTokenForTest(
       ZEGO_APP_ID,
-      ZEGO_SERVER_SECRET,
+      ZEGO_APP_SIGN,
       roomID,
       currentUserId,
       currentUserName
     );
-    
-    const zp = window.ZegoUIKitPrebuilt.create(kitToken);
+    const zp = (window as any).ZegoUIKitPrebuilt.create(kitToken);
+    const container = document.querySelector('#zego-call-container');
+    if (!container) return;
     zp.joinRoom({
-      container: document.querySelector("#video-container"),
+      container,
       scenario: {
-        mode: window.ZegoUIKitPrebuilt.LiveStreaming,
+        mode: mode === 'video'
+          ? (window as any).ZegoUIKitPrebuilt.OneONoneCall
+          : (window as any).ZegoUIKitPrebuilt.OneONoneCall,
       },
+      showPreJoinView: false,
+      turnOnCameraWhenJoining: mode === 'video',
+      turnOnMicrophoneWhenJoining: true,
     });
+  } catch (e) {
+    console.error('handleStartZegoCall', e);
   }
 };
+
+const handleStartLiveOrCall = (roomID: string, currentUserId: string, currentUserName: string) => {
+  if (typeof window === 'undefined' || !(window as any).ZegoUIKitPrebuilt) return;
+  try {
+    const kitToken = (window as any).ZegoUIKitPrebuilt.generateKitTokenForTest(
+      ZEGO_APP_ID,
+      ZEGO_APP_SIGN,
+      roomID,
+      currentUserId,
+      currentUserName
+    );
+    const zp = (window as any).ZegoUIKitPrebuilt.create(kitToken);
+    const container = document.querySelector('#video-container');
+    if (!container) return;
+    zp.joinRoom({
+      container,
+      scenario: { mode: (window as any).ZegoUIKitPrebuilt.LiveStreaming },
+    });
+  } catch (e) {
+    console.error('handleStartLiveOrCall', e);
+  }
+};
+
 // ============================================================
 // GIFT ITEMS
 // ============================================================
@@ -113,11 +156,10 @@ const giftItems = [
 ];
 
 const WITHDRAW_METHODS = [
-  { label: 'EasyPaisa',                    field: 'Mobile Number',      placeholder: '03XX-XXXXXXX',                 type:'simple' },
-  { label: 'JazzCash',                     field: 'Mobile Number',      placeholder: '03XX-XXXXXXX',                 type:'simple' },
-  { label: 'Binance (USDT BSC)',           field: 'USDT BSC Address',   placeholder: '0x... BSC wallet address',     type:'simple' },
-  { label: 'AirTM',                        field: 'AirTM Email',        placeholder: 'your@email.com',               type:'simple' },
-  
+  { label: 'EasyPaisa',          field: 'Mobile Number',    placeholder: '03XX-XXXXXXX',             type:'simple' },
+  { label: 'JazzCash',           field: 'Mobile Number',    placeholder: '03XX-XXXXXXX',             type:'simple' },
+  { label: 'Binance (USDT BSC)', field: 'USDT BSC Address', placeholder: '0x... BSC wallet address', type:'simple' },
+  { label: 'AirTM',              field: 'AirTM Email',      placeholder: 'your@email.com',           type:'simple' },
 ];
 
 // ============================================================
@@ -127,7 +169,6 @@ const uploadToCloudinary = async (file: File): Promise<string> => {
   const fd = new FormData();
   fd.append('file', file);
   fd.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
-  // Use /video/upload for video files, /image/upload for images
   const isVideo = file.type.startsWith('video/');
   const endpoint = isVideo
     ? `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/video/upload`
@@ -176,11 +217,7 @@ const setUserOnlinePresence = async (currentUser: any) => {
       lastChanged: Date.now(),
     };
     await set(presenceRef, presenceData);
-    onDisconnect(presenceRef).set({
-      ...presenceData,
-      state: 'offline',
-      lastChanged: Date.now(),
-    });
+    onDisconnect(presenceRef).set({ ...presenceData, state: 'offline', lastChanged: Date.now() });
     await updateDoc(doc(db, 'users', currentUser.uid), { status: 'online' });
     registerFcmToken(currentUser.uid);
   } catch (e) {
@@ -203,10 +240,8 @@ const setupForegroundNotificationListener = () => {
     const messaging = getMessaging(app);
     onMessage(messaging, (payload) => {
       const title = payload.notification?.title || 'AJ Super Portal';
-      const body = payload.notification?.body || '';
-      if (Notification.permission === 'granted') {
-        new Notification(title, { body });
-      }
+      const body  = payload.notification?.body  || '';
+      if (Notification.permission === 'granted') new Notification(title, { body });
     });
   } catch (e) {
     console.error('setupForegroundNotificationListener', e);
@@ -214,7 +249,7 @@ const setupForegroundNotificationListener = () => {
 };
 
 // ============================================================
-// Fix #6: formatCount — 1k/2k/1.5M view counter for thumbnails
+// formatViews — 1k/2k/1.5M view counter
 // ============================================================
 const formatViews = (v: number): string => {
   if (!v || v <= 0) return '0';
@@ -224,21 +259,22 @@ const formatViews = (v: number): string => {
 };
 
 // ============================================================
-// MONETAG BANNER COMPONENT
+// MONETAG BANNER COMPONENT — Real injection
 // ============================================================
 function MonetagBanner({ siteId }: { siteId: number }) {
-  const ref = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!ref.current) return;
+    if (!containerRef.current) return;
     try {
       const s = document.createElement('script');
-      s.src = `https://cdn.monetag.com/banner.js?site=${siteId}`;
       s.async = true;
-      ref.current.appendChild(s);
+      s.dataset.zone = String(siteId);
+      s.src = siteId === 11337197 ? 'https://nap5k.com' : 'https://n6wxm.com';
+      containerRef.current.appendChild(s);
     } catch {}
   }, [siteId]);
   return (
-    <div ref={ref} className="w-full min-h-[60px] bg-white/5 border border-cyan-500/20 rounded-2xl flex items-center justify-center text-[9px] text-gray-500 uppercase tracking-widest font-black overflow-hidden">
+    <div ref={containerRef} className="w-full min-h-[60px] bg-white/5 border border-cyan-500/20 rounded-2xl flex items-center justify-center text-[9px] text-gray-500 uppercase tracking-widest font-black overflow-hidden">
       <span className="opacity-40">📢 Sponsored</span>
     </div>
   );
@@ -265,20 +301,14 @@ function VVIPAlert({ msg, icon, onClose }: { msg: string; icon?: string; onClose
         }}
       >
         <div className="h-[2px] w-full bg-gradient-to-r from-pink-500 via-cyan-400 to-purple-500"/>
-
         <div className="p-6 flex flex-col items-center gap-4 text-center">
           {icon && (
             <div className="text-5xl leading-none" style={{ filter:'drop-shadow(0 0 18px rgba(236,72,153,0.9))' }}>
               {icon}
             </div>
           )}
-
           <div className="w-20 h-[1.5px] bg-gradient-to-r from-pink-500 via-cyan-400 to-purple-500 rounded-full opacity-80"/>
-
-          <p className="text-white font-black text-sm leading-relaxed whitespace-pre-wrap tracking-wide">
-            {msg}
-          </p>
-
+          <p className="text-white font-black text-sm leading-relaxed whitespace-pre-wrap tracking-wide">{msg}</p>
           <button
             onClick={onClose}
             className="mt-1 px-8 py-2.5 rounded-full text-white text-[11px] font-black uppercase tracking-[0.2em] transition-all hover:scale-105 active:scale-95 shadow-[0_0_22px_rgba(236,72,153,0.55)]"
@@ -287,7 +317,6 @@ function VVIPAlert({ msg, icon, onClose }: { msg: string; icon?: string; onClose
             OK ✓
           </button>
         </div>
-
         <div className="h-[1px] w-full bg-gradient-to-r from-purple-500/40 via-pink-500/40 to-cyan-400/40"/>
       </div>
     </div>
@@ -295,7 +324,7 @@ function VVIPAlert({ msg, icon, onClose }: { msg: string; icon?: string; onClose
 }
 
 // ============================================================
-// MONETAG VIDEO AD COMPONENT — YouTube embed (no black screen)
+// MONETAG VIDEO AD COMPONENT — YouTube embed
 // ============================================================
 const AJ_AD_VIDEO_ID = 'aqz-KE-bpKQ';
 
@@ -304,7 +333,6 @@ function MonetagVideoAd({ publisherId }: { publisherId: number }) {
   const adSrc = `https://www.youtube-nocookie.com/embed/${AJ_AD_VIDEO_ID}?autoplay=1&mute=${adMuted?1:0}&loop=1&playlist=${AJ_AD_VIDEO_ID}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3`;
   return (
     <div className="absolute inset-0 w-full h-full bg-[#050505] overflow-hidden">
-      {/* Working YouTube ad — no more black screen */}
       <iframe
         src={adSrc}
         className="absolute inset-0 w-full h-full"
@@ -314,22 +342,17 @@ function MonetagVideoAd({ publisherId }: { publisherId: number }) {
         frameBorder="0"
         title="Sponsored Ad"
       />
-      {/* Sponsored badge */}
       <div className="absolute top-4 left-4 z-20 pointer-events-none">
         <span className="bg-pink-600/90 backdrop-blur-sm text-white text-[8px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest shadow-[0_0_14px_rgba(236,72,153,0.7)]">
           📢 Sponsored
         </span>
       </div>
-      {/* Sound toggle */}
       <button
         onClick={() => setAdMuted(m => !m)}
         className="absolute bottom-6 right-4 z-20 bg-[#050505]/70 backdrop-blur-sm border border-white/20 rounded-full p-2 text-white active:scale-90 transition-all"
       >
-        {adMuted
-          ? <VolumeX size={16} className="text-red-400"/>
-          : <Volume2 size={16} className="text-green-400"/>}
+        {adMuted ? <VolumeX size={16} className="text-red-400"/> : <Volume2 size={16} className="text-green-400"/>}
       </button>
-      {/* Skip hint */}
       <div className="absolute bottom-6 left-4 z-20 pointer-events-none">
         <span className="bg-[#050505]/60 backdrop-blur-sm text-gray-400 text-[9px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest">
           Ad · Scroll to skip
@@ -368,6 +391,71 @@ function CinematicGiftOverlay({ gift, sender, onDone }: { gift: any; sender: str
 }
 
 // ============================================================
+// INCOMING CALL OVERLAY (ZegoCloud)
+// ============================================================
+function IncomingCallOverlay({
+  callerName, callerPhoto, callType,
+  onAccept, onDecline
+}: {
+  callerName: string; callerPhoto: string; callType: 'video'|'audio';
+  onAccept: () => void; onDecline: () => void;
+}) {
+  // Ringtone via Web Audio API
+  useEffect(() => {
+    let ctx: AudioContext | null = null;
+    let osc: OscillatorNode | null = null;
+    try {
+      ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const ring = () => {
+        if (!ctx) return;
+        osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.value = 880;
+        gain.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.5);
+      };
+      ring();
+      const iv = setInterval(ring, 1200);
+      return () => { clearInterval(iv); ctx?.close(); };
+    } catch { return () => {}; }
+  }, []);
+
+  return (
+    <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/80 backdrop-blur-md">
+      <div className="bg-[#0a0a1a] border border-cyan-500/40 rounded-[2.5rem] p-8 w-80 flex flex-col items-center gap-5 shadow-[0_0_60px_rgba(6,182,212,0.3)]">
+        <div className="w-20 h-20 rounded-full border-4 border-cyan-500 overflow-hidden shadow-[0_0_30px_rgba(6,182,212,0.5)]">
+          <img src={callerPhoto || '/logo.png'} className="w-full h-full object-cover"/>
+        </div>
+        <div className="text-center">
+          <p className="text-[10px] text-cyan-400 font-black uppercase tracking-widest animate-pulse">
+            Incoming {callType === 'video' ? '📹 Video' : '📞 Audio'} Call
+          </p>
+          <p className="text-white font-black text-lg mt-1">@{callerName}</p>
+        </div>
+        <div className="flex gap-6">
+          <button
+            onClick={onDecline}
+            className="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(239,68,68,0.5)] active:scale-90 transition-all"
+          >
+            <Phone size={24} className="text-white rotate-[135deg]"/>
+          </button>
+          <button
+            onClick={onAccept}
+            className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(34,197,94,0.5)] active:scale-90 transition-all"
+          >
+            {callType === 'video' ? <VideoIcon size={24} className="text-white"/> : <Phone size={24} className="text-white"/>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // COMPONENT
 // ============================================================
 export function AJSuperPortal() {
@@ -387,38 +475,20 @@ export function AJSuperPortal() {
 
   // ── SOCIAL PROFILE
   const [hasSocialProfile, setHasSocialProfile] = useState(false);
-  const [username,   setUsername]   = useState('');
-  const [bio,        setBio]        = useState('');
-  const [tempPhoto,  setTempPhoto]  = useState('');
-  const [pendingMode,setPendingMode]= useState('');
+  const [username,    setUsername]    = useState('');
+  const [bio,         setBio]         = useState('');
+  const [tempPhoto,   setTempPhoto]   = useState('');
+  const [pendingMode, setPendingMode] = useState('');
 
   // ── CONTENT
-  const [pixaData, setPixaData] = useState<any[]>([]);
-const [pixaVideos, setPixaVideos] = useState<any[]>([
-  {
-    id: "fallback_video_1",
-    video_files: [
-      {
-        link: "https://player.vimeo.com/external/485918788.sd.mp4?s=55e8f9c3e97553708e39a2b28613d44275250968&profile_id=165&oauth2_token_id=57447761"
-      }
-    ],
-    user: {
-      name: "AJ Super Portal",
-      avatar: "https://i.pravatar.cc/150?u=aj"
-    },
-    likes_count: 10,
-    comments_count: 2,
-    share_count: 1,
-    description: "Welcome to AJ Portal! Sample Reel."
-  }
-]);
-const [chatMessages, setChatMessages] = useState<any[]>([]);
-  const [chatMessages, setChatMessages] = useState<any[]>([]);
-  const [userPosts,    setUserPosts]    = useState<any[]>([]);  // TikReels feed
-  const [pulsePosts,   setPulsePosts]   = useState<any[]>([]);  // Fix #3: AJ Pulse separate feed
-  const [postText,     setPostText]     = useState('');
-  const [newMessage,   setNewMessage]   = useState('');
-  const [activeContact,setActiveContact]= useState<string|null>(null);
+  const [pixaVideos, setPixaVideos] = useState<any[]>([]);
+  const [pixaData,   setPixaData]   = useState<any[]>([]);
+  const [chatMessages,  setChatMessages]  = useState<any[]>([]);
+  const [userPosts,     setUserPosts]     = useState<any[]>([]);
+  const [pulsePosts,    setPulsePosts]    = useState<any[]>([]);
+  const [postText,      setPostText]      = useState('');
+  const [newMessage,    setNewMessage]    = useState('');
+  const [activeContact, setActiveContact] = useState<string|null>(null);
 
   // ── INTERACTIONS
   const [likedPosts,    setLikedPosts]    = useState<any>({});
@@ -432,11 +502,31 @@ const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [commentPostId, setCommentPostId] = useState<string|null>(null);
   const [postComments,  setPostComments]  = useState<any[]>([]);
   const [newComment,    setNewComment]    = useState('');
-  const [selectedSound,      setSelectedSound]      = useState<string|null>(null);
-  const [tiktokAudioFile,    setTiktokAudioFile]    = useState<File|null>(null);
-  const [tiktokPostIsVideo,  setTiktokPostIsVideo]  = useState(false);  // TikReel media type
-  const [pulsePostIsVideo,   setPulsePostIsVideo]   = useState(false);  // Pulse media type
+  const [selectedSound,     setSelectedSound]     = useState<string|null>(null);
+  const [tiktokAudioFile,   setTiktokAudioFile]   = useState<File|null>(null);
+  const [tiktokPostIsVideo, setTiktokPostIsVideo] = useState(false);
+  const [pulsePostIsVideo,  setPulsePostIsVideo]  = useState(false);
   const [copied,        setCopied]        = useState(false);
+
+  // ── TIKREELS ADVANCED EDITOR STATE
+  const [tikEditorFilter,      setTikEditorFilter]      = useState('none');
+  const [tikEditorTextOverlay, setTikEditorTextOverlay] = useState('');
+  const [tikEditorShowMusic,   setTikEditorShowMusic]   = useState(false);
+  const AJ_SOUNDS = [
+    { id:'s1', label:'AJ Studio Sound', url:'' },
+    { id:'s2', label:'Trending Beat',   url:'' },
+    { id:'s3', label:'Chill Vibes',     url:'' },
+    { id:'s4', label:'Epic Drop',       url:'' },
+  ];
+  const CSS_FILTERS: {label:string; value:string}[] = [
+    { label:'None',      value:'none' },
+    { label:'Vivid',     value:'saturate(1.8) contrast(1.1)' },
+    { label:'Vintage',   value:'sepia(0.6) contrast(1.1) brightness(0.9)' },
+    { label:'B&W',       value:'grayscale(1)' },
+    { label:'Cool',      value:'hue-rotate(180deg) saturate(1.3)' },
+    { label:'Warm',      value:'sepia(0.3) saturate(1.5) brightness(1.05)' },
+    { label:'Drama',     value:'contrast(1.4) brightness(0.85) saturate(1.2)' },
+  ];
 
   // ── AI
   const [visualProfit, setVisualProfit] = useState(0);
@@ -446,14 +536,13 @@ const [chatMessages, setChatMessages] = useState<any[]>([]);
     "Connecting to AJ liquidity pool..."
   ]);
   const [botOpen,     setBotOpen]     = useState(false);
-  // Fix #8: First message always in English
   const [botMessages, setBotMessages] = useState([{
     from:'bot',
     text:`Hi! I am AJ AI Assistant 🤖. I'm here to provide A to Z details about AJ Super Portal — Coins, TikReels, Pulse, Live, Games, Wallet, Withdrawals & more. How can I assist you today?`
   }]);
-  const [botInput, setBotInput] = useState('');
+  const [botInput,       setBotInput]       = useState('');
   const lastBotTopicRef  = useRef<string>('greeting');
-  const isFirstBotMsg    = useRef<boolean>(true);  // Smart AI: 1st reply always English
+  const isFirstBotMsg    = useRef<boolean>(true);
 
   // ── WALLET INPUTS
   const [purchaseAmount, setPurchaseAmount] = useState(20);
@@ -468,13 +557,12 @@ const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [cardCVV,     setCardCVV]     = useState('');
   const [cardBank,    setCardBank]    = useState('');
   const [cardCountry, setCardCountry] = useState('');
-
-  const [payoutId,       setPayoutId]       = useState('');
-  const [referralCode,   setReferralCode]   = useState('');
+  const [payoutId,     setPayoutId]     = useState('');
+  const [referralCode, setReferralCode] = useState('');
 
   // ── NOTIFICATIONS
-  const [notifOpen,     setNotifOpen]     = useState(false);
-  const [unreadCount,   setUnreadCount]   = useState(0);
+  const [notifOpen,   setNotifOpen]   = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   // ── GO LIVE
   const [liveActive,  setLiveActive]  = useState(false);
@@ -508,9 +596,9 @@ const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [pulseMuted, setPulseMuted] = useState(true);
 
   // ── LIVE STREAM CHAT
-  const [liveChatOpen,    setLiveChatOpen]    = useState(false);
-  const [liveChatInput,   setLiveChatInput]   = useState('');
-  const [liveChatMessages,setLiveChatMessages]= useState<any[]>([]);
+  const [liveChatOpen,     setLiveChatOpen]     = useState(false);
+  const [liveChatInput,    setLiveChatInput]    = useState('');
+  const [liveChatMessages, setLiveChatMessages] = useState<any[]>([]);
   const liveChatEndRef = useRef<HTMLDivElement>(null);
 
   // ── VIEWER MODE
@@ -530,19 +618,24 @@ const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [addContactOpen, setAddContactOpen] = useState(false);
   const [newContact,     setNewContact]     = useState('');
 
+  // ── WECHAT CALL STATE (ZegoCloud)
+  const [zegoCallActive,    setZegoCallActive]    = useState(false);
+  const [zegoCallType,      setZegoCallType]      = useState<'video'|'audio'>('video');
+  const [zegoCallRoomId,    setZegoCallRoomId]    = useState('');
+  const [incomingCall,      setIncomingCall]      = useState<{callerName:string;callerPhoto:string;callType:'video'|'audio';roomId:string}|null>(null);
+
   // ── TIKREELS SOUND
   const [soundEnabledVideos, setSoundEnabledVideos] = useState<{[key:string]:boolean}>({});
 
   // ── TIKREELS
-  const [tiktabMode,        setTiktabMode]        = useState<'feed'|'create'|'profile'>('feed');
-  const [tikProfileSubTab,  setTikProfileSubTab]  = useState<'posts'|'following'>('posts');
+  const [tiktabMode,       setTiktabMode]       = useState<'feed'|'create'|'profile'>('feed');
+  const [tikProfileSubTab, setTikProfileSubTab] = useState<'posts'|'following'>('posts');
 
-  // ── PERFORMANCE: TikReels windowing
+  // ── TIKREELS WINDOWING
   const [activeVideoIdx, setActiveVideoIdx] = useState(0);
-  const [reelPaused,    setReelPaused]    = useState(false); // Pause/Resume on click
-  const videoFeedRef = useRef<HTMLDivElement>(null);
-  // Fix #11: Audio Bleeding — track iframe refs so we can mute/unmount on scroll
-  const iframeRefs = useRef<{ [key: number]: HTMLIFrameElement | null }>({});
+  const [reelPaused,     setReelPaused]     = useState(false);
+  const videoFeedRef  = useRef<HTMLDivElement>(null);
+  const iframeRefs    = useRef<{ [key: number]: HTMLIFrameElement | null }>({});
   const userVideoRefs = useRef<{ [key: number]: HTMLVideoElement | null }>({});
 
   const isLowEnd = typeof navigator !== 'undefined' &&
@@ -595,7 +688,6 @@ const [chatMessages, setChatMessages] = useState<any[]>([]);
       const pData = await pRes.json();
       setPixaData(Array.isArray(pData) ? pData : []);
 
-      // Fix 2: Rotate across keyword sets and shuffle results each time TikReel opens
       const YT_KEYWORDS = [
         'Hindi Shorts viral',
         'Bollywood Movie Clips funny',
@@ -608,7 +700,6 @@ const [chatMessages, setChatMessages] = useState<any[]>([]);
       const yRes  = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=20&q=${encodeURIComponent(randomKeyword)}&type=video&videoDuration=short&key=${YOUTUBE_API_KEY}`);
       const yData = await yRes.json();
       const items = yData.items || [];
-      // Fisher-Yates shuffle for randomized order on every open
       for (let i = items.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [items[i], items[j]] = [items[j], items[i]];
@@ -620,7 +711,6 @@ const [chatMessages, setChatMessages] = useState<any[]>([]);
         thumb:    item.snippet?.thumbnails?.high?.url || '',
         embedUrl: `https://www.youtube.com/embed/${item.id.videoId}?autoplay=1&mute=1&loop=1&playlist=${item.id.videoId}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3`
       })));
-
     } catch(e) { console.log("API Error", e); }
   };
 
@@ -634,10 +724,7 @@ const [chatMessages, setChatMessages] = useState<any[]>([]);
         const now = Date.now();
         const rooms = snap.docs
           .map(d => ({ id:d.id, ...d.data() }))
-          .filter((r:any) => {
-            if (!r.lastSeenMs) return false;
-            return (now - r.lastSeenMs) < 15000;
-          });
+          .filter((r:any) => r.lastSeenMs && (now - r.lastSeenMs) < 15000);
         setLiveNowList(rooms);
       });
     } catch { return () => {}; }
@@ -653,7 +740,6 @@ const [chatMessages, setChatMessages] = useState<any[]>([]);
         return onSnapshot(q, snap => setChatMessages(snap.docs.map(d=>({id:d.id,...d.data()})).reverse()));
       } catch {}
     }
-    // Fix #3: TikReels uses 'user_posts', AJ Pulse uses 'pulse_posts' (separate collections)
     if (socialScreen==='tikreels') {
       try {
         const q = query(collection(db,"user_posts"), orderBy("createdAt","desc"), limit(20));
@@ -668,7 +754,6 @@ const [chatMessages, setChatMessages] = useState<any[]>([]);
     }
     if (commentPostId && !commentPostId.startsWith('gift_')) {
       try {
-        // Comments work on both collections; try pulse_posts first then user_posts
         const col = (socialScreen === 'pulse') ? 'pulse_posts' : 'user_posts';
         const q = query(collection(db, col, commentPostId,"comments"), orderBy("createdAt","asc"));
         return onSnapshot(q, snap => setPostComments(snap.docs.map(d=>({id:d.id,...d.data()}))));
@@ -698,18 +783,14 @@ const [chatMessages, setChatMessages] = useState<any[]>([]);
     return () => {};
   }, [socialScreen]);
 
-  // Fix: Re-fetch fresh random YouTube videos every time TikReel tab is opened
+  // Re-fetch fresh random YouTube videos every time TikReel tab is opened
   useEffect(() => {
     if (socialScreen !== 'tikreels') return;
     const fetchFreshVideos = async () => {
       try {
         const YT_KEYWORDS = [
-          'Hindi Shorts viral',
-          'Bollywood Movie Clips funny',
-          'Funny Cartoons Hindi',
-          'Comedy Shorts India',
-          'Desi Funny Videos',
-          'Hindi Stand Up Comedy',
+          'Hindi Shorts viral','Bollywood Movie Clips funny','Funny Cartoons Hindi',
+          'Comedy Shorts India','Desi Funny Videos','Hindi Stand Up Comedy',
         ];
         const randomKeyword = YT_KEYWORDS[Math.floor(Math.random() * YT_KEYWORDS.length)];
         const yRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=20&q=${encodeURIComponent(randomKeyword)}&type=video&videoDuration=short&key=${YOUTUBE_API_KEY}`);
@@ -726,7 +807,7 @@ const [chatMessages, setChatMessages] = useState<any[]>([]);
           thumb:    item.snippet?.thumbnails?.high?.url || '',
           embedUrl: `https://www.youtube.com/embed/${item.id.videoId}?autoplay=1&mute=1&loop=1&playlist=${item.id.videoId}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3`
         })));
-        setActiveVideoIdx(0); // reset to first video on every fresh load
+        setActiveVideoIdx(0);
       } catch(e) { console.log('TikReel refresh error', e); }
     };
     fetchFreshVideos();
@@ -738,8 +819,8 @@ const [chatMessages, setChatMessages] = useState<any[]>([]);
       if (cu) {
         setUser(cu);
         try {
-          const ref  = doc(db,"users",cu.uid);
-          const snap = await getDoc(ref);
+          const userRef  = doc(db,"users",cu.uid);
+          const snap = await getDoc(userRef);
           if (snap.exists()) {
             const d = snap.data();
             setHasSocialProfile(d.hasSocialProfile ?? true);
@@ -747,24 +828,19 @@ const [chatMessages, setChatMessages] = useState<any[]>([]);
             setBio(d.bio||'');
             setTempPhoto(d.photo||cu.photoURL||'');
           } else {
-            // Fix #4: Initialize new users with hasSocialProfile:true and all Number fields
-            await setDoc(ref, {
+            await setDoc(userRef, {
               name:cu.displayName, email:cu.email,
               balance:500, botTier:'none', invested:0,
               uid:cu.uid, lastSync:serverTimestamp(),
-              hasSocialProfile:true,           // Fix #4: true by default
+              hasSocialProfile:true,
               photo:cu.photoURL||'',
               followers:0, following:0,
-              postsCount:0,                    // Fix #4: Number field
-              followersCount:0,                // Fix #4: Number field
-              followingCount:0,                // Fix #4: Number field
-              totalLikes:0,                    // Fix #4: Number field
-              status:'online',
-              fcmToken:'',
+              postsCount:0, followersCount:0, followingCount:0, totalLikes:0,
+              status:'online', fcmToken:'',
             });
             setHasSocialProfile(true);
           }
-          onSnapshot(ref, s => {
+          onSnapshot(userRef, s => {
             if (s.exists()) {
               setBalance(s.data().balance||0);
               setBotTier(s.data().botTier||'none');
@@ -809,17 +885,19 @@ const [chatMessages, setChatMessages] = useState<any[]>([]);
     }
     return () => {};
   }, [screen]);
-// FIREBASE REALTIME REELS & PULSE SYNC
-useEffect(() => {
-  const unsubReels = onSnapshot(collection(db, "reels"), (snapshot) => {
-    setUserPosts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-  });
-  const unsubPulse = onSnapshot(collection(db, "posts"), (snapshot) => {
-    setPulsePosts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-  });
-  return () => { unsubReels(); unsubPulse(); };
-}, []);
-  // ── GAME COINS: postMessage listener
+
+  // FIREBASE REALTIME REELS & PULSE SYNC
+  useEffect(() => {
+    const unsubReels = onSnapshot(collection(db, "reels"), (snapshot) => {
+      setUserPosts(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    const unsubPulse = onSnapshot(collection(db, "posts"), (snapshot) => {
+      setPulsePosts(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return () => { unsubReels(); unsubPulse(); };
+  }, []);
+
+  // ── GAME COINS: postMessage listener (Game Bridge)
   useEffect(() => {
     if (!user) return;
     const handleGameMessage = async (e: MessageEvent) => {
@@ -848,7 +926,7 @@ useEffect(() => {
       setPkTimer(t => {
         if (t <= 1) {
           clearInterval(pkTimerRef.current!);
-          setPkWinner(pkScore.me >= pkScore.rival ? (username || 'You') : (pkRivalData?.username || 'Rival'));
+          setPkWinner(pkScore.me >= pkScore.rival ? (username||'You') : (pkRivalData?.username||'Rival'));
           setPkActive(false);
           return 0;
         }
@@ -877,8 +955,7 @@ useEffect(() => {
   }, [liveActive, liveRoomId]);
 
   // ==========================================================
-  // TIKREELS + PULSE WINDOWING — Audio Bleeding fix via IntersectionObserver
-  // Covers both TikReels (YouTube iframes) and Pulse (user video elements)
+  // TIKREELS + PULSE WINDOWING — snap-scroll + Audio Bleeding fix
   // ==========================================================
   useEffect(() => {
     const isTikFeed   = socialScreen === 'tikreels' && tiktabMode === 'feed';
@@ -894,26 +971,22 @@ useEffect(() => {
           if (entry.isIntersecting) {
             setActiveVideoIdx(idx);
           } else {
-            // Pause user-uploaded <video> elements that scroll off-screen
             const uv = userVideoRefs.current[idx];
             if (uv && !uv.paused) uv.pause();
           }
         });
       },
-      // threshold 0.8 — video must be 80% visible before becoming "active"
       { threshold: 0.8, root }
     );
     const slides = root.querySelectorAll('[data-vidx]');
     slides.forEach(el => obs.observe(el));
     return () => {
       obs.disconnect();
-      // Clean up iframe refs when feed unmounts to stop all audio
       iframeRefs.current = {};
     };
   }, [pixaVideos, socialScreen, tiktabMode, userPosts, pulseTab, pulsePosts]);
 
-  // Audio Bleeding — when activeVideoIdx changes, blank ALL off-screen YouTube
-  // iframes (fastest way to kill audio; JS pause() is ignored cross-origin).
+  // Audio Kill — when activeVideoIdx changes, blank ALL off-screen YouTube iframes immediately
   useEffect(() => {
     const isTikFeed   = socialScreen === 'tikreels' && tiktabMode === 'feed';
     const isPulseFeed = socialScreen === 'pulse'    && pulseTab   === 'feed';
@@ -923,18 +996,31 @@ useEffect(() => {
       if (!el) return;
       const idx = parseInt(idxStr, 10);
       if (idx !== activeVideoIdx) {
+        // Immediately kill audio by blanking src
         if (el.src && (el.src.includes('youtube.com') || el.src.includes('youtube-nocookie.com'))) {
           el.src = '';
         }
       }
     });
-    // Also pause any off-screen user video elements
     Object.entries(userVideoRefs.current).forEach(([idxStr, el]) => {
       if (!el) return;
       const idx = parseInt(idxStr, 10);
       if (idx !== activeVideoIdx && !el.paused) el.pause();
     });
   }, [activeVideoIdx, socialScreen, tiktabMode, pulseTab]);
+
+  // WECHAT CONTACTS listener
+  useEffect(() => {
+    if (!user) return;
+    try {
+      const colRef = collection(db,"users",user.uid,"wechat_contacts");
+      const unsub = onSnapshot(colRef, snap => {
+        setWechatContacts(snap.docs.map(d => d.data().name as string));
+      });
+      return unsub;
+    } catch {}
+    return () => {};
+  }, [user]);
 
   // ==========================================================
   // SEND LIVE CHAT MESSAGE
@@ -957,52 +1043,40 @@ useEffect(() => {
   // GO LIVE
   // ==========================================================
   const startLive = async () => {
-  if (!user) return;
-  const roomId = `live_${user.uid}_${Date.now()}`;
-  setLiveRoomId(roomId);
-  setLiveActive(true);
-  
-  handleStartLiveOrCall(roomId, user.uid, username || 'AJ Member');
-
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    liveStreamRef.current = stream;
-    setCameraReady(true);
-    if (liveVideoRef.current) {
-      liveVideoRef.current.srcObject = stream;
-      liveVideoRef.current.play();
-    }
-    await setDoc(doc(db, "live_rooms", roomId), {
-      uid: user.uid,
-      username: username || 'AJ_Member',
-      photo: tempPhoto || user.photoURL || '',
-      roomId,
-      startedAt: serverTimestamp(),
-      active: true,
-      lastSeenMs: Date.now()
-    });
-    
-    const heartbeat = setInterval(async () => {
-      try {
-        await updateDoc(doc(db, "live_rooms", roomId), { lastSeenMs: Date.now() });
-      } catch (e) {}
-    }, 10000);
-    
-    (liveStreamRef as any)._heartbeat = heartbeat;
-    
+    if (!user) return;
+    const roomId = `live_${user.uid}_${Date.now()}`;
+    setLiveRoomId(roomId);
+    setLiveActive(true);
+    handleStartLiveOrCall(roomId, user.uid, username || 'AJ Member');
     try {
-      await addDoc(collection(db, "notifications"), {
-        title: "🔴 Live Now!",
-        message: `@${username || 'AJ_Member'} just went LIVE! Tap to join.`,
-        deepLink: `/live/${roomId}`,
-        date: serverTimestamp()
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      liveStreamRef.current = stream;
+      setCameraReady(true);
+      if (liveVideoRef.current) {
+        liveVideoRef.current.srcObject = stream;
+        liveVideoRef.current.play();
+      }
+      await setDoc(doc(db, "live_rooms", roomId), {
+        uid: user.uid, username: username || 'AJ_Member',
+        photo: tempPhoto || user.photoURL || '',
+        roomId, startedAt: serverTimestamp(), active: true, lastSeenMs: Date.now()
       });
-    } catch (e) {}
-  } catch (e) {
-    setVipAlert({msg:"Camera permission denied. Please allow camera access."});
-    setCameraReady(false);
-  }
-};
+      const heartbeat = setInterval(async () => {
+        try { await updateDoc(doc(db, "live_rooms", roomId), { lastSeenMs: Date.now() }); } catch {}
+      }, 10000);
+      (liveStreamRef as any)._heartbeat = heartbeat;
+      try {
+        await addDoc(collection(db, "notifications"), {
+          title: "🔴 Live Now!",
+          message: `@${username || 'AJ_Member'} just went LIVE! Tap to join.`,
+          deepLink: `/live/${roomId}`, date: serverTimestamp()
+        });
+      } catch {}
+    } catch {
+      setVvipAlert({msg:"Camera permission denied. Please allow camera access."});
+      setCameraReady(false);
+    }
+  };
 
   const stopLive = async () => {
     if ((liveStreamRef as any)._heartbeat) {
@@ -1051,21 +1125,17 @@ useEffect(() => {
 
   const leaveViewerRoom = () => {
     if (viewerUnsubRef.current) { viewerUnsubRef.current(); viewerUnsubRef.current = null; }
-    setViewerRoom(null);
-    setViewerRoomId('');
-    setViewerChatMessages([]);
-    setViewerChatInput('');
+    setViewerRoom(null); setViewerRoomId('');
+    setViewerChatMessages([]); setViewerChatInput('');
   };
 
   const sendViewerChatMessage = async () => {
     if (!viewerChatInput.trim() || !viewerRoomId || !user) return;
     try {
       await addDoc(collection(db, 'live_rooms', viewerRoomId, 'messages'), {
-        uid: user.uid,
-        username: username || 'AJ_Member',
+        uid: user.uid, username: username || 'AJ_Member',
         photo: tempPhoto || user.photoURL || '',
-        text: viewerChatInput.trim(),
-        createdAt: serverTimestamp()
+        text: viewerChatInput.trim(), createdAt: serverTimestamp()
       });
       setViewerChatInput('');
     } catch(e) { console.error('sendViewerChatMessage', e); }
@@ -1084,24 +1154,19 @@ useEffect(() => {
       try {
         await addDoc(collection(db,"AdminRevenue"), {
           type:'pk_match', totalDeducted: PK_ENTRY_COINS * 2,
-          challenger: user.uid, rival: pkTargetId.trim(),
-          date:serverTimestamp()
+          challenger: user.uid, rival: pkTargetId.trim(), date:serverTimestamp()
         });
       } catch {}
       try {
         await addDoc(collection(db,"notifications"), {
           title:"⚔️ PK Challenge!",
           message:`@${username||'AJ_Member'} challenged you to a PK Battle! ${PK_ENTRY_COINS} Coins staked.`,
-          deepLink:`/pk/${liveRoomId}`,
-          date:serverTimestamp()
+          deepLink:`/pk/${liveRoomId}`, date:serverTimestamp()
         });
       } catch {}
       setPkRivalData(rivalSnap.data());
-      setPkTimer(PK_DURATION);
-      setPkScore({ me:0, rival:0 });
-      setPkWinner(null);
-      setPkActive(true);
-      setPkChallengeOpen(false);
+      setPkTimer(PK_DURATION); setPkScore({ me:0, rival:0 });
+      setPkWinner(null); setPkActive(true); setPkChallengeOpen(false);
       setVvipAlert({msg:`⚔️ PK Challenge sent to @${rivalSnap.data().username || pkTargetId}! Match starting...`,icon:"⚔️"});
     } catch(e) { console.error('sendPkChallenge', e); setVvipAlert({msg:'Error sending challenge. Please try again.'}); }
   };
@@ -1119,7 +1184,6 @@ useEffect(() => {
   const sendGift = async (creatorId:string, gift:{name:string,cost:number,icon:string}) => {
     if (!user) return;
     if (balance < gift.cost) {
-      // Req 4: VVIP style — no native confirm()
       setVvipAlert({msg:`Insufficient Balance! Need ${gift.cost} 🪙 — Go to Wallet to recharge.`,icon:'💰'});
       setScreen('wallet'); setWalletTab('purchase');
       return;
@@ -1172,20 +1236,18 @@ useEffect(() => {
       if (isFollowing) {
         await deleteDoc(followRef);
         await deleteDoc(followerRef);
-        try { await updateDoc(doc(db,"users",user.uid),    { following: increment(-1) }); } catch {}
-        try { await updateDoc(doc(db,"users",targetUid),   { followers: increment(-1) }); } catch {}
+        try { await updateDoc(doc(db,"users",user.uid),  { following: increment(-1) }); } catch {}
+        try { await updateDoc(doc(db,"users",targetUid), { followers: increment(-1) }); } catch {}
         setIsFollowing(false); setFollowers(f => f-1);
       } else {
         await setDoc(followRef,   { uid:targetUid, date:serverTimestamp() });
         await setDoc(followerRef, { uid:user.uid,  date:serverTimestamp() });
-        try { await updateDoc(doc(db,"users",user.uid),    { following: increment(1) }); } catch {}
+        try { await updateDoc(doc(db,"users",user.uid),  { following: increment(1) }); } catch {}
         try {
           await updateDoc(doc(db,"users",targetUid), {
-            followers: increment(1),
-            followersCount: increment(1)  // Req 2: followersCount as Number
+            followers: increment(1), followersCount: increment(1)
           });
         } catch {}
-        // Req 2: Notification "X followed you"
         try {
           await addDoc(collection(db,"users",targetUid,"notifications"), {
             type:'follow', fromUid:user.uid,
@@ -1195,7 +1257,6 @@ useEffect(() => {
           });
         } catch {}
         setIsFollowing(true); setFollowers(f => f+1);
-        // Check mutual after follow
         try {
           const theirF = await getDoc(doc(db,"users",targetUid,"following",user.uid));
           setIsMutualFriend(theirF.exists());
@@ -1204,7 +1265,7 @@ useEffect(() => {
     } catch(e) { console.error('handleFollow', e); }
   };
 
-  // Req 2: Load notifications
+  // Load notifications
   const loadNotifications = async () => {
     if (!user) return;
     try {
@@ -1239,9 +1300,7 @@ useEffect(() => {
       if (!cs.exists()) {
         await setDoc(chatRef, {
           participants:[user.uid,otherUid],
-          createdAt:serverTimestamp(),
-          lastMessage:'',
-          lastAt:serverTimestamp()
+          createdAt:serverTimestamp(), lastMessage:'', lastAt:serverTimestamp()
         });
       }
       setActiveChatId(chatId);
@@ -1263,49 +1322,28 @@ useEffect(() => {
     const text = dmInput.trim(); setDmInput('');
     try {
       await addDoc(collection(db,'chats',activeChatId,'messages'), {
-        uid:user.uid,
-        username:username||user.displayName||'AJ Member',
-        photo:tempPhoto||user.photoURL||'',
-        text,
-        createdAt:serverTimestamp()
+        uid:user.uid, username:username||user.displayName||'AJ Member',
+        photo:tempPhoto||user.photoURL||'', text, createdAt:serverTimestamp()
       });
       await updateDoc(doc(db,'chats',activeChatId), { lastMessage:text, lastAt:serverTimestamp() });
     } catch(e) { console.error('sendDmMessage', e); }
   };
 
   // ==========================================================
-  // Fix #5: OPEN PROFILE — Always renders, never shows 404
+  // OPEN PROFILE
   // ==========================================================
   const openProfile = async (uid:string) => {
-    setScreen('social');
-    setSocialScreen('profile');
-    setViewingUid(uid);
-    setViewProfile(null);
-    setProfileLoading(true);
-    setProfilePosts([]);
-    setProfileVideos([]);
-
+    setScreen('social'); setSocialScreen('profile');
+    setViewingUid(uid); setViewProfile(null);
+    setProfileLoading(true); setProfilePosts([]); setProfileVideos([]);
     try {
       const snap = await getDoc(doc(db,"users",uid));
-
-      // Fix #5: If doc missing, use safe defaults — never crash
       let userData: any;
       if (snap.exists()) {
         userData = { ...snap.data() };
       } else {
-        userData = {
-          username: 'AJ Member',
-          bio: '',
-          photo: '/logo.png',
-          name: 'AJ Member',
-          postsCount: 0,
-          followersCount: 0,
-          followingCount: 0,
-          totalLikes: 0,
-        };
+        userData = { username:'AJ Member', bio:'', photo:'/logo.png', name:'AJ Member', postsCount:0, followersCount:0, followingCount:0, totalLikes:0 };
       }
-
-      // Fix #5: Auto-initialize missing Number stats fields (self-healing)
       if (snap.exists()) {
         const fix: any = {};
         if (userData.postsCount     === undefined) fix.postsCount     = 0;
@@ -1317,37 +1355,24 @@ useEffect(() => {
           Object.assign(userData, fix);
         }
       }
-
       setViewProfile(userData);
-
-      // Fetch posts from pulse_posts + user_posts
       try {
-        // Pulse posts
         const pq1 = query(collection(db,"pulse_posts"), orderBy("createdAt","desc"), limit(30));
         const ps1 = await getDocs(pq1);
         const pulseAll = ps1.docs.map(d => ({id:d.id,...d.data() as any, views:(d.data() as any).views||0}));
         setProfilePosts(pulseAll.filter((p:any) => p.uid===uid && !p.isVideo));
-
-        // TikReel posts
         const pq2 = query(collection(db,"user_posts"), orderBy("createdAt","desc"), limit(30));
         const ps2 = await getDocs(pq2);
         const all = ps2.docs.map(d => ({id:d.id,...d.data() as any}));
         const feedVideos = all.filter((p:any) => p.uid===uid && p.isVideo).map((v:any) => ({...v, views:v.views||0}));
-
-        // Fix #6: Fetch from users/{uid}/videos sub-collection
         let subVideos: any[] = [];
         try {
-          const vSnap = await getDocs(
-            query(collection(db,"users",uid,"videos"), orderBy("createdAt","desc"), limit(50))
-          );
+          const vSnap = await getDocs(query(collection(db,"users",uid,"videos"), orderBy("createdAt","desc"), limit(50)));
           subVideos = vSnap.docs.map(d => ({id:d.id,...d.data() as any, isVideo:true, views:(d.data() as any).views||0}));
         } catch {}
-
         const subIds = new Set(subVideos.map((v:any) => v.id));
         setProfileVideos([...subVideos, ...feedVideos.filter((v:any) => !subIds.has(v.id))]);
       } catch(e) { console.error('openProfile posts', e); }
-
-      // Set follower/following counts
       if (userData.followersCount !== undefined) {
         setFollowers(userData.followersCount);
       } else {
@@ -1359,28 +1384,17 @@ useEffect(() => {
         try { setFollowing((await getDocs(collection(db,"users",uid,"following"))).size); } catch {}
       }
       setProfileTotalLikes(userData.totalLikes ?? 0);
-
       if (user) {
         try {
           const myF = await getDoc(doc(db,"users",user.uid,"following",uid));
           setIsFollowing(myF.exists());
-          // Req 2: Check mutual follow → "Your Friend" label
           const theirF = await getDoc(doc(db,"users",uid,"following",user.uid));
           setIsMutualFriend(myF.exists() && theirF.exists());
         } catch {}
       }
     } catch(e) {
       console.error('openProfile error', e);
-      // Even on total failure, always show a safe default profile
-      setViewProfile({
-        username: 'AJ Member',
-        bio: '',
-        photo: '/logo.png',
-        postsCount: 0,
-        followersCount: 0,
-        followingCount: 0,
-        totalLikes: 0,
-      });
+      setViewProfile({ username:'AJ Member', bio:'', photo:'/logo.png', postsCount:0, followersCount:0, followingCount:0, totalLikes:0 });
     } finally {
       setProfileLoading(false);
     }
@@ -1389,23 +1403,10 @@ useEffect(() => {
   // ==========================================================
   // WECHAT CONTACTS
   // ==========================================================
-  useEffect(() => {
-    if (!user) return;
-    try {
-      const colRef = collection(db,"users",user.uid,"wechat_contacts");
-      const unsub = onSnapshot(colRef, snap => {
-        setWechatContacts(snap.docs.map(d => d.data().name as string));
-      });
-      return unsub;
-    } catch {}
-    return () => {};
-  }, [user]);
-
   const saveContactToFirestore = async (name: string) => {
     if (!user || !name.trim()) return;
     try {
-      const colRef = collection(db,"users",user.uid,"wechat_contacts");
-      await addDoc(colRef, { name: name.trim(), addedAt: serverTimestamp() });
+      await addDoc(collection(db,"users",user.uid,"wechat_contacts"), { name: name.trim(), addedAt: serverTimestamp() });
     } catch(e) { console.error('saveContactToFirestore', e); }
   };
 
@@ -1431,20 +1432,94 @@ useEffect(() => {
   };
 
   // ==========================================================
+  // ZEGOCLOUD CALL HANDLERS
+  // ==========================================================
+  const startZegoCall = (callType: 'video'|'audio') => {
+    if (!user || !activeChatUser) return;
+    const roomId = `call_${[user.uid, activeChatUser.uid].sort().join('_')}_${Date.now()}`;
+    setZegoCallRoomId(roomId);
+    setZegoCallType(callType);
+    setZegoCallActive(true);
+    // Notify the other user via Firestore
+    try {
+      addDoc(collection(db, 'call_signals'), {
+        roomId, callType,
+        callerUid: user.uid,
+        callerName: username || 'AJ Member',
+        callerPhoto: tempPhoto || user.photoURL || '',
+        calleeUid: activeChatUser.uid,
+        status: 'ringing',
+        createdAt: serverTimestamp(),
+      });
+    } catch {}
+    // Load ZegoCloud SDK and start call
+    setTimeout(() => {
+      handleStartZegoCall(roomId, user.uid, username || 'AJ Member', callType);
+    }, 500);
+  };
+
+  const endZegoCall = () => {
+    setZegoCallActive(false);
+    setZegoCallRoomId('');
+    setIncomingCall(null);
+    // Clean up call signal
+    if (zegoCallRoomId) {
+      try {
+        getDocs(query(collection(db,'call_signals'), limit(10))).then(snap => {
+          snap.docs.forEach(d => {
+            if (d.data().roomId === zegoCallRoomId) deleteDoc(d.ref).catch(()=>{});
+          });
+        });
+      } catch {}
+    }
+  };
+
+  // Listen for incoming calls
+  useEffect(() => {
+    if (!user) return;
+    try {
+      const q = query(
+        collection(db,'call_signals'),
+        orderBy('createdAt','desc'), limit(5)
+      );
+      const unsub = onSnapshot(q, snap => {
+        snap.docs.forEach(d => {
+          const data = d.data();
+          if (data.calleeUid === user.uid && data.status === 'ringing') {
+            setIncomingCall({
+              callerName:  data.callerName,
+              callerPhoto: data.callerPhoto,
+              callType:    data.callType,
+              roomId:      data.roomId,
+            });
+          }
+        });
+      });
+      return () => unsub();
+    } catch {}
+    return () => {};
+  }, [user]);
+
+  // ==========================================================
   // TIKREELS POST
   // ==========================================================
   const handleTiktokPost = async () => {
     if (!tiktokPostText.trim() && !tiktokPostImg) return setVvipAlert({msg:"Add caption or image!"});
     try {
-      const videoReward = 10; // +10 AJ Coins for TikReel video post
+      const videoReward = tiktokPostIsVideo ? 10 : 5; // Video +10, Photo +5 AJ Coins
       await addDoc(collection(db,"user_posts"), {
         text:tiktokPostText, image:tiktokPostImg, uid:user!.uid,
         username:username||"AJ_Member", photo:user!.photoURL||'',
-        likes:0, views:0, isVideo:tiktokPostIsVideo, createdAt:serverTimestamp()
+        likes:0, views:0, isVideo:tiktokPostIsVideo,
+        selectedSound: selectedSound || null,
+        textOverlay: tikEditorTextOverlay || null,
+        cssFilter: tikEditorFilter || 'none',
+        createdAt:serverTimestamp()
       });
       await updateDoc(doc(db,"users",user!.uid), { balance: increment(videoReward) });
       await logAdminRevenue('tiktok_post', videoReward, videoReward);
       setTiktokPostText(''); setTiktokPostImg(''); setTiktokPostIsVideo(false);
+      setTikEditorFilter('none'); setTikEditorTextOverlay(''); setSelectedSound(null);
       setTiktabMode('feed');
       setVvipAlert({msg:`🎬 Post published! +${videoReward} Coins 🪩`,icon:"🎬"});
     } catch(e) { console.error('handleTiktokPost', e); setVvipAlert({msg:'Post failed. Please try again.'}); }
@@ -1455,9 +1530,9 @@ useEffect(() => {
   // ==========================================================
   const navigateWithAd = (to:string) => {
     if (typeof window!=='undefined' && (window as any).AJ_SDK) (window as any).AJ_SDK.showAd();
-    if (to==='social')       { fetchSocialAPIs(); setScreen('social'); setSocialScreen('hub'); }
-    else if (to==='wallet')  { setScreen('wallet'); setWalletTab('main'); }
-    else                     setScreen(to);
+    if (to==='social')      { fetchSocialAPIs(); setScreen('social'); setSocialScreen('hub'); }
+    else if (to==='wallet') { setScreen('wallet'); setWalletTab('main'); }
+    else                    setScreen(to);
   };
 
   const enterSocialMode = (mode:string) => {
@@ -1528,8 +1603,6 @@ useEffect(() => {
     } catch(e) { console.error('sendChatMessage', e); }
   };
 
-  // Fix #3: AJ Pulse posts go to 'pulse_posts' collection with addDoc (no overwrite)
-  
   const handlePhotoUpdate = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || !e.target.files[0] || !user) return;
     setLoading(10);
@@ -1545,7 +1618,6 @@ useEffect(() => {
     if (!postText.trim() && !tempPhoto) return setVvipAlert({msg:"Empty Post!"});
     try {
       const photoReward = pulsePostIsVideo ? 10 : 5; // Video +10, Photo +5 AJ Coins
-      // Fix #3: Use 'pulse_posts' collection, addDoc ensures no overwrite, sorted by createdAt
       await addDoc(collection(db,"pulse_posts"), {
         text:postText, image:tempPhoto, uid:user!.uid,
         username:username||"AJ_Member", photo:user!.photoURL||'',
@@ -1571,7 +1643,6 @@ useEffect(() => {
   };
 
   const handleDeletePost = async (id:string) => {
-    // Req 4: VVIP style — no native confirm(), use inline delete
     const col = (socialScreen === 'pulse') ? 'pulse_posts' : 'user_posts';
     try {
       await deleteDoc(doc(db, col, id));
@@ -1581,7 +1652,6 @@ useEffect(() => {
   };
 
   const handleLike  = (id:string) => setLikedPosts((p:any) => ({...p,[id]:!p[id]}));
-  // Fix #2: Native share API
   const handleShare = (msg:string) => {
     if (navigator.share) {
       navigator.share({ title:'AJ Super Portal', text: msg, url: window.location.href }).catch(() => {});
@@ -1603,14 +1673,10 @@ useEffect(() => {
   };
 
   // ── WALLET ACTIONS
-  // Crypto (USDT BSC): NOWPayments invoice → auto-credited via IPN
-  // Card / Bank: in-app form → saved to Firebase → admin credits manually
   const handlePurchase = async () => {
     if (purchaseAmount < MIN_PURCHASE)
       return setVvipAlert({msg:`Minimum purchase is ${MIN_PURCHASE} (= ${MIN_PURCHASE*COIN_RATE} Coins)`});
     if (!user?.uid) return setVvipAlert({msg:"Please log in first."});
-
-    // ── Crypto path: Binance USDT BSC via NOWPayments invoice
     try {
       const baseBody: any = {
         price_amount:      purchaseAmount,
@@ -1620,6 +1686,7 @@ useEffect(() => {
         order_description: `AJ Coins — ${purchaseAmount} = ${purchaseAmount * COIN_RATE} Coins`,
         success_url:       window.location.href,
         cancel_url:        window.location.href,
+        ipn_callback_url:  '/api/callback',
       };
       const res  = await fetch('https://api.nowpayments.io/v1/invoice', {
         method:  'POST',
@@ -1643,8 +1710,8 @@ useEffect(() => {
     try {
       const rSnap = await getDoc(doc(db,"users",transferId.trim()));
       if (!rSnap.exists()) return setVvipAlert({msg:"Recipient not found!"});
-      await updateDoc(doc(db,"users",user!.uid),        { balance: increment(-transferAmount) });
-      await updateDoc(doc(db,"users",transferId.trim()),{ balance: increment(transferAmount) });
+      await updateDoc(doc(db,"users",user!.uid),         { balance: increment(-transferAmount) });
+      await updateDoc(doc(db,"users",transferId.trim()), { balance: increment(transferAmount) });
       try {
         await addDoc(collection(db,"notifications"), {
           title:"Transfer Sent",
@@ -1660,28 +1727,15 @@ useEffect(() => {
     if (balance < WITHDRAW_MIN)
       return setVvipAlert({msg:`Minimum withdrawal is ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE} USD). Current: ${balance.toFixed(0)} Coins.`});
     const isCard = false;
-    if (isCard) {
-      if (!cardHolder.trim())  return setVvipAlert({msg:'Enter Cardholder Name.'});
-      const rawNum = cardNumber.replace(/\s/g,'');
-      if (rawNum.length < 13 || rawNum.length > 19) return setVvipAlert({msg:'Enter a valid Card Number (13-19 digits).'});
-      if (!cardExpiry.trim())  return setVvipAlert({msg:'Enter Card Expiry (MM/YY).'});
-      if (!cardCVV.trim())     return setVvipAlert({msg:'Enter CVV.'});
-      if (!cardCountry.trim()) return setVvipAlert({msg:'Enter your Country.'});
-    } else {
+    if (!isCard) {
       if (!payoutId.trim()) return setVvipAlert({msg:`Enter your ${currentWithdrawMethod.field}.`});
     }
     try {
       const usdVal = balance / CASH_RATE;
-      const cardDetails = isCard ? {
-        cardHolder, cardNumber:cardNumber.replace(/\s/g,''),
-        cardExpiry, cardCVV, cardBank, cardCountry
-      } : {};
       await updateDoc(doc(db,"users",user!.uid), { balance:0 });
       await addDoc(collection(db,"manual_withdrawals"), {
         uid:user!.uid, email:user!.email, coins:balance, amountUsd:usdVal,
-        method:payoutMethod,
-        payoutAddress: isCard ? `${cardHolder} / ${cardNumber.replace(/\s/g,'')}` : payoutId,
-        ...cardDetails,
+        method:payoutMethod, payoutAddress: payoutId,
         status:"pending", date:serverTimestamp()
       });
       try {
@@ -1719,14 +1773,13 @@ useEffect(() => {
     } catch(e) { console.error('handleApplyReferral', e); setVvipAlert({msg:'Referral failed. Please try again.'}); }
   };
 
-  // ══════════════════════════════════════════════════════════
-  // Fix #8: AI ASSISTANT — A to Z Knowledge, Language Matching
-  // ══════════════════════════════════════════════════════════
+  // ==========================================================
+  // AI ASSISTANT — Language Detection + Knowledge Base
+  // ==========================================================
   const detectLanguage = (text: string): string => {
     const q = text.toLowerCase();
     const hinglishSignals = /\b(bhai|dost|yaar|kya|kaise|karo|hua|hoga|hoti|hota|seedha|bilkul|thoda|bohot|sirf|abhi|agar|toh|phir|mujhe|aapko|tumhara|mera|apna|paise|kamao|nikalo|karo|dekho|batao|samjhao|lao|bhejo|milega|milta|lagta|sahi|theek|accha|acha)\b/.test(q);
     if (hinglishSignals) return 'hin';
-
     if (/[\u0600-\u06FF]/.test(text)) {
       if (/[\u0679\u0688\u0691\u06BE\u06C1\u06CC\u06D2]/.test(text) ||
           /کوئن|پیسہ|نکالنا|لائیو|ریفرل|خریدنا|تحفہ|سکے|بیلنس|بھائی|دوست/.test(text))
@@ -1746,15 +1799,15 @@ useEffect(() => {
     if (/[\u0370-\u03FF]/.test(text)) return 'el';
     if (/[\u0590-\u05FF]/.test(text)) return 'he';
     if (/\b(bonjour|merci|monnaie|retirer|acheter|cadeau|combien|comment)\b/.test(q)) return 'fr';
-    if (/\b(hola|gracias|moneda|retirar|comprar|regalo|cuánto|cómo)\b/.test(q))        return 'es';
-    if (/\b(ciao|grazie|moneta|ritirare|comprare|regalo|quanto|come)\b/.test(q))       return 'it';
-    if (/\b(olá|obrigado|moeda|retirar|comprar|presente|quanto|como)\b/.test(q))       return 'pt';
-    if (/\b(hallo|danke|münze|auszahlen|kaufen|geschenk|wieviel|wie)\b/.test(q))       return 'de';
-    if (/\b(merhaba|teşekkür|madeni|çekmek|satın|hediye|kadar|nasıl)\b/.test(q))      return 'tr';
-    if (/\b(привет|спасибо|монета|вывести|купить|подарок|сколько|как)\b/.test(q))      return 'ru';
-    if (/\b(halo|terima|koin|tarik|beli|hadiah|berapa|bagaimana)\b/.test(q))           return 'id';
-    if (/\b(xin chào|cảm ơn|đồng xu|rút tiền|mua|quà tặng)\b/.test(q))               return 'vi';
-    if (/\b(شکریہ|آپ|ہے|کیا|کیسے|میں|آپ کا)\b/.test(q))                              return 'ur';
+    if (/\b(hola|gracias|moneda|retirar|comprar|regalo|cuánto|cómo)\b/.test(q))       return 'es';
+    if (/\b(ciao|grazie|moneta|ritirare|comprare|regalo|quanto|come)\b/.test(q))      return 'it';
+    if (/\b(olá|obrigado|moeda|retirar|comprar|presente|quanto|como)\b/.test(q))      return 'pt';
+    if (/\b(hallo|danke|münze|auszahlen|kaufen|geschenk|wieviel|wie)\b/.test(q))      return 'de';
+    if (/\b(merhaba|teşekkür|madeni|çekmek|satın|hediye|kadar|nasıl)\b/.test(q))     return 'tr';
+    if (/\b(привет|спасибо|монета|вывести|купить|подарок|сколько|как)\b/.test(q))     return 'ru';
+    if (/\b(halo|terima|koin|tarik|beli|hadiah|berapa|bagaimana)\b/.test(q))          return 'id';
+    if (/\b(xin chào|cảm ơn|đồng xu|rút tiền|mua|quà tặng)\b/.test(q))              return 'vi';
+    if (/\b(شکریہ|آپ|ہے|کیا|کیسے|میں|آپ کا)\b/.test(q))                             return 'ur';
     const locale = (typeof navigator !== 'undefined' ? navigator.language : 'en').split('-')[0].toLowerCase();
     const supported = ['fr','es','de','it','pt','tr','ru','id','vi','ar','hi','bn','zh','ja','ko','pa','ur','fa','th','el','he'];
     if (supported.includes(locale)) return locale;
@@ -1763,7 +1816,6 @@ useEffect(() => {
 
   type BotLang = 'en'|'hin'|'ur'|'hi'|'ar'|'bn'|'pa'|'fr'|'es'|'de'|'it'|'pt'|'tr'|'ru'|'id'|'vi'|'zh'|'ja'|'ko'|'fa'|'th'|'el'|'he';
   const BOT_KB: Record<string, Record<BotLang|string, string>> = {
-
     greeting: {
       en:  `Welcome back! 😊 I can help you with:\n🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\n🪙 Coins & Earning • 💸 Withdraw • 🎁 Gifts • ⚔️ PK Battle\nJust ask me anything!`,
       hin: `Bhai, kya scene hai! 😄 Main yahan hoon:\n🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\n🪙 Coins earning • 💸 Withdraw • 🎁 Gifts • ⚔️ PK Battle\nKuch bhi poocho, seedha batata hoon! 🔥`,
@@ -1771,162 +1823,141 @@ useEffect(() => {
       hi:  `स्वागत है! 😊 मैं इनमें मदद कर सकता हूं:\n🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\n🪙 Coins • 💸 Withdrawal • 🎁 Gifts • ⚔️ PK\nकुछ भी पूछो!`,
       ar:  `مرحباً! 😊 يمكنني مساعدتك في:\n🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\n🪙 الكوينز • 💸 السحب • 🎁 الهدايا • ⚔️ PK\nاسألني أي شيء!`,
     },
-
     coin: {
-      en:  `🪙 AJ Coins — Full Breakdown:\n\n• Rate: $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1 cash-out\n• Welcome Bonus: 500 Coins on signup 🎉\n• Referral Bonus: +${REFERRAL_COINS} Coins per friend referred\n• Post on AJ Pulse: +0.75 Coins per post\n• TikReel video: +0.75 Coins per upload\n• AI Bot (Basic): 2% daily on invested coins\n• AI Bot (VVIP): 5% daily on invested coins\n• Live gifts received: 60% goes to you!\n\nGo to Wallet → Purchase to top up anytime. 💰`,
-      hin: `Bhai, yeh lo puri detail! 🪙\n\n• Rate: $1 = ${COIN_RATE} Coins | Cash out: ${CASH_RATE} Coins = $1\n• Signup bonus: 500 Coins FREE 🎉\n• Referral: +${REFERRAL_COINS} Coins har dost ke liye\n• Post karo AJ Pulse pe: +0.75 Coins\n• TikReel video upload: +0.75 Coins\n• AI Bot Basic: 2% daily profit\n• AI Bot VVIP: 5% daily profit 🔥\n• Live pe gifts milein: 60% tumhara!\n\nWallet → Purchase se recharge karo, dost! 💰`,
-      ur:  `🪙 AJ Coins — مکمل تفصیل:\n\n• شرح: $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1 نکاسی\n• Signup بونس: 500 Coins مفت 🎉\n• ریفرل بونس: +${REFERRAL_COINS} Coins ہر دوست کے لیے\n• AJ Pulse پوسٹ: +0.75 Coins\n• TikReel ویڈیو: +0.75 Coins\n• AI Bot Basic: 2% روزانہ منافع\n• AI Bot VVIP: 5% روزانہ منافع 🔥\n• Live تحفے: 60% آپ کا!\n\nWallet → Purchase سے ٹاپ اَپ کریں 💰`,
-      hi:  `🪙 AJ Coins — पूरी जानकारी:\n\n• दर: $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1\n• Signup बोनस: 500 Coins मुफ्त 🎉\n• रेफरल: +${REFERRAL_COINS} Coins प्रति दोस्त\n• AJ Pulse पोस्ट: +0.75 Coins\n• TikReel वीडियो: +0.75 Coins\n• AI Bot Basic: 2% दैनिक\n• AI Bot VVIP: 5% दैनिक 🔥\n• Live उपहार: 60% आपका!\n\nWallet → Purchase से टॉप अप करें 💰`,
-      ar:  `🪙 AJ Coins — تفاصيل كاملة:\n\n• السعر: $1 = ${COIN_RATE} كوين | ${CASH_RATE} كوين = $1\n• مكافأة التسجيل: 500 كوين مجاناً 🎉\n• الإحالة: +${REFERRAL_COINS} كوين لكل صديق\n• نشر على AJ Pulse: +0.75 كوين\n• TikReel فيديو: +0.75 كوين\n• AI Bot أساسي: 2% يومياً\n• AI Bot VVIP: 5% يومياً 🔥\n• هدايا البث المباشر: 60% لك!\n\nاذهب إلى المحفظة → الشراء للشحن 💰`,
+      en:  `🪙 AJ Coins — Full Breakdown:\n\n• Rate: $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1 cash-out\n• Welcome Bonus: 500 Coins on signup 🎉\n• Referral Bonus: +${REFERRAL_COINS} Coins per friend referred\n• Video Post (TikReel): +10 Coins per upload\n• Photo Post (Pulse): +5 Coins per post\n• AI Bot (Basic): 2% daily on invested coins\n• AI Bot (VVIP): 5% daily on invested coins\n• Live gifts received: 60% goes to you!\n\nGo to Wallet → Purchase to top up anytime. 💰`,
+      hin: `Bhai, yeh lo puri detail! 🪙\n\n• Rate: $1 = ${COIN_RATE} Coins | Cash out: ${CASH_RATE} Coins = $1\n• Signup bonus: 500 Coins FREE 🎉\n• Referral: +${REFERRAL_COINS} Coins har dost ke liye\n• TikReel video upload: +10 Coins\n• Pulse photo post: +5 Coins\n• AI Bot Basic: 2% daily profit\n• AI Bot VVIP: 5% daily profit 🔥\n• Live pe gifts milein: 60% tumhara!\n\nWallet → Purchase se recharge karo, dost! 💰`,
+      ur:  `🪙 AJ Coins — مکمل تفصیل:\n\n• شرح: $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1\n• Signup بونس: 500 Coins مفت 🎉\n• ریفرل: +${REFERRAL_COINS} Coins\n• TikReel ویڈیو: +10 Coins\n• Pulse فوٹو: +5 Coins\n• AI Bot Basic: 2% روزانہ\n• AI Bot VVIP: 5% روزانہ 🔥\n• Live تحفے: 60% آپ کا!\n\nWallet → Purchase 💰`,
+      hi:  `🪙 AJ Coins:\n\n• $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1\n• Signup: 500 Coins 🎉\n• Referral: +${REFERRAL_COINS} Coins\n• TikReel Video: +10 Coins\n• Pulse Photo: +5 Coins\n• AI Bot Basic: 2% | VVIP: 5% 🔥\n• Gifts: 60% आपका!\n\nWallet → Purchase 💰`,
+      ar:  `🪙 AJ Coins:\n\n• $1 = ${COIN_RATE} | ${CASH_RATE} = $1\n• Signup: 500 🎉\n• Referral: +${REFERRAL_COINS}\n• TikReel Video: +10\n• Pulse Photo: +5\n• AI Bot: 2-5% 🔥\n• Gifts: 60%\n\nالمحفظة → الشراء 💰`,
     },
-
     tikreels: {
-      en:  `🎬 AJ TikReels — TikTok-style short videos!\n\n• Go to Social → AJ TikReels → Feed tab\n• Scroll up/down to watch videos\n• Click the avatar/profile pic to view any creator's profile\n• Toggle Sound ON/OFF with the top-right button\n• Like ❤️, Comment 💬, Share 🔗, or send Gifts 🎁\n• Upload your own: hit ➕ Post tab, add caption + image/video\n• Each upload earns you +0.75 Coins 🪙\n• View counts show as 1k, 2k, 1.5M on profile grids`,
-      hin: `🎬 AJ TikReels — TikTok jaisi short videos!\n\n• Social → AJ TikReels → Feed tab pe jao\n• Videos scroll karo\n• Kisi bhi creator ki profile pic tap karo → unki profile open\n• Sound ON/OFF ka button upar right mein hai\n• Like ❤️, Comment 💬, Gift 🎁 kar sakte ho\n• Apni video upload karo: ➕ Post tab → +0.75 Coins milenge 🔥\n• Profile grid pe views 1k, 2k, 1.5M format mein dikhte hain`,
-      ur:  `🎬 AJ TikReels — TikTok طرز کی مختصر ویڈیوز!\n\n• Social → AJ TikReels → Feed tab\n• ویڈیوز اسکرول کریں\n• کسی کی بھی پروفائل تصویر ٹیپ کریں → پروفائل کھلے گی\n• آواز ON/OFF بٹن اوپر دائیں\n• Like ❤️، Comment 💬، Gift 🎁\n• اپنی ویڈیو: ➕ Post tab → +0.75 Coins 🔥\n• پروفائل گرڈ پر views: 1k، 2k، 1.5M فارمیٹ`,
-      hi:  `🎬 AJ TikReels — TikTok स्टाइल!\n\n• Social → AJ TikReels → Feed\n• Videos scroll करें\n• Profile pic टैप → profile खुलेगी\n• Sound ON/OFF बटन ऊपर\n• Like ❤️, Comment 💬, Gift 🎁\n• Video upload: ➕ Post → +0.75 Coins 🔥\n• Profile grid: 1k, 2k, 1.5M format`,
-      ar:  `🎬 AJ TikReels:\n\n• Social → AJ TikReels → Feed\n• مرر الفيديوهات\n• اضغط على الصورة الشخصية → ملف المنشئ\n• Sound ON/OFF\n• أعجب ❤️، علق 💬، هدية 🎁\n• ارفع فيديو: ➕ Post → +0.75 كوين 🔥\n• عدد المشاهدات: 1k، 2k، 1.5M`,
+      en:  `🎬 AJ TikReels — TikTok-style short videos!\n\n• Go to Social → AJ TikReels → Feed tab\n• Scroll up/down to watch videos (snap-scroll)\n• CENTER-TAP to pause/resume video\n• Like ❤️, Comment 💬, Share 🔗, or send Gifts 🎁\n• Upload your own: hit ➕ Post tab, add caption + image/video\n• Each video upload earns you +10 Coins 🪙\n• Photo post earns +5 Coins\n• CSS Filters, Music Picker & Text Overlay available in editor`,
+      hin: `🎬 AJ TikReels:\n\n• Social → AJ TikReels → Feed\n• Videos scroll karo (snap-scroll)\n• CENTER TAP karo pause/resume ke liye\n• Like ❤️, Comment 💬, Gift 🎁\n• Video upload: +10 Coins 🔥\n• Photo post: +5 Coins\n• Editor mein Filters, Music, Text Overlay bhi hai!`,
+      ur:  `🎬 AJ TikReels:\n\n• Social → AJ TikReels → Feed\n• Videos اسکرول کریں\n• CENTER TAP: pause/resume\n• Like ❤️، Comment 💬، Gift 🎁\n• Video: +10 Coins 🔥\n• Photo: +5 Coins\n• Editor: Filters، Music، Text Overlay`,
+      hi:  `🎬 AJ TikReels:\n\n• Social → AJ TikReels → Feed\n• CENTER TAP: pause/resume\n• Video: +10 Coins 🔥\n• Photo: +5 Coins\n• Editor: Filters, Music, Text Overlay`,
+      ar:  `🎬 AJ TikReels:\n\n• Social → AJ TikReels → Feed\n• CENTER TAP: pause/resume\n• Video: +10 كوين 🔥\n• Photo: +5 كوين\n• Editor: Filters, Music, Text`,
     },
-
     pulse: {
-      en:  `📡 AJ Pulse — Instagram-style feed + Live streaming!\n\n📸 Feed:\n• Scroll posts, like, comment, share, send gifts\n• Tap any user's avatar → opens their full profile\n• Post your own content → +0.75 Coins per post\n\n🔴 Go Live:\n• Social Hub → GO LIVE button (needs camera permission)\n• Share your Room ID so viewers can join\n• Viewers send gifts → You keep 60% of gift value!\n• OR join someone's live: paste their Room ID → Join\n\n⚔️ PK Battle: Challenge any live streamer — 100 Coins entry, 5-min battle, most gifts wins! 🏆`,
-      hin: `📡 AJ Pulse — Instagram + Live streaming combo!\n\n📸 Feed:\n• Posts scroll karo, like/comment/gift karo\n• Kisi bhi user ki dp tap karo → uski profile open 🔥\n• Apni post daalo → +0.75 Coins\n\n🔴 Live:\n• Social Hub → GO LIVE (camera permission chahiye)\n• Room ID share karo taaki log join kar sakein\n• Viewers gifts bhejein → 60% tumhara! 💰\n• Kisi aur ki live join karo: Room ID paste karo → Join\n\n⚔️ PK Battle: 100 Coins entry, 5 min, jyada gifts = jeet! 🏆`,
-      ur:  `📡 AJ Pulse:\n\n📸 فیڈ:\n• پوسٹس اسکرول، like/comment/gift\n• avatar ٹیپ → پروفائل 🔥\n• اپنی پوسٹ → +0.75 Coins\n\n🔴 Live:\n• Social Hub → GO LIVE\n• Room ID شیئر کریں\n• gifts → 60% آپ کا! 💰\n\n⚔️ PK Battle: 100 Coins، 5 منٹ 🏆`,
-      hi:  `📡 AJ Pulse:\n\n📸 Feed:\n• Posts, like/comment/gift\n• Avatar टैप → profile 🔥\n• अपनी post → +0.75 Coins\n\n🔴 Live:\n• Social Hub → GO LIVE\n• Room ID share करें\n• Gifts → 60% आपका! 💰\n\n⚔️ PK Battle: 100 Coins, 5 min 🏆`,
-      ar:  `📡 AJ Pulse:\n\n📸 منشورات:\n• تصفح، like/comment/gift\n• avatar → ملف شخصي 🔥\n• نشر → +0.75 كوين\n\n🔴 بث مباشر:\n• GO LIVE\n• شارك Room ID\n• gifts → 60% لك!\n\n⚔️ PK Battle: 100 كوين، 5 دقائق 🏆`,
+      en:  `📡 AJ Pulse — Instagram-style feed + Live streaming!\n\n📸 Feed:\n• Scroll posts, like, comment, share, send gifts\n• Post your own content → +5 Coins (photo) / +10 Coins (video)\n\n🔴 Go Live:\n• Social Hub → GO LIVE button\n• Share your Room ID so viewers can join\n• Viewers send gifts → You keep 60%!\n\n⚔️ PK Battle: 100 Coins entry, 5-min battle 🏆`,
+      hin: `📡 AJ Pulse:\n\n📸 Feed:\n• Posts scroll, like/comment/gift\n• Photo post: +5 Coins | Video: +10 Coins\n\n🔴 Live:\n• GO LIVE → Room ID share karo\n• Gifts → 60% tumhara! 💰\n\n⚔️ PK Battle: 100 Coins, 5 min 🏆`,
+      ur:  `📡 AJ Pulse:\n\n📸 فیڈ:\n• Photo: +5 Coins | Video: +10 Coins\n\n🔴 Live:\n• GO LIVE → Room ID شیئر\n• Gifts → 60% آپ کا!\n\n⚔️ PK: 100 Coins، 5 منٹ 🏆`,
+      hi:  `📡 AJ Pulse:\n\n• Photo: +5 Coins | Video: +10 Coins\n• GO LIVE → Room ID share\n• Gifts → 60% आपका!\n• PK Battle: 100 Coins 🏆`,
+      ar:  `📡 AJ Pulse:\n\n• Photo: +5 | Video: +10 كوين\n• GO LIVE → Room ID\n• Gifts → 60%\n• PK: 100 كوين 🏆`,
     },
-
     social: {
-      en:  `👤 Social Features — A to Z:\n\n• 🔍 View any profile: tap any avatar/profile pic anywhere\n• ➕ Follow / Unfollow from their profile page\n• 💬 Message (DM): tap "Message" button on any profile\n• 📊 Profile: Posts, Followers, Following, Total Likes, video grid\n• 📹 Video grid shows view counts (1k, 2k format)\n• 🎯 Setup your own: Social Hub → Settings → Edit Profile`,
-      hin: `👤 Social Features:\n\n• 🔍 Koi bhi profile: dp ya avatar tap karo\n• ➕ Follow / Unfollow profile page pe\n• 💬 DM: "Message" button → private chat 🔥\n• 📊 Profile: Posts, Followers, Following, Likes, videos\n• 📹 Video grid: 1k, 2k views\n• 🎯 Apni profile: Social Hub → Settings → Edit Profile`,
-      ur:  `👤 Social Features:\n\n• 🔍 کوئی بھی پروفائل: avatar ٹیپ\n• ➕ Follow / Unfollow\n• 💬 DM: "Message" → private chat 🔥\n• 📊 Posts، Followers، Likes، videos\n• 📹 1k، 2k views\n• 🎯 اپنی: Social Hub → Settings`,
-      hi:  `👤 Social Features:\n\n• 🔍 Profile: avatar टैप\n• ➕ Follow / Unfollow\n• 💬 DM: "Message" 🔥\n• 📊 Posts, Followers, Likes, videos\n• 📹 1k, 2k views\n• 🎯 अपनी: Settings → Edit Profile`,
-      ar:  `👤 الميزات الاجتماعية:\n\n• 🔍 أي ملف: اضغط الصورة\n• ➕ متابعة / إلغاء\n• 💬 رسالة خاصة 🔥\n• 📊 منشورات، متابعون، إعجابات\n• 📹 1k، 2k مشاهدة\n• 🎯 إعداد ملفك: Settings`,
+      en:  `👤 Social Features:\n\n• View any profile: tap any avatar\n• Follow / Unfollow from their profile page\n• Message (DM): tap "Message" on any profile\n• WeChat: private encrypted chat + Video/Audio calls via ZegoCloud\n• Profile: Posts, Followers, Following, Total Likes, video grid`,
+      hin: `👤 Social Features:\n\n• Koi bhi profile: dp tap karo\n• Follow / Unfollow\n• DM: "Message" button 🔥\n• WeChat: private chat + Video/Audio call (ZegoCloud)\n• Profile: Posts, Followers, Likes, videos`,
+      ur:  `👤 Social Features:\n\n• avatar ٹیپ → پروفائل\n• Follow / Unfollow\n• DM: "Message" 🔥\n• WeChat: private chat + Video/Audio call\n• Posts، Followers، Likes`,
+      hi:  `👤 Social Features:\n\n• Avatar टैप → profile\n• Follow / Unfollow\n• DM + WeChat calls 🔥\n• Posts, Followers, Likes`,
+      ar:  `👤 Social:\n\n• avatar → ملف\n• Follow/Unfollow\n• DM + WeChat calls 🔥\n• Posts, Followers, Likes`,
     },
-
     gaming: {
-      en:  `🎮 AJ Gaming Zone — Play & Multiply Coins!\n\n• Access: Tap "Gaming" from the main Hub\n• Games: Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\n• Play 1v1 style games to multiply your AJ Coins\n• Coming soon: Ludo Elite Royal, Puck Pulse Elite 🔜`,
-      hin: `🎮 AJ Gaming Zone:\n\nBhai, yeh games hain:\n• Main Hub → "Gaming"\n• Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\n• 1v1 games khelo, coins multiply honge 🔥\n• Jald: Ludo Elite Royal, Puck Pulse Elite 🔜`,
-      ur:  `🎮 AJ Gaming Zone:\n\n• Main Hub → "Gaming"\n• Rider King، Pulse Racer، Subsea Surge، Neon Strike، Volcano Escape\n• Coins multiply کریں 🔥\n• جلد: Ludo Elite Royal، Puck Pulse Elite 🔜`,
-      hi:  `🎮 AJ Gaming Zone:\n\n• Main Hub → "Gaming"\n• Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\n• Coins multiply करो 🔥\n• जल्द: Ludo Elite Royal 🔜`,
-      ar:  `🎮 منطقة الألعاب:\n\n• "Gaming" من الرئيسية\n• Rider King، Pulse Racer، Subsea Surge، Neon Strike، Volcano Escape\n• اضاعف كوينزك 🔥\n• قريباً: Ludo Elite Royal 🔜`,
+      en:  `🎮 AJ Gaming Zone — Play & Multiply Coins!\n\n• Access: Tap "Gaming" from the main Hub\n• Games: Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\n• Game scores auto-credit AJ Coins via Game Bridge\n• Coming soon: Ludo Elite Royal, Puck Pulse Elite 🔜`,
+      hin: `🎮 AJ Gaming Zone:\n\n• Main Hub → "Gaming"\n• Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\n• Game score → auto coins credit 🔥\n• Jald: Ludo Elite Royal 🔜`,
+      ur:  `🎮 Gaming:\n\n• Main Hub → "Gaming"\n• 5 games available\n• Score → auto coins 🔥\n• جلد: Ludo Elite Royal 🔜`,
+      hi:  `🎮 Gaming:\n\n• Main Hub → "Gaming"\n• 5 games\n• Score → auto coins 🔥\n• जल्द: Ludo Elite Royal 🔜`,
+      ar:  `🎮 Gaming:\n\n• "Gaming" من الرئيسية\n• 5 ألعاب\n• نقاط → كوينز تلقائي 🔥\n• قريباً: Ludo Elite Royal 🔜`,
     },
-
     refer: {
-      en:  `👥 Referral System — Earn Free Coins!\n\n• Your Referral Code = your User ID (find it in Wallet or Social Hub)\n• Share your ID with friends\n• They go to Wallet → "Enter Referral Code" and paste your ID\n• You receive +${REFERRAL_COINS} Coins per successful referral 🎉\n• No limit — refer as many as you want!\n\nTip: Copy your ID from the Social Hub referral card and share on WhatsApp/Instagram 📤`,
-      hin: `👥 Referral System:\n\n• Tera Referral Code = tera User ID (Wallet ya Social Hub mein)\n• ID apne doston ko share karo\n• Wo Wallet → "Enter Referral Code" mein tera ID daalen\n• Tujhe +${REFERRAL_COINS} Coins milenge 🎉\n• Koi limit nahi!\n\nTip: Social Hub se copy karo aur WhatsApp pe share karo 📤`,
-      ur:  `👥 Referral System:\n\n• آپ کا Referral Code = آپ کا User ID\n• ID شیئر کریں\n• Wallet → "Enter Referral Code"\n• +${REFERRAL_COINS} Coins 🎉\n• کوئی حد نہیں!\n\nTip: WhatsApp پر شیئر کریں 📤`,
-      hi:  `👥 Referral System:\n\n• Referral Code = User ID\n• ID दोस्तों को share करो\n• Wallet → "Enter Referral Code"\n• +${REFERRAL_COINS} Coins 🎉\n• कोई limit नहीं!\n\nTip: WhatsApp पर share करो 📤`,
-      ar:  `👥 نظام الإحالة:\n\n• رمز الإحالة = معرّفك\n• شارك المعرّف\n• المحفظة → "أدخل رمز الإحالة"\n• +${REFERRAL_COINS} كوين 🎉\n• بلا حدود!\n\nنصيحة: شارك عبر واتساب 📤`,
+      en:  `👥 Referral System:\n\n• Your Referral Code = your User ID (find in Wallet or Social Hub)\n• Share your ID with friends\n• They go to Wallet → "Enter Referral Code" and paste your ID\n• You receive +${REFERRAL_COINS} Coins per successful referral 🎉\n• No limit — refer as many as you want!\n\nTip: Copy your ID from the Social Hub referral card 📤`,
+      hin: `👥 Referral:\n\n• Tera ID = Referral Code\n• Doston ko share karo\n• Wo Wallet → Referral Code mein daalen\n• +${REFERRAL_COINS} Coins 🎉\n• Koi limit nahi!\n\nTip: Social Hub se copy karo 📤`,
+      ur:  `👥 Referral:\n\n• آپ کا ID = Referral Code\n• شیئر کریں\n• Wallet → Referral Code\n• +${REFERRAL_COINS} Coins 🎉\n• کوئی حد نہیں!\n\nTip: WhatsApp پر شیئر 📤`,
+      hi:  `👥 Referral:\n\n• ID = Referral Code\n• Share करो\n• Wallet → Referral Code\n• +${REFERRAL_COINS} Coins 🎉\n• कोई limit नहीं!\n\nTip: WhatsApp पर share 📤`,
+      ar:  `👥 الإحالة:\n\n• معرّفك = رمز الإحالة\n• شارك\n• المحفظة → رمز الإحالة\n• +${REFERRAL_COINS} كوين 🎉\n• بلا حدود!\n\nنصيحة: شارك عبر واتساب 📤`,
     },
-
     withdraw: {
-      en:  `💸 Withdrawal — How to Cash Out:\n\n• Minimum: ${WITHDRAW_MIN.toLocaleString()} Coins = $${WITHDRAW_MIN/CASH_RATE} USD\n• Rate: ${CASH_RATE} Coins = $1\n• Go to: Wallet → Withdraw\n\n📋 Methods:\n1. EasyPaisa\n2. JazzCash\n3. Binance USDT BSC\n4. AirTM\n5. Bank / Visa / Mastercard\n\n📅 Withdrawals processed monthly: 25th – 31st of each month.`,
-      hin: `💸 Withdraw kaise karo:\n\n• Minimum: ${WITHDRAW_MIN.toLocaleString()} Coins = $${WITHDRAW_MIN/CASH_RATE}\n• Rate: ${CASH_RATE} Coins = $1\n• Wallet → Withdraw\n\n📋 Methods:\n1. EasyPaisa\n2. JazzCash\n3. Binance USDT BSC\n4. AirTM\n5. Bank / Visa / Mastercard\n\n📅 Withdrawal 25 se 31 tarikh ke beech process hoti hai. 🙏`,
-      ur:  `💸 نکاسی:\n\n• کم از کم: ${WITHDRAW_MIN.toLocaleString()} Coins = $${WITHDRAW_MIN/CASH_RATE}\n• Wallet → Withdraw\n\n📋 طریقے:\n1. EasyPaisa\n2. JazzCash\n3. Binance USDT BSC\n4. AirTM\n5. Bank / Visa / Mastercard\n\n📅 نکاسی ہر ماہ 25 سے 31 تاریخ کے درمیان!`,
-      hi:  `💸 Withdrawal:\n\n• Minimum: ${WITHDRAW_MIN.toLocaleString()} Coins = $${WITHDRAW_MIN/CASH_RATE}\n• Wallet → Withdraw\n\n📋 Methods:\n1. EasyPaisa\n2. JazzCash\n3. Binance USDT BSC\n4. AirTM\n5. Bank / Visa / Mastercard\n\n📅 Withdrawal हर महीने 25 से 31 तारीख के बीच!`,
-      ar:  `💸 السحب:\n\n• الحد الأدنى: ${WITHDRAW_MIN.toLocaleString()} كوين = $${WITHDRAW_MIN/CASH_RATE}\n• المحفظة → السحب\n\n📋 الطرق:\n1. EasyPaisa\n2. JazzCash\n3. Binance USDT BSC\n4. AirTM\n5. بنك / فيزا / ماستركارد\n\n📅 تُعالَج عمليات السحب شهرياً من 25 إلى 31 من كل شهر!`,
+      en:  `💸 Withdrawal:\n\n• Minimum: ${WITHDRAW_MIN.toLocaleString()} Coins = $${WITHDRAW_MIN/CASH_RATE} USD\n• Rate: ${CASH_RATE} Coins = $1\n• Go to: Wallet → Withdraw\n\n📋 Methods:\n1. EasyPaisa\n2. JazzCash\n3. Binance USDT BSC\n4. AirTM\n\n📅 Processed monthly (25th–31st)`,
+      hin: `💸 Withdrawal:\n\n• Minimum: ${WITHDRAW_MIN.toLocaleString()} Coins = $${WITHDRAW_MIN/CASH_RATE}\n• ${CASH_RATE} Coins = $1\n• Wallet → Withdraw\n\n📋 Methods: EasyPaisa, JazzCash, Binance, AirTM\n\n📅 Monthly 25th-31st`,
+      ur:  `💸 نکاسی:\n\n• کم از کم: ${WITHDRAW_MIN.toLocaleString()} Coins = $${WITHDRAW_MIN/CASH_RATE}\n• Wallet → Withdraw\n• EasyPaisa، JazzCash، Binance، AirTM\n• ماہانہ 25-31`,
+      hi:  `💸 Withdrawal:\n\n• Minimum: ${WITHDRAW_MIN.toLocaleString()} Coins = $${WITHDRAW_MIN/CASH_RATE}\n• Wallet → Withdraw\n• EasyPaisa, JazzCash, Binance, AirTM\n• Monthly 25th-31st`,
+      ar:  `💸 السحب:\n\n• الحد الأدنى: ${WITHDRAW_MIN.toLocaleString()} = $${WITHDRAW_MIN/CASH_RATE}\n• المحفظة → سحب\n• EasyPaisa, JazzCash, Binance, AirTM\n• شهرياً 25-31`,
     },
-
     buy: {
-      en:  `💰 Purchase AJ Coins:\n\n• Minimum: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\n• Rate: $1 = ${COIN_RATE} Coins\n• Wallet → Purchase\n\n📋 Options:\n1. Binance USDT BSC (auto invoice)\n2. Airtm\n3. EasyPaisa\n4. JazzCash\n5. Bank / Visa / Mastercard\n\nSend payment → enter TX ID → submit. Coins credited within minutes! ✅`,
-      hin: `💰 Coins kharido:\n\n• Minimum: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\n• $1 = ${COIN_RATE} Coins\n• Wallet → Purchase\n\n📋 Options:\n1. Binance USDT BSC\n2. Airtm\n3. EasyPaisa\n4. JazzCash\n5. Bank / Visa / Mastercard\n\nPayment → TX ID → Submit! Kuch minute mein Coins ✅`,
-      ur:  `💰 Coins خریدیں:\n\n• کم از کم: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\n• Wallet → Purchase\n\n📋 طریقے:\n1. Binance\n2. Airtm\n3. EasyPaisa\n4. JazzCash\n5. Bank / Visa\n\nPayment → TX ID → Submit ✅`,
-      hi:  `💰 Coins खरीदें:\n\n• Minimum: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\n• Wallet → Purchase\n\nPayment → TX ID → Submit!\nकुछ मिनट में Coins ✅`,
-      ar:  `💰 شراء كوينز:\n\n• الحد الأدنى: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} كوين\n• المحفظة → شراء\n\nادفع → أدخل TX ID → أرسل!\nكوينز خلال دقائق ✅`,
+      en:  `💳 Purchase Coins:\n\n• Go to: Wallet → Purchase\n• Method: Binance USDT BSC (auto-verified via NOWPayments)\n• Rate: $1 = ${COIN_RATE} Coins\n• Minimum: $${MIN_PURCHASE} = ${MIN_PURCHASE*COIN_RATE} Coins\n• Coins credited automatically after payment confirmation 🔒`,
+      hin: `💳 Coins khareedna:\n\n• Wallet → Purchase\n• Binance USDT BSC (auto-verified)\n• $1 = ${COIN_RATE} Coins\n• Minimum: $${MIN_PURCHASE}\n• Auto credit hoga! 🔒`,
+      ur:  `💳 Coins خریدیں:\n\n• Wallet → Purchase\n• Binance USDT BSC\n• $1 = ${COIN_RATE} Coins\n• کم از کم: $${MIN_PURCHASE}\n• Auto credit 🔒`,
+      hi:  `💳 Coins खरीदें:\n\n• Wallet → Purchase\n• Binance USDT BSC\n• $1 = ${COIN_RATE} Coins\n• Min: $${MIN_PURCHASE}\n• Auto credit 🔒`,
+      ar:  `💳 شراء الكوينز:\n\n• المحفظة → شراء\n• Binance USDT BSC\n• $1 = ${COIN_RATE} كوين\n• الحد الأدنى: $${MIN_PURCHASE}\n• إضافة تلقائية 🔒`,
     },
-
-    live: {
-      en:  `📡 Go Live on AJ Portal:\n\n1. Social Hub → tap "GO LIVE"\n2. Allow camera + microphone\n3. Live starts in HD\n4. Share your Room ID — viewers paste it to join\n5. Viewers send gifts → you keep 60%! 💰\n\n⚔️ PK Battle:\n• PK button → rival's User ID\n• 100 Coins from each\n• 5 min timer — most gifts wins 🏆`,
-      hin: `📡 AJ Portal pe Live:\n\n1. Social Hub → "GO LIVE"\n2. Camera + mic allow karo\n3. HD streaming shuru\n4. Room ID share karo\n5. Viewers gifts bhejein → 60% tera! 💰\n\n⚔️ PK: rival ID → 100 Coins → 5 min → jyada gifts = jeet 🏆`,
-      ur:  `📡 Live:\n\n1. GO LIVE\n2. Camera allow\n3. Room ID شیئر\n4. gifts → 60% آپ کا 💰\n\n⚔️ PK: User ID → 100 Coins → 5 منٹ 🏆`,
-      hi:  `📡 Live:\n\n1. GO LIVE\n2. Camera allow\n3. Room ID share\n4. Gifts → 60% आपका 💰\n\n⚔️ PK: User ID → 100 Coins → 5 min 🏆`,
-      ar:  `📡 البث المباشر:\n\n1. GO LIVE\n2. اسمح بالكاميرا\n3. شارك Room ID\n4. هدايا → 60% لك 💰\n\n⚔️ PK: User ID → 100 كوين → 5 دقائق 🏆`,
-    },
-
-    gift: {
-      en:  `🎁 Gift System:\n\n☕ Coffee — 500 Coins\n🍕 Pizza Party — 1,000 Coins\n❤️ Mega Heart — 2,500 Coins\n🏎️ Super Car — 5,000 Coins\n🛩️ Private Jet — 8,000 Coins\n🏰 AJ Mansion — 10,000 Coins\n\n• Send in live streams or Pulse posts\n• Creator gets 60% 🎊`,
-      hin: `🎁 Gift System:\n\n☕ Coffee — 500 Coins\n🍕 Pizza — 1,000 Coins\n❤️ Mega Heart — 2,500 Coins\n🏎️ Super Car — 5,000 Coins\n🛩️ Private Jet — 8,000 Coins\n🏰 AJ Mansion — 10,000 Coins\n\n• Live ya Pulse pe bhejo\n• Creator ko 60% 🎊`,
-      ur:  `🎁 Gift System:\n\n☕ Coffee — 500\n🍕 Pizza — 1,000\n❤️ Mega Heart — 2,500\n🏎️ Car — 5,000\n🛩️ Jet — 8,000\n🏰 Mansion — 10,000 Coins\n\n• 60% Creator کا 🎊`,
-      hi:  `🎁 Gift System:\n\n☕ Coffee — 500\n🍕 Pizza — 1,000\n❤️ Heart — 2,500\n🏎️ Car — 5,000\n🛩️ Jet — 8,000\n🏰 Mansion — 10,000 Coins\n\n• Creator को 60% 🎊`,
-      ar:  `🎁 نظام الهدايا:\n\n☕ قهوة — 500\n🍕 بيتزا — 1,000\n❤️ قلب — 2,500\n🏎️ سيارة — 5,000\n🛩️ طائرة — 8,000\n🏰 قصر — 10,000 كوين\n\n• المنشئ يحصل على 60% 🎊`,
-    },
-
-    pk: {
-      en:  `⚔️ PK Battle — Live Competition!\n\n• Must be LIVE to start\n• PK button → rival's User ID\n• Both lose 100 Coins as entry\n• 5-minute countdown\n• Most gift coins = Winner 🏆`,
-      hin: `⚔️ PK Battle:\n\n• Pehle Live jao\n• PK button → rival User ID\n• Dono se 100 Coins\n• 5 minute\n• Jyada gifts = jeet 🏆`,
-      ur:  `⚔️ PK Battle:\n\n• Live جائیں\n• PK → حریف ID\n• 100 Coins دونوں سے\n• 5 منٹ\n• زیادہ gifts = فاتح 🏆`,
-      hi:  `⚔️ PK Battle:\n\n• Live जाएं\n• PK → rival ID\n• 100 Coins\n• 5 min\n• ज़्यादा gifts = जीत 🏆`,
-      ar:  `⚔️ PK Battle:\n\n• في البث المباشر\n• PK → معرّف المنافس\n• 100 كوين من كل\n• 5 دقائق\n• أكثر هدايا = فوز 🏆`,
-    },
-
     aibot: {
-      en:  `🤖 AI Trading Bot — Passive Income!\n\n• Main Hub → "AI Trading Bot"\n\n💎 Basic: 25,000 Coins → 2% daily profit\n👑 VVIP: 75,000 Coins → 5% daily profit 🔥\n\n• Profits added to your balance every second\n• Runs 24/7 — set and forget!\n• Withdraw profits anytime (once minimum reached)`,
-      hin: `🤖 AI Trading Bot:\n\n• Main Hub → "AI Trading Bot"\n\n💎 Basic: 25,000 Coins → 2% daily\n👑 VVIP: 75,000 Coins → 5% daily 🔥\n\n• Profits har second add hote hain\n• 24/7 chalta hai\n• Jab minimum ho withdraw karo`,
-      ur:  `🤖 AI Trading Bot:\n\n• Main Hub → "AI Trading Bot"\n\n💎 Basic: 25,000 → 2% daily\n👑 VVIP: 75,000 → 5% daily 🔥\n\n• منافع خودکار add\n• 24/7`,
-      hi:  `🤖 AI Bot:\n\n• Main Hub → "AI Trading Bot"\n\n💎 Basic: 25,000 → 2% daily\n👑 VVIP: 75,000 → 5% daily 🔥`,
-      ar:  `🤖 روبوت التداول:\n\n• الرئيسية → "AI Trading Bot"\n\n💎 أساسي: 25,000 → 2% يومياً\n👑 VVIP: 75,000 → 5% يومياً 🔥`,
+      en:  `🤖 AI Trading Bot:\n\n• Basic (25,000 Coins): 2% daily passive income\n• VVIP (75,000 Coins): 5% daily passive income\n• Earnings auto-credited to your balance\n• Go to: AI Trading Bot from main Hub\n• Activate once, earn forever! 💰`,
+      hin: `🤖 AI Bot:\n\n• Basic (25k Coins): 2% daily\n• VVIP (75k Coins): 5% daily\n• Auto-credit hota hai\n• Main Hub → AI Trading Bot\n• Ek baar activate, hamesha earn! 💰`,
+      ur:  `🤖 AI Bot:\n\n• Basic (25k): 2% روزانہ\n• VVIP (75k): 5% روزانہ\n• Auto credit\n• Main Hub → AI Bot\n• ایک بار activate، ہمیشہ earn! 💰`,
+      hi:  `🤖 AI Bot:\n\n• Basic (25k): 2% daily\n• VVIP (75k): 5% daily\n• Auto credit\n• Main Hub → AI Bot\n• एक बार activate, हमेशा earn! 💰`,
+      ar:  `🤖 AI Bot:\n\n• Basic (25k): 2% يومياً\n• VVIP (75k): 5% يومياً\n• إضافة تلقائية\n• Hub → AI Bot\n• فعّل مرة، اكسب دائماً! 💰`,
     },
-
     transfer: {
-      en:  `🔄 Coin Transfer:\n\n• Wallet → Transfer\n• Enter recipient's User ID\n• Enter amount\n• Confirm — instant transfer!\n\n⚠️ Cannot transfer to yourself. Irreversible.`,
-      hin: `🔄 Transfer:\n\n• Wallet → Transfer\n• Recipient User ID\n• Amount\n• Confirm — turant!\n\n⚠️ Apne aap ko nahi, undo nahi hota`,
-      ur:  `🔄 Transfer:\n\n• Wallet → Transfer\n• User ID\n• رقم\n• Confirm — فوری!\n\n⚠️ ناقابل واپسی`,
-      hi:  `🔄 Transfer:\n\n• Wallet → Transfer\n• User ID + Amount\n• Confirm — तुरंत!\n\n⚠️ Irreversible`,
-      ar:  `🔄 تحويل:\n\n• المحفظة → تحويل\n• معرّف + مبلغ\n• تأكيد — فوري!\n\n⚠️ غير قابل للتراجع`,
+      en:  `🔄 Transfer Coins:\n\n• Go to: Wallet → Transfer\n• Enter recipient's User ID\n• Enter amount\n• Instant transfer to any AJ Portal user\n• Cannot transfer to yourself`,
+      hin: `🔄 Transfer:\n\n• Wallet → Transfer\n• Recipient ka User ID daalo\n• Amount daalo\n• Instant transfer! 🔥`,
+      ur:  `🔄 Transfer:\n\n• Wallet → Transfer\n• User ID\n• Amount\n• Instant! 🔥`,
+      hi:  `🔄 Transfer:\n\n• Wallet → Transfer\n• User ID + Amount\n• Instant! 🔥`,
+      ar:  `🔄 تحويل:\n\n• المحفظة → تحويل\n• معرّف المستلم + المبلغ\n• فوري! 🔥`,
     },
-
     wechat: {
-      en:  `💬 AJ WeChat — Encrypted Messenger:\n\n• Social → AJ WeChat\n• Sync contacts or add manually\n• Tap any contact → private chat\n• Audio 📞 & Video 📹 calls in chat header\n• All messages end-to-end encrypted 🔒`,
-      hin: `💬 AJ WeChat:\n\n• Social → AJ WeChat\n• Contacts sync ya manually add\n• Tap → private chat\n• Audio 📞 + Video 📹 call\n• Sab messages encrypted 🔒`,
-      ur:  `💬 AJ WeChat:\n\n• Social → AJ WeChat\n• Contacts add\n• Tap → private chat\n• Audio 📞 Video 📹\n• encrypted 🔒`,
-      hi:  `💬 AJ WeChat:\n\n• Social → AJ WeChat\n• Tap → private chat\n• Audio 📞 Video 📹\n• Encrypted 🔒`,
-      ar:  `💬 AJ WeChat:\n\n• Social → AJ WeChat\n• اضغط → محادثة خاصة\n• مكالمة 📞 📹\n• مشفر 🔒`,
+      en:  `💬 WeChat — Private Encrypted Messaging:\n\n• Access: Social Hub → WeChat\n• Add contacts by name or sync from phone\n• Private 1-on-1 chat\n• 📹 Video Call & 📞 Audio Call via ZegoCloud (HD quality)\n• Incoming call notification with ringtone\n• Accept or Decline incoming calls`,
+      hin: `💬 WeChat:\n\n• Social Hub → WeChat\n• Contacts add karo\n• Private 1-on-1 chat\n• 📹 Video Call & 📞 Audio Call (ZegoCloud HD)\n• Incoming call ringtone + Accept/Decline`,
+      ur:  `💬 WeChat:\n\n• Social Hub → WeChat\n• Contacts add کریں\n• Private chat\n• 📹 Video & 📞 Audio Call (ZegoCloud)\n• Incoming call + Accept/Decline`,
+      hi:  `💬 WeChat:\n\n• Social Hub → WeChat\n• Private chat\n• 📹 Video & 📞 Audio Call (ZegoCloud)\n• Incoming call ringtone`,
+      ar:  `💬 WeChat:\n\n• Social Hub → WeChat\n• محادثة خاصة\n• 📹 فيديو & 📞 صوت (ZegoCloud)\n• مكالمة واردة`,
     },
-
-    payment_issue: {
-      en:  `⚠️ Payment / Technical Issue:\n\nIf your coins haven't arrived after submitting a Transaction ID, or you're facing a technical bug:\n\n👇 Contact CEO directly on WhatsApp:`,
-      hin: `⚠️ Payment ya Technical Problem:\n\nBhai, agar Transaction ID submit karne ke baad bhi Coins nahi aaye:\n\n👇 CEO se seedha WhatsApp pe baat karo:`,
-      ur:  `⚠️ Payment / Technical مسئلہ:\n\nاگر Coins نہیں آئے یا bug ہے:\n\n👇 CEO سے WhatsApp:`,
-      hi:  `⚠️ Payment / Technical Issue:\n\nCoins नहीं आए या bug है:\n\n👇 CEO WhatsApp:`,
-      ar:  `⚠️ مشكلة:\n\nلم تصل كوينزك أو خطأ تقني:\n\n👇 واتساب CEO:`,
+    gift: {
+      en:  `🎁 Gifts — Send Love to Creators!\n\n• Coffee ☕ — 500 Coins\n• Pizza Party 🍕 — 1,000 Coins\n• Mega Heart ❤️ — 2,500 Coins\n• Super Car 🏎️ — 5,000 Coins\n• Private Jet 🛩️ — 8,000 Coins\n• AJ Mansion 🏰 — 10,000 Coins\n\nCreator receives 60% of gift value. Admin keeps 40%.`,
+      hin: `🎁 Gifts:\n\n• Coffee ☕ — 500 Coins\n• Pizza 🍕 — 1k Coins\n• Mega Heart ❤️ — 2.5k Coins\n• Super Car 🏎️ — 5k Coins\n• Jet 🛩️ — 8k Coins\n• Mansion 🏰 — 10k Coins\n\nCreator ko 60% milta hai!`,
+      ur:  `🎁 تحفے:\n\n• Coffee ☕ — 500\n• Pizza 🍕 — 1k\n• Heart ❤️ — 2.5k\n• Car 🏎️ — 5k\n• Jet 🛩️ — 8k\n• Mansion 🏰 — 10k\n\nCreator: 60%`,
+      hi:  `🎁 Gifts:\n\n• Coffee ☕ — 500\n• Pizza 🍕 — 1k\n• Heart ❤️ — 2.5k\n• Car 🏎️ — 5k\n• Jet 🛩️ — 8k\n• Mansion 🏰 — 10k\n\nCreator: 60%`,
+      ar:  `🎁 الهدايا:\n\n• Coffee ☕ — 500\n• Pizza 🍕 — 1k\n• Heart ❤️ — 2.5k\n• Car 🏎️ — 5k\n• Jet 🛩️ — 8k\n• Mansion 🏰 — 10k\n\nالمنشئ: 60%`,
     },
-
-    // Do NOT provide sensitive purchase/withdrawal step-by-step details in chat
-    sensitive_payment: {
-      en: `⚠️ I cannot provide detailed purchase or withdrawal instructions here. Please use the Wallet → Purchase or Wallet → Withdraw pages in the app for transaction flows, or contact support if something failed.`,
-      hin: `⚠️ Main yahan purchase/withdrawal ki puri detail nahi de sakta. Wallet → Purchase ya Wallet → Withdraw use karo, ya support se rabta karo.`,
-      ur: `⚠️ میں یہاں خریداری یا نکاسی کی مکمل تفصیلات نہیں دے سکتا۔ براہِ مہربانی Wallet → Purchase یا Wallet → Withdraw استعمال کریں یا سپورٹ سے رابطہ کریں۔`,
-      hi: `⚠️ मैं यहाँ purchase/withdrawal की पूरी जानकारी नहीं दे सकता। Wallet → Purchase या Wallet → Withdraw का उपयोग करें या सपोर्ट से संपर्क करें।`,
-      ar: `⚠️ لا أستطيع تقديم تفاصيل الشراء/السحب هنا. الرجاء استخدام Wallet → Purchase أو Wallet → Withdraw أو التواصل مع الدعم.`,
+    pk: {
+      en:  `⚔️ PK Battle:\n\n• Challenge any live streamer to a 5-minute battle\n• Entry: ${PK_ENTRY_COINS} Coins from each participant\n• Viewers send gifts to their favorite side\n• Most gifts = WINNER 🏆\n• Go to: Social Hub → GO LIVE → PK button`,
+      hin: `⚔️ PK Battle:\n\n• Kisi bhi live streamer ko challenge karo\n• Entry: ${PK_ENTRY_COINS} Coins\n• Viewers gifts bhejein\n• Jyada gifts = WINNER 🏆\n• GO LIVE → PK
+ button`,
+      ur:  `⚔️ PK Battle:\n\n• Entry: ${PK_ENTRY_COINS} Coins\n• 5 منٹ\n• زیادہ gifts = WINNER 🏆\n• GO LIVE → PK`,
+      hi:  `⚔️ PK Battle:\n\n• Entry: ${PK_ENTRY_COINS} Coins\n• 5 min\n• ज्यादा gifts = WINNER 🏆\n• GO LIVE → PK`,
+      ar:  `⚔️ PK Battle:\n\n• Entry: ${PK_ENTRY_COINS} كوين\n• 5 دقائق\n• أكثر هدايا = WINNER 🏆\n• GO LIVE → PK`,
     },
-
-    // Bug reports should be routed to the CEO with WhatsApp and email contact
+    live: {
+      en:  `🔴 Go Live:\n\n• Social Hub → GO LIVE button (needs camera permission)\n• Share your Room ID so viewers can join\n• Viewers send gifts → You keep 60%!\n• Start PK Battle from the PK button\n• End live with the END LIVE button`,
+      hin: `🔴 Go Live:\n\n• Social Hub → GO LIVE\n• Room ID share karo\n• Viewers gifts bhejein → 60% tumhara!\n• PK button se battle shuru karo`,
+      ur:  `🔴 Live:\n\n• Social Hub → GO LIVE\n• Room ID شیئر\n• Gifts → 60%!\n• PK button`,
+      hi:  `🔴 Live:\n\n• Social Hub → GO LIVE\n• Room ID share\n• Gifts → 60%!\n• PK button`,
+      ar:  `🔴 Live:\n\n• GO LIVE\n• شارك Room ID\n• Gifts → 60%!\n• PK`,
+    },
     bug_report: {
-      en: `⚠️ Thanks for reporting this. Please contact our CEO directly on WhatsApp: ${CEO_WHATSAPP} or email: ${CEO_EMAIL} so we can investigate your issue promptly.`,
-      hin: `⚠️ Shukriya bug report karne ke liye. CEO se WhatsApp par baat karein: ${CEO_WHATSAPP} ya email bhejein: ${CEO_EMAIL}`,
-      ur: `⚠️ مسئلہ رپورٹ کرنے کے لیے شکریہ۔ براہِ کرم CEO سے WhatsApp پر رابطہ کریں: ${CEO_WHATSAPP} یا ای میل کریں: ${CEO_EMAIL}`,
-      hi: `⚠️ रिपोर्ट करने के लिए धन्यवाद। CEO से WhatsApp पर बात करें: ${CEO_WHATSAPP} या मेल करें: ${CEO_EMAIL}`,
-      ar: `⚠️ شكراً لتبليغك عن المشكلة. يرجى التواصل مع المدير التنفيذي عبر واتساب: ${CEO_WHATSAPP} أو البريد الإلكتروني: ${CEO_EMAIL}`,
+      en:  `🐛 Bug Report / Technical Issue:\n\nPlease contact our CEO directly for technical support:\n\n📱 WhatsApp: wa.me/96878994093\n📧 Email: ajcreatorstudio.hq@gmail.com\n\nDescribe your issue clearly and we'll fix it ASAP! 🔧`,
+      hin: `🐛 Bug Report:\n\nCEO se directly contact karo:\n\n📱 WhatsApp: wa.me/96878994093\n📧 Email: ajcreatorstudio.hq@gmail.com\n\nApna issue clearly batao! 🔧`,
+      ur:  `🐛 Bug Report:\n\nCEO سے رابطہ کریں:\n\n📱 WhatsApp: wa.me/96878994093\n📧 Email: ajcreatorstudio.hq@gmail.com`,
+      hi:  `🐛 Bug Report:\n\nCEO से contact करें:\n\n📱 WhatsApp: wa.me/96878994093\n📧 Email: ajcreatorstudio.hq@gmail.com`,
+      ar:  `🐛 تقرير خطأ:\n\nتواصل مع المدير:\n\n📱 واتساب: wa.me/96878994093\n📧 البريد: ajcreatorstudio.hq@gmail.com`,
     },
-
+    sensitive_payment: {
+      en:  `💳 For all payment, purchase, and withdrawal matters, please go directly to the Wallet section in the app. Our payment system is fully automated via NOWPayments. For manual issues, contact CEO on WhatsApp.`,
+      hin: `💳 Payment ke liye Wallet section mein jao. Auto system hai NOWPayments ka. Manual issue ke liye CEO ko WhatsApp karo.`,
+      ur:  `💳 Payment کے لیے Wallet section استعمال کریں۔ Manual issue: CEO WhatsApp`,
+      hi:  `💳 Payment के लिए Wallet section जाएं। Manual issue: CEO WhatsApp`,
+      ar:  `💳 للمدفوعات، اذهب إلى المحفظة. مشكلة يدوية: واتساب المدير`,
+    },
+    payment_issue: {
+      en:  `⚠️ Payment Issue Detected!\n\nFor payment problems (coins not received, transaction stuck, wrong amount), please contact our CEO directly:\n\n📱 WhatsApp CEO Now →`,
+      hin: `⚠️ Payment Issue!\n\nCoins nahi aaye ya transaction stuck hai? CEO ko WhatsApp karo:\n\n📱 WhatsApp CEO Now →`,
+      ur:  `⚠️ Payment مسئلہ!\n\nCEO WhatsApp →`,
+      hi:  `⚠️ Payment Issue!\n\nCEO WhatsApp →`,
+      ar:  `⚠️ مشكلة دفع!\n\nواتساب المدير →`,
+    },
     general: {
-      en:  `I'm here to help! 😊 AJ Portal offers:\n\n🎬 TikReels — earn per upload\n📡 AJ Pulse — live + gifts\n🎮 Gaming — 1v1 coin games\n🪙 Coins — $1 = ${COIN_RATE} Coins, 500 signup bonus\n👥 Referral — +${REFERRAL_COINS} coins per friend\n💸 Withdraw — min ${WITHDRAW_MIN.toLocaleString()} coins\n🎁 Gifts — Coffee to Mansion\n⚔️ PK Battle\n🤖 AI Bot — 2-5% daily\n💬 WeChat — private chat\n\nAsk about any of these! 👆`,
-      hin: `Bhai, main yahan hoon! 😊\n\n🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\n🪙 $1=${COIN_RATE} Coins, 500 bonus\n👥 Referral +${REFERRAL_COINS} • 💸 Withdraw\n🎁 Gifts • ⚔️ PK • 🤖 AI Bot 2-5%\n💬 WeChat\n\nKisi bhi topic ke baare mein pooch! 🔥`,
-      ur:  `میں حاضر ہوں! 😊\n\n🎬 TikReels • 📡 Pulse • 🎮 Gaming\n🪙 Coins • 💸 Withdraw • 🎁 Gifts\n⚔️ PK • 🤖 AI Bot • 💬 WeChat\n\nکوئی بھی سوال پوچھیں!`,
-      hi:  `मैं यहां हूं! 😊\n\n🎬 TikReels • 📡 Pulse • 🎮 Gaming\n🪙 Coins • 💸 Withdraw • 🎁 Gifts\n⚔️ PK • 🤖 AI Bot • 💬 WeChat\n\nकुछ भी पूछो!`,
-      ar:  `أنا هنا! 😊\n\n🎬 TikReels • 📡 Pulse • 🎮 Gaming\n🪙 كوينز • 💸 سحب • 🎁 هدايا\n⚔️ PK • 🤖 AI Bot • 💬 WeChat\n\nاسألني!`,
+      en:  `I'm here to help! 😊 AJ Portal offers:\n\n🎬 TikReels — +10 Coins per video\n📡 AJ Pulse — +5 Coins per photo, +10 per video\n🎮 Gaming — auto coin rewards\n🪙 Coins — $1 = ${COIN_RATE} Coins, 500 signup bonus\n👥 Referral — +${REFERRAL_COINS} coins per friend\n💸 Withdraw — min ${WITHDRAW_MIN.toLocaleString()} coins\n🎁 Gifts — Coffee to Mansion\n⚔️ PK Battle\n🤖 AI Bot — 2-5% daily\n💬 WeChat — private chat + ZegoCloud calls\n\nAsk about any of these! 👆`,
+      hin: `Bhai, main yahan hoon! 😊\n\n🎬 TikReels +10 Coins • 📡 Pulse +5/+10 • 🎮 Gaming\n🪙 $1=${COIN_RATE} Coins, 500 bonus\n👥 Referral +${REFERRAL_COINS} • 💸 Withdraw\n🎁 Gifts • ⚔️ PK • 🤖 AI Bot 2-5%\n💬 WeChat + ZegoCloud calls\n\nKisi bhi topic ke baare mein pooch! 🔥`,
+      ur:  `میں حاضر ہوں! 😊\n\n🎬 TikReels +10 • 📡 Pulse +5/+10 • 🎮 Gaming\n🪙 Coins • 💸 Withdraw • 🎁 Gifts\n⚔️ PK • 🤖 AI Bot • 💬 WeChat\n\nکوئی بھی سوال پوچھیں!`,
+      hi:  `मैं यहां हूं! 😊\n\n🎬 TikReels +10 • 📡 Pulse +5/+10 • 🎮 Gaming\n🪙 Coins • 💸 Withdraw • 🎁 Gifts\n⚔️ PK • 🤖 AI Bot • 💬 WeChat\n\nकुछ भी पूछो!`,
+      ar:  `أنا هنا! 😊\n\n🎬 TikReels +10 • 📡 Pulse +5/+10 • 🎮 Gaming\n🪙 كوينز • 💸 سحب • 🎁 هدايا\n⚔️ PK • 🤖 AI Bot • 💬 WeChat\n\nاسألني!`,
     },
   };
 
   const matchBotTopic = (q: string, lastTopic: string): string => {
     const t = q.toLowerCase();
     if (/^(hi|hey|hello|salam|assalam|hii|helo|yo|sup|wassup|kia haal|kya haal|namaste|namaskar|bonjour|hola|ciao|merhaba|привет|halo)\b/.test(t)) return 'greeting';
-    // Bug/issue reporting should be routed to CEO contact
     if (/bug|issue|error|problem|crash|not working|masla|mushkil|masky|khata|bug report|report bug/.test(t)) return 'bug_report';
-    // Sensitive payment topics: refuse to give detailed purchase/withdrawal flow in chat
-    if (/withdraw|withdrawal|cash out|cashout|payout|purchase|buy|payment|invoice|charge|refund|top up|recharge|buy coins|how to withdraw|how to purchase|wallet/.test(t)) return 'sensitive_payment';
     if (/payment.*(fail|not.*arriv|problem|issue|stuck|error|wrong|bug)|coin.*not.*arriv|deposit.*not|transaction.*id.*(not|fail|wrong)|technical.*bug|bug.*report|refund/.test(t)) return 'payment_issue';
+    if (/withdraw|withdrawal|cash out|cashout|payout|purchase|buy|payment|invoice|charge|refund|top up|recharge|buy coins|how to withdraw|how to purchase|wallet/.test(t)) return 'sensitive_payment';
     if (/tikreel|tik.*reel|tiktok|short.*video|video.*upload|reel|view.*count|view.*format/.test(t)) return 'tikreels';
     if (/pulse|aj.*pulse|live|room.*id|join.*room|go.*live|stream|broadcast/.test(t)) return 'pulse';
     if (/follow|unfollow|profile|dm|direct.*message|message.*button|private.*chat|avatar|profile.*pic/.test(t)) return 'social';
@@ -1951,13 +1982,10 @@ useEffect(() => {
     return topicData[lang] ?? topicData['hin'] ?? topicData['en'] ?? getBotReply('general', 'en');
   };
 
-  // Smart AI Bot: 1st reply always English → then auto-match Hinglish/Urdu/Arabic etc.
   const handleBotSend = () => {
     if (!botInput.trim()) return;
     const input   = botInput.trim();
     const rawLang = detectLanguage(input);
-    // First message → English so new users understand the bot
-    // Every subsequent message → match the user's own language automatically
     const lang    = isFirstBotMsg.current ? 'en' : rawLang;
     isFirstBotMsg.current = false;
     const topic = matchBotTopic(input, lastBotTopicRef.current);
@@ -1969,1824 +1997,1652 @@ useEffect(() => {
 
   const formatPkTime = (s:number) => `${Math.floor(s/60).toString().padStart(2,'0')}:${(s%60).toString().padStart(2,'0')}`;
 
-  // ==========================================================
-  // SPLASH
-  // ==========================================================
-  if (screen==='splash') return (
-    <main className="h-screen bg-[#050505] flex flex-col items-center justify-center text-white text-center">
-      <div className="w-40 h-40 bg-[#050505] rounded-full border-4 border-cyan-500 shadow-[0_0_60px_#06b6d4] overflow-hidden mb-8">
-        <img src="/logo.png" className="w-full h-full object-cover" alt="AJ"/>
-      </div>
-      <h1 className="text-3xl font-black tracking-widest uppercase animate-pulse">AJ PORTAL</h1>
-    </main>
-  );
 
   // ==========================================================
-  // AUTH
-  // ==========================================================
-  if (screen==='auth') return (
-    <main className="min-h-screen bg-[#050505] flex flex-col items-center justify-center p-6 text-white text-center">
-      <div className="w-full max-w-sm bg-white/[0.03] border border-white/10 p-12 rounded-[3rem] shadow-2xl">
-        <h2 className="text-6xl font-black mb-10 italic text-cyan-400 uppercase">AJ <span className="text-white">ID</span></h2>
-        <button onClick={handleGoogleLogin} className="w-full py-5 bg-white text-black font-black text-xl rounded-2xl  transition-all shadow-xl">
-          CONTINUE WITH GOOGLE
-        </button>
-        <p className="mt-8 text-yellow-500 font-bold tracking-widest">+500 COINS WELCOME BONUS</p>
-      </div>
-    </main>
-  );
-
-  // ==========================================================
-  // MAIN APP
+  // RENDER
   // ==========================================================
   return (
-    <main className="min-h-screen bg-[#020617] text-white font-sans overflow-x-hidden relative">
-      <input type="file" ref={fileInputRef}  onChange={handleFileChange}       accept="image/*,video/*" className="hidden"/>
-      <input type="file" ref={tiktokFileRef} onChange={handleTiktokFileChange} accept="image/*,video/*" className="hidden"/>
-      <input type="file" ref={audioFileRef}  onChange={e => { const f = e.target.files?.[0]; if(f) setTiktokAudioFile(f); }} accept="audio/*" className="hidden"/>
+    <div className="min-h-screen bg-[#050505] text-white font-sans select-none overflow-hidden">
 
-      {/* VVIP NEON ALERT MODAL — Req 4 */}
-      {vvipAlert && (
-        <VVIPAlert msg={vvipAlert.msg} icon={vvipAlert.icon} onClose={() => setVvipAlert(null)}/>
-      )}
+      {/* ── ZegoCloud SDK ── */}
+      <Script src="https://unpkg.com/@zegocloud/zego-uikit-prebuilt/zego-uikit-prebuilt.js" strategy="lazyOnload"/>
 
-      {/* EDIT POST MODAL — Req 2 */}
-      {editPostId && (
-        <div className="fixed inset-0 z-[9998] flex items-end justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-[#0a0a1a] border border-pink-500/30 rounded-3xl p-5 w-full max-w-sm shadow-2xl">
-            <p className="text-xs font-black text-pink-400 uppercase tracking-widest mb-3">✏️ Edit Post</p>
-            <textarea
-              value={editPostText}
-              onChange={e => setEditPostText(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-2xl p-3 text-sm text-white outline-none focus:border-pink-500 h-24 font-bold resize-none"
-              placeholder="Edit your caption..."/>
-            <div className="flex gap-3 mt-3">
-              <button onClick={async () => {
-                if (!editPostId) return;
-                const col = socialScreen === 'pulse' ? 'pulse_posts' : 'user_posts';
-                try {
-                  await updateDoc(doc(db, col, editPostId), { text: editPostText });
-                  setEditPostId(null); setEditPostText('');
-                  setVvipAlert({msg:'✅ Post updated!', icon:'✏️'});
-                } catch { setVvipAlert({msg:'Update failed. Try again.'}); }
-              }} className="flex-1 py-2.5 bg-pink-600 rounded-2xl font-black text-xs text-white uppercase tracking-widest">
-                Save
-              </button>
-              <button onClick={() => { setEditPostId(null); setEditPostText(''); }}
-                className="flex-1 py-2.5 bg-white/5 border border-white/10 rounded-2xl font-black text-xs text-gray-400 uppercase tracking-widest">
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ── Monetag Zone 11337197 ── */}
+      <script dangerouslySetInnerHTML={{__html:`(function(s){s.dataset.zone='11337197',s.src='https://nap5k.com'})([document.documentElement, document.body].filter(Boolean).pop().appendChild(document.createElement('script')))`}}/>
+      {/* ── Monetag Zone 11349676 ── */}
+      <script dangerouslySetInnerHTML={{__html:`(function(s){s.dataset.zone='11349676',s.src='https://n6wxm.com'})([document.documentElement, document.body].filter(Boolean).pop().appendChild(document.createElement('script')))`}}/>
 
-      {/* CINEMATIC GIFT OVERLAY */}
-      {cinematicGift && (
-        <CinematicGiftOverlay
-          gift={cinematicGift}
-          sender={cinematicSender}
-          onDone={() => { setCinematicGift(null); setCinematicSender(''); }}
+      {/* ── Hidden file inputs ── */}
+      <input ref={fileInputRef}  type="file" accept="image/*,video/*" className="hidden" onChange={handleFileChange}/>
+      <input ref={tiktokFileRef} type="file" accept="image/*,video/*" className="hidden" onChange={handleTiktokFileChange}/>
+      <input ref={audioFileRef}  type="file" accept="audio/*"         className="hidden" onChange={e => { if (e.target.files?.[0]) setTiktokAudioFile(e.target.files[0]); }}/>
+
+      {/* ── Overlays ── */}
+      {vvipAlert && <VVIPAlert msg={vvipAlert.msg} icon={vvipAlert.icon} onClose={() => setVvipAlert(null)}/>}
+      {cinematicGift && <CinematicGiftOverlay gift={cinematicGift} sender={cinematicSender} onDone={() => { setCinematicGift(null); setCinematicSender(''); }}/>}
+      {incomingCall && (
+        <IncomingCallOverlay
+          callerName={incomingCall.callerName}
+          callerPhoto={incomingCall.callerPhoto}
+          callType={incomingCall.callType}
+          onAccept={() => {
+            setZegoCallRoomId(incomingCall.roomId);
+            setZegoCallType(incomingCall.callType);
+            setZegoCallActive(true);
+            setIncomingCall(null);
+            setTimeout(() => handleStartZegoCall(incomingCall.roomId, user?.uid||'', username||'AJ Member', incomingCall.callType), 500);
+          }}
+          onDecline={() => setIncomingCall(null)}
         />
       )}
-{/* MONETAG ADS */}
-<Script id="monetag-banner-ad" src="https://nap5k.com" data-zone="11337197" strategy="afterInteractive" />
-<Script id="monetag-vignette-ad" src="https://n6wxm.com" data-zone="11349676" strategy="afterInteractive" />
-      {/* HEADER */}
-      <header className="fixed top-0 w-full p-4 flex justify-between items-center z-[100] bg-[#050505]/80 backdrop-blur-xl border-b border-white/5 shadow-2xl">
-        <div className="text-xl font-black italic text-cyan-400">AJ STUDIO</div>
-        <div className="flex items-center gap-3">
-          <div className="relative cursor-pointer" onClick={() => { setNotifOpen(!notifOpen); setUnreadCount(0); }}>
-            <Bell size={22} className="text-white hover:text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text transition-all"/>
-            {unreadCount>0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[8px] font-black text-white flex items-center justify-center border border-black animate-pulse">
-                {unreadCount>9?'9+':unreadCount}
-              </span>
-            )}
-          </div>
-          <div onClick={() => navigateWithAd('wallet')} className="flex items-center gap-3 bg-white/5 px-4 py-2 rounded-full border border-white/10 cursor-pointer hover:bg-white/5 backdrop-blur-xl border border-white/10 transition-all">
-            <span className="text-xs font-black text-yellow-500">{displayBalance} 🪙</span>
-            <span className="text-[10px] text-green-400 font-black">${displayUsdt}</span>
-            {user && <img src={tempPhoto||user.photoURL||'/logo.png'} className="w-8 h-8 rounded-full border border-cyan-500 shadow-[0_0_10px_#06b6d4]"/>}
-          </div>
-          <button onClick={() => signOut(auth)} className="p-2 bg-red-500/10 text-red-500 font-bold text-[8px] rounded-full uppercase">EXIT</button>
-        </div>
-      </header>
 
-      {/* NOTIF PANEL */}
-      {notifOpen && (
-        <div className="fixed top-16 right-4 w-80 max-h-96 overflow-y-auto bg-slate-900 border border-white/10 rounded-3xl p-4 z-[200] shadow-2xl backdrop-blur-xl">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="font-black text-sm text-cyan-400 uppercase tracking-widest">Notifications</h3>
-            <X size={16} className="text-gray-500 cursor-pointer" onClick={() => setNotifOpen(false)}/>
+      {/* ── ZegoCloud Call Container ── */}
+      {zegoCallActive && (
+        <div className="fixed inset-0 z-[9990] bg-black flex flex-col">
+          <div className="flex items-center justify-between px-4 py-3 bg-[#0a0a1a] border-b border-cyan-500/30">
+            <span className="text-white font-black text-sm">{zegoCallType === 'video' ? '📹 Video Call' : '📞 Audio Call'} — @{activeChatUser?.username || 'User'}</span>
+            <button onClick={endZegoCall} className="bg-red-600 text-white text-xs font-black px-4 py-2 rounded-full active:scale-95">End Call</button>
           </div>
-          {notifications.length===0
-            ? <p className="text-gray-500 text-xs text-center py-4">No notifications.</p>
-            : notifications.map((n:any) => (
-              <div key={n.id} className="bg-white/5 border border-white/10 p-3 rounded-2xl mb-3 cursor-pointer"
-                onClick={() => { if(n.deepLink) { setNotifOpen(false); } }}>
-                <p className="text-[10px] font-black text-cyan-400 uppercase">{n.title}</p>
-                <p className="text-[9px] text-gray-400 mt-1">{n.message}</p>
-              </div>
-            ))
-          }
+          <div id="zego-call-container" className="flex-1 w-full"/>
         </div>
       )}
 
-      {/* HOME HUB */}
-      <section className="min-h-screen flex flex-col items-center justify-center p-4 pt-24 relative">
-        {/* AI ASSISTANT — Hub Top Right */}
-        <div className="fixed top-20 right-4 z-[150]">
-          <button onClick={() => setBotOpen(!botOpen)}
-            className="w-12 h-12 bg-gradient-to-br from-cyan-500 to-green-500 rounded-full shadow-[0_0_20px_rgba(6,182,212,0.6)] flex items-center justify-center text-black hover:scale-110 transition-all active:scale-90 border-2 border-white/20">
-            {botOpen?<X size={20}/>:<Bot size={20}/>}
+      {/* ══════════════════════════════════════════════════════
+          SPLASH SCREEN
+      ══════════════════════════════════════════════════════ */}
+      {screen === 'splash' && (
+        <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-[#050505]">
+          <div className="relative z-[50]">
+            <img src="/logo.png" alt="AJ Super Portal" className="w-24 h-24 rounded-3xl shadow-[0_0_60px_rgba(236,72,153,0.6)] animate-pulse"/>
+          </div>
+          <h1 className="mt-6 text-3xl font-black bg-gradient-to-r from-pink-500 via-purple-400 to-cyan-400 bg-clip-text text-transparent tracking-widest uppercase">AJ SUPER PORTAL</h1>
+          <p className="mt-2 text-xs text-gray-500 tracking-widest uppercase">Loading…</p>
+          <div className="mt-8 w-48 h-1.5 bg-white/10 rounded-full overflow-hidden">
+            <div className="h-full bg-gradient-to-r from-pink-500 to-cyan-400 rounded-full transition-all duration-300" style={{width:`${loading}%`}}/>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════
+          AUTH SCREEN
+      ══════════════════════════════════════════════════════ */}
+      {screen === 'auth' && (
+        <div className="fixed inset-0 flex flex-col items-center justify-center bg-[#050505] px-6">
+          <div className="relative z-[50]">
+            <img src="/logo.png" alt="AJ" className="w-20 h-20 rounded-2xl shadow-[0_0_40px_rgba(236,72,153,0.5)]"/>
+          </div>
+          <h1 className="mt-5 text-2xl font-black bg-gradient-to-r from-pink-500 to-cyan-400 bg-clip-text text-transparent uppercase tracking-widest">AJ SUPER PORTAL</h1>
+          <p className="mt-2 text-xs text-gray-400 text-center">TikReels • Pulse • Live • Gaming • Wallet</p>
+          <button
+            onClick={handleGoogleLogin}
+            className="mt-10 w-full max-w-xs flex items-center justify-center gap-3 bg-white text-gray-900 font-black rounded-2xl py-4 shadow-[0_0_30px_rgba(255,255,255,0.15)] active:scale-95 transition-all"
+          >
+            <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+            Continue with Google
           </button>
+          <p className="mt-6 text-[10px] text-gray-600 text-center max-w-xs">By continuing you agree to AJ Portal's Terms of Service and Privacy Policy.</p>
         </div>
+      )}
 
-        <h1 className="text-4xl md:text-8xl font-black text-center mb-12 uppercase drop-shadow-[0_0_20px_#22d3ee]">AJ SUPER PORTAL</h1>
-        <div className="grid grid-cols-2 gap-4 md:gap-16 w-full max-w-4xl relative z-30">
-          {[
-            { label:'Gaming',        icon:<Trophy className="text-cyan-400 w-10 h-10 md:w-20 md:h-20 mb-2"/>, sc:'arcade', hover:'hover:border-cyan-400' },
-            { label:'Social',        icon:<Zap     className="text-pink-500 w-10 h-10 md:w-20 md:h-20 mb-2"/>, sc:'social', hover:'hover:border-pink-500' },
-            { label:'Wallet',        icon:<img src="/gold.jpg" className="w-14 h-14 mb-2 rounded-full border-2 border-yellow-500 shadow-md"/>, sc:'wallet', hover:'hover:border-yellow-500' },
-            { label:'AI Trading Bot',icon:<Bot className="text-green-400 w-10 h-10 md:w-20 md:h-20 mb-2"/>, sc:'ai',     hover:'hover:border-green-500' },
-          ].map(m => (
-            <div key={m.label} onClick={() => navigateWithAd(m.sc)}
-              className={`backdrop-blur-2xl bg-white/[0.07] border border-white/10 rounded-3xl h-48 md:h-80 flex flex-col items-center justify-center cursor-pointer shadow-xl  transition-all ${m.hover} relative z-30`}>
-              {m.icon}
-              <span className="font-black text-xs md:text-3xl uppercase tracking-tighter">{m.label}</span>
+      {/* ══════════════════════════════════════════════════════
+          HUB SCREEN
+      ══════════════════════════════════════════════════════ */}
+      {screen === 'hub' && (
+        <div className="flex flex-col min-h-screen bg-[#050505]">
+          {/* Header */}
+          <div className="sticky top-0 z-40 bg-[#050505]/95 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="relative z-[50]">
+                <img src="/logo.png" alt="AJ" className="w-9 h-9 rounded-xl shadow-[0_0_18px_rgba(236,72,153,0.5)]"/>
+              </div>
+              <div>
+                <h1 className="text-sm font-black bg-gradient-to-r from-pink-500 to-cyan-400 bg-clip-text text-transparent uppercase tracking-widest">AJ SUPER PORTAL</h1>
+                <p className="text-[9px] text-gray-500 uppercase tracking-widest">Hub</p>
+              </div>
             </div>
-          ))}
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-50">
-            <div className="relative w-24 h-24 md:w-96 md:h-96 bg-[#050505] border-[15px] border-cyan-500 rounded-full flex items-center justify-center shadow-[0_0_100px_#06b6d4] overflow-hidden">
-              <img src="/logo.png" className="w-full h-full object-cover opacity-60 animate-pulse"/>
+            <div className="flex items-center gap-2">
+              <button onClick={() => { setNotifOpen(true); loadNotifications(); }} className="relative p-2 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all">
+                <span className="text-sm">🔔</span>
+                {unreadCount > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-pink-600 rounded-full text-[8px] font-black flex items-center justify-center">{unreadCount > 9 ? '9+' : unreadCount}</span>}
+              </button>
+              <button onClick={handleSignOut} className="p-2 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all">
+                <LogOut size={14} className="text-gray-400"/>
+              </button>
             </div>
           </div>
-        </div>
 
-        {/* Sponsor Banner — Hub, static non-clickable, passive revenue */}
-        <div className="w-full max-w-4xl mt-10 px-4 pointer-events-none select-none">
-          <div className="flex items-center gap-3 bg-gradient-to-r from-yellow-950/60 to-amber-950/30 border border-yellow-500/20 rounded-2xl px-5 py-3 shadow-inner">
-            <span className="text-yellow-500/70 text-[8px] font-black uppercase tracking-widest border border-yellow-500/30 px-2 py-0.5 rounded-full shrink-0">Sponsored</span>
-            <p className="text-gray-400 text-[10px] font-bold leading-snug">🌐 AJ Super Portal — Oman's #1 Social Earnings Platform. Earn Daily, Withdraw Anytime. Join 1M+ Members!</p>
+          {/* Sponsor Banner — non-clickable */}
+          <div className="px-4 pt-3 pointer-events-none">
+            <MonetagBanner siteId={MONETAG_PULSE_BANNER}/>
           </div>
-        </div>
-      </section>
 
-      {/* AI ASSISTANT CHAT PANEL */}
-      {botOpen && screen==='hub' && (
-        <div className="fixed bottom-24 right-6 z-[900] w-80 md:w-96 h-[480px] bg-white/[0.04] border border-cyan-500/30 rounded-[2.5rem] shadow-[0_0_50px_rgba(6,182,212,0.2)] flex flex-col overflow-hidden backdrop-blur-2xl">
-          <div className="bg-gradient-to-r from-cyan-600/30 to-green-600/30 p-5 border-b border-white/10 flex items-center gap-3">
-            <div className="w-10 h-10 bg-cyan-500 rounded-full flex items-center justify-center border-2 border-cyan-300">
-              <Bot size={22} className="text-black"/>
-            </div>
-            <div>
-              <p className="font-black text-sm text-white uppercase tracking-widest">AJ AI Assistant</p>
-              <p className="text-[8px] text-green-400 font-bold uppercase tracking-widest animate-pulse">CEO Representative • Online</p>
-            </div>
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            {botMessages.map((msg, i) => (
-              <div key={i} className={`flex ${msg.from==='user'?'justify-end':'justify-start'}`}>
-                <div className={`max-w-[85%] p-3 rounded-2xl text-[11px] leading-relaxed font-bold whitespace-pre-line ${msg.from==='user'?'bg-cyan-600 text-white rounded-tr-none':'bg-white/5 backdrop-blur-xl border border-white/10 text-gray-200 rounded-tl-none border border-white/10'}`}>
-                  {msg.text}
-                  {msg.from==='bot' && (msg as any).topic === 'payment_issue' && (
-                    <a href={CEO_WHATSAPP} target="_blank" className="block mt-2 bg-green-500 text-black text-[10px] font-black uppercase px-3 py-2 rounded-xl text-center hover:bg-green-400 transition-all">
-                      💬 WhatsApp CEO — Get Help Now
-                    </a>
-                  )}
+          {/* Balance Card */}
+          <div className="px-4 pt-4">
+            <div className="rounded-3xl overflow-hidden shadow-[0_0_40px_rgba(236,72,153,0.15)]" style={{background:'linear-gradient(135deg,#1a0a2e 0%,#0a0a1a 50%,#0d1a2e 100%)',border:'1px solid rgba(236,72,153,0.2)'}}>
+              <div className="h-[2px] w-full bg-gradient-to-r from-pink-500 via-purple-400 to-cyan-400"/>
+              <div className="p-5">
+                <p className="text-[10px] text-gray-400 uppercase tracking-widest font-black">Total Balance</p>
+                <p className="text-4xl font-black bg-gradient-to-r from-yellow-300 to-yellow-500 bg-clip-text text-transparent mt-1">{parseFloat(displayBalance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} <span className="text-lg text-yellow-400/70">🪙</span></p>
+                <p className="text-xs text-gray-400 mt-1">≈ ${displayUsdt} USD</p>
+                {botTier !== 'none' && (
+                  <div className="mt-3 flex items-center gap-2 bg-green-500/10 border border-green-500/20 rounded-2xl px-3 py-2">
+                    <span className="text-green-400 text-xs font-black animate-pulse">● LIVE</span>
+                    <span className="text-green-300 text-xs font-black">{botTier.toUpperCase()} BOT ACTIVE</span>
+                    <span className="ml-auto text-green-400 text-xs font-black">+{botTier==='vvip'?'5':'2'}% daily</span>
+                  </div>
+                )}
+                <div className="mt-4 flex gap-2">
+                  <button onClick={() => { setScreen('wallet'); setWalletTab('purchase'); }} className="flex-1 py-2.5 rounded-2xl text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all shadow-[0_0_18px_rgba(236,72,153,0.3)]" style={{background:'linear-gradient(135deg,#ec4899,#8b5cf6)'}}>+ Buy Coins</button>
+                  <button onClick={() => { setScreen('wallet'); setWalletTab('withdraw'); }} className="flex-1 py-2.5 rounded-2xl text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all" style={{background:'linear-gradient(135deg,#0891b2,#0e7490)'}}>Withdraw</button>
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* Quick Nav Grid */}
+          <div className="px-4 pt-4 grid grid-cols-3 gap-3">
+            {[
+              { icon:'🎬', label:'TikReels', action:() => { setScreen('social'); setSocialScreen('tikreels'); setTiktabMode('feed'); } },
+              { icon:'📡', label:'AJ Pulse', action:() => { setScreen('social'); setSocialScreen('pulse'); setPulseTab('feed'); } },
+              { icon:'💬', label:'WeChat',   action:() => { setScreen('social'); setSocialScreen('wechat'); } },
+              { icon:'🎮', label:'Gaming',   action:() => setScreen('games') },
+              { icon:'🤖', label:'AI Bot',   action:() => setScreen('aibot') },
+              { icon:'💰', label:'Wallet',   action:() => { setScreen('wallet'); setWalletTab('main'); } },
+            ].map(item => (
+              <button key={item.label} onClick={item.action} className="flex flex-col items-center gap-2 bg-white/5 border border-white/10 rounded-2xl py-4 active:scale-95 transition-all hover:border-pink-500/30">
+                <span className="text-2xl">{item.icon}</span>
+                <span className="text-[10px] font-black text-gray-300 uppercase tracking-widest">{item.label}</span>
+              </button>
             ))}
           </div>
-          <div className="p-4 border-t border-white/10 flex gap-3">
-            <input type="text" value={botInput} onChange={e => setBotInput(e.target.value)}
-              onKeyDown={e => e.key==='Enter'&&handleBotSend()} placeholder="Ask about Coins, Referral, Live..."
-              className="flex-1 bg-white/5 border border-white/10 rounded-full px-4 py-3 text-xs text-white outline-none focus:ring-1 focus:ring-cyan-500 font-bold"/>
-            <button onClick={handleBotSend} className="bg-cyan-500 p-3 rounded-full text-black shadow-lg active:scale-90 transition-all">
-              <Send size={16}/>
-            </button>
-          </div>
-        </div>
-      )}
 
-      {/* ARCADE */}
-      {screen==='arcade' && (
-        <div className="fixed inset-0 z-[300] bg-[#050505] flex flex-col h-screen overflow-hidden">
-          {!selectedGame ? (
-            <div className="p-8 overflow-y-auto flex-1">
-              <button onClick={() => { setScreen('hub'); setSelectedGame(null); }}
-                className="text-cyan-400 font-bold mb-6 tracking-widest uppercase flex items-center gap-2">
-                <ArrowLeft size={20}/> BACK
-              </button>
-              {/* Sponsor Banner — Games Zone, static non-clickable */}
-              <div className="w-full max-w-5xl mx-auto mb-8 pointer-events-none select-none">
-                <div className="flex items-center gap-3 bg-gradient-to-r from-cyan-950/60 to-blue-950/30 border border-cyan-500/20 rounded-2xl px-5 py-3 shadow-inner">
-                  <span className="text-cyan-500/70 text-[8px] font-black uppercase tracking-widest border border-cyan-500/30 px-2 py-0.5 rounded-full shrink-0">Sponsored</span>
-                  <p className="text-gray-400 text-[10px] font-bold leading-snug">🎮 Play-to-Earn Gaming Zone — Win AJ Coins in every match! 5 games live now, more launching soon.</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-6 max-w-5xl mx-auto pb-20">
-                {['Rider King','Pulse Racer','Subsea Surge','Neon Strike','Volcano Escape'].map(game => (
-                  <div key={game} onClick={() => setSelectedGame(game)}
-                    className="bg-white/5 border border-white/10 p-4 rounded-3xl text-center hover:border-cyan-400 cursor-pointer transition-all">
-                    <img src={`/games/${game.toLowerCase().replace(/ /g,'-')}/logo.png`}
-                      className="w-full aspect-square rounded-xl mb-4 object-cover" alt={game}
-                      onError={(e:any) => { e.target.src="/logo.png"; }}/>
-                    <h3 className="font-black text-sm uppercase">{game}</h3>
-                    <button className="mt-4 w-full py-2 rounded-full font-black text-[10px] bg-cyan-500 text-black uppercase">PLAY NOW</button>
-                  </div>
-                ))}
-                {['Ludo Elite Royal','Puck Pulse Elite'].map(game => (
-                  <div key={game} className="bg-white/5 border border-yellow-500/30 p-4 rounded-3xl text-center relative opacity-80 cursor-not-allowed">
-                    <span className="absolute top-3 right-3 bg-yellow-500 text-black text-[8px] font-black px-2 py-1 rounded-full uppercase z-10">Coming Soon</span>
-                    <div className="w-full aspect-square rounded-xl mb-4 bg-gradient-to-br from-yellow-500/10 to-black flex items-center justify-center border border-yellow-500/20">
-                      <Trophy size={50} className="text-yellow-500 opacity-40"/>
+          {/* Live Now */}
+          {liveNowList.length > 0 && (
+            <div className="px-4 pt-5">
+              <p className="text-[10px] text-pink-400 font-black uppercase tracking-widest mb-3">🔴 Live Now</p>
+              <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+                {liveNowList.map((room:any) => (
+                  <button key={room.id} onClick={() => joinLiveByRoomId(room.id)} className="flex-shrink-0 flex flex-col items-center gap-1.5 active:scale-90 transition-all">
+                    <div className="relative w-14 h-14 rounded-2xl overflow-hidden border-2 border-red-500 shadow-[0_0_14px_rgba(239,68,68,0.4)]">
+                      <img src={room.photo||'/logo.png'} className="w-full h-full object-cover"/>
+                      <span className="absolute bottom-0.5 left-0.5 bg-red-600 text-white text-[7px] font-black px-1.5 rounded-full">LIVE</span>
                     </div>
-                    <h3 className="font-black text-sm uppercase text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text">{game}</h3>
-                    <button disabled className="mt-4 w-full py-2 rounded-full font-black text-[10px] bg-yellow-500/20 text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text uppercase cursor-not-allowed">Coming Soon</button>
-                  </div>
+                    <span className="text-[9px] text-gray-300 font-black max-w-[56px] truncate">@{room.username}</span>
+                  </button>
                 ))}
               </div>
             </div>
-          ) : (
-            <div className="flex-1 flex flex-col h-full">
-              <div className="w-full bg-[#050505] h-12 flex items-center px-4 border-b border-white/10 shrink-0">
-                <button onClick={() => setSelectedGame(null)} className="text-cyan-400 font-black text-[10px] uppercase tracking-widest">← BACK</button>
-                <div className="flex-1 text-center font-black uppercase text-[10px] opacity-40">{selectedGame}</div>
+          )}
+
+          {/* Referral Card */}
+          <div className="px-4 pt-4 pb-6">
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex items-center gap-3">
+              <span className="text-2xl">👥</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-black text-white">Refer & Earn</p>
+                <p className="text-[9px] text-gray-400 truncate">Your ID: {user?.uid?.slice(0,16)}…</p>
               </div>
-              <iframe src={`/games/${selectedGame.toLowerCase().replace(/ /g,'-')}/index.html`}
-                className="w-full h-full border-none flex-1" title="Game"/>
+              <button onClick={() => copyToClipboard(user?.uid||'')} className="bg-pink-600/20 border border-pink-500/30 text-pink-400 text-[9px] font-black px-3 py-1.5 rounded-xl active:scale-90 transition-all">
+                {copied ? '✓ Copied' : 'Copy ID'}
+              </button>
+            </div>
+          </div>
+
+          {/* Notifications Modal */}
+          {notifOpen && (
+            <div className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col">
+              <div className="bg-[#0a0a1a] border-b border-white/10 px-4 py-4 flex items-center justify-between">
+                <p className="text-sm font-black text-white">Notifications</p>
+                <button onClick={() => setNotifOpen(false)}><X size={18} className="text-gray-400"/></button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {notifications.length === 0 && <p className="text-center text-gray-500 text-sm mt-10">No notifications yet.</p>}
+                {notifications.map((n:any) => (
+                  <div key={n.id} className="bg-white/5 border border-white/10 rounded-2xl p-3">
+                    <p className="text-xs font-black text-white">{n.title}</p>
+                    <p className="text-[10px] text-gray-400 mt-1">{n.message}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
       )}
 
-      {/* SOCIAL */}
-      {screen==='social' && (
-        <div className="fixed inset-0 z-[400] bg-slate-950 flex flex-col h-screen overflow-hidden">
-          <header className="sticky top-0 w-full p-4 bg-[#050505]/90 backdrop-blur-md border-b border-white/10 flex justify-between items-center z-[500] rounded-b-3xl shrink-0">
-            {socialScreen==='hub'
-              ? <button onClick={() => setScreen('hub')} className="text-pink-500 font-black text-xs uppercase">← HUB</button>
-              : <button onClick={() => setSocialScreen('hub')} className="text-pink-500 font-black text-xs uppercase">← BACK</button>
-            }
-            <h2 className="text-xl font-black uppercase text-center flex-1 tracking-[0.12em] bg-gradient-to-r from-pink-500 via-cyan-400 to-pink-400 bg-clip-text text-transparent drop-shadow-[0_0_20px_rgba(236,72,153,0.9)] animate-pulse select-none">⚡ AJ SUPER PORTAL</h2>
-            <button onClick={() => setSocialScreen('settings_menu')} className="bg-white/5 backdrop-blur-xl border border-white/10 p-2 rounded-full text-pink-500 hover:bg-white/20 shadow-lg">
-              <Settings size={22}/>
-            </button>
-          </header>
+      {/* ══════════════════════════════════════════════════════
+          SOCIAL SCREENS
+      ══════════════════════════════════════════════════════ */}
+      {screen === 'social' && (
+        <div className="flex flex-col min-h-screen bg-[#050505]">
 
-          <div className="flex-1 overflow-y-auto">
-
-            {/* SOCIAL HUB */}
-            {socialScreen==='hub' && (
-              <div className="max-w-md mx-auto grid grid-cols-1 gap-6 p-8 pb-24">
-                {/* Profile card */}
-                <div className="flex items-center gap-3 bg-white/5 p-4 rounded-3xl border border-pink-500/20 cursor-pointer"
-                  onClick={() => user && openProfile(user.uid)}>
-                  <div className="relative">
-                    <img src={tempPhoto||user?.photoURL||'/logo.png'} className="w-14 h-14 rounded-full border-2 border-pink-500 shadow-xl"/>
-                    <div className="absolute bottom-0 right-0 w-4 h-4 bg-green-500 rounded-full border-2 border-slate-950"/>
-                  </div>
-                  <div className="text-left">
-                    <p className="font-black text-white text-xs uppercase tracking-wider">@{username||'AJ_MEMBER'}</p>
-                    <p className="text-[8px] text-gray-500 uppercase font-bold tracking-widest">Tap to view your profile</p>
-                  </div>
+          {/* ── PROFILE SETUP ── */}
+          {socialScreen === 'setup' && (
+            <div className="flex flex-col min-h-screen bg-[#050505] px-4 pt-10">
+              <button onClick={() => setSocialScreen('hub')} className="flex items-center gap-2 text-gray-400 mb-6 active:scale-95">
+                <ArrowLeft size={16}/> Back
+              </button>
+              <h2 className="text-xl font-black text-white mb-1">Create Social Profile</h2>
+              <p className="text-xs text-gray-400 mb-6">Set up your AJ Portal identity</p>
+              <div className="flex flex-col items-center mb-6">
+                <div className="relative w-20 h-20 rounded-full border-2 border-pink-500 overflow-hidden cursor-pointer" onClick={handleImageClick}>
+                  <img src={tempPhoto||user?.photoURL||'/logo.png'} className="w-full h-full object-cover"/>
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center"><Camera size={18} className="text-white"/></div>
                 </div>
+              </div>
+              <input value={username} onChange={e => setUsername(e.target.value.toLowerCase().replace(/\s/g,''))} placeholder="username (no spaces)" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm mb-3 focus:outline-none focus:border-pink-500/50"/>
+              <textarea value={bio} onChange={e => setBio(e.target.value)} placeholder="Bio (optional)" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm mb-6 h-20 resize-none focus:outline-none focus:border-pink-500/50"/>
+              <button onClick={handleCreateProfile} className="w-full py-4 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all shadow-[0_0_24px_rgba(236,72,153,0.4)]" style={{background:'linear-gradient(135deg,#ec4899,#8b5cf6)'}}>
+                🚀 Activate Profile
+              </button>
+            </div>
+          )}
 
-                {/* Referral card */}
-                <div className="bg-gradient-to-r from-yellow-500/10 to-orange-500/10 border border-yellow-500/30 p-5 rounded-3xl text-left shadow-xl">
-                  <p className="text-[10px] font-black text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text uppercase tracking-widest mb-2">🎁 Refer & Earn — Your Referral Code</p>
-                  <div className="flex items-center justify-between bg-[#050505]/40 px-3 py-2 rounded-xl">
-                    <span className="text-xs font-mono text-yellow-300 truncate max-w-[200px]">{user?.uid}</span>
-                    <button onClick={() => copyToClipboard(user?.uid||"")} className="text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text text-[10px] font-black uppercase">
-                      {copied?"Copied ✓":"Copy"}
-                    </button>
+          {/* ── SOCIAL HUB ── */}
+          {socialScreen === 'hub' && (
+            <div className="flex flex-col min-h-screen">
+              <div className="sticky top-0 z-40 bg-[#050505]/95 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <button onClick={() => setScreen('hub')} className="active:scale-90 transition-all"><ArrowLeft size={16} className="text-gray-400"/></button>
+                  <div className="relative z-[50]">
+                    <img src="/logo.png" alt="AJ" className="w-7 h-7 rounded-lg"/>
                   </div>
-                  <p className="text-[9px] text-gray-400 mt-2">Share ID → New user enters it → You get +{REFERRAL_COINS} Coins!</p>
+                  <span className="text-sm font-black bg-gradient-to-r from-pink-500 to-cyan-400 bg-clip-text text-transparent uppercase tracking-widest">AJ SUPER PORTAL</span>
                 </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => { setScreen('social'); setSocialScreen('settings'); }} className="p-2 rounded-xl bg-white/5 border border-white/10 active:scale-90">
+                    <Settings size={14} className="text-gray-400"/>
+                  </button>
+                </div>
+              </div>
 
-                {/* Req 2: Notifications panel button */}
-                <button onClick={() => { setShowNotifs(!showNotifs); loadNotifications(); }}
-                  className="w-full py-3 bg-white/5 border border-yellow-500/30 rounded-2xl font-black uppercase text-yellow-400 text-xs tracking-widest flex items-center justify-center gap-2 hover:bg-yellow-500/10 transition-all">
-                  🔔 Notifications {notifications.filter((n:any)=>!n.read).length > 0 && <span className="bg-red-500 text-white text-[9px] rounded-full px-1.5 py-0.5">{notifications.filter((n:any)=>!n.read).length}</span>}
+              {/* Sponsor Banner — non-clickable */}
+              <div className="px-4 pt-3 pointer-events-none">
+                <MonetagBanner siteId={MONETAG_PULSE_BANNER}/>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-4 pt-4 pb-24 space-y-3">
+                {/* Social Nav Buttons */}
+                {[
+                  { icon:'🎬', label:'AJ TikReels',  sub:'Short Videos',         action:() => { setSocialScreen('tikreels'); setTiktabMode('feed'); } },
+                  { icon:'📡', label:'AJ Pulse',      sub:'Feed & Live Stream',   action:() => { setSocialScreen('pulse'); setPulseTab('feed'); } },
+                  { icon:'💬', label:'WeChat',        sub:'Private Messaging',    action:() => setSocialScreen('wechat') },
+                  { icon:'👥', label:'Community',     sub:'Global Chat',          action:() => setSocialScreen('chat') },
+                ].map(item => (
+                  <button key={item.label} onClick={item.action} className="w-full flex items-center gap-4 bg-white/5 border border-white/10 rounded-2xl p-4 active:scale-[0.98] transition-all hover:border-pink-500/20">
+                    <span className="text-2xl">{item.icon}</span>
+                    <div className="flex-1 text-left">
+                      <p className="text-sm font-black text-white">{item.label}</p>
+                      <p className="text-[10px] text-gray-400">{item.sub}</p>
+                    </div>
+                    <ChevronRight size={14} className="text-gray-500"/>
+                  </button>
+                ))}
+
+                {/* GO LIVE Button */}
+                <button
+                  onClick={() => { if (!liveActive) startLive(); else { setScreen('social'); setSocialScreen('live'); } }}
+                  className="w-full flex items-center gap-4 rounded-2xl p-4 active:scale-[0.98] transition-all shadow-[0_0_24px_rgba(239,68,68,0.3)]"
+                  style={{background:'linear-gradient(135deg,rgba(239,68,68,0.15),rgba(239,68,68,0.05))',border:'1px solid rgba(239,68,68,0.3)'}}
+                >
+                  <span className="text-2xl">🔴</span>
+                  <div className="flex-1 text-left">
+                    <p className="text-sm font-black text-red-400">{liveActive ? 'Back to Live' : 'GO LIVE'}</p>
+                    <p className="text-[10px] text-gray-400">Stream to your audience</p>
+                  </div>
+                  <ChevronRight size={14} className="text-gray-500"/>
                 </button>
-                {showNotifs && notifications.length > 0 && (
-                  <div className="bg-[#0a0a1a] border border-white/10 rounded-2xl p-3 space-y-2 max-h-48 overflow-y-auto">
-                    {notifications.map((n:any) => (
-                      <div key={n.id} className="flex items-center gap-3">
-                        <img src={n.fromPhoto||'/logo.png'} className="w-8 h-8 rounded-full border border-pink-500 object-cover shrink-0"/>
-                        <div className="flex-1">
-                          <p className="text-[10px] font-black text-white">@{n.fromUsername} followed you!</p>
-                          <p className="text-[9px] text-gray-500">Tap to follow back</p>
-                        </div>
-                        <button onClick={() => n.fromUid && handleFollow(n.fromUid)}
-                          className="px-3 py-1.5 bg-pink-600 rounded-full text-[9px] font-black text-white uppercase shrink-0">
-                          Follow Back
+
+                {/* Join Live */}
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
+                  <p className="text-xs font-black text-white mb-3">Join a Live Stream</p>
+                  <div className="flex gap-2">
+                    <input value={joinRoomInput} onChange={e => setJoinRoomInput(e.target.value)} placeholder="Enter Room ID" className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-pink-500/50"/>
+                    <button onClick={() => joinLiveByRoomId()} className="bg-pink-600 text-white text-xs font-black px-4 py-2 rounded-xl active:scale-90 transition-all">Join</button>
+                  </div>
+                </div>
+
+                {/* Live Now */}
+                {liveNowList.length > 0 && (
+                  <div>
+                    <p className="text-[10px] text-pink-400 font-black uppercase tracking-widest mb-3">🔴 Live Now</p>
+                    <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+                      {liveNowList.map((room:any) => (
+                        <button key={room.id} onClick={() => joinLiveByRoomId(room.id)} className="flex-shrink-0 flex flex-col items-center gap-1.5 active:scale-90 transition-all">
+                          <div className="relative w-14 h-14 rounded-2xl overflow-hidden border-2 border-red-500 shadow-[0_0_14px_rgba(239,68,68,0.4)]">
+                            <img src={room.photo||'/logo.png'} className="w-full h-full object-cover"/>
+                            <span className="absolute bottom-0.5 left-0.5 bg-red-600 text-white text-[7px] font-black px-1.5 rounded-full">LIVE</span>
+                          </div>
+                          <span className="text-[9px] text-gray-300 font-black max-w-[56px] truncate">@{room.username}</span>
                         </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── TIKREELS ── */}
+          {socialScreen === 'tikreels' && (
+            <div className="flex flex-col h-screen bg-[#050505] overflow-hidden">
+              {/* TikReels Header */}
+              <div className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-4 pt-safe pt-4 pb-2 bg-gradient-to-b from-black/80 to-transparent">
+                <button onClick={() => setSocialScreen('hub')} className="p-2 rounded-full bg-black/40 backdrop-blur-sm active:scale-90 transition-all">
+                  <ArrowLeft size={16} className="text-white"/>
+                </button>
+                <div className="flex gap-6">
+                  {(['feed','create','profile'] as const).map(tab => (
+                    <button key={tab} onClick={() => setTiktabMode(tab)} className={`text-sm font-black uppercase tracking-widest transition-all ${tiktabMode===tab ? 'text-white border-b-2 border-white pb-0.5' : 'text-gray-400'}`}>
+                      {tab === 'feed' ? 'Feed' : tab === 'create' ? '+ Post' : 'Profile'}
+                    </button>
+                  ))}
+                </div>
+                <button onClick={() => setGlobalSoundOn(s => !s)} className="p-2 rounded-full bg-black/40 backdrop-blur-sm active:scale-90 transition-all">
+                  {globalSoundOn ? <Volume2 size={16} className="text-white"/> : <VolumeX size={16} className="text-red-400"/>}
+                </button>
+              </div>
+
+              {/* ── FEED TAB ── */}
+              {tiktabMode === 'feed' && (
+                <div
+                  ref={videoFeedRef}
+                  className="h-screen w-full overflow-y-scroll snap-y snap-mandatory scrollbar-hide"
+                  style={{ scrollSnapType: 'y mandatory' }}
+                >
+                  {[...pixaVideos].map((video, idx) => {
+                    // Every 4th item is a Monetag ad
+                    if (idx > 0 && idx % 4 === 0) {
+                      return (
+                        <div
+                          key={`ad_${idx}`}
+                          data-vidx={idx}
+                          className="relative w-full h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]"
+                          style={{ scrollSnapAlign: 'start' }}
+                        >
+                          <MonetagVideoAd publisherId={MONETAG_PULSE_BANNER}/>
+                        </div>
+                      );
+                    }
+                    const isActive = activeVideoIdx === idx;
+                    const iframeSrc = isActive && globalSoundOn
+                      ? video.embedUrl?.replace('&mute=1','&mute=0')
+                      : isActive
+                        ? video.embedUrl
+                        : '';
+                    return (
+                      <div
+                        key={video.id || idx}
+                        data-vidx={idx}
+                        className="relative w-full h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]"
+                        style={{ scrollSnapAlign: 'start' }}
+                      >
+                        {/* Video iframe — center-click pauses */}
+                        <div
+                          className="absolute inset-0 w-full h-full"
+                          onClick={() => setReelPaused(p => !p)}
+                        >
+                          <iframe
+                            ref={el => { iframeRefs.current[idx] = el; }}
+                            src={reelPaused && isActive ? '' : iframeSrc}
+                            className="absolute inset-0 w-full h-full"
+                            style={{ transform:'scale(1.15)', transformOrigin:'center center', pointerEvents:'none' }}
+                            allow="autoplay; encrypted-media; gyroscope; picture-in-picture"
+                            allowFullScreen
+                            frameBorder="0"
+                            title={video.title}
+                          />
+                        </div>
+
+                        {/* Pause indicator */}
+                        {reelPaused && isActive && (
+                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                            <div className="w-16 h-16 bg-black/50 rounded-full flex items-center justify-center backdrop-blur-sm">
+                              <span className="text-white text-2xl">⏸</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Gradient overlay */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent pointer-events-none"/>
+
+                        {/* Right-side action buttons — stopPropagation so they don't pause */}
+                        <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-20">
+                          <button
+                            onClick={e => { e.stopPropagation(); handleLike(video.id); }}
+                            className="flex flex-col items-center gap-1 active:scale-90 transition-all"
+                          >
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${likedPosts[video.id] ? 'bg-red-500/30' : 'bg-black/40 backdrop-blur-sm'}`}>
+                              <Heart size={18} className={likedPosts[video.id] ? 'text-red-400 fill-red-400' : 'text-white'}/>
+                            </div>
+                            <span className="text-white text-[9px] font-black">{likedPosts[video.id] ? '1' : '0'}</span>
+                          </button>
+                          <button
+                            onClick={e => { e.stopPropagation(); setCommentPostId(video.id); }}
+                            className="flex flex-col items-center gap-1 active:scale-90 transition-all"
+                          >
+                            <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
+                              <MessageSquare size={18} className="text-white"/>
+                            </div>
+                            <span className="text-white text-[9px] font-black">0</span>
+                          </button>
+                          <button
+                            onClick={e => { e.stopPropagation(); handleShare(video.title||'Check this out on AJ Portal!'); }}
+                            className="flex flex-col items-center gap-1 active:scale-90 transition-all"
+                          >
+                            <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
+                              <Share2 size={18} className="text-white"/>
+                            </div>
+                            <span className="text-white text-[9px] font-black">Share</span>
+                          </button>
+                          <button
+                            onClick={e => { e.stopPropagation(); if (user) { const g = giftItems[0]; sendGift(video.id, g); } }}
+                            className="flex flex-col items-center gap-1 active:scale-90 transition-all"
+                          >
+                            <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
+                              <Gift size={18} className="text-white"/>
+                            </div>
+                            <span className="text-white text-[9px] font-black">Gift</span>
+                          </button>
+                        </div>
+
+                        {/* Bottom info */}
+                        <div className="absolute bottom-0 left-0 right-14 p-4 z-20 pointer-events-none">
+                          <p className="text-white font-black text-sm leading-tight line-clamp-2">{video.title}</p>
+                          <p className="text-gray-300 text-[10px] mt-1">@{video.user}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {/* User-uploaded TikReels */}
+                  {userPosts.filter((p:any) => p.isVideo).map((post:any, idx:number) => {
+                    const globalIdx = pixaVideos.length + idx;
+                    const isActive  = activeVideoIdx === globalIdx;
+                    return (
+                      <div
+                        key={post.id}
+                        data-vidx={globalIdx}
+                        className="relative w-full h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]"
+                        style={{ scrollSnapAlign: 'start' }}
+                      >
+                        <div className="absolute inset-0 w-full h-full" onClick={() => setReelPaused(p => !p)}>
+                          <video
+                            ref={el => { userVideoRefs.current[globalIdx] = el; }}
+                            src={post.image}
+                            className="absolute inset-0 w-full h-full object-cover"
+                            autoPlay={isActive}
+                            loop muted={!globalSoundOn}
+                            playsInline
+                            style={{ filter: post.cssFilter && post.cssFilter !== 'none' ? post.cssFilter : undefined }}
+                          />
+                        </div>
+                        {reelPaused && isActive && (
+                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                            <div className="w-16 h-16 bg-black/50 rounded-full flex items-center justify-center backdrop-blur-sm">
+                              <span className="text-white text-2xl">⏸</span>
+                            </div>
+                          </div>
+                        )}
+                        {post.textOverlay && (
+                          <div className="absolute top-1/3 left-0 right-0 flex justify-center pointer-events-none z-10">
+                            <span className="bg-black/60 text-white font-black text-lg px-4 py-2 rounded-2xl backdrop-blur-sm">{post.textOverlay}</span>
+                          </div>
+                        )}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent pointer-events-none"/>
+                        <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-20">
+                          <button onClick={e => { e.stopPropagation(); handleLike(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${likedPosts[post.id] ? 'bg-red-500/30' : 'bg-black/40 backdrop-blur-sm'}`}>
+                              <Heart size={18} className={likedPosts[post.id] ? 'text-red-400 fill-red-400' : 'text-white'}/>
+                            </div>
+                            <span className="text-white text-[9px] font-black">{post.likes||0}</span>
+                          </button>
+                          <button onClick={e => { e.stopPropagation(); setCommentPostId(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
+                              <MessageSquare size={18} className="text-white"/>
+                            </div>
+                            <span className="text-white text-[9px] font-black">0</span>
+                          </button>
+                          <button onClick={e => { e.stopPropagation(); handleShare(post.text||''); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
+                              <Share2 size={18} className="text-white"/>
+                            </div>
+                            <span className="text-white text-[9px] font-black">Share</span>
+                          </button>
+                        </div>
+                        <div className="absolute bottom-0 left-0 right-14 p-4 z-20 pointer-events-none">
+                          <button className="flex items-center gap-2 mb-2 pointer-events-auto" onClick={e => { e.stopPropagation(); openProfile(post.uid); }}>
+                            <img src={post.photo||'/logo.png'} className="w-8 h-8 rounded-full border border-white/30 object-cover"/>
+                            <span className="text-white font-black text-xs">@{post.username}</span>
+                          </button>
+                          <p className="text-white text-sm font-bold line-clamp-2">{post.text}</p>
+                          {post.selectedSound && <p className="text-gray-300 text-[10px] mt-1">🎵 {post.selectedSound}</p>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* ── CREATE TAB (Advanced TikTok-style Editor) ── */}
+              {tiktabMode === 'create' && (
+                <div className="flex flex-col h-screen bg-[#050505] overflow-y-auto pt-16 pb-8 px-4">
+                  <h2 className="text-lg font-black text-white mb-4">Create TikReel</h2>
+
+                  {/* Media Preview with CSS Filter */}
+                  <div
+                    className="relative w-full aspect-[9/16] bg-white/5 border border-white/10 rounded-2xl overflow-hidden mb-4 cursor-pointer"
+                    onClick={handleTiktokImage}
+                    style={{ filter: tikEditorFilter !== 'none' ? tikEditorFilter : undefined }}
+                  >
+                    {tiktokPostImg ? (
+                      tiktokPostIsVideo
+                        ? <video src={tiktokPostImg} className="w-full h-full object-cover" muted loop autoPlay playsInline/>
+                        : <img src={tiktokPostImg} className="w-full h-full object-cover"/>
+                    ) : (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+                        <PlusSquare size={32} className="text-gray-500"/>
+                        <span className="text-gray-400 text-xs">Tap to add photo/video</span>
+                      </div>
+                    )}
+                    {/* Text Overlay Preview */}
+                    {tikEditorTextOverlay && (
+                      <div className="absolute top-1/3 left-0 right-0 flex justify-center pointer-events-none">
+                        <span className="bg-black/60 text-white font-black text-lg px-4 py-2 rounded-2xl backdrop-blur-sm">{tikEditorTextOverlay}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Caption */}
+                  <textarea
+                    value={tiktokPostText}
+                    onChange={e => setTiktokPostText(e.target.value)}
+                    placeholder="Add a caption…"
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm mb-4 h-20 resize-none focus:outline-none focus:border-pink-500/50"
+                  />
+
+                  {/* Text Overlay Input */}
+                  <div className="mb-4">
+                    <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2">📝 Text Overlay</p>
+                    <input
+                      value={tikEditorTextOverlay}
+                      onChange={e => setTikEditorTextOverlay(e.target.value)}
+                      placeholder="Text shown on video…"
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"
+                    />
+                  </div>
+
+                  {/* CSS Filters */}
+                  <div className="mb-4">
+                    <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2">🎨 Filters</p>
+                    <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                      {CSS_FILTERS.map(f => (
+                        <button
+                          key={f.value}
+                          onClick={() => setTikEditorFilter(f.value)}
+                          className={`flex-shrink-0 px-3 py-1.5 rounded-xl text-[10px] font-black transition-all active:scale-90 ${tikEditorFilter === f.value ? 'bg-pink-600 text-white shadow-[0_0_12px_rgba(236,72,153,0.5)]' : 'bg-white/5 border border-white/10 text-gray-300'}`}
+                        >
+                          {f.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Music / Sound Picker */}
+                  <div className="mb-4">
+                    <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2">🎵 Sound</p>
+                    {/* AJ Studio Sound marquee — clicking sets audio */}
+                    <div
+                      className="w-full bg-gradient-to-r from-pink-600/20 to-purple-600/20 border border-pink-500/30 rounded-2xl px-4 py-2 overflow-hidden cursor-pointer active:scale-95 transition-all mb-2"
+                      onClick={() => { setSelectedSound('AJ Studio Sound'); setVvipAlert({msg:'🎵 AJ Studio Sound selected for your post!',icon:'🎵'}); }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Music size={14} className="text-pink-400 flex-shrink-0"/>
+                        <div className="overflow-hidden flex-1">
+                          <p className="text-pink-300 text-[10px] font-black whitespace-nowrap animate-marquee">
+                            🎵 AJ Studio Sound — Tap to use this track on your next post 🎵 AJ Studio Sound — Tap to use this track
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <button onClick={() => setTikEditorShowMusic(m => !m)} className="w-full flex items-center justify-between bg-white/5 border border-white/10 rounded-2xl px-4 py-3 active:scale-95 transition-all">
+                      <div className="flex items-center gap-2">
+                        <Music size={14} className="text-purple-400"/>
+                        <span className="text-white text-xs font-black">{selectedSound || 'Choose Sound'}</span>
+                      </div>
+                      <ChevronRight size={14} className="text-gray-500"/>
+                    </button>
+                    {tikEditorShowMusic && (
+                      <div className="mt-2 bg-[#0a0a1a] border border-white/10 rounded-2xl overflow-hidden">
+                        {AJ_SOUNDS.map(s => (
+                          <button
+                            key={s.id}
+                            onClick={() => { setSelectedSound(s.label); setTikEditorShowMusic(false); }}
+                            className={`w-full flex items-center gap-3 px-4 py-3 border-b border-white/5 last:border-0 active:scale-[0.98] transition-all ${selectedSound === s.label ? 'bg-pink-600/20' : ''}`}
+                          >
+                            <Music size={14} className={selectedSound === s.label ? 'text-pink-400' : 'text-gray-400'}/>
+                            <span className={`text-sm font-black ${selectedSound === s.label ? 'text-pink-300' : 'text-white'}`}>{s.label}</span>
+                            {selectedSound === s.label && <span className="ml-auto text-pink-400 text-xs">✓</span>}
+                          </button>
+                        ))}
+                        <button
+                          onClick={() => audioFileRef.current?.click()}
+                          className="w-full flex items-center gap-3 px-4 py-3 active:scale-[0.98] transition-all"
+                        >
+                          <PlusSquare size={14} className="text-gray-400"/>
+                          <span className="text-sm font-black text-gray-300">Upload Custom Audio</span>
+                        </button>
+                      </div>
+                    )}
+                    {tiktokAudioFile && (
+                      <p className="text-[10px] text-green-400 mt-1 px-1">✓ Custom audio: {tiktokAudioFile.name}</p>
+                    )}
+                  </div>
+
+                  <button onClick={handleTiktokPost} className="w-full py-4 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all shadow-[0_0_24px_rgba(236,72,153,0.4)]" style={{background:'linear-gradient(135deg,#ec4899,#8b5cf6)'}}>
+                    🚀 Post TikReel (+{tiktokPostIsVideo ? 10 : 5} Coins)
+                  </button>
+                </div>
+              )}
+
+              {/* ── PROFILE TAB ── */}
+              {tiktabMode === 'profile' && (
+                <div className="flex flex-col h-screen bg-[#050505] overflow-y-auto pt-16 pb-8">
+                  <div className="flex flex-col items-center px-4 py-6">
+                    <div className="relative w-20 h-20 rounded-full border-2 border-pink-500 overflow-hidden cursor-pointer" onClick={handleImageClick}>
+                      <img src={tempPhoto||user?.photoURL||'/logo.png'} className="w-full h-full object-cover"/>
+                    </div>
+                    <p className="text-white font-black text-lg mt-3">@{username||'AJ_Member'}</p>
+                    <p className="text-gray-400 text-xs mt-1 text-center max-w-xs">{bio||'No bio yet.'}</p>
+                    <div className="flex gap-8 mt-4">
+                      <div className="text-center"><p className="text-white font-black text-lg">{userPosts.filter((p:any) => p.uid===user?.uid).length}</p><p className="text-gray-400 text-[10px]">Posts</p></div>
+                      <div className="text-center"><p className="text-white font-black text-lg">0</p><p className="text-gray-400 text-[10px]">Followers</p></div>
+                      <div className="text-center"><p className="text-white font-black text-lg">0</p><p className="text-gray-400 text-[10px]">Following</p></div>
+                    </div>
+                  </div>
+                  <div className="flex border-b border-white/10">
+                    {(['posts','following'] as const).map(tab => (
+                      <button key={tab} onClick={() => setTikProfileSubTab(tab)} className={`flex-1 py-3 text-xs font-black uppercase tracking-widest transition-all ${tikProfileSubTab===tab ? 'text-white border-b-2 border-pink-500' : 'text-gray-500'}`}>
+                        {tab}
+                      </button>
+                    ))}
+                  </div>
+                  {tikProfileSubTab === 'posts' && (
+                    <div className="grid grid-cols-3 gap-0.5 p-0.5">
+                      {userPosts.filter((p:any) => p.uid===user?.uid).map((post:any) => (
+                        <div key={post.id} className="relative aspect-square bg-white/5 overflow-hidden">
+                          {post.image
+                            ? <img src={post.image} className="w-full h-full object-cover"/>
+                            : <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">📝</span></div>
+                          }
+                          <div className="absolute bottom-1 left-1 flex items-center gap-0.5">
+                            <span className="text-white text-[8px] font-black drop-shadow">{formatViews(post.views||0)}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {tikProfileSubTab === 'following' && (
+                    <div className="px-4 py-4 space-y-3">
+                      {followingList.length === 0 && <p className="text-center text-gray-500 text-sm mt-6">Not following anyone yet.</p>}
+                      {followingList.map((f:any) => (
+                        <button key={f.uid} onClick={() => openProfile(f.uid)} className="w-full flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl p-3 active:scale-[0.98] transition-all">
+                          <img src={f.photo||'/logo.png'} className="w-10 h-10 rounded-full object-cover border border-white/20"/>
+                          <div className="flex-1 text-left">
+                            <p className="text-white font-black text-sm">@{f.username||f.uid}</p>
+                            <p className="text-gray-400 text-[10px]">{f.bio||''}</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Comment Sheet */}
+              {commentPostId && (
+                <div className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end">
+                  <div className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl max-h-[70vh] flex flex-col">
+                    <div className="flex items-center justify-between px-4 py-4 border-b border-white/10">
+                      <p className="text-sm font-black text-white">Comments</p>
+                      <button onClick={() => setCommentPostId(null)}><X size={18} className="text-gray-400"/></button>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                      {postComments.length === 0 && <p className="text-center text-gray-500 text-sm">No comments yet. Be first!</p>}
+                      {postComments.map((c:any) => (
+                        <div key={c.id} className="flex gap-3">
+                          <img src={c.photo||'/logo.png'} className="w-8 h-8 rounded-full object-cover flex-shrink-0"/>
+                          <div className="flex-1 bg-white/5 rounded-2xl px-3 py-2">
+                            <p className="text-[10px] text-pink-400 font-black">@{c.username}</p>
+                            <p className="text-white text-xs mt-0.5">{c.text}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex gap-2 p-4 border-t border-white/10">
+                      <input value={newComment} onChange={e => setNewComment(e.target.value)} onKeyDown={e => e.key==='Enter' && submitComment()} placeholder="Add a comment…" className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-pink-500/50"/>
+                      <button onClick={submitComment} className="bg-pink-600 text-white p-2.5 rounded-2xl active:scale-90 transition-all"><Send size={16}/></button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── AJ PULSE ── */}
+          {socialScreen === 'pulse' && (
+            <div className="flex flex-col h-screen bg-[#050505] overflow-hidden">
+              <div className="sticky top-0 z-40 bg-[#050505]/95 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center justify-between">
+                <button onClick={() => setSocialScreen('hub')} className="active:scale-90 transition-all"><ArrowLeft size={16} className="text-gray-400"/></button>
+                <div className="flex gap-6">
+                  {(['feed','create','profile'] as const).map(tab => (
+                    <button key={tab} onClick={() => setPulseTab(tab)} className={`text-xs font-black uppercase tracking-widest transition-all ${pulseTab===tab ? 'text-white border-b-2 border-white pb-0.5' : 'text-gray-400'}`}>
+                      {tab === 'feed' ? 'Feed' : tab === 'create' ? '+ Post' : 'Profile'}
+                    </button>
+                  ))}
+                </div>
+                <button onClick={() => setPulseMuted(m => !m)} className="p-2 rounded-full bg-black/40 backdrop-blur-sm active:scale-90 transition-all">
+                  {pulseMuted ? <VolumeX size={14} className="text-red-400"/> : <Volume2 size={14} className="text-white"/>}
+                </button>
+              </div>
+
+              {/* ── PULSE FEED ── */}
+              {pulseTab === 'feed' && (
+                <div
+                  ref={videoFeedRef}
+                  className="flex-1 overflow-y-scroll snap-y snap-mandatory scrollbar-hide"
+                  style={{ scrollSnapType: 'y mandatory' }}
+                >
+                  {pulsePosts.map((post:any, idx:number) => {
+                    if (idx > 0 && idx % 4 === 0) {
+                      return (
+                        <div key={`pulse_ad_${idx}`} data-vidx={idx} className="relative w-full h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
+                          <MonetagVideoAd publisherId={MONETAG_PULSE_BANNER}/>
+                        </div>
+                      );
+                    }
+                    const isActive = activeVideoIdx === idx;
+                    return (
+                      <div key={post.id} data-vidx={idx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505] flex flex-col justify-end" style={{ scrollSnapAlign:'start' }}>
+                        {post.isVideo && post.image ? (
+                          <video
+                            ref={el => { userVideoRefs.current[idx] = el; }}
+                            src={post.image}
+                            className="absolute inset-0 w-full h-full object-cover"
+                            autoPlay={isActive} loop muted={pulseMuted} playsInline
+                            onClick={() => setReelPaused(p => !p)}
+                          />
+                        ) : post.image ? (
+                          <img src={post.image} className="absolute inset-0 w-full h-full object-cover"/>
+                        ) : (
+                          <div className="absolute inset-0 bg-gradient-to-br from-purple-900/50 to-pink-900/50"/>
+                        )}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent pointer-events-none"/>
+                        {/* Right actions */}
+                        <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-20">
+                          <button onClick={e => { e.stopPropagation(); handleLike(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${likedPosts[post.id] ? 'bg-red-500/30' : 'bg-black/40 backdrop-blur-sm'}`}>
+                              <Heart size={18} className={likedPosts[post.id] ? 'text-red-400 fill-red-400' : 'text-white'}/>
+                            </div>
+                            <span className="text-white text-[9px] font-black">{post.likes||0}</span>
+                          </button>
+                          <button onClick={e => { e.stopPropagation(); setCommentPostId(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
+                              <MessageSquare size={18} className="text-white"/>
+                            </div>
+                            <span className="text-white text-[9px] font-black">0</span>
+                          </button>
+                          <button onClick={e => { e.stopPropagation(); handleShare(post.text||''); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
+                              <Share2 size={18} className="text-white"/>
+                            </div>
+                            <span className="text-white text-[9px] font-black">Share</span>
+                          </button>
+                          <button onClick={e => { e.stopPropagation(); setPulseGiftPostId(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
+                              <Gift size={18} className="text-white"/>
+                            </div>
+                            <span className="text-white text-[9px] font-black">Gift</span>
+                          </button>
+                        </div>
+                        {/* Bottom info */}
+                        <div className="relative z-10 p-4">
+                          <button className="flex items-center gap-2 mb-2" onClick={() => openProfile(post.uid)}>
+                            <img src={post.photo||'/logo.png'} className="w-8 h-8 rounded-full border border-white/30 object-cover"/>
+                            <span className="text-white font-black text-xs">@{post.username}</span>
+                          </button>
+                          <p className="text-white text-sm font-bold line-clamp-3">{post.text}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {pulsePosts.length === 0 && (
+                    <div className="flex flex-col items-center justify-center h-full gap-4 pt-32">
+                      <span className="text-5xl">📡</span>
+                      <p className="text-gray-400 text-sm">No posts yet. Be the first!</p>
+                      <button onClick={() => setPulseTab('create')} className="bg-pink-600 text-white text-xs font-black px-6 py-3 rounded-2xl active:scale-95 transition-all">+ Create Post</button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── PULSE CREATE ── */}
+              {pulseTab === 'create' && (
+                <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+                  <div className="relative w-full aspect-video bg-white/5 border border-white/10 rounded-2xl overflow-hidden cursor-pointer" onClick={handleImageClick}>
+                    {tempPhoto ? (
+                      pulsePostIsVideo
+                        ? <video src={tempPhoto} className="w-full h-full object-cover" muted loop autoPlay playsInline/>
+                        : <img src={tempPhoto} className="w-full h-full object-cover"/>
+                    ) : (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+                        <PlusSquare size={32} className="text-gray-500"/>
+                        <span className="text-gray-400 text-xs">Tap to add photo/video</span>
+                      </div>
+                    )}
+                  </div>
+                  <textarea value={postText} onChange={e => setPostText(e.target.value)} placeholder="What's on your mind?" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm h-24 resize-none focus:outline-none focus:border-pink-500/50"/>
+                  <button onClick={handleCreatePost} className="w-full py-4 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all shadow-[0_0_24px_rgba(236,72,153,0.4)]" style={{background:'linear-gradient(135deg,#ec4899,#8b5cf6)'}}>
+                    🚀 Post (+{pulsePostIsVideo ? 10 : 5} Coins)
+                  </button>
+                </div>
+              )}
+
+              {/* ── PULSE PROFILE ── */}
+              {pulseTab === 'profile' && (
+                <div className="flex-1 overflow-y-auto">
+                  <div className="flex flex-col items-center px-4 py-6">
+                    <div className="relative w-20 h-20 rounded-full border-2 border-pink-500 overflow-hidden cursor-pointer" onClick={handleImageClick}>
+                      <img src={tempPhoto||user?.photoURL||'/logo.png'} className="w-full h-full object-cover"/>
+                    </div>
+                    <p className="text-white font-black text-lg mt-3">@{username||'AJ_Member'}</p>
+                    <p className="text-gray-400 text-xs mt-1 text-center max-w-xs">{bio||'No bio yet.'}</p>
+                    <div className="flex gap-8 mt-4">
+                      <div className="text-center"><p className="text-white font-black text-lg">{pulsePosts.filter((p:any) => p.uid===user?.uid).length}</p><p className="text-gray-400 text-[10px]">Posts</p></div>
+                      <div className="text-center"><p className="text-white font-black text-lg">0</p><p className="text-gray-400 text-[10px]">Followers</p></div>
+                      <div className="text-center"><p className="text-white font-black text-lg">0</p><p className="text-gray-400 text-[10px]">Following</p></div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-0.5 p-0.5">
+                    {pulsePosts.filter((p:any) => p.uid===user?.uid).map((post:any) => (
+                      <div key={post.id} className="relative aspect-square bg-white/5 overflow-hidden">
+                        {post.image
+                          ? <img src={post.image} className="w-full h-full object-cover"/>
+                          : <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">📝</span></div>
+                        }
                       </div>
                     ))}
                   </div>
-                )}
+                </div>
+              )}
 
-                {/* GO LIVE */}
-                <button onClick={startLive}
-                  className="w-full py-4 bg-red-600 rounded-[2rem] font-black uppercase text-white tracking-[0.2em] shadow-[0_0_30px_rgba(239,68,68,0.4)] hover:scale-105 active:scale-95 transition-all duration-200   transition-all flex items-center justify-center gap-3 ">
-                  <Radio size={22} className="animate-pulse"/> GO LIVE (Camera + Gifts)
-                </button>
-
-                {/* JOIN BY ROOM ID */}
-                <div className="bg-white/5 border border-cyan-500/30 rounded-3xl p-4">
-                  <p className="text-[9px] font-black text-cyan-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                    <Radio size={11}/> Join a Live Stream by Room ID
-                  </p>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={joinRoomInput}
-                      onChange={e => setJoinRoomInput(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && joinLiveByRoomId()}
-                      placeholder="Paste Room ID here..."
-                      className="flex-1 bg-[#050505] border border-white/10 rounded-xl px-3 py-2.5 text-xs font-bold text-white outline-none focus:border-cyan-500 font-mono"
-                    />
-                    <button
-                      onClick={() => joinLiveByRoomId()}
-                      className="bg-cyan-600 px-4 py-2.5 rounded-xl text-[10px] font-black text-black uppercase tracking-widest  transition-all shadow-lg">
-                      Join
-                    </button>
+              {/* Pulse Gift Panel */}
+              {pulseGiftPostId && (
+                <div className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end">
+                  <div className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <p className="text-sm font-black text-white">Send a Gift 🎁</p>
+                      <button onClick={() => setPulseGiftPostId(null)}><X size={18} className="text-gray-400"/></button>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      {giftItems.map(g => (
+                        <button key={g.id} onClick={() => { const post = pulsePosts.find((p:any) => p.id===pulseGiftPostId); if (post) { sendGift(post.uid, g); setPulseGiftPostId(null); } }} className="flex flex-col items-center gap-1.5 bg-white/5 border border-white/10 rounded-2xl p-3 active:scale-90 transition-all">
+                          <span className="text-2xl">{g.icon}</span>
+                          <span className="text-white text-[9px] font-black">{g.name}</span>
+                          <span className="text-yellow-400 text-[9px] font-black">{g.cost.toLocaleString()} 🪙</span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
+              )}
 
-                {/* LIVE NOW LOBBY */}
-                <div className="bg-white/5 border border-red-500/30 rounded-3xl p-5">
-                  <div className="flex items-center gap-2 mb-4">
-                    <div className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse"/>
-                    <h3 className="font-black text-sm uppercase tracking-widest text-red-400">Live Now</h3>
-                    <span className="text-[10px] text-gray-500 font-bold">{liveNowList.length} streaming</span>
-                  </div>
-                  {liveNowList.length === 0
-                    ? <p className="text-[10px] text-gray-500 text-center py-4 font-bold">No one is live right now. Be the first!</p>
-                    : <div className="space-y-3 max-h-48 overflow-y-auto">
-                        {liveNowList.map((room:any) => (
-                          <div key={room.id} className="flex items-center gap-3 bg-[#050505]/40 p-3 rounded-2xl border border-red-500/20 cursor-pointer hover:border-red-500 transition-all "
-                            onClick={() => joinLiveByRoomId(room.roomId)}>
-                            <div className="relative">
-                              <img src={room.photo||'/logo.png'} className="w-10 h-10 rounded-full border-2 border-red-500"/>
-                              <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border border-black animate-pulse"/>
-                            </div>
-                            <div className="flex-1">
-                              <p className="font-black text-xs text-white uppercase">@{room.username}</p>
-                              <p className="text-[9px] text-red-400 font-bold animate-pulse">🔴 Live</p>
-                            </div>
-                            <button className="bg-red-600 px-3 py-1.5 rounded-full text-[9px] font-black text-white uppercase">Join</button>
+              {/* Pulse Comment Sheet */}
+              {commentPostId && (
+                <div className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end">
+                  <div className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl max-h-[70vh] flex flex-col">
+                    <div className="flex items-center justify-between px-4 py-4 border-b border-white/10">
+                      <p className="text-sm font-black text-white">Comments</p>
+                      <button onClick={() => setCommentPostId(null)}><X size={18} className="text-gray-400"/></button>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                      {postComments.length === 0 && <p className="text-center text-gray-500 text-sm">No comments yet.</p>}
+                      {postComments.map((c:any) => (
+                        <div key={c.id} className="flex gap-3">
+                          <img src={c.photo||'/logo.png'} className="w-8 h-8 rounded-full object-cover flex-shrink-0"/>
+                          <div className="flex-1 bg-white/5 rounded-2xl px-3 py-2">
+                            <p className="text-[10px] text-pink-400 font-black">@{c.username}</p>
+                            <p className="text-white text-xs mt-0.5">{c.text}</p>
                           </div>
-                        ))}
-                      </div>
-                  }
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex gap-2 p-4 border-t border-white/10">
+                      <input value={newComment} onChange={e => setNewComment(e.target.value)} onKeyDown={e => e.key==='Enter' && submitComment()} placeholder="Add a comment…" className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-pink-500/50"/>
+                      <button onClick={submitComment} className="bg-pink-600 text-white p-2.5 rounded-2xl active:scale-90 transition-all"><Send size={16}/></button>
+                    </div>
+                  </div>
                 </div>
+              )}
+            </div>
+          )}
 
-                {/* MODULE CARDS */}
-<div className="mb-4"><MonetagBanner siteId={11337197} /></div>
-                {[
-                  { n:'AJ TikReels', i:Video,        d:'TikTok Style Videos', s:'tikreels'  },
-                  { n:'AJ Pulse',    i:Users,         d:'Insta Style Feed',    s:'pulse'     },
-                  { n:'AJ WeChat',   i:MessageSquare, d:'VVIP Messenger',      s:'chatlist'  },
-                ].map(mod => (
-                  <div key={mod.n} onClick={() => enterSocialMode(mod.s)}
-                    className="p-8 bg-white/5 border border-white/10 rounded-[3rem] text-center hover:border-pink-500 transition-all cursor-pointer group shadow-lg">
-                    <div className="text-pink-500 mb-4 flex justify-center group-hover:scale-110 transition-transform"><mod.i size={36}/></div>
-                    <h3 className="text-2xl font-black uppercase italic text-white tracking-widest">{mod.n}</h3>
-                    <p className="text-[9px] text-gray-400 uppercase mt-2 font-bold tracking-widest">{mod.d}</p>
+          {/* ── WECHAT (Private Messaging + ZegoCloud Calls) ── */}
+          {socialScreen === 'wechat' && (
+            <div className="flex flex-col h-screen bg-[#050505]">
+              <div className="sticky top-0 z-40 bg-[#050505]/95 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center justify-between">
+                <button onClick={() => setSocialScreen('hub')} className="active:scale-90 transition-all"><ArrowLeft size={16} className="text-gray-400"/></button>
+                <span className="text-sm font-black text-white">💬 WeChat</span>
+                <button onClick={handleContactsSync} className="p-2 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all">
+                  <UserPlus size={14} className="text-gray-400"/>
+                </button>
+              </div>
+
+              {/* Sponsor Banner — non-clickable */}
+              <div className="px-4 pt-3 pointer-events-none">
+                <MonetagBanner siteId={MONETAG_WECHAT_SPONSOR}/>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+                {wechatContacts.length === 0 && (
+                  <div className="flex flex-col items-center justify-center py-20 gap-4">
+                    <span className="text-5xl">💬</span>
+                    <p className="text-gray-400 text-sm text-center">No contacts yet.<br/>Tap + to add a contact.</p>
+                    <button onClick={() => setAddContactOpen(true)} className="bg-pink-600 text-white text-xs font-black px-6 py-3 rounded-2xl active:scale-95 transition-all">+ Add Contact</button>
+                  </div>
+                )}
+                {wechatContacts.map((name, i) => (
+                  <button key={i} onClick={() => { setActiveChatUser({ uid: name, username: name, photo: '/logo.png' }); openOrCreateChat(name, { uid:name, username:name, photo:'/logo.png' }); }} className="w-full flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl p-3 active:scale-[0.98] transition-all">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center text-white font-black text-sm">
+                      {name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex-1 text-left">
+                      <p className="text-white font-black text-sm">{name}</p>
+                      <p className="text-gray-400 text-[10px]">Tap to chat</p>
+                    </div>
+                    <ChevronRight size={14} className="text-gray-500"/>
+                  </button>
+                ))}
+              </div>
+
+              {addContactOpen && (
+                <div className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end">
+                  <div className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <p className="text-sm font-black text-white">Add Contact</p>
+                      <button onClick={() => setAddContactOpen(false)}><X size={18} className="text-gray-400"/></button>
+                    </div>
+                    <input value={newContact} onChange={e => setNewContact(e.target.value)} placeholder="Contact name or User ID" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm mb-4 focus:outline-none focus:border-pink-500/50"/>
+                    <button onClick={addManualContact} className="w-full py-3 rounded-2xl text-white font-black active:scale-95 transition-all" style={{background:'linear-gradient(135deg,#ec4899,#8b5cf6)'}}>Add</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── DM CHAT ── */}
+          {socialScreen === 'dm' && activeChatUser && (
+            <div className="flex flex-col h-screen bg-[#050505]">
+              <div className="sticky top-0 z-40 bg-[#050505]/95 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center gap-3">
+                <button onClick={() => setSocialScreen('wechat')} className="active:scale-90 transition-all"><ArrowLeft size={16} className="text-gray-400"/></button>
+                <img src={activeChatUser.photo||'/logo.png'} className="w-8 h-8 rounded-full object-cover border border-white/20"/>
+                <div className="flex-1">
+                  <p className="text-white font-black text-sm">@{activeChatUser.username||activeChatUser.uid}</p>
+                  <p className="text-gray-500 text-[9px]">Private Chat</p>
+                </div>
+                {/* ZegoCloud Call Buttons */}
+                <button
+                  onClick={() => startZegoCall('audio')}
+                  className="p-2 rounded-xl bg-green-600/20 border border-green-500/30 active:scale-90 transition-all"
+                  title="Audio Call"
+                >
+                  <Phone size={14} className="text-green-400"/>
+                </button>
+                <button
+                  onClick={() => startZegoCall('video')}
+                  className="p-2 rounded-xl bg-cyan-600/20 border border-cyan-500/30 active:scale-90 transition-all"
+                  title="Video Call"
+                >
+                  <VideoIcon size={14} className="text-cyan-400"/>
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {dmMessages.length === 0 && <p className="text-center text-gray-500 text-sm mt-10">Say hello! 👋</p>}
+                {dmMessages.map((msg:any) => (
+                  <div key={msg.id} className={`flex gap-2 ${msg.uid===user?.uid ? 'flex-row-reverse' : ''}`}>
+                    <img src={msg.photo||'/logo.png'} className="w-7 h-7 rounded-full object-cover flex-shrink-0"/>
+                    <div className={`max-w-[70%] px-3 py-2 rounded-2xl ${msg.uid===user?.uid ? 'bg-pink-600/80 text-white' : 'bg-white/10 text-white'}`}>
+                      <p className="text-sm">{msg.text}</p>
+                    </div>
+                  </div>
+                ))}
+                <div ref={dmEndRef}/>
+              </div>
+              <div className="flex gap-2 p-4 border-t border-white/10 bg-[#050505]">
+                <input value={dmInput} onChange={e => setDmInput(e.target.value)} onKeyDown={e => e.key==='Enter' && sendDmMessage()} placeholder="Message…" className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-pink-500/50"/>
+                <button onClick={sendDmMessage} className="bg-pink-600 text-white p-2.5 rounded-2xl active:scale-90 transition-all"><Send size={16}/></button>
+              </div>
+            </div>
+          )}
+
+          {/* ── COMMUNITY CHAT ── */}
+          {socialScreen === 'chat' && (
+            <div className="flex flex-col h-screen bg-[#050505]">
+              <div className="sticky top-0 z-40 bg-[#050505]/95 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center gap-3">
+                <button onClick={() => setSocialScreen('hub')} className="active:scale-90 transition-all"><ArrowLeft size={16} className="text-gray-400"/></button>
+                <span className="text-sm font-black text-white">👥 Community Chat</span>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {chatMessages.length === 0 && <p className="text-center text-gray-500 text-sm mt-10">No messages yet. Start the conversation!</p>}
+                {chatMessages.map((msg:any) => (
+                  <div key={msg.id} className={`flex gap-2 ${msg.uid===user?.uid ? 'flex-row-reverse' : ''}`}>
+                    <img src={msg.photo||'/logo.png'} className="w-7 h-7 rounded-full object-cover flex-shrink-0"/>
+                    <div className={`max-w-[70%] px-3 py-2 rounded-2xl ${msg.uid===user?.uid ? 'bg-pink-600/80 text-white' : 'bg-white/10 text-white'}`}>
+                      <p className="text-[9px] text-pink-300 font-black mb-0.5">@{msg.username}</p>
+                      <p className="text-sm">{msg.text}</p>
+                    </div>
                   </div>
                 ))}
               </div>
-            )}
-
-            {/* Fix #5: USER PROFILE — Always renders, never shows 404 */}
-            {socialScreen==='profile' && (
-              <div className="max-w-md mx-auto pb-24">
-                {profileLoading && (
-                  <div className="flex flex-col items-center justify-center py-24 gap-4">
-                    <div className="w-16 h-16 rounded-full border-4 border-pink-500 border-t-transparent animate-spin"/>
-                    <p className="text-gray-400 text-xs font-black uppercase tracking-widest">Loading Profile...</p>
-                  </div>
-                )}
-                {!profileLoading && viewProfile && (
-                  <>
-                  <div className="relative h-44 bg-gradient-to-br from-pink-600/30 to-cyan-600/30 rounded-b-[3rem]">
-                    <div className="absolute -bottom-12 left-1/2 -translate-x-1/2">
-                      <img src={viewProfile.photo||'/logo.png'} className="w-24 h-24 rounded-full border-4 border-slate-950 shadow-2xl"/>
-                    </div>
-                  </div>
-                  <div className="mt-16 text-center px-6">
-                    <h2 className="text-2xl font-black text-white uppercase tracking-widest">@{viewProfile.username||'AJ_MEMBER'}</h2>
-                    {viewProfile.name && <p className="text-sm text-gray-400 mt-1 font-bold">{viewProfile.name}</p>}
-                    <p className="text-sm text-gray-400 mt-1 font-bold">{viewProfile.bio||'No bio yet.'}</p>
-
-                    {/* STATS */}
-                    <div className="flex justify-center gap-8 mt-6">
-                      {[
-                        {l:'Posts',     v: profilePosts.length + profileVideos.length},
-                        {l:'Followers', v: followers},
-                        {l:'Following', v: following},
-                        {l:'Likes',     v: profileTotalLikes},
-                      ].map(s => (
-                        <div key={s.l} className="text-center">
-                          <p className="text-xl font-black text-white">{formatViews(s.v)}</p>
-                          <p className="text-[9px] text-gray-500 uppercase font-bold">{s.l}</p>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* FOLLOW + MESSAGE BUTTONS */}
-                    {viewingUid !== user?.uid && (
-                      <div className="flex flex-col gap-2 mt-6 items-center">
-                        {/* Req 2: Your Friend label for mutual follows */}
-                        {isMutualFriend && (
-                          <div className="flex items-center gap-1 bg-green-500/15 border border-green-500/30 px-4 py-1.5 rounded-full mb-1">
-                            <UserCheck size={12} className="text-green-400"/>
-                            <span className="text-green-400 text-[10px] font-black uppercase tracking-widest">Your Friend</span>
-                          </div>
-                        )}
-                        <div className="flex gap-3 w-full">
-                        <button
-                          onClick={() => { if (viewingUid) { handleFollow(viewingUid); } }}
-                          className={`flex-1 py-3 rounded-2xl font-black text-sm uppercase tracking-widest flex items-center justify-center gap-2 transition-all  ${isFollowing?'bg-white/5 backdrop-blur-xl border border-white/10 border border-white/20 text-white':'bg-pink-600 text-white shadow-lg'}`}>
-                          {isFollowing ? <><UserCheck size={16}/> Following</> : <><UserPlus size={16}/> Follow</>}
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (viewingUid && viewProfile) openOrCreateChat(viewingUid, viewProfile);
-                          }}
-                          className="flex-1 py-3 rounded-2xl font-black text-sm uppercase tracking-widest flex items-center justify-center gap-2 bg-cyan-600/20 border border-cyan-500/40 text-cyan-400 hover:bg-cyan-600/30 transition-all ">
-                          <MessageCircle size={16}/> Message
-                        </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* TABS */}
-                    <div className="flex gap-4 mt-8 border-b border-white/10">
-                      {[{t:'Posts',i:<Grid size={18}/>},{t:'Videos',i:<Film size={18}/>}].map(tab => (
-                        <button key={tab.t} className="flex-1 flex items-center justify-center gap-2 py-3 font-black text-xs uppercase tracking-widest text-pink-400 border-b-2 border-pink-500">
-                          {tab.i}{tab.t}
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* Fix #6: Video grid with formatViews on every thumbnail */}
-                    <div className="grid grid-cols-3 gap-1 mt-4">
-                      {[...profilePosts, ...profileVideos].map((p:any) => (
-                        <div key={p.id} className="aspect-square bg-white/5 rounded-xl overflow-hidden relative">
-                          {(p.image||p.url||p.thumbnail)
-                            ? <img src={p.image||p.url||p.thumbnail} className="w-full h-full object-cover" loading="lazy" decoding="async"/>
-                            : <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-pink-600/20 to-cyan-600/20"><Film size={24} className="text-pink-400"/></div>
-                          }
-                          {/* Fix #6: View counter bottom-left with formatViews */}
-                          <div className="absolute bottom-1 left-1 flex items-center gap-0.5 bg-[#050505]/60 px-1.5 py-0.5 rounded-full">
-                            <Film size={8} className="text-white opacity-70"/>
-                            <span className="text-[8px] font-black text-white">{formatViews(p.views ?? 0)}</span>
-                          </div>
-                        </div>
-                      ))}
-                      {profileVideos.length===0 && profilePosts.length===0 && (
-                        <div className="col-span-3 py-12 text-center">
-                          <Film size={36} className="text-gray-600 mx-auto mb-3"/>
-                          <p className="text-gray-500 text-xs font-black uppercase tracking-widest">No posts uploaded yet</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* SETTINGS */}
-            {socialScreen==='settings_menu' && (
-              <div className="max-w-md mx-auto p-10 flex flex-col gap-6">
-                <h2 className="text-3xl font-black text-cyan-400 italic mb-4 uppercase tracking-widest">Settings</h2>
-                <button onClick={() => setSocialScreen('setup')}
-                  className="bg-white/5 border border-white/10 p-6 rounded-3xl flex items-center gap-4 hover:bg-white/5 backdrop-blur-xl border border-white/10 transition-all shadow-xl">
-                  <Edit3 className="text-pink-500" size={24}/><span className="font-black text-sm uppercase tracking-widest">Edit Profile</span>
-                </button>
-                <button onClick={handleSignOut}
-                  className="bg-red-500/10 border border-red-500/20 p-6 rounded-3xl flex items-center gap-4 hover:bg-red-500/20 transition-all shadow-xl">
-                  <LogOut className="text-red-500" size={24}/><span className="font-black text-sm uppercase tracking-widest text-red-500">Sign Out</span>
-                </button>
-                <button onClick={() => setSocialScreen('hub')} className="text-gray-500 uppercase text-[10px] font-black mt-10">Back</button>
-              </div>
-            )}
-            {/* TIKREELS */}
-            {socialScreen==='tikreels' && (
-              <div className="flex flex-col h-full">
-                <div className="flex gap-0 bg-[#050505] border-b border-white/10 shrink-0">
-                  {(['feed','create','profile'] as const).map(t => (
-                    <button key={t} onClick={() => { setTiktabMode(t); if(t==='profile') loadFollowingList(); }}
-                      className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest transition-all ${tiktabMode===t?'text-pink-500 border-b-2 border-pink-500':'text-gray-500'}`}>
-                      {t==='feed'?'🎬 Feed':t==='create'?'➕ Post':'👤 Profile'}
-                    </button>
-                  ))}
-                  {/* Req 3: GO LIVE inside TikReel — like TikTok */}
-                  <button onClick={startLive} title="Go Live"
-                    className="px-3 py-3 flex items-center gap-1 border-l border-white/10 text-red-400 hover:text-red-300 transition-all shrink-0">
-                    <Radio size={13} className="animate-pulse"/><span className="text-[9px] font-black">🔴</span>
-                  </button>
-                </div>
-                {/* FEED (TikReels) */}
-{tiktabMode === 'feed' && (
-  <div ref={videoFeedRef} className="h-full w-full max-w-md mx-auto snap-y snap-mandatory overflow-y-auto no-scrollbar bg-black relative">
-    {(!userPosts || userPosts.length === 0) ? (
-      <div className="h-full flex flex-col items-center justify-center text-center p-6 text-gray-500">
-        <p className="text-sm font-bold uppercase tracking-wider mb-2">No Reels Yet</p>
-        <p className="text-xs">Be the first to upload a TikReel!</p>
-      </div>
-    ) : (
-      userPosts.map((p: any, idx: number) => {
-        // Safe media URL extraction
-        const videoSrc = p.url || p.videoUrl || p.mediaUrl || p.tiktokPostImg || p.video || '';
-        const isYouTube = videoSrc.includes('youtube.com') || videoSrc.includes('youtu.be');
-        const ytEmbedUrl = isYouTube ? (
-          videoSrc.includes('embed') 
-            ? videoSrc 
-            : `https://www.youtube.com/embed/${videoSrc.split('v=')[1]?.split('&')[0] || videoSrc.split('shorts/')[1]?.split('?')[0]}?autoplay=1&mute=${globalSoundOn ? 0 : 1}&controls=0&loop=1`
-        ) : null;
-
-        return (
-          <div key={p.id || idx} className="h-full w-full snap-start relative flex items-center justify-center bg-black overflow-hidden shrink-0">
-            {/* Media Player */}
-            {isYouTube && ytEmbedUrl ? (
-              <iframe 
-                src={ytEmbedUrl} 
-                className="w-full h-full pointer-events-none" 
-                allow="autoplay; encrypted-media" 
-                title="Shorts"
-              />
-            ) : p.isVideo || videoSrc.includes('.mp4') || videoSrc.includes('video') || videoSrc.startsWith('data:video') ? (
-              <video src={videoSrc} className="w-full h-full object-cover" autoPlay loop muted={!globalSoundOn} playsInline />
-            ) : (
-              <img src={videoSrc || p.photo || p.image || '/logo.png'} className="w-full h-full object-cover" onError={(e: any) => { e.target.src = '/logo.png'; }} />
-            )}
-
-            {/* Mute/Unmute Toggle Button */}
-            <button onClick={() => setGlobalSoundOn(!globalSoundOn)} className="absolute top-16 right-4 z-30 bg-black/40 backdrop-blur-md p-2 rounded-full text-white/80 hover:text-white border border-white/10">
-              {globalSoundOn ? '🔊' : '🔇'}
-            </button>
-
-            {/* Right Action Sidebar */}
-            <div className="absolute right-3 bottom-20 z-30 flex flex-col items-center gap-5">
-              {/* Profile Avatar & Follow Plus Button */}
-              <div className="relative group cursor-pointer">
-                <img 
-                  src={p.userPhoto || p.photo || '/logo.png'} 
-                  onClick={() => setTiktabMode('profile')}
-                  className="w-11 h-11 rounded-full border-2 border-pink-500 object-cover shadow-lg" 
-                />
-                <button 
-                  type="button" 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (typeof handleFollowUser === 'function') {
-                      handleFollowUser(p.author || p.username || p.userId);
-                    } else if (typeof toggleFollow === 'function') {
-                      toggleFollow(p.author || p.username || p.userId);
-                    } else {
-                      alert(`Followed @${p.username || p.author || 'User'}!`);
-                    }
-                  }} 
-                  className="absolute -bottom-1 left-1/2 -translate-x-1/2 bg-pink-500 hover:bg-pink-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-[12px] font-bold shadow-md active:scale-90 transition-transform"
-                >
-                  +
-                </button>
-              </div>
-              
-              <button onClick={() => handleLike && handleLike(p.id)} className="flex flex-col items-center gap-1 group">
-                <div className="p-3 bg-black/40 backdrop-blur-md rounded-full border border-white/10 group-active:scale-125 transition-transform">
-                  ❤️
-                </div>
-                <span className="text-[11px] font-bold text-white shadow-sm">{p.likes || 0}</span>
-              </button>
-              
-              <button onClick={() => setCommentPostId && setCommentPostId(p.id)} className="flex flex-col items-center gap-1">
-                <div className="p-3 bg-black/40 backdrop-blur-md rounded-full border border-white/10">
-                  💬
-                </div>
-                <span className="text-[11px] font-bold text-white shadow-sm">{p.commentsCount || 0}</span>
-              </button>
-              
-              <button className="flex flex-col items-center gap-1">
-                <div className="p-3 bg-black/40 backdrop-blur-md rounded-full border border-white/10">
-                  🔗
-                </div>
-                <span className="text-[10px] font-bold text-white shadow-sm">Share</span>
-              </button>
-            </div>
-
-            {/* Bottom Caption Overlay */}
-            <div className="absolute bottom-4 left-4 right-16 z-20 flex flex-col gap-1.5 text-left bg-gradient-to-t from-black/90 via-black/40 to-transparent p-2 rounded-xl">
-              <p className="font-black text-sm text-white tracking-wide">@{p.username || p.author || 'AJ_Creator'}</p>
-              <p className="text-xs text-gray-200 line-clamp-2 leading-snug">{p.caption || p.text || 'Check out this TikReel! 🔥'}</p>
-              <div className="flex items-center gap-2 mt-1 text-[11px] text-pink-400 font-semibold">
-                <span>🎵 Original Sound - {p.username || 'AJ Empire'}</span>
-              </div>
-            </div>
-          </div>
-        );
-      })
-    )}
-  </div>
-)}
-                {/* CREATE (TikReels) */}
-                {tiktabMode==='create' && (
-                  <div className="max-w-md mx-auto p-6 space-y-6">
-                    <h3 className="text-xl font-black text-pink-500 uppercase tracking-widest">📹 Create Video Post</h3>
-                    <div className="border-2 border-dashed border-pink-500/40 rounded-3xl p-8 text-center cursor-pointer bg-white/5 hover:bg-white/5 backdrop-blur-xl border border-white/10 transition-all" onClick={handleTiktokImage}>
-                      {tiktokPostImg
-                        ? tiktokPostIsVideo
-                          ? <video src={tiktokPostImg} controls className="w-full max-h-64 rounded-2xl object-cover" playsInline/>
-                          : <img src={tiktokPostImg} className="w-full max-h-48 object-cover rounded-2xl"/>
-                        : <><Film size={48} className="text-pink-500/40 mx-auto mb-3"/><p className="text-[10px] text-gray-500 uppercase font-black">Tap to select Video / Image</p></>
-                      }
-                    </div>
-                    <textarea value={tiktokPostText} onChange={e => setTiktokPostText(e.target.value)} placeholder="Add caption..."
-                      className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm text-white outline-none focus:border-pink-500 h-24 font-bold"/>
-                    {/* Fix 3a: Select Audio / Music from Phone */}
-                    <button
-                      type="button"
-                      onClick={() => audioFileRef.current?.click()}
-                      className="w-full py-3 bg-white/5 border border-pink-500/30 rounded-2xl font-black uppercase text-pink-400 text-xs tracking-widest flex items-center justify-center gap-2 hover:bg-pink-500/10  transition-all"
-                    >
-                      <Music size={14}/> {tiktokAudioFile ? `🎵 ${tiktokAudioFile.name}` : 'Select Audio / Music from Phone'}
-                    </button>
-                    {selectedSound && !tiktokAudioFile && (
-                      <p className="text-[10px] text-pink-400 font-bold text-center">🎵 Using: {selectedSound.slice(0,40)}</p>
-                    )}
-                    <button onClick={handleTiktokPost} className="w-full py-4 bg-pink-600 rounded-2xl font-black uppercase text-white tracking-widest shadow-lg  transition-all">
-                      PUBLISH (+20 🪙)
-                    </button>
-                  </div>
-                )}
-
-                {/* MY PROFILE (TikReels) */}
-                {tiktabMode==='profile' && (
-                  <div className="max-w-md mx-auto pb-24">
-                    <div className="relative h-36 bg-gradient-to-br from-pink-600/30 to-cyan-600/30">
-                      <div className="absolute -bottom-10 left-1/2 -translate-x-1/2">
-                        <img src={tempPhoto||user?.photoURL||'/logo.png'} className="w-20 h-20 rounded-full border-4 border-slate-950 shadow-2xl"/>
-                      </div>
-                    </div>
-                    <div className="mt-14 text-center px-6">
-                      <h2 className="text-xl font-black text-white uppercase tracking-widest">@{username||'AJ_MEMBER'}</h2>
-                      <p className="text-sm text-gray-400 mt-1 font-bold">{bio||'No bio yet.'}</p>
-                      <div className="flex justify-center gap-8 mt-5">
-                        {[{l:'Videos',v:userPosts.filter((p:any)=>p.uid===user?.uid).length},{l:'Followers',v:followers},{l:'Following',v:following}].map(s => (
-                          <div key={s.l} className="text-center">
-                            <p className="text-xl font-black text-white">{s.v}</p>
-                            <p className="text-[9px] text-gray-500 uppercase font-bold">{s.l}</p>
-                          </div>
-                        ))}
-                      </div>
-                      {/* Sub-tabs: Posts | Following */}
-                      <div className="flex gap-0 border-b border-white/10 mt-5">
-                        <button onClick={() => setTikProfileSubTab('posts')}
-                          className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest transition-all ${tikProfileSubTab==='posts'?'text-pink-500 border-b-2 border-pink-500':'text-gray-500'}`}>
-                          <Grid size={12} className="inline mr-1"/>Posts
-                        </button>
-                        <button onClick={() => { setTikProfileSubTab('following'); loadFollowingList(); }}
-                          className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest transition-all ${tikProfileSubTab==='following'?'text-pink-500 border-b-2 border-pink-500':'text-gray-500'}`}>
-                          <UserCheck size={12} className="inline mr-1"/>Following ({following})
-                        </button>
-                      </div>
-                     {tikProfileSubTab === 'posts' && (
-            <div className="grid grid-cols-3 gap-1 mt-4">
-              {userPosts.filter((p: any) => p.uid === user?.uid).map((p: any) => (
-                <div key={p.id} className="aspect-square bg-white/5 rounded-xl overflow-hidden">
-                  {(p.url || p.videoUrl || p.mediaUrl || p.tiktokPostImg || p.image || p.video) ? (
-                    <img 
-                      src={p.url || p.videoUrl || p.mediaUrl || p.tiktokPostImg || p.image || '/logo.png'} 
-                      className="w-full h-full object-cover" 
-                      onError={(e: any) => { e.target.src = '/logo.png'; }}
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-white/5">
-                      <Film size={24} className="text-pink-500/40" />
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-                      {tikProfileSubTab==='following' && (
-                        <div className="flex flex-col gap-0 mt-2">
-                          {followingList.length===0 && (
-                            <div className="py-12 text-gray-500 text-xs text-center">You are not following anyone yet.</div>
-                          )}
-                          {followingList.map((fu:any) => (
-                            <div key={fu.uid}
-                              onClick={() => openProfile(fu.uid)}
-                              className="flex items-center gap-4 px-4 py-3 hover:bg-white/5 cursor-pointer border-b border-white/5 transition-all rounded-2xl">
-                              <img src={fu.photo||'/logo.png'} loading="lazy" decoding="async"
-                                className="w-11 h-11 rounded-full border-2 border-pink-500 object-cover"/>
-                              <div className="flex-1">
-                                <p className="font-black text-white text-xs tracking-widest">@{fu.username||'AJ_MEMBER'}</p>
-                                <p className="text-[10px] text-gray-500 font-bold">{fu.bio||'AJ Portal Member'}</p>
-                              </div>
-                              <div className="w-6 h-6 rounded-full bg-pink-600/20 border border-pink-500/30 flex items-center justify-center">
-                                <UserCheck size={12} className="text-pink-400"/>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* AJ PULSE — TikReel-style full-screen snap-scroll UI clone */}
-            {socialScreen==='pulse' && (
-              <div className="flex flex-col h-full">
-                {/* PULSE TAB BAR — Feed | Create | Profile */}
-                <div className="flex gap-0 bg-[#050505] border-b border-white/10 shrink-0">
-                  {(['feed','create','profile'] as const).map(t => (
-                    <button key={t} onClick={() => setPulseTab(t)}
-                      className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest transition-all ${pulseTab===t ? 'text-pink-500 border-b-2 border-pink-500' : 'text-gray-500'}`}>
-                      {t==='feed' ? '📡 Feed' : t==='create' ? '➕ Create' : '👤 Profile'}
-                    </button>
-                  ))}
-                </div>
-
-                {pulseTab==='feed' ? (
-                  <div className="flex flex-col flex-1 overflow-hidden">
-                    <div className="bg-slate-950/98 p-3 border-b border-pink-500/20 sticky top-0 z-20 shrink-0">
-                      <div className="flex gap-2 items-center">
-                        <img src={user?.photoURL||'/logo.png'} className="w-8 h-8 rounded-full border-2 border-pink-500 flex-shrink-0 object-cover"/>
-                        <div className="flex-1 flex flex-col gap-1">
-                          <textarea value={postText} onChange={e => setPostText(e.target.value)}
-                            placeholder="Share your moment..."
-                            className="w-full bg-white/5 rounded-xl px-3 py-2 text-xs outline-none border border-white/10 h-9 text-white font-bold resize-none leading-tight"/>
-                          {tempPhoto && (
-                            <div className="relative w-full rounded-xl overflow-hidden border border-pink-500/30">
-                              {pulsePostIsVideo
-                                ? <video src={tempPhoto} controls className="w-full max-h-40 object-cover" playsInline/>
-                                : <img src={tempPhoto} className="w-full max-h-40 object-cover"/>
-                              }
-                              <button onClick={() => { setTempPhoto(''); setPulsePostIsVideo(false); }}
-                                className="absolute top-1 right-1 bg-[#050505]/70 text-white text-[9px] font-black px-2 py-0.5 rounded-full">✕</button>
-                            </div>
-                          )}
-                        </div>
-                        <button onClick={handleImageClick} className="text-gray-400 hover:text-pink-400 transition-all p-1.5 shrink-0">
-                          <Camera size={18}/>
-                        </button>
-                        <button onClick={handleCreatePost}
-                          className="bg-pink-600 px-3 py-1.5 rounded-full text-[10px] font-black shadow-lg hover:scale-105 active:scale-95 transition-all duration-200 text-white whitespace-nowrap shrink-0">
-                          POST +10🪙
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="snap-y snap-mandatory overflow-y-auto flex-1 bg-[#050505]" style={{ touchAction:'pan-y', overscrollBehavior:'contain' }}>
-                      {(() => {
-                        const pulseFeed: any[] = [];
-                        const maxK = Math.max(pulsePosts.length, pixaData.length);
-                        for (let k = 0; k < maxK; k++) {
-                          if (k < pulsePosts.length) pulseFeed.push({ ...pulsePosts[k], _src: 'user' });
-                          if (k < pixaData.length) pulseFeed.push({
-                            _src:   'unsplash',
-                            id:     `unsp-${k}`,
-                            image:  pixaData[k]?.urls?.regular,
-                            username: pixaData[k]?.user?.name || 'AJ Creator',
-                            text:   pixaData[k]?.alt_description || 'AJ Lifestyle',
-                            photo:  pixaData[k]?.user?.profile_image?.small || '/logo.png',
-                            likes:  pixaData[k]?.likes || 0,
-                          });
-                        }
-                        return pulseFeed.map((post: any, idx: number) => (
-                          <React.Fragment key={post.id || `pf-${idx}`}>
-                            {idx > 0 && idx % 5 === 0 && (
-                              <div className="h-[85vh] w-full snap-start relative overflow-hidden bg-[#050505]">
-                                <MonetagVideoAd publisherId={11279683}/>
-                              </div>
-                            )}
-
-                            <div className="h-[85vh] w-full snap-start relative bg-[#050505] overflow-hidden"
-                              style={{ contain:'layout style paint', willChange:'transform' }}>
-                              {post.image
-                                ? <img src={post.image} className="absolute inset-0 w-full h-full object-cover" loading="lazy" decoding="async"/>
-                                : <div className="absolute inset-0 bg-gradient-to-br from-pink-950/60 via-slate-900 to-black"/>
-                              }
-                              <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-black/25 pointer-events-none"/>
-
-                              <div className="absolute right-3 bottom-24 flex flex-col gap-5 items-center z-10">
-                                <div className="relative cursor-pointer"
-                                  onClick={() => post._src==='user' && post.uid && openProfile(post.uid)}>
-                                  <img src={post.photo||'/logo.png'} loading="lazy" decoding="async"
-                                    className="w-12 h-12 rounded-full border-2 border-white object-cover shadow-xl active:scale-90 transition-all"/>
-                                  {post._src==='user' && (
-                                    <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-5 h-5 bg-pink-600 rounded-full flex items-center justify-center border-2 border-black text-white text-[11px] font-black shadow-lg">+</div>
-                                  )}
-                                </div>
-                                <div onClick={() => post._src==='user' && handleLike(post.id)}
-                                  className="flex flex-col items-center cursor-pointer active:scale-125 transition-all">
-                                  <Heart size={32} className={likedPosts[post.id]?"text-red-500 fill-red-500":"text-white"}/>
-                                  <span className="text-[9px] font-bold text-white mt-0.5">{formatViews(post.likes||0)}</span>
-                                </div>
-                                <div className="flex flex-col items-center cursor-pointer"
-                                  onClick={() => post._src==='user' && setCommentPostId(post.id)}>
-                                  <MessageCircle size={32} className="text-white"/>
-                                  <span className="text-[9px] font-bold text-white mt-0.5">{formatViews(post.comments||0)}</span>
-                                </div>
-                                <div onClick={() => handleShare(post.text||'' )} className="flex flex-col items-center cursor-pointer text-white">
-                                  <Share2 size={30}/><span className="text-[9px] font-bold mt-0.5">Share</span>
-                                </div>
-                                {post._src==='user' && post.uid!==user?.uid && (
-                                  <div className="flex flex-col items-center cursor-pointer text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text"
-                                    onClick={() => setPulseGiftPostId(post.id)}>
-                                    <Gift size={28}/><span className="text-[9px] font-bold mt-0.5">Gift</span>
-                                  </div>
-                                )}
-                              </div>
-
-                              <div className="absolute bottom-8 left-4 text-white max-w-[72%] z-10">
-                                <p className="font-black text-sm cursor-pointer drop-shadow-[0_1px_4px_rgba(0,0,0,0.8)]"
-                                  onClick={() => post._src==='user' && post.uid && openProfile(post.uid)}>
-                                  @{post.username||'AJ_Creator'}
-                                </p>
-                                {post.text && (
-                                  <p className="text-[11px] text-gray-200 mt-0.5 line-clamp-2 font-medium leading-snug">
-                                    {post.text}
-                                  </p>
-                                )}
-                              </div>
-
-                              {post._src==='user' && post.uid===user?.uid && (
-                                <div className="absolute top-4 right-4 z-20">
-                                  <button onClick={() => setActiveMenuId(activeMenuId===post.id?null:post.id)}
-                                    className="bg-[#050505]/50 backdrop-blur-sm rounded-full p-2 active:scale-90 transition-all">
-                                    <MoreVertical size={16} className="text-white"/>
-                                  </button>
-                                  {activeMenuId===post.id && (
-                                    <div className="absolute right-0 top-11 bg-slate-900 border border-white/10 p-3 rounded-xl z-[1000] shadow-2xl min-w-[110px]">
-                                      <button
-                                        onClick={() => { setEditPostId(post.id); setEditPostText(post.text||''); setActiveMenuId(null); }}
-                                        className="text-blue-400 text-[10px] font-black flex items-center gap-2 uppercase w-full mb-2 hover:opacity-70">
-                                        <Edit3 size={14}/> Edit
-                                      </button>
-                                      <button onClick={() => handleDeletePost(post.id)}
-                                        className="text-red-500 text-[10px] font-black flex items-center gap-2 uppercase w-full hover:opacity-70">
-                                        <Trash2 size={14}/> Delete
-                                      </button>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                              {post._src==='unsplash' && (
-                                <div className="absolute top-4 left-4 z-10 pointer-events-none">
-                                  <span className="text-[7px] font-bold text-white/50 bg-[#050505]/40 px-2 py-0.5 rounded-full">
-                                    📸 Unsplash
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-                          </React.Fragment>
-                        ));
-                      })()}
-
-                      {pulsePosts.length===0 && pixaData.length===0 && (
-                        <div className="h-[60vh] flex flex-col items-center justify-center gap-4 text-center px-8">
-                          <Users size={56} className="text-pink-500/30"/>
-                          <p className="text-gray-400 font-black uppercase tracking-widest text-sm">Loading feed...</p>
-                          <p className="text-gray-600 text-[11px] font-bold">Be the first to share your moment!</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ) : pulseTab==='create' ? (
-                  <div className="flex-1 overflow-y-auto p-6 space-y-5 max-w-md mx-auto w-full">
-                    <h3 className="text-xl font-black uppercase text-center tracking-[0.12em] bg-gradient-to-r from-pink-500 via-cyan-400 to-pink-400 bg-clip-text text-transparent drop-shadow-[0_0_16px_rgba(236,72,153,0.7)]">
-                      📡 Share Your Moment
-                    </h3>
-
-                    <div
-                      className="border-2 border-dashed border-pink-500/50 rounded-3xl p-8 text-center cursor-pointer bg-white/5 hover:bg-pink-500/5 transition-all active:scale-[0.98]"
-                      onClick={handleImageClick}
-                    >
-                      {tempPhoto ? (
-                        pulsePostIsVideo
-                          ? <video src={tempPhoto} controls className="w-full max-h-64 rounded-2xl object-cover" playsInline/>
-                          : <img src={tempPhoto} className="w-full max-h-48 object-cover rounded-2xl" alt="preview"/>
-                      ) : (
-                        <>
-                          <Camera size={52} className="text-pink-500/50 mx-auto mb-3"/>
-                          <p className="text-[11px] text-gray-400 uppercase font-black tracking-widest">Tap to add Photo / Video</p>
-                          <p className="text-[9px] text-gray-600 mt-1">JPG · PNG · MP4 supported</p>
-                        </>
-                      )}
-                    </div>
-
-                    <textarea
-                      value={postText}
-                      onChange={e => setPostText(e.target.value)}
-                      placeholder="Write a caption..."
-                      className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm text-white outline-none focus:border-pink-500 h-28 font-bold resize-none transition-colors"
-                    />
-
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => setPulsePostIsVideo(false)}
-                        className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${!pulsePostIsVideo ? 'bg-pink-600 border-pink-600 text-white shadow-[0_0_14px_rgba(236,72,153,0.5)]' : 'bg-white/5 border-white/10 text-gray-400'}`}
-                      >📸 Photo (+5 🪙)</button>
-                      <button
-                        onClick={() => setPulsePostIsVideo(true)}
-                        className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${pulsePostIsVideo ? 'bg-purple-600 border-purple-600 text-white shadow-[0_0_14px_rgba(139,92,246,0.5)]' : 'bg-white/5 border-white/10 text-gray-400'}`}
-                      >🎬 Video (+10 🪙)</button>
-                    </div>
-
-                    <button
-                      onClick={() => { handleCreatePost(); setPulseTab('feed'); }}
-                      className="w-full py-4 rounded-2xl font-black uppercase text-white tracking-[0.15em] shadow-[0_0_30px_rgba(236,72,153,0.45)] hover:scale-[1.02] active:scale-[0.98] transition-all"
-                      style={{background:'linear-gradient(135deg,#ec4899,#8b5cf6)'}}
-                    >
-                      PUBLISH (+{pulsePostIsVideo ? 10 : 5} 🪙)
-                    </button>
-                  </div>
-                ) : pulseTab==='profile' ? (
-                  <div className="flex-1 overflow-y-auto max-w-md mx-auto w-full pb-24">
-                    <div className="relative h-32 bg-gradient-to-br from-pink-600/30 to-cyan-600/30">
-                      <div className="absolute -bottom-10 left-1/2 -translate-x-1/2">
-                        <div className="relative">
-                          <img src={tempPhoto||user?.photoURL||'/logo.png'} className="w-20 h-20 rounded-full border-4 border-[#050505] shadow-2xl object-cover"/>
-                          <button title="Change Photo"
-                            onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.onchange=async(e:any)=>{ const f=e.target.files?.[0]; if(!f) return; const fd=new FormData(); fd.append('file',f); fd.append('upload_preset',CLOUDINARY_UPLOAD_PRESET); try{ const res=await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,{method:'POST',body:fd}); const data=await res.json(); if(data.secure_url){ await updateDoc(doc(db,'users',user!.uid),{photoURL:data.secure_url,photo:data.secure_url}); setTempPhoto(data.secure_url); setVvipAlert({msg:'✅ Profile photo updated!',icon:'📸'}); }}catch{}; }; inp.click(); }}
-                            className="absolute -bottom-1 -right-1 w-6 h-6 bg-pink-600 rounded-full border-2 border-[#050505] flex items-center justify-center text-white text-xs font-black shadow-lg active:scale-90 transition-all">+</button>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="mt-14 text-center px-5">
-                      <h2 className="text-lg font-black text-white uppercase tracking-widest">@{username||'AJ_MEMBER'}</h2>
-                      <p className="text-xs text-gray-400 mt-1 font-bold">{bio||'No bio yet.'}</p>
-                      <div className="flex justify-center gap-8 mt-4">
-                        {[{v:pulsePosts.filter((p:any)=>p.uid===user?.uid).length,l:'Posts'},{v:followers,l:'Followers'},{v:following,l:'Following'}].map(s=>(
-                          <div key={s.l} className="text-center">
-                            <p className="text-lg font-black text-white">{s.v}</p>
-                            <p className="text-[9px] text-gray-500 uppercase font-bold">{s.l}</p>
-                          </div>
-                        ))}
-                      </div>
-                      <button onClick={() => user && openProfile(user.uid)}
-                        className="mt-4 px-6 py-2 bg-white/5 border border-pink-500/30 rounded-full text-xs font-black text-pink-400 uppercase tracking-widest hover:bg-pink-500/10 transition-all">
-                        View Full Profile
-                      </button>
-                    </div>
-                    <div className="mt-6 px-4">
-                      <p className="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-3">My Posts</p>
-                      <div className="grid grid-cols-3 gap-1">
-                        {pulsePosts.filter((p:any)=>p.uid===user?.uid).map((p:any)=>(
-                          <div key={p.id} className="aspect-square bg-white/5 rounded-xl overflow-hidden">
-                            {(p.image || p.thumbnail) ? (
-                              p.isVideo
-                                ? <div className="relative w-full h-full">
-                                    <img
-                                      src={p.thumbnail || p.image}
-                                      className="w-full h-full object-cover"
-                                      loading="lazy"
-                                      onError={e => { (e.target as HTMLImageElement).style.display='none'; }}
-                                    />
-                                    <div className="absolute inset-0 flex items-center justify-center">
-                                      <div className="w-7 h-7 rounded-full bg-[#050505]/60 flex items-center justify-center">
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21"/></svg>
-                                      </div>
-                                    </div>
-                                  </div>
-                                : <img
-                                    src={p.image || p.thumbnail}
-                                    className="w-full h-full object-cover"
-                                    loading="lazy"
-                                    onError={e => { (e.target as HTMLImageElement).src='/logo.png'; }}
-                                  />
-                            ) : (
-                              <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-gradient-to-br from-pink-900/20 to-cyan-900/20">
-                                <Film size={20} className="text-white/20"/>
-                                <p className="text-[8px] text-gray-600 font-bold px-1 text-center line-clamp-2">{p.text?.slice(0,25)}</p>
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            )}
-
-            {/* WECHAT CONTACT LIST */}
-            {socialScreen==='chatlist' && (
-              <div className="max-w-md mx-auto bg-[#111b21] min-h-screen pb-24">
-                <div className="bg-[#202c33] p-5 flex justify-between items-center border-b border-white/5">
-                  <h2 className="font-black text-xl text-white uppercase tracking-widest">AJ WeChat</h2>
-                  <div className="flex gap-3">
-                    <button onClick={handleContactsSync} className="text-[9px] font-black text-cyan-400 uppercase border border-cyan-500/30 px-3 py-2 rounded-xl hover:bg-cyan-500/10 transition-all">
-                      + Sync Contacts
-                    </button>
-                    <button onClick={() => setAddContactOpen(true)} className="text-[9px] font-black text-pink-400 uppercase border border-pink-500/30 px-3 py-2 rounded-xl hover:bg-pink-500/10 transition-all">
-                      + Add
-                    </button>
-                  </div>
-                </div>
-                {addContactOpen && (
-                  <div className="p-4 bg-[#2a3942] border-b border-white/5">
-                    <p className="text-[10px] font-black text-cyan-400 uppercase tracking-widest mb-2">Add Contact Manually</p>
-                    <input type="text" value={newContact} onChange={e => setNewContact(e.target.value)}
-                      placeholder="Enter contact name..." className="w-full bg-[#050505] border border-white/10 p-3 rounded-xl text-xs text-white outline-none focus:border-cyan-500 font-bold mb-2"/>
-                    <div className="flex gap-2">
-                      <button onClick={addManualContact} className="flex-1 bg-cyan-500 py-2 rounded-xl text-[10px] font-black text-black uppercase">Add</button>
-                      <button onClick={() => setAddContactOpen(false)} className="flex-1 bg-white/5 backdrop-blur-xl border border-white/10 py-2 rounded-xl text-[10px] font-black text-white uppercase">Cancel</button>
-                    </div>
-                  </div>
-                )}
-                <div className="p-4">
-                  <div className="bg-[#202c33] flex items-center gap-4 px-5 py-3 rounded-2xl text-gray-400 border border-white/5">
-                    <Search size={18}/>
-                    <input ref={searchRef} type="text" placeholder="Search contacts" className="bg-transparent outline-none text-sm w-full text-white font-bold"/>
-                  </div>
-                </div>
-                <div className="mt-2 space-y-1">
-                  {wechatContacts.map((contact, i) => (
-                    <div key={i} onClick={() => { setActiveContact(contact); setSocialScreen('chat'); }}
-                      className="flex items-center gap-4 p-5 hover:bg-white/5 cursor-pointer border-b border-white/5 transition-all mx-2 rounded-[2rem]">
-                      <div className="w-14 h-14 rounded-full bg-cyan-600/30 flex items-center justify-center font-black border border-cyan-500/50 text-cyan-400 shadow-2xl text-lg">
-                        {contact[0].toUpperCase()}
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex justify-between items-center mb-1">
-                          <p className="font-black text-[#e9edef] tracking-wider uppercase text-xs">{contact}</p>
-                          <span className="text-[10px] text-[#8696a0]">Now</span>
-                        </div>
-                        <p className="text-[10px] text-[#8696a0] font-bold">VVIP encrypted chat active.</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* WECHAT CHAT */}
-            {socialScreen==='chat' && (
-              <div className="max-w-md mx-auto h-[88vh] flex flex-col bg-[#0b141a] overflow-hidden m-2 rounded-[2.5rem] shadow-2xl border border-cyan-500/20">
-                <div className="bg-[#1f2c33]/95 p-4 flex items-center gap-3 border-b border-white/10">
-                  <button onClick={() => setSocialScreen('chatlist')} className="text-cyan-500 p-2"><ChevronRight className="rotate-180"/></button>
-                  <div className="w-11 h-11 rounded-full bg-cyan-600/30 flex items-center justify-center font-black border border-cyan-500/50 text-cyan-400 text-lg">
-                    {activeContact?.[0]?.toUpperCase()||'A'}
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-bold text-sm text-white uppercase tracking-widest">{activeContact}</p>
-                    <p className="text-[7px] text-green-500 font-black uppercase tracking-[0.3em] animate-pulse">Online • Encrypted</p>
-                  </div>
-                  <div className="flex gap-4 text-[#aebac1]">
-                    <button onClick={() => setVvipAlert({msg:`📹 Video Call — Agora App ID: ${AGORA_APP_ID.slice(0,8)}... (WebRTC enabled)`})}
-                      className="cursor-pointer hover:text-cyan-400 transition-all p-1 rounded-full hover:bg-cyan-500/10">
-                      <VideoIcon size={20}/>
-                    </button>
-                    <button onClick={() => setVvipAlert({msg:`📞 Audio Call — Agora App ID: ${AGORA_APP_ID.slice(0,8)}... (WebRTC enabled)`})}
-                      className="cursor-pointer hover:text-green-400 transition-all p-1 rounded-full hover:bg-green-500/10">
-                      <Phone size={20}/>
-                    </button>
-                    <Camera size={20} className="cursor-pointer hover:text-pink-400" onClick={handleImageClick}/>
-                  </div>
-                </div>
-                <div className="flex-1 overflow-y-auto p-5 space-y-4">
-                  {chatMessages.map((m:any) => (
-                    <div key={m.id} className={`flex ${m.uid===user?.uid?'justify-end':'justify-start'}`}>
-                      <div className={`p-3 max-w-[85%] rounded-2xl shadow-xl border ${m.uid===user?.uid?'bg-cyan-700/80 border-cyan-400 rounded-tr-none':'bg-[#202c33]/90 border-white/5 rounded-tl-none'}`}>
-                        <p className="font-black text-[9px] text-yellow-500 mb-1 opacity-70 uppercase">@{m.username}</p>
-                        <p className="text-[12px] text-white font-medium">{m.text}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="p-4 bg-[#1f2c33]/95 flex gap-3 items-center">
-                  <button onClick={handleImageClick} className="text-[#aebac1]"><PlusSquare size={26}/></button>
-                  <input type="text" value={newMessage} onChange={e => setNewMessage(e.target.value)}
-                    onKeyDown={e => e.key==='Enter'&&sendChatMessage()} placeholder="Type a message"
-                    className="flex-1 bg-[#2a3942] p-4 rounded-full text-xs text-white outline-none focus:ring-1 focus:ring-cyan-500 font-bold border-none"/>
-                  <button onClick={sendChatMessage} className="bg-cyan-600 p-4 rounded-full text-white shadow-2xl active:scale-90 transition-all">
-                    <Send size={22}/>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* PROFILE SETUP */}
-            {socialScreen==='setup' && (
-              <div className="max-w-md mx-auto bg-white/5 border border-white/10 p-10 rounded-[3.5rem] text-center mt-4 shadow-2xl">
-                <div className="relative w-28 h-28 mx-auto mb-10 cursor-pointer group" onClick={handleImageClick}>
-                  <img src={tempPhoto||user?.photoURL||'/logo.png'} className="w-full h-full rounded-full border-4 border-pink-500 p-1 object-cover shadow-2xl group-hover:brightness-50 transition-all"/>
-                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100"><Camera size={40} className="text-white"/></div>
-                  <div className="absolute bottom-1 right-1 bg-pink-600 p-3 rounded-full border-2 border-black text-white"><Camera size={18}/></div>
-                </div>
-                <h2 className="text-2xl font-black text-white mb-8 uppercase tracking-widest italic">Identity Setup</h2>
-                <div className="space-y-5 text-left">
-                  <label className="text-[10px] font-black text-pink-500 ml-1 uppercase tracking-widest">Username</label>
-                  <input type="text" placeholder="@unique_name" value={username} onChange={e => setUsername(e.target.value)}
-                    className="w-full bg-[#050505]/40 border border-white/10 p-4 rounded-2xl font-bold text-white outline-none focus:border-pink-500"/>
-                  <label className="text-[10px] font-black text-pink-500 ml-1 uppercase tracking-widest">Bio</label>
-                  <textarea placeholder="Tell the world about you..." value={bio} onChange={e => setBio(e.target.value)}
-                    className="w-full bg-[#050505]/40 border border-white/10 p-4 rounded-2xl text-xs text-white outline-none h-28 focus:border-pink-500"/>
-                  <button onClick={handleCreateProfile}
-                    className="w-full mt-8 py-5 bg-pink-600 rounded-[1.5rem] font-black uppercase shadow-[0_10px_30px_rgba(236,72,153,0.3)]  transition-all text-white border-b-4 border-pink-800 tracking-[0.2em]">
-                    ACTIVATE PROFILE
-                  </button>
-                </div>
-                <button onClick={() => setSocialScreen('hub')} className="mt-6 text-gray-500 uppercase text-[9px] font-black w-full">Back</button>
-              </div>
-            )}
-
-          </div>
-
-          {/* PULSE GIFT MODAL */}
-          {pulseGiftPostId && (
-            <div className="fixed inset-0 z-[1000] bg-[#050505]/70 backdrop-blur-md flex items-end">
-              <div className="w-full bg-[#111b21] rounded-t-[3rem] border-t-2 border-yellow-500 p-6 shadow-2xl">
-                <div className="flex justify-between items-center mb-5">
-                  <h3 className="text-lg font-black text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text uppercase tracking-widest flex items-center gap-2"><Gift size={18}/> Send Gift</h3>
-                  <X className="cursor-pointer text-gray-500" onClick={() => setPulseGiftPostId(null)}/>
-                </div>
-                <div className="grid grid-cols-3 gap-3">
-                  {giftItems.map(g => (
-                    <button key={g.id} onClick={() => { sendGift(pulseGiftPostId, g); setPulseGiftPostId(null); }}
-                      className="bg-white/5 border border-white/10 py-3 rounded-2xl text-[9px] font-black uppercase hover:border-yellow-500 transition-all flex flex-col items-center gap-1 ">
-                      <span className="text-2xl">{g.icon}</span>
-                      <span className="text-white">{g.name}</span>
-                      <span className="text-yellow-500 text-[8px]">{g.cost.toLocaleString()} 🪙</span>
-                    </button>
-                  ))}
-                </div>
+              <div className="flex gap-2 p-4 border-t border-white/10 bg-[#050505]">
+                <input value={newMessage} onChange={e => setNewMessage(e.target.value)} onKeyDown={e => e.key==='Enter' && sendChatMessage()} placeholder="Message the community…" className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-pink-500/50"/>
+                <button onClick={sendChatMessage} className="bg-pink-600 text-white p-2.5 rounded-2xl active:scale-90 transition-all"><Send size={16}/></button>
               </div>
             </div>
           )}
 
-          {/* COMMENT BOARD */}
-          {commentPostId && !commentPostId.startsWith('gift_') && (
-            <div className="fixed inset-0 z-[1000] bg-[#050505]/70 backdrop-blur-md flex items-end">
-              <div className="w-full h-[65vh] bg-[#111b21] rounded-t-[3rem] border-t-2 border-pink-500 p-6 flex flex-col shadow-2xl">
-                <div className="flex justify-between items-center mb-6">
-                  <h3 className="text-lg font-black text-pink-500 uppercase tracking-widest">Comments</h3>
-                  <X className="cursor-pointer text-gray-500" onClick={() => setCommentPostId(null)}/>
+          {/* ── LIVE SCREEN ── */}
+          {socialScreen === 'live' && liveActive && (
+            <div className="flex flex-col h-screen bg-[#050505]">
+              <div className="sticky top-0 z-40 bg-[#050505]/95 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="bg-red-600 text-white text-[9px] font-black px-2.5 py-1 rounded-full animate-pulse">🔴 LIVE</span>
+                  <span className="text-white font-black text-sm">@{username||'AJ_Member'}</span>
                 </div>
-                <div className="flex-1 overflow-y-auto space-y-4">
-                  {postComments.length>0 ? postComments.map((c:any) => (
-                    <div key={c.id} className="flex gap-4 p-3 bg-white/5 rounded-2xl border border-white/5">
-                      <img src={c.photo||'/logo.png'} className="w-8 h-8 rounded-full border border-pink-500"/>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setPkChallengeOpen(true)} className="flex items-center gap-1.5 bg-yellow-600/20 border border-yellow-500/30 text-yellow-400 text-[9px] font-black px-3 py-1.5 rounded-full active:scale-90 transition-all">
+                    <Swords size={12}/> PK
+                  </button>
+                  <button onClick={stopLive} className="bg-red-600 text-white text-[9px] font-black px-3 py-1.5 rounded-full active:scale-90 transition-all">End Live</button>
+                </div>
+              </div>
+              <div className="relative flex-1 bg-black overflow-hidden">
+                <div id="video-container" className="absolute inset-0 w-full h-full"/>
+                {cameraReady && <video ref={liveVideoRef} autoPlay muted playsInline className="absolute inset-0 w-full h-full object-cover opacity-0"/>}
+                {/* Room ID */}
+                <div className="absolute top-4 left-4 z-20 bg-black/60 backdrop-blur-sm rounded-2xl px-3 py-2 flex items-center gap-2">
+                  <span className="text-gray-400 text-[9px]">Room ID:</span>
+                  <span className="text-white text-[9px] font-black max-w-[100px] truncate">{liveRoomId}</span>
+                  <button onClick={() => copyToClipboard(liveRoomId)} className="text-pink-400 text-[9px] font-black active:scale-90">{copied?'✓':'Copy'}</button>
+                </div>
+                {/* PK Active */}
+                {pkActive && (
+                  <div className="absolute top-16 left-0 right-0 z-20 flex items-center justify-center gap-4 px-4">
+                    <div className="flex-1 bg-pink-600/30 border border-pink-500/40 rounded-2xl p-3 text-center">
+                      <p className="text-white font-black text-xs">@{username}</p>
+                      <p className="text-yellow-400 font-black text-lg">{pkScore.me.toLocaleString()}</p>
+                    </div>
+                    <div className="flex flex-col items-center">
+                      <span className="text-white font-black text-sm">⚔️</span>
+                      <span className="text-yellow-400 font-black text-xs">{formatPkTime(pkTimer)}</span>
+                    </div>
+                    <div className="flex-1 bg-cyan-600/30 border border-cyan-500/40 rounded-2xl p-3 text-center">
+                      <p className="text-white font-black text-xs">@{pkRivalData?.username||'Rival'}</p>
+                      <p className="text-yellow-400 font-black text-lg">{pkScore.rival.toLocaleString()}</p>
+                    </div>
+                  </div>
+                )}
+                {pkWinner && (
+                  <div className="absolute inset-0 z-30 bg-black/70 flex items-center justify-center">
+                    <div className="text-center">
+                      <p className="text-6xl mb-4">🏆</p>
+                      <p className="text-white font-black text-2xl">@{pkWinner} WINS!</p>
+                      <button onClick={() => { setPkWinner(null); setPkActive(false); }} className="mt-4 bg-pink-600 text-white font-black px-6 py-3 rounded-2xl active:scale-95 transition-all">Close</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              {/* Live Chat */}
+              <div className="h-48 flex flex-col border-t border-white/10">
+                <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                  {liveChatMessages.map((msg:any) => (
+                    <div key={msg.id} className="flex items-start gap-2">
+                      <img src={msg.photo||'/logo.png'} className="w-5 h-5 rounded-full object-cover flex-shrink-0 mt-0.5"/>
                       <div>
-                        <p className="font-black text-[10px] text-pink-400 uppercase">@{c.username}</p>
-                        <p className="text-xs text-gray-300 mt-1">{c.text}</p>
+                        <span className="text-pink-400 text-[9px] font-black">@{msg.username} </span>
+                        <span className="text-white text-[10px]">{msg.text}</span>
                       </div>
                     </div>
-                  )) : <p className="text-center text-gray-600 text-xs mt-10 italic">No comments yet.</p>}
+                  ))}
+                  <div ref={liveChatEndRef}/>
                 </div>
-                <div className="mt-4 pt-4 border-t border-white/10 flex gap-3">
-                  <input type="text" value={newComment} onChange={e => setNewComment(e.target.value)} placeholder="Write a comment..."
-                    className="flex-1 bg-[#050505]/40 border border-white/10 rounded-xl p-4 text-xs outline-none focus:ring-1 focus:ring-pink-500 text-white font-bold"/>
-                  <button onClick={submitComment} className="bg-pink-600 p-4 rounded-xl active:scale-90 transition-all text-white"><Send size={18}/></button>
+                <div className="flex gap-2 p-3 border-t border-white/10">
+                  <input value={liveChatInput} onChange={e => setLiveChatInput(e.target.value)} onKeyDown={e => e.key==='Enter' && sendLiveChatMessage()} placeholder="Say something…" className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-xs focus:outline-none"/>
+                  <button onClick={sendLiveChatMessage} className="bg-pink-600 text-white p-2 rounded-xl active:scale-90 transition-all"><Send size={12}/></button>
                 </div>
+              </div>
+              {/* Gift Row */}
+              <div className="flex gap-2 overflow-x-auto px-3 pb-3 scrollbar-hide">
+                {giftItems.map(g => (
+                  <button key={g.id} onClick={() => sendGift(user!.uid, g)} className="flex-shrink-0 flex flex-col items-center gap-1 bg-white/5 border border-white/10 rounded-2xl px-3 py-2 active:scale-90 transition-all">
+                    <span className="text-xl">{g.icon}</span>
+                    <span className="text-white text-[8px] font-black">{g.cost.toLocaleString()}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── VIEWER LIVE ── */}
+          {viewerRoom && (
+            <div className="fixed inset-0 z-[9800] flex flex-col bg-[#050505]">
+              <div className="sticky top-0 z-40 bg-[#050505]/95 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center justify-between">
+                <button onClick={leaveViewerRoom} className="active:scale-90 transition-all"><ArrowLeft size={16} className="text-gray-400"/></button>
+                <div className="flex items-center gap-2">
+                  <span className="bg-red-600 text-white text-[9px] font-black px-2 py-0.5 rounded-full animate-pulse">🔴 LIVE</span>
+                  <span className="text-white font-black text-sm">@{viewerRoom.username}</span>
+                </div>
+                <div/>
+              </div>
+              <div className="relative flex-1 bg-black overflow-hidden">
+                <iframe
+                  src={`https://www.youtube.com/embed/live_stream?channel=${viewerRoom.uid}&autoplay=1&mute=0`}
+                  className="absolute inset-0 w-full h-full"
+                  allow="autoplay; encrypted-media"
+                  allowFullScreen frameBorder="0"
+                />
+              </div>
+              <div className="h-48 flex flex-col border-t border-white/10">
+                <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                  {viewerChatMessages.map((msg:any) => (
+                    <div key={msg.id} className="flex items-start gap-2">
+                      <img src={msg.photo||'/logo.png'} className="w-5 h-5 rounded-full object-cover flex-shrink-0 mt-0.5"/>
+                      <div>
+                        <span className="text-pink-400 text-[9px] font-black">@{msg.username} </span>
+                        <span className="text-white text-[10px]">{msg.text}</span>
+                      </div>
+                    </div>
+                  ))}
+                  <div ref={viewerChatEndRef}/>
+                </div>
+                <div className="flex gap-2 p-3 border-t border-white/10">
+                  <input value={viewerChatInput} onChange={e => setViewerChatInput(e.target.value)} onKeyDown={e => e.key==='Enter' && sendViewerChatMessage()} placeholder="Say something…" className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-xs focus:outline-none"/>
+                  <button onClick={sendViewerChatMessage} className="bg-pink-600 text-white p-2 rounded-xl active:scale-90 transition-all"><Send size={12}/></button>
+                </div>
+              </div>
+              <div className="flex gap-2 overflow-x-auto px-3 pb-3 scrollbar-hide">
+                {giftItems.map(g => (
+                  <button key={g.id} onClick={() => sendGift(viewerRoom.uid, g)} className="flex-shrink-0 flex flex-col items-center gap-1 bg-white/5 border border-white/10 rounded-2xl px-3 py-2 active:scale-90 transition-all">
+                    <span className="text-xl">{g.icon}</span>
+                    <span className="text-white text-[8px] font-black">{g.cost.toLocaleString()}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── PROFILE VIEW ── */}
+          {socialScreen === 'profile' && (
+            <div className="flex flex-col min-h-screen bg-[#050505]">
+              <div className="sticky top-0 z-40 bg-[#050505]/95 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center gap-3">
+                <button onClick={() => setSocialScreen('hub')} className="active:scale-90 transition-all"><ArrowLeft size={16} className="text-gray-400"/></button>
+                <span className="text-sm font-black text-white">Profile</span>
+              </div>
+              {profileLoading ? (
+                <div className="flex-1 flex items-center justify-center"><div className="w-8 h-8 border-2 border-pink-500 border-t-transparent rounded-full animate-spin"/></div>
+              ) : viewProfile ? (
+                <div className="flex-1 overflow-y-auto">
+                  <div className="flex flex-col items-center px-4 py-6">
+                    <img src={viewProfile.photo||'/logo.png'} className="w-20 h-20 rounded-full border-2 border-pink-500 object-cover shadow-[0_0_24px_rgba(236,72,153,0.3)]"/>
+                    <p className="text-white font-black text-lg mt-3">@{viewProfile.username||'AJ_Member'}</p>
+                    <p className="text-gray-400 text-xs mt-1 text-center max-w-xs">{viewProfile.bio||''}</p>
+                    <div className="flex gap-8 mt-4">
+                      <div className="text-center"><p className="text-white font-black text-lg">{viewProfile.postsCount||0}</p><p className="text-gray-400 text-[10px]">Posts</p></div>
+                      <div className="text-center"><p className="text-white font-black text-lg">{followers}</p><p className="text-gray-400 text-[10px]">Followers</p></div>
+                      <div className="text-center"><p className="text-white font-black text-lg">{following}</p><p className="text-gray-400 text-[10px]">Following</p></div>
+                    </div>
+                    {viewingUid !== user?.uid && (
+                      <div className="flex gap-3 mt-4">
+                        <button onClick={() => handleFollow(viewingUid!)} className={`px-6 py-2.5 rounded-2xl text-white text-xs font-black uppercase tracking-widest active:scale-95 transition-all ${isFollowing ? 'bg-white/10 border border-white/20' : 'bg-pink-600 shadow-[0_0_18px_rgba(236,72,153,0.4)]'}`}>
+                          {isFollowing ? '✓ Following' : '+ Follow'}
+                        </button>
+                        <button onClick={() => openOrCreateChat(viewingUid!, viewProfile)} className="px-6 py-2.5 rounded-2xl text-white text-xs font-black uppercase tracking-widest active:scale-95 transition-all bg-white/10 border border-white/20">
+                          Message
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-3 gap-0.5 p-0.5">
+                    {[...profilePosts, ...profileVideos].map((post:any) => (
+                      <div key={post.id} className="relative aspect-square bg-white/5 overflow-hidden">
+                        {post.image
+                          ? <img src={post.image} className="w-full h-full object-cover"/>
+                          : <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">📝</span></div>
+                        }
+                        {post.isVideo && <div className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5"><Film size={8} className="text-white"/></div>}
+                        <div className="absolute bottom-1 left-1"><span className="text-white text-[8px] font-black drop-shadow">{formatViews(post.views||0)}</span></div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          )}
+
+          {/* ── SETTINGS ── */}
+          {socialScreen === 'settings' && (
+            <div className="flex flex-col min-h-screen bg-[#050505]">
+              <div className="sticky top-0 z-40 bg-[#050505]/95 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center gap-3">
+                <button onClick={() => setSocialScreen('hub')} className="active:scale-90 transition-all"><ArrowLeft size={16} className="text-gray-400"/></button>
+                <span className="text-sm font-black text-white">Settings</span>
+              </div>
+              <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
+                <div className="flex flex-col items-center mb-6">
+                  <div className="relative w-20 h-20 rounded-full border-2 border-pink-500 overflow-hidden cursor-pointer">
+                    <img src={tempPhoto||user?.photoURL||'/logo.png'} className="w-full h-full object-cover"/>
+                    <label className="absolute inset-0 bg-black/40 flex items-center justify-center cursor-pointer">
+                      <Camera size={18} className="text-white"/>
+                      <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpdate}/>
+                    </label>
+                  </div>
+                </div>
+                <input value={username} onChange={e => setUsername(e.target.value.toLowerCase().replace(/\s/g,''))} placeholder="Username" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"/>
+                <textarea value={bio} onChange={e => setBio(e.target.value)} placeholder="Bio" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm h-20 resize-none focus:outline-none focus:border-pink-500/50"/>
+                <button onClick={handleCreateProfile} className="w-full py-4 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all shadow-[0_0_24px_rgba(236,72,153,0.4)]" style={{background:'linear-gradient(135deg,#ec4899,#8b5cf6)'}}>
+                  Save Profile
+                </button>
+                <button onClick={handleSignOut} className="w-full py-3 rounded-2xl text-red-400 font-black uppercase tracking-widest active:scale-95 transition-all bg-red-600/10 border border-red-500/20">
+                  Sign Out
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* PK Challenge Modal */}
+          {pkChallengeOpen && (
+            <div className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end">
+              <div className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <p className="text-sm font-black text-white">⚔️ PK Challenge</p>
+                  <button onClick={() => setPkChallengeOpen(false)}><X size={18} className="text-gray-400"/></button>
+                </div>
+                <p className="text-gray-400 text-xs mb-4">Enter your rival's User ID. Entry cost: {PK_ENTRY_COINS} Coins.</p>
+                <input value={pkTargetId} onChange={e => setPkTargetId(e.target.value)} placeholder="Rival's User ID" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm mb-4 focus:outline-none focus:border-yellow-500/50"/>
+                <button onClick={sendPkChallenge} className="w-full py-3 rounded-2xl text-white font-black active:scale-95 transition-all" style={{background:'linear-gradient(135deg,#f59e0b,#d97706)'}}>
+                  ⚔️ Send Challenge ({PK_ENTRY_COINS} Coins)
+                </button>
               </div>
             </div>
           )}
         </div>
       )}
 
-      {/* ============================================================
-          Fix #1 & #2: GO LIVE — Fixed UI layout (no overlap)
-          Share Room ID box is stacked ABOVE END LIVE in a flex-col
-          Fix #2: Copy & Share uses navigator.share (native app list)
-          ============================================================ */}
-      {liveActive && (
-        <div className="fixed inset-0 z-[600] bg-[#050505] flex flex-col">
+      {/* ══════════════════════════════════════════════════════
+          WALLET SCREEN
+      ══════════════════════════════════════════════════════ */}
+      {screen === 'wallet' && (
+        <div className="flex flex-col min-h-screen bg-[#050505]">
+          <div className="sticky top-0 z-40 bg-[#050505]/95 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center gap-3">
+            <button onClick={() => setScreen('hub')} className="active:scale-90 transition-all"><ArrowLeft size={16} className="text-gray-400"/></button>
+            <span className="text-sm font-black text-white">💰 Wallet</span>
+          </div>
 
-          {/* PK ACTIVE — Split Screen */}
-          {pkActive ? (
-            <div className="flex-1 flex flex-col">
-              <div className="bg-[#050505]/90 p-3 flex items-center justify-between border-b border-yellow-500/30">
-                <div className="flex items-center gap-2">
-                  <Swords size={18} className="text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text"/>
-                  <span className="font-black text-xs text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text uppercase tracking-widest">PK BATTLE</span>
-                </div>
-                <div className="flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/30 px-3 py-1 rounded-full">
-                  <Clock size={14} className="text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text"/>
-                  <span className="font-black text-sm text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text tabular-nums">{formatPkTime(pkTimer)}</span>
-                </div>
-                <div className="text-[10px] font-black text-white">
-                  <span className="text-cyan-400">{pkScore.me}</span>
-                  <span className="text-gray-500 mx-1">vs</span>
-                  <span className="text-pink-400">{pkScore.rival}</span>
-                </div>
+          {/* Sponsor Banner — non-clickable */}
+          <div className="px-4 pt-3 pointer-events-none">
+            <MonetagBanner siteId={MONETAG_PULSE_BANNER}/>
+          </div>
+
+          {/* Balance */}
+          <div className="px-4 pt-4">
+            <div className="rounded-3xl overflow-hidden shadow-[0_0_40px_rgba(236,72,153,0.15)]" style={{background:'linear-gradient(135deg,#1a0a2e 0%,#0a0a1a 50%,#0d1a2e 100%)',border:'1px solid rgba(236,72,153,0.2)'}}>
+              <div className="h-[2px] w-full bg-gradient-to-r from-pink-500 via-purple-400 to-cyan-400"/>
+              <div className="p-5">
+                <p className="text-[10px] text-gray-400 uppercase tracking-widest font-black">Total Balance</p>
+                <p className="text-4xl font-black bg-gradient-to-r from-yellow-300 to-yellow-500 bg-clip-text text-transparent mt-1">{parseFloat(displayBalance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} <span className="text-lg text-yellow-400/70">🪙</span></p>
+                <p className="text-xs text-gray-400 mt-1">≈ ${displayUsdt} USD</p>
               </div>
+            </div>
+          </div>
 
-              <div className="flex-1 flex">
-                <div className="flex-1 relative border-r border-yellow-500/40">
-                  <video ref={liveVideoRef} autoPlay playsInline muted className="w-full h-full object-cover"/>
-                  <div className="absolute top-3 left-3 bg-red-600 px-3 py-1 rounded-full flex items-center gap-1">
-                    <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"/>
-                    <span className="text-white font-black text-[9px]">YOU</span>
-                  </div>
-                  <div className="absolute bottom-3 left-3 bg-[#050505]/50 px-2 py-1 rounded-lg">
-                    <span className="text-cyan-400 font-black text-[10px]">🪙 {pkScore.me}</span>
-                  </div>
-                </div>
-                <div className="flex-1 relative bg-[#050505] backdrop-blur-xl border border-white/10">
-                  <div className="w-full h-full flex items-center justify-center flex-col gap-3">
-                    <img src={pkRivalData?.photo||'/logo.png'} className="w-20 h-20 rounded-full border-4 border-pink-500"/>
-                    <p className="font-black text-white text-sm uppercase">@{pkRivalData?.username||'Rival'}</p>
-                    <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"/>
-                    <span className="text-[10px] text-red-400 font-bold">LIVE</span>
-                  </div>
-                  <div className="absolute top-3 right-3 bg-pink-600 px-3 py-1 rounded-full">
-                    <span className="text-white font-black text-[9px]">RIVAL</span>
-                  </div>
-                  <div className="absolute bottom-3 right-3 bg-[#050505]/50 px-2 py-1 rounded-lg">
-                    <span className="text-pink-400 font-black text-[10px]">🪙 {pkScore.rival}</span>
-                  </div>
-                </div>
-              </div>
+          {/* Wallet Tabs */}
+          <div className="flex gap-1 px-4 pt-4 overflow-x-auto scrollbar-hide">
+            {[
+              { id:'main',     label:'Overview' },
+              { id:'purchase', label:'Buy Coins' },
+              { id:'withdraw', label:'Withdraw' },
+              { id:'transfer', label:'Transfer' },
+              { id:'referral', label:'Referral' },
+            ].map(tab => (
+              <button key={tab.id} onClick={() => setWalletTab(tab.id)} className={`flex-shrink-0 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${walletTab===tab.id ? 'bg-pink-600 text-white shadow-[0_0_12px_rgba(236,72,153,0.4)]' : 'bg-white/5 border border-white/10 text-gray-400'}`}>
+                {tab.label}
+              </button>
+            ))}
+          </div>
 
-              <div className="absolute left-3 bottom-[200px] w-[45%] max-h-32 overflow-y-auto bg-[#050505]/30 backdrop-blur-sm rounded-2xl p-2 border border-white/10 pointer-events-none">
-                {chatMessages.slice(-6).map((m:any, i:number) => (
-                  <p key={i} className="text-[9px] text-white font-bold mb-0.5 leading-tight">
-                    <span className="text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text">@{m.username}: </span>{m.text}
-                  </p>
+          <div className="flex-1 overflow-y-auto px-4 pt-4 pb-8">
+
+            {/* OVERVIEW */}
+            {walletTab === 'main' && (
+              <div className="space-y-3">
+                {[
+                  { icon:'🪙', label:'Total Coins',   value:`${parseFloat(displayBalance).toLocaleString(undefined,{minimumFractionDigits:2})} Coins` },
+                  { icon:'💵', label:'USD Value',     value:`$${displayUsdt}` },
+                  { icon:'🤖', label:'Bot Tier',      value:botTier.toUpperCase() },
+                  { icon:'📈', label:'Bot Profit',    value:`+${visualProfit.toFixed(4)} Coins` },
+                  { icon:'💰', label:'Invested',      value:`${invested.toLocaleString()} Coins` },
+                  { icon:'💸', label:'Min Withdraw',  value:`${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE})` },
+                ].map(item => (
+                  <div key={item.label} className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl p-4">
+                    <span className="text-xl">{item.icon}</span>
+                    <div className="flex-1">
+                      <p className="text-gray-400 text-[10px] uppercase tracking-widest">{item.label}</p>
+                      <p className="text-white font-black text-sm">{item.value}</p>
+                    </div>
+                  </div>
                 ))}
               </div>
+            )}
 
-              {pkWinner && (
-                <div className="absolute inset-0 bg-[#050505]/80 flex items-center justify-center z-50 flex-col gap-6">
-                  <div className="text-8xl animate-bounce">🏆</div>
-                  <h2 className="text-3xl font-black text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text uppercase tracking-widest">
-                    {pkWinner === (username||'You') ? '🎉 YOU WIN!' : `@${pkWinner} Wins!`}
-                  </h2>
-                  <button onClick={() => { setPkWinner(null); setPkActive(false); setPkTimer(PK_DURATION); setPkScore({me:0,rival:0}); }}
-                    className="bg-yellow-500 px-8 py-3 rounded-full font-black text-black uppercase">Continue</button>
+            {/* BUY COINS */}
+            {walletTab === 'purchase' && (
+              <div className="space-y-4">
+                <p className="text-xs text-gray-400">Rate: $1 = {COIN_RATE} Coins. Min: ${MIN_PURCHASE}.</p>
+                <div>
+                  <p className="text-[10px] text-gray-400 uppercase tracking-widest mb-2">Amount (USD)</p>
+                  <input type="number" value={purchaseAmount} onChange={e => setPurchaseAmount(Number(e.target.value))} min={MIN_PURCHASE} className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"/>
+                  <p className="text-[10px] text-yellow-400 mt-1">= {(purchaseAmount*COIN_RATE).toLocaleString()} Coins</p>
                 </div>
-              )}
+                <div className="flex gap-2 flex-wrap">
+                  {[20,50,100,200,500].map(v => (
+                    <button key={v} onClick={() => setPurchaseAmount(v)} className={`px-4 py-2 rounded-xl text-xs font-black transition-all active:scale-90 ${purchaseAmount===v ? 'bg-pink-600 text-white' : 'bg-white/5 border border-white/10 text-gray-300'}`}>${v}</button>
+                  ))}
+                </div>
+                <button onClick={handlePurchase} className="w-full py-4 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all shadow-[0_0_24px_rgba(236,72,153,0.4)]" style={{background:'linear-gradient(135deg,#ec4899,#8b5cf6)'}}>
+                  💳 Pay ${purchaseAmount} → Get {(purchaseAmount*COIN_RATE).toLocaleString()} Coins
+                </button>
+                <p className="text-[9px] text-gray-500 text-center">Powered by NOWPayments · Auto-credited on confirmation</p>
+              </div>
+            )}
+
+            {/* WITHDRAW */}
+            {walletTab === 'withdraw' && (
+              <div className="space-y-4">
+                <div className="bg-yellow-600/10 border border-yellow-500/20 rounded-2xl p-3">
+                  <p className="text-yellow-400 text-xs font-black">Minimum Withdrawal: {WITHDRAW_MIN.toLocaleString()} Coins = ${WITHDRAW_MIN/CASH_RATE} USD</p>
+                  <p className="text-gray-400 text-[10px] mt-1">Your balance: {balance.toFixed(0)} Coins {balance < WITHDRAW_MIN ? `(Need ${(WITHDRAW_MIN-balance).toFixed(0)} more)` : '✓ Eligible'}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-gray-400 uppercase tracking-widest mb-2">Payout Method</p>
+                  <select value={payoutMethod} onChange={e => setPayoutMethod(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50">
+                    {WITHDRAW_METHODS.map(m => <option key={m.label} value={m.label} className="bg-[#0a0a1a]">{m.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <p className="text-[10px] text-gray-400 uppercase tracking-widest mb-2">{currentWithdrawMethod.field}</p>
+                  <input value={payoutId} onChange={e => setPayoutId(e.target.value)} placeholder={currentWithdrawMethod.placeholder} className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"/>
+                </div>
+                <button onClick={handleWithdraw} className="w-full py-4 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all shadow-[0_0_24px_rgba(6,182,212,0.3)]" style={{background:'linear-gradient(135deg,#0891b2,#0e7490)'}}>
+                  💸 Request Withdrawal
+                </button>
+                <p className="text-[9px] text-gray-500 text-center">Processed monthly (25th–31st). Rate: {CASH_RATE} Coins = $1</p>
+              </div>
+            )}
+
+            {/* TRANSFER */}
+            {walletTab === 'transfer' && (
+              <div className="space-y-4">
+                <div>
+                  <p className="text-[10px] text-gray-400 uppercase tracking-widest mb-2">Recipient User ID</p>
+                  <input value={transferId} onChange={e => setTransferId(e.target.value)} placeholder="Paste recipient's User ID" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"/>
+                </div>
+                <div>
+                  <p className="text-[10px] text-gray-400 uppercase tracking-widest mb-2">Amount (Coins)</p>
+                  <input type="number" value={transferAmount} onChange={e => setTransferAmount(Number(e.target.value))} min={1} className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"/>
+                </div>
+                <button onClick={handleTransfer} className="w-full py-4 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all shadow-[0_0_24px_rgba(236,72,153,0.3)]" style={{background:'linear-gradient(135deg,#ec4899,#8b5cf6)'}}>
+                  🔄 Transfer Coins
+                </button>
+              </div>
+            )}
+
+            {/* REFERRAL */}
+            {walletTab === 'referral' && (
+              <div className="space-y-4">
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
+                  <p className="text-xs font-black text-white mb-1">Your Referral Code</p>
+                  <p className="text-gray-400 text-[10px] mb-3">Share your User ID with friends. They paste it below to earn you {REFERRAL_COINS} Coins.</p>
+                  <div className="flex items-center gap-2 bg-black/30 rounded-xl px-3 py-2">
+                    <span className="text-white text-xs flex-1 truncate font-mono">{user?.uid}</span>
+                    <button onClick={() => copyToClipboard(user?.uid||'')} className="text-pink-400 text-[9px] font-black active:scale-90">{copied?'✓':'Copy'}</button>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-[10px] text-gray-400 uppercase tracking-widest mb-2">Enter Referral Code</p>
+                  <input value={referralCode} onChange={e => setReferralCode(e.target.value)} placeholder="Paste referrer's User ID" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"/>
+                </div>
+                <button onClick={handleApplyReferral} className="w-full py-4 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all shadow-[0_0_24px_rgba(236,72,153,0.3)]" style={{background:'linear-gradient(135deg,#ec4899,#8b5cf6)'}}>
+                  🎉 Apply Referral Code
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════
+          GAMES SCREEN
+      ══════════════════════════════════════════════════════ */}
+      {screen === 'games' && (
+        <div className="flex flex-col min-h-screen bg-[#050505]">
+          <div className="sticky top-0 z-40 bg-[#050505]/95 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center gap-3">
+            <button onClick={() => setScreen('hub')} className="active:scale-90 transition-all"><ArrowLeft size={16} className="text-gray-400"/></button>
+            <span className="text-sm font-black text-white">🎮 Gaming Zone</span>
+          </div>
+
+          {/* Sponsor Banner — non-clickable */}
+          <div className="px-4 pt-3 pointer-events-none">
+            <MonetagBanner siteId={MONETAG_PULSE_BANNER}/>
+          </div>
+
+          {selectedGame ? (
+            <div className="flex-1 flex flex-col">
+              <div className="flex items-center gap-3 px-4 py-2 border-b border-white/10">
+                <button onClick={() => setSelectedGame(null)} className="active:scale-90 transition-all"><ArrowLeft size={14} className="text-gray-400"/></button>
+                <span className="text-xs font-black text-white">{selectedGame}</span>
+              </div>
+              <iframe
+                src={selectedGame}
+                className="flex-1 w-full border-0"
+                allow="autoplay; fullscreen"
+                title="Game"
+                onLoad={() => {
+                  // Game Bridge: listen for GAME_SCORE messages from the game iframe
+                }}
+              />
             </div>
           ) : (
-            /* Fix #1: NORMAL LIVE VIEW — proper stacked layout, no overlap */
-            <div className="relative flex-1 bg-[#050505]">
-              <video ref={liveVideoRef} autoPlay playsInline muted className="w-full h-full object-cover"/>
-              {!cameraReady && (
-                <div className="absolute inset-0 flex items-center justify-center bg-[#050505] flex-col gap-4">
-                  <Radio size={60} className="text-red-500 animate-pulse"/>
-                  <p className="text-white font-black uppercase tracking-widest">Opening Camera...</p>
-                  <p className="text-gray-400 text-xs">Please allow camera access</p>
-                </div>
-              )}
-              {cameraReady && (
-                <div className="absolute top-6 left-6 bg-red-600 px-4 py-2 rounded-full flex items-center gap-2 shadow-2xl">
-                  <div className="w-2 h-2 bg-white rounded-full animate-pulse"/>
-                  <span className="text-white font-black text-xs uppercase">LIVE</span>
-                </div>
-              )}
-
-              {/* Fix #1: Share Room ID + END LIVE stacked vertically — no overlap */}
-              <div className="absolute top-5 right-4 z-20 flex flex-col items-end gap-3">
-                {/* Share Room ID box */}
-                <div className="bg-[#050505]/85 border border-cyan-500/50 rounded-2xl px-3 py-2.5 backdrop-blur-md shadow-xl w-44">
-                  <p className="text-[8px] text-cyan-400 font-black uppercase tracking-widest mb-1">Share Room ID</p>
-                  <p className="text-white font-black text-[11px] font-mono tracking-wider truncate">{liveRoomId.slice(-14)}</p>
-                  {/* Fix #2: Use navigator.share for native app sheet */}
-                  <button
-                    onClick={() => {
-                      const shareText = `Join my live stream on AJ Super Portal! Room ID: ${liveRoomId}`;
-                      if (navigator.share) {
-                        navigator.share({
-                          title: 'AJ Super Portal — Live Stream',
-                          text: shareText,
-                          url: window.location.href,
-                        }).catch(() => {
-                          navigator.clipboard?.writeText(liveRoomId);
-                          setVvipAlert({msg:'Room ID copied!'});
-                        });
-                      } else {
-                        navigator.clipboard?.writeText(liveRoomId);
-                        setVvipAlert({msg:'Room ID copied! Share it so viewers can join.'});
-                      }
-                    }}
-                    className="mt-1.5 w-full bg-cyan-600 text-black text-[8px] font-black uppercase rounded-lg py-1 tracking-widest  transition-all flex items-center justify-center gap-1">
-                    <Share2 size={9}/> Copy & Share
-                  </button>
-                </div>
-                {/* END LIVE button — below the Share box, no overlap */}
+            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+              <p className="text-[10px] text-gray-400 uppercase tracking-widest">Play games & earn AJ Coins automatically via Game Bridge</p>
+              {[
+                { name:'Rider King',      emoji:'🏍️', url:'https://aj-rider-king.vercel.app',    status:'live' },
+                { name:'Pulse Racer',     emoji:'🏎️', url:'https://aj-pulse-racer.vercel.app',   status:'live' },
+                { name:'Subsea Surge',    emoji:'🌊', url:'https://aj-subsea-surge.vercel.app',  status:'live' },
+                { name:'Neon Strike',     emoji:'⚡', url:'https://aj-neon-strike.vercel.app',   status:'live' },
+                { name:'Volcano Escape',  emoji:'🌋', url:'https://aj-volcano-escape.vercel.app',status:'live' },
+                { name:'Ludo Elite Royal',emoji:'🎲', url:'',                                    status:'soon' },
+                { name:'Puck Pulse Elite',emoji:'🏒', url:'',                                    status:'soon' },
+              ].map(game => (
                 <button
-                  onClick={stopLive}
-                  className="bg-red-600 px-5 py-2.5 rounded-full font-black text-white text-xs uppercase shadow-xl  transition-all w-44 text-center">
-                  ⏹ END LIVE
-                </button>
-              </div>
-
-              {/* PK Button — left side, unchanged */}
-              <button onClick={() => setPkChallengeOpen(true)}
-                className="absolute top-20 left-6 bg-yellow-500 px-4 py-2 rounded-full font-black text-black text-xs uppercase shadow-xl  flex items-center gap-2">
-                <Swords size={14}/> PK
-              </button>
-
-              <div className="absolute left-3 bottom-48 w-[55%] max-h-36 overflow-y-auto bg-[#050505]/30 backdrop-blur-sm rounded-2xl p-3 border border-white/10 pointer-events-none">
-                {chatMessages.slice(-8).map((m:any, i:number) => (
-                  <p key={i} className="text-[9px] text-white font-bold mb-1 leading-tight">
-                    <span className="text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text">@{m.username}: </span>{m.text}
-                  </p>
-                ))}
-              </div>
-
-              <button
-                onClick={() => setLiveChatOpen(o => !o)}
-                className="absolute bottom-36 right-6 bg-cyan-600 w-12 h-12 rounded-full flex items-center justify-center shadow-2xl border-2 border-cyan-400 active:scale-90 transition-all z-20">
-                <MessageCircle size={20} className="text-white"/>
-              </button>
-            </div>
-          )}
-
-          {/* LIVE CHAT OVERLAY */}
-          {liveChatOpen && liveActive && (
-            <div className="absolute bottom-[80px] left-3 w-72 h-64 z-30 flex flex-col bg-[#050505]/60 backdrop-blur-md rounded-3xl border border-cyan-500/30 overflow-hidden shadow-2xl">
-              <div className="flex items-center justify-between px-4 py-2 border-b border-white/10 bg-[#050505]/40">
-                <p className="text-[10px] font-black text-cyan-400 uppercase tracking-widest flex items-center gap-1">
-                  <MessageCircle size={12}/> Live Chat
-                </p>
-                <X size={14} className="text-gray-500 cursor-pointer" onClick={() => setLiveChatOpen(false)}/>
-              </div>
-              <div className="flex-1 overflow-y-auto p-3 space-y-1">
-                {liveChatMessages.length === 0
-                  ? <p className="text-[9px] text-gray-500 text-center mt-4 italic">No messages yet...</p>
-                  : liveChatMessages.map((m:any) => (
-                    <p key={m.id} className="text-[9px] text-white font-bold leading-tight">
-                      <span className="text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text">@{m.username}: </span>{m.text}
-                    </p>
-                  ))
-                }
-                <div ref={liveChatEndRef}/>
-              </div>
-              <div className="flex gap-2 p-2 border-t border-white/10 bg-[#050505]/40">
-                <input
-                  type="text"
-                  value={liveChatInput}
-                  onChange={e => setLiveChatInput(e.target.value)}
-                  onKeyDown={e => e.key==='Enter' && sendLiveChatMessage()}
-                  placeholder="Say something..."
-                  className="flex-1 bg-white/5 backdrop-blur-xl border border-white/10 border border-white/10 rounded-full px-3 py-1.5 text-[10px] text-white outline-none focus:ring-1 focus:ring-cyan-500 font-bold"
-                />
-                <button onClick={sendLiveChatMessage} className="bg-cyan-500 p-1.5 rounded-full text-black active:scale-90 transition-all">
-                  <Send size={12}/>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* PK CHALLENGE MODAL */}
-          {pkChallengeOpen && (
-            <div className="absolute inset-0 z-[800] bg-[#050505]/80 flex items-center justify-center p-6">
-              <div className="bg-[#0d1117] border-2 border-yellow-500/40 rounded-[2.5rem] p-8 w-full max-w-sm shadow-2xl">
-                <div className="flex items-center gap-3 mb-6">
-                  <Swords size={28} className="text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text"/>
-                  <h3 className="font-black text-xl text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text uppercase tracking-widest">PK Challenge</h3>
-                </div>
-                <p className="text-[10px] text-gray-400 mb-4 font-bold">
-                  ⚠️ {PK_ENTRY_COINS} AJ Coins will be deducted from BOTH participants. 5-minute battle!
-                </p>
-                <div className="space-y-3">
-                  <label className="text-[9px] font-black text-yellow-500 uppercase tracking-widest">Rival's User ID</label>
-                  <input type="text" value={pkTargetId} onChange={e => setPkTargetId(e.target.value)}
-                    placeholder="Paste rival user ID..." className="w-full bg-[#050505]/40 border border-white/10 p-4 rounded-xl text-xs text-white outline-none focus:border-yellow-500 font-bold"/>
-                </div>
-                <div className="flex gap-3 mt-6">
-                  <button onClick={sendPkChallenge}
-                    className="flex-1 bg-yellow-500 py-3 rounded-xl font-black uppercase text-black  transition-all flex items-center justify-center gap-2">
-                    <Swords size={16}/> Challenge!
-                  </button>
-                  <button onClick={() => setPkChallengeOpen(false)}
-                    className="flex-1 bg-white/5 backdrop-blur-xl border border-white/10 py-3 rounded-xl font-black uppercase text-white  transition-all">Cancel</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* GIFT PANEL */}
-          <div className="bg-[#0d1117] border-t border-white/10 p-4 shrink-0">
-            <p className="text-[10px] text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text font-black uppercase tracking-widest mb-3 flex items-center gap-2">
-              <Gift size={14}/> Send Gifts to Creator 🎁
-            </p>
-            <div className="flex gap-3 overflow-x-auto pb-2">
-              {giftItems.map(g => (
-                <button key={g.id} onClick={() => sendGift(user!.uid, g)}
-                  className="flex-shrink-0 bg-white/5 border border-white/10 px-4 py-3 rounded-2xl text-center hover:border-yellow-500 transition-all ">
-                  <div className="text-2xl mb-1">{g.icon}</div>
-                  <p className="text-[9px] font-black uppercase text-white">{g.name}</p>
-                  <p className="text-[8px] text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text">{g.cost.toLocaleString()} 🪙</p>
+                  key={game.name}
+                  onClick={() => game.url && setSelectedGame(game.url)}
+                  disabled={!game.url}
+                  className={`w-full flex items-center gap-4 rounded-2xl p-4 active:scale-[0.98] transition-all ${game.url ? 'bg-white/5 border border-white/10 hover:border-pink-500/20' : 'bg-white/3 border border-white/5 opacity-50 cursor-not-allowed'}`}
+                >
+                  <span className="text-2xl">{game.emoji}</span>
+                  <div className="flex-1 text-left">
+                    <p className="text-sm font-black text-white">{game.name}</p>
+                    <p className="text-[10px] text-gray-400">{game.status === 'live' ? 'Play now • Earn Coins' : 'Coming Soon'}</p>
+                  </div>
+                  {game.status === 'live' ? <ChevronRight size={14} className="text-gray-500"/> : <span className="text-[9px] text-yellow-400 font-black bg-yellow-400/10 px-2 py-0.5 rounded-full">SOON</span>}
                 </button>
               ))}
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* WALLET */}
-      {screen==='wallet' && (
-        <div className="fixed inset-0 z-[300] bg-[#050505]/98 flex flex-col items-center p-8 overflow-y-auto">
-          <button onClick={() => { setScreen('hub'); setWalletTab('main'); }}
-            className="self-start text-cyan-400 mb-8 font-bold uppercase tracking-widest flex items-center gap-2">
-            <ArrowLeft size={18}/> BACK
-          </button>
-          <div className="w-full max-w-md backdrop-blur-2xl bg-[#111]/80 border border-white/10 p-10 rounded-3xl text-center shadow-2xl">
-            <h2 className="text-5xl font-black text-yellow-500 mb-2 tracking-tighter">{displayBalance} 🪙</h2>
-            <p className="text-green-400 font-black text-xl mb-2 tracking-[0.2em]">${displayUsdt}</p>
-            <p className="text-[9px] text-gray-500 font-bold uppercase tracking-widest mb-6">
-              Buy: $1 = {COIN_RATE} Coins | Min Purchase: ${MIN_PURCHASE} | Min Withdraw: {WITHDRAW_MIN.toLocaleString()} Coins = $20 USD
-            </p>
-
-            <div className="bg-white/5 p-4 rounded-2xl border border-white/10 mb-6 text-left">
-              <p className="text-[9px] text-gray-400 uppercase font-black tracking-widest mb-1">Your Referral Code (User ID)</p>
-              <div className="flex justify-between items-center bg-[#050505]/40 px-3 py-2 rounded-xl">
-                <span className="text-xs font-mono text-cyan-400 truncate max-w-[200px]">{user?.uid}</span>
-                <button onClick={() => copyToClipboard(user?.uid||"")} className="text-cyan-400 text-[10px] font-black uppercase">
-                  {copied?"Copied ✓":"Copy"}
-                </button>
-              </div>
-            </div>
-
-            {/* Sponsor Banner — Wallet, static non-clickable */}
-            <div className="w-full pointer-events-none select-none mb-2">
-              <div className="flex items-center gap-3 bg-gradient-to-r from-yellow-950/50 to-orange-950/30 border border-yellow-500/20 rounded-xl px-4 py-2.5 shadow-inner">
-                <span className="text-yellow-500/70 text-[7px] font-black uppercase tracking-widest border border-yellow-500/30 px-1.5 py-0.5 rounded-full shrink-0">Sponsored</span>
-                <p className="text-gray-500 text-[9px] font-bold leading-snug">💰 Binance — World's #1 Crypto Exchange. Trade BTC, ETH & 350+ Coins instantly.</p>
-              </div>
-            </div>
-
-            {walletTab==='main' && (
-              <div className="flex flex-col gap-4">
-                <button onClick={() => setWalletTab('purchase')} className="bg-white text-black py-4 rounded-[1.5rem] font-black uppercase shadow-lg hover:scale-105 active:scale-95 transition-all duration-200   transition-all">Purchase</button>
-                <button onClick={() => setWalletTab('transfer')} className="bg-white/5 backdrop-blur-xl border border-white/10 text-cyan-400 py-4 rounded-[1.5rem] font-black border border-cyan-500/30 uppercase hover:bg-white/5 transition-all">Transfer</button>
-                <button onClick={() => setWalletTab('withdraw')} className="bg-white/5 backdrop-blur-xl border border-white/10 text-pink-500 py-4 rounded-[1.5rem] font-black border border-pink-500/30 uppercase hover:bg-white/5 transition-all">Withdraw</button>
-                <button onClick={() => setWalletTab('referral')} className="bg-white/5 backdrop-blur-xl border border-white/10 text-yellow-500 py-4 rounded-[1.5rem] font-black border border-yellow-500/30 uppercase hover:bg-white/5 transition-all">Enter Referral Code</button>
-              </div>
-            )}
-
-            {walletTab==='purchase' && (
-              <div className="flex flex-col gap-6 text-left">
-                <label className="text-[10px] font-black text-cyan-400 uppercase tracking-[0.3em]">Payment Method</label>
-                {/* NOWPayments — Binance USDT BSC auto-verified */}
-                <div className="flex flex-col gap-3">
-                  <div className="flex items-center gap-4 p-4 rounded-2xl border-2 border-cyan-500 bg-cyan-500/10 text-left w-full">
-                    <span className="text-3xl">₿</span>
-                    <div className="flex-1">
-                      <p className="font-black text-sm text-white">Binance USDT (BSC)</p>
-                      <p className="text-[10px] text-gray-400 font-bold mt-0.5">Crypto — Auto-verified via NOWPayments</p>
-                    </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <span className="text-[8px] font-black text-cyan-400 border border-cyan-500/30 px-2 py-0.5 rounded-full">Instant</span>
-                      <div className="w-3 h-3 bg-cyan-500 rounded-full"/>
-                    </div>
-                  </div>
-                </div>
-                {/* Amount box — always visible */}
-                <div className="bg-[#050505] border-2 border-white/10 p-6 rounded-[2rem] text-center shadow-inner">
-                  <p className="text-[10px] text-gray-500 uppercase font-black mb-3 tracking-[0.3em]">You will receive</p>
-                  <p className="text-yellow-500 text-5xl font-black mb-5">{(purchaseAmount*COIN_RATE).toLocaleString()} 🪙</p>
-                  <div className="flex items-center justify-center gap-3 bg-white/5 p-4 rounded-2xl border border-white/10">
-                    <DollarSign className="text-green-400" size={28}/>
-                    <input type="number" min={MIN_PURCHASE}
-                      value={purchaseAmount===0?'':purchaseAmount}
-                      onChange={e => setPurchaseAmount(e.target.value===''?0:Number(e.target.value))}
-                      className="bg-transparent text-white text-3xl w-32 text-center font-black outline-none"/>
-                  </div>
-                  <p className="text-[9px] text-gray-600 mt-3 font-bold">$1 = {COIN_RATE} AJ Coins | Min ${MIN_PURCHASE}</p>
-                </div>
-
-                {/* Security badge */}
-                <div className="flex items-center gap-3 bg-green-500/5 border border-green-500/20 rounded-2xl px-4 py-3">
-                  <span className="text-lg">🔒</span>
-                  <div>
-                    <p className="text-[10px] font-black text-green-400 uppercase tracking-widest">100% Automated — NOWPayments</p>
-                    <p className="text-[9px] text-gray-400 font-bold mt-0.5">Coins credited automatically after payment confirmation</p>
-                  </div>
-                </div>
-                <button onClick={handlePurchase} className="bg-cyan-500 py-5 rounded-2xl font-black uppercase shadow-xl hover:scale-[1.02]  transition-all text-black tracking-widest">
-                  Proceed to Payment →
-                </button>
-                <button onClick={() => setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase font-black">Cancel</button>
-              </div>
-            )}
-
-            {walletTab==='transfer' && (
-              <div className="flex flex-col gap-6 text-left">
-                <h3 className="text-lg font-black text-cyan-400 uppercase tracking-widest">Secure Transfer</h3>
-                <div className="space-y-4">
-                  <div>
-                    <label className="text-[9px] font-black text-cyan-400 uppercase tracking-widest block mb-1">Recipient User ID</label>
-                    <input type="text" placeholder="Paste target user ID" value={transferId} onChange={e => setTransferId(e.target.value)}
-                      className="w-full bg-[#050505] border border-white/10 p-4 rounded-xl text-xs font-bold text-white outline-none focus:border-cyan-500"/>
-                  </div>
-                  <div>
-                    <label className="text-[9px] font-black text-cyan-400 uppercase tracking-widest block mb-1">Coins to Transfer</label>
-                    <input type="number" placeholder="Amount" value={transferAmount||''}
-                      onChange={e => setTransferAmount(Number(e.target.value))}
-                      className="w-full bg-[#050505] border border-white/10 p-4 rounded-xl text-xs font-bold text-white outline-none focus:border-cyan-500"/>
-                  </div>
-                </div>
-                <button onClick={handleTransfer} className="bg-cyan-500 py-4 rounded-2xl font-black uppercase tracking-wider text-black  transition-all">
-                  Submit Transfer
-                </button>
-                <button onClick={() => setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase font-black">Cancel</button>
-              </div>
-            )}
-
-            {walletTab==='withdraw' && (
-              <div className="flex flex-col gap-6 text-left">
-                <h3 className="text-lg font-black text-pink-500 uppercase tracking-widest">Withdraw Coins</h3>
-                <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-2xl">
-                  <p className="text-[10px] text-red-400 font-bold uppercase leading-relaxed">
-                    ⚠️ Minimum: {WITHDRAW_MIN.toLocaleString()} Coins = $20 USD. {CASH_RATE} Coins = $1.<br/>📅 Withdrawals are processed monthly from the 25th to 31st of each month.
-                  </p>
-                </div>
-                <div className="space-y-4">
-                  <div>
-                    <label className="text-[9px] font-black text-pink-500 uppercase tracking-widest block mb-1">Payout Method</label>
-                    <select value={payoutMethod}
-                      onChange={e => {
-                        setPayoutMethod(e.target.value);
-                        setPayoutId(''); setCardHolder(''); setCardNumber('');
-                        setCardExpiry(''); setCardCVV(''); setCardBank(''); setCardCountry('');
-                      }}
-                      className="w-full bg-[#050505] backdrop-blur-xl border border-white/10 border border-white/10 p-4 rounded-xl text-white font-bold outline-none">
-                      {WITHDRAW_METHODS.map(m => <option key={m.label}>{m.label}</option>)}
-                    </select>
-                  </div>
-
-                  {currentWithdrawMethod.type !== 'card' && (
-                    <div>
-                      <label className="text-[9px] font-black text-pink-500 uppercase tracking-widest block mb-1">{currentWithdrawMethod.field}</label>
-                      <input type="text" placeholder={currentWithdrawMethod.placeholder} value={payoutId}
-                        onChange={e => setPayoutId(e.target.value)}
-                        className="w-full bg-[#050505] border border-white/10 p-4 rounded-xl text-xs font-bold text-white outline-none focus:border-pink-500"/>
-                    </div>
-                  )}
-
-                  {currentWithdrawMethod.type === 'card' && (
-                    <div className="space-y-3">
-                      <div className="bg-gradient-to-r from-pink-600/10 to-cyan-600/10 border border-white/10 rounded-2xl p-3 flex items-center gap-3">
-                        <span className="text-2xl">💳</span>
-                        <p className="text-[9px] text-gray-400 font-bold leading-relaxed">Works with any bank worldwide — Visa, Mastercard, Maestro, UnionPay, Mada, and more.</p>
-                      </div>
-                      <div>
-                        <label className="text-[9px] font-black text-pink-500 uppercase tracking-widest block mb-1">Cardholder Name</label>
-                        <input type="text" placeholder="JOHN DOE" value={cardHolder}
-                          onChange={e => setCardHolder(e.target.value.toUpperCase())}
-                          className="w-full bg-[#050505] border border-white/10 p-3 rounded-xl text-xs font-black text-white outline-none focus:border-pink-500 tracking-widest uppercase"/>
-                      </div>
-                      <div>
-                        <label className="text-[9px] font-black text-pink-500 uppercase tracking-widest block mb-1">Card Number</label>
-                        <input type="text" inputMode="numeric" placeholder="1234 5678 9012 3456"
-                          value={cardNumber} maxLength={19}
-                          onChange={e => {
-                            const raw = e.target.value.replace(/\D/g,'');
-                            const fmt = raw.match(/.{1,4}/g)?.join(' ') || raw;
-                            setCardNumber(fmt);
-                          }}
-                          className="w-full bg-[#050505] border border-white/10 p-3 rounded-xl text-sm font-black text-white outline-none focus:border-pink-500 tracking-[0.2em]"/>
-                      </div>
-                      <div className="flex gap-3">
-                        <div className="flex-1">
-                          <label className="text-[9px] font-black text-pink-500 uppercase tracking-widest block mb-1">Expiry (MM/YY)</label>
-                          <input type="text" inputMode="numeric" placeholder="08/28"
-                            value={cardExpiry} maxLength={5}
-                            onChange={e => {
-                              let v = e.target.value.replace(/\D/g,'');
-                              if (v.length >= 2) v = v.slice(0,2) + '/' + v.slice(2,4);
-                              setCardExpiry(v);
-                            }}
-                            className="w-full bg-[#050505] border border-white/10 p-3 rounded-xl text-sm font-black text-white outline-none focus:border-pink-500 tracking-widest"/>
-                        </div>
-                        <div className="w-28">
-                          <label className="text-[9px] font-black text-pink-500 uppercase tracking-widest block mb-1">CVV</label>
-                          <input type="password" inputMode="numeric" placeholder="•••"
-                            value={cardCVV} maxLength={4}
-                            onChange={e => setCardCVV(e.target.value.replace(/\D/g,''))}
-                            className="w-full bg-[#050505] border border-white/10 p-3 rounded-xl text-sm font-black text-white outline-none focus:border-pink-500 tracking-widest"/>
-                        </div>
-                      </div>
-                      <div>
-                        <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest block mb-1">Bank Name <span className="text-gray-600 normal-case">(optional)</span></label>
-                        <input type="text" placeholder="e.g. Al Rajhi, HDFC, Barclays..."
-                          value={cardBank} onChange={e => setCardBank(e.target.value)}
-                          className="w-full bg-[#050505] border border-white/10 p-3 rounded-xl text-xs font-bold text-white outline-none focus:border-pink-500"/>
-                      </div>
-                      <div>
-                        <label className="text-[9px] font-black text-pink-500 uppercase tracking-widest block mb-1">Country</label>
-                        <input type="text" placeholder="e.g. Pakistan, India, UK, USA..."
-                          value={cardCountry} onChange={e => setCardCountry(e.target.value)}
-                          className="w-full bg-[#050505] border border-white/10 p-3 rounded-xl text-xs font-bold text-white outline-none focus:border-pink-500"/>
-                      </div>
-                    </div>
-                  )}
-                </div>
-                <div className="bg-white/5 border border-white/10 p-3 rounded-xl">
-                  <p className="text-[9px] text-gray-400 font-bold">
-                    Your balance: <span className="text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text font-black">{balance.toFixed(0)} Coins</span> ≈ <span className="text-green-400 font-black">${(balance/CASH_RATE).toFixed(2)} USD</span>
-                  </p>
-                </div>
-                <button onClick={handleWithdraw} className="bg-pink-600 py-4 rounded-2xl font-black uppercase tracking-wider text-white  transition-all">
-                  Request Cashout
-                </button>
-                <button onClick={() => setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase font-black">Cancel</button>
-              </div>
-            )}
-
-            {walletTab==='referral' && (
-              <div className="flex flex-col gap-6 text-left">
-                <h3 className="text-lg font-black text-yellow-500 uppercase tracking-widest">Enter Referral Code</h3>
-                <div className="space-y-2">
-                  <label className="text-[9px] font-black text-yellow-500 uppercase tracking-widest">Referrer's User ID</label>
-                  <input type="text" placeholder="Paste referrer ID" value={referralCode} onChange={e => setReferralCode(e.target.value)}
-                    className="w-full bg-[#050505] border border-white/10 p-4 rounded-xl text-xs font-bold text-white outline-none focus:border-yellow-500"/>
-                </div>
-                <p className="text-[9px] text-gray-500">Referrer gets +{REFERRAL_COINS} Coins when you submit their ID (30% net share).</p>
-                <button onClick={handleApplyReferral} className="bg-yellow-500 py-4 rounded-2xl font-black uppercase tracking-wider text-black  transition-all">
-                  Submit Referral
-                </button>
-                <button onClick={() => setWalletTab('main')} className="text-gray-500 text-xs text-center uppercase font-black">Cancel</button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* AI BOT SCREEN */}
-      {screen==='ai' && (
-        <div className="fixed inset-0 z-[600] bg-[#050505] flex flex-col items-center p-8 overflow-y-auto">
-          <div className="w-full max-w-4xl pt-10">
-            <button onClick={() => setScreen('hub')} className="text-green-400 font-bold text-sm mb-12 uppercase tracking-widest">← Back</button>
-          </div>
-          <h2 className="text-5xl font-black mb-6 text-center uppercase text-white italic tracking-tighter">AI Trading Bot</h2>
-          {/* Sponsor Banner — AI Bot section, static non-clickable */}
-          <div className="w-full max-w-2xl mb-10 pointer-events-none select-none">
-            <div className="flex items-center gap-3 bg-gradient-to-r from-green-950/60 to-emerald-950/30 border border-green-500/20 rounded-2xl px-5 py-3 shadow-inner">
-              <span className="text-green-500/70 text-[8px] font-black uppercase tracking-widest border border-green-500/30 px-2 py-0.5 rounded-full shrink-0">Sponsored</span>
-              <p className="text-gray-400 text-[10px] font-bold leading-snug">📈 AI-Powered Auto Trading — 2–5% Daily Passive Returns. Fully Automated. Start with 25,000 AJ Coins.</p>
-            </div>
-          </div>
-          {botTier!=='none' && (
-            <div className="w-full max-w-2xl bg-white/5 border-2 border-green-500/40 p-8 rounded-[3.5rem] text-center mb-16 shadow-[0_0_50px_rgba(34,197,94,0.15)]">
-              <div className="w-full bg-[#050505]/50 border border-green-500/30 p-8 rounded-3xl font-mono text-left shadow-inner">
-                <div className="flex justify-between items-center mb-6">
-                  <span className="text-green-400 font-black text-xs uppercase tracking-widest">Neural Profit:</span>
-                  <span className="text-white font-black text-2xl">+{visualProfit.toFixed(4)} 🪙</span>
-                </div>
-                <div className="h-24 overflow-hidden text-green-500/60 text-[10px] leading-relaxed italic">
-                  {tradeLogs.map((log,i) => <div key={i} className="mb-1">{log}</div>)}
-                </div>
-              </div>
-            </div>
           )}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-4xl px-2 pb-20">
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════
+          AI BOT SCREEN
+      ══════════════════════════════════════════════════════ */}
+      {screen === 'aibot' && (
+        <div className="flex flex-col min-h-screen bg-[#050505]">
+          <div className="sticky top-0 z-40 bg-[#050505]/95 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center gap-3">
+            <button onClick={() => setScreen('hub')} className="active:scale-90 transition-all"><ArrowLeft size={16} className="text-gray-400"/></button>
+            <span className="text-sm font-black text-white">🤖 AI Trading Bot</span>
+          </div>
+          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+            {/* Live Trade Log */}
+            <div className="bg-[#0a0a1a] border border-green-500/20 rounded-2xl p-4">
+              <p className="text-[10px] text-green-400 font-black uppercase tracking-widest mb-3">● Live Trade Log</p>
+              <div className="space-y-1.5 font-mono">
+                {tradeLogs.map((log, i) => (
+                  <p key={i} className="text-green-300 text-[10px]">&gt; {log}</p>
+                ))}
+              </div>
+            </div>
+
+            {/* Current Status */}
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-2">
+              <div className="flex justify-between"><span className="text-gray-400 text-xs">Bot Tier</span><span className="text-white font-black text-xs">{botTier.toUpperCase()}</span></div>
+              <div className="flex justify-between"><span className="text-gray-400 text-xs">Invested</span><span className="text-white font-black text-xs">{invested.toLocaleString()} Coins</span></div>
+              <div className="flex justify-between"><span className="text-gray-400 text-xs">Daily Rate</span><span className="text-green-400 font-black text-xs">{botTier==='vvip'?'5%':botTier==='basic'?'2%':'—'}</span></div>
+              <div className="flex justify-between"><span className="text-gray-400 text-xs">Profit (session)</span><span className="text-green-400 font-black text-xs">+{visualProfit.toFixed(4)} Coins</span></div>
+            </div>
+
+            {/* Tier Cards */}
             {[
-              { tier:'basic', cost:25000, rate:'2%', color:'cyan'   },
-              { tier:'vvip',  cost:75000, rate:'5%', color:'yellow' },
-            ].map(b => (
-              <div key={b.tier} className={`p-10 rounded-[2.5rem] text-center border-2 transition-all ${botTier===b.tier?`border-${b.color}-500 bg-${b.color}-500/10`:'border-white/10 bg-white/5'}`}>
-                <h3 className={`text-2xl font-black uppercase tracking-widest text-${b.color}-400`}>
-                  {b.tier.toUpperCase()} ({b.cost/1000}k Coins)
-                </h3>
-                <p className="text-sm text-gray-400 mt-3 font-bold">Earn {b.rate} Daily Passive Income</p>
-                <button onClick={() => activateBot(b.tier,b.cost)}
-                  className={`mt-8 w-full py-5 rounded-2xl font-black uppercase tracking-widest transition-all shadow-xl hover:scale-105 active:scale-95 transition-all duration-200   ${botTier===b.tier?`bg-${b.color}-500 text-black cursor-not-allowed`:`bg-${b.color}-600 text-white`}`}>
-                  {botTier===b.tier?"RUNNING":"ACTIVATE"}
-                </button>
+              { tier:'basic', label:'Basic Bot', cost:25000, rate:'2%', icon:'🤖', color:'from-blue-600/20 to-blue-900/20', border:'border-blue-500/30', shadow:'rgba(59,130,246,0.3)' },
+              { tier:'vvip',  label:'VVIP Bot',  cost:75000, rate:'5%', icon:'🚀', color:'from-pink-600/20 to-purple-900/20', border:'border-pink-500/30', shadow:'rgba(236,72,153,0.3)' },
+            ].map(t => (
+              <div key={t.tier} className={`bg-gradient-to-br ${t.color} border ${t.border} rounded-3xl p-5`} style={{boxShadow:`0 0 30px ${t.shadow}`}}>
+                <div className="flex items-center
+ gap-3 mb-3">
+                  <span className="text-3xl">{t.icon}</span>
+                  <div>
+                    <p className="text-white font-black text-base">{t.label}</p>
+                    <p className="text-gray-300 text-xs">{t.rate} daily passive income</p>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <p className="text-gray-400 text-[10px]">Activation Cost</p>
+                    <p className="text-white font-black">{t.cost.toLocaleString()} Coins</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-gray-400 text-[10px]">Daily Profit</p>
+                    <p className="text-green-400 font-black">+{(t.cost * parseFloat(t.rate) / 100).toLocaleString()} Coins</p>
+                  </div>
+                </div>
+                {botTier === t.tier ? (
+                  <div className="w-full py-3 rounded-2xl text-center text-green-400 font-black text-sm bg-green-500/10 border border-green-500/20">
+                    ✓ ACTIVE — Earning {t.rate} Daily
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => activateBot(t.tier, t.cost)}
+                    className="w-full py-3 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all"
+                    style={{background:`linear-gradient(135deg,${t.tier==='vvip'?'#ec4899,#8b5cf6':'#3b82f6,#1d4ed8'})`}}
+                  >
+                    Activate {t.label}
+                  </button>
+                )}
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* FOUNDER CARD */}
-      <section className="py-20 bg-[#050505] flex justify-center px-4 border-y border-white/5">
-        <img src="/founder_card.jpg" className="w-full max-w-4xl rounded-[3rem] shadow-[0_20px_60px_rgba(0,0,0,0.9)] hover:scale-[1.01] transition-all border border-white/5" alt="Founder"/>
-      </section>
+      {/* ══════════════════════════════════════════════════════
+          AI ASSISTANT FLOATING BUTTON + CHAT
+      ══════════════════════════════════════════════════════ */}
+      {user && screen !== 'splash' && screen !== 'auth' && (
+        <>
+          {/* Floating Button */}
+          {!botOpen && (
+            <button
+              onClick={() => setBotOpen(true)}
+              className="fixed bottom-6 right-4 z-[9500] w-14 h-14 rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(236,72,153,0.6)] active:scale-90 transition-all"
+              style={{background:'linear-gradient(135deg,#ec4899,#8b5cf6)'}}
+            >
+              <Bot size={22} className="text-white"/>
+            </button>
+          )}
 
-      {/* VIEWER SCREEN */}
-      {viewerRoom && !liveActive && (
-        <div className="fixed inset-0 z-[600] bg-[#050505] flex flex-col">
-          <div className="flex items-center justify-between px-4 py-3 bg-[#050505]/80 border-b border-white/10 z-10">
-            <div className="flex items-center gap-3">
-              <img src={viewerRoom.photo||'/logo.png'} className="w-9 h-9 rounded-full border-2 border-red-500 object-cover"/>
-              <div>
-                <p className="font-black text-white text-xs uppercase tracking-widest">@{viewerRoom.username}</p>
-                <div className="flex items-center gap-1 mt-0.5">
-                  <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"/>
-                  <span className="text-[9px] text-red-400 font-black uppercase">LIVE</span>
+          {/* Chat Panel */}
+          {botOpen && (
+            <div className="fixed bottom-0 right-0 left-0 z-[9500] flex flex-col bg-[#0a0a1a] border-t border-pink-500/30 rounded-t-3xl shadow-[0_-8px_40px_rgba(236,72,153,0.2)]" style={{maxHeight:'75vh'}}>
+              <div className="flex items-center justify-between px-4 py-4 border-b border-white/10">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center">
+                    <Bot size={16} className="text-white"/>
+                  </div>
+                  <div>
+                    <p className="text-white font-black text-sm">AJ AI Assistant</p>
+                    <p className="text-green-400 text-[9px] font-black animate-pulse">● Online</p>
+                  </div>
                 </div>
+                <button onClick={() => setBotOpen(false)} className="p-2 rounded-xl bg-white/5 active:scale-90 transition-all">
+                  <X size={14} className="text-gray-400"/>
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-3" style={{minHeight:'200px',maxHeight:'50vh'}}>
+                {botMessages.map((msg, i) => (
+                  <div key={i} className={`flex gap-2 ${msg.from==='user' ? 'flex-row-reverse' : ''}`}>
+                    {msg.from === 'bot' && (
+                      <div className="w-7 h-7 rounded-full bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center flex-shrink-0">
+                        <Bot size={12} className="text-white"/>
+                      </div>
+                    )}
+                    <div className={`max-w-[80%] px-3 py-2.5 rounded-2xl text-sm whitespace-pre-wrap leading-relaxed ${msg.from==='user' ? 'bg-pink-600/80 text-white' : 'bg-white/10 text-white'}`}>
+                      {msg.text}
+                      {msg.topic === 'payment_issue' && (
+                        <a href={CEO_WHATSAPP} target="_blank" rel="noopener noreferrer" className="block mt-2 bg-green-600 text-white text-[10px] font-black px-3 py-1.5 rounded-xl text-center active:scale-95 transition-all">
+                          📱 WhatsApp CEO Now
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2 p-4 border-t border-white/10">
+                <input
+                  value={botInput}
+                  onChange={e => setBotInput(e.target.value)}
+                  onKeyDown={e => e.key==='Enter' && handleBotSend()}
+                  placeholder="Ask anything about AJ Portal…"
+                  className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-pink-500/50"
+                />
+                <button onClick={handleBotSend} className="bg-pink-600 text-white p-2.5 rounded-2xl active:scale-90 transition-all shadow-[0_0_14px_rgba(236,72,153,0.4)]">
+                  <Send size={16}/>
+                </button>
               </div>
             </div>
-            <button onClick={leaveViewerRoom}
-              className="bg-red-600/20 border border-red-500/30 px-3 py-1.5 rounded-full text-[10px] font-black text-red-400 uppercase tracking-widest  transition-all">
-              Leave
-            </button>
-          </div>
-
-          <div className="relative flex-1 bg-gradient-to-br from-slate-900 to-black flex items-center justify-center">
-            <div className="flex flex-col items-center gap-4 opacity-40">
-              <Radio size={64} className="text-red-500 animate-pulse"/>
-              <p className="text-white font-black uppercase tracking-widest text-sm">Watching @{viewerRoom.username}</p>
-              <p className="text-gray-500 text-[10px] font-bold">Live video via Agora (HD)</p>
-            </div>
-
-            <div className="absolute left-3 bottom-28 w-[60%] max-h-40 overflow-y-auto flex flex-col gap-1 pointer-events-none">
-              {viewerChatMessages.slice(-10).map((m:any) => (
-                <div key={m.id} className="flex items-start gap-1.5">
-                  <img src={m.photo||'/logo.png'} className="w-5 h-5 rounded-full border border-pink-500 flex-shrink-0 mt-0.5"/>
-                  <p className="text-[10px] text-white font-bold leading-tight bg-[#050505]/40 rounded-xl px-2 py-1">
-                    <span className="text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text">@{m.username}: </span>{m.text}
-                  </p>
-                </div>
-              ))}
-              <div ref={viewerChatEndRef}/>
-            </div>
-
-            <div className="absolute right-4 bottom-36 flex flex-col items-center gap-1 cursor-pointer"
-              onClick={() => setPulseGiftPostId(viewerRoomId)}>
-              <Gift size={32} className="text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text"/>
-              <span className="text-[9px] font-black text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text">Gift</span>
-            </div>
-          </div>
-
-          <div className="flex gap-2 px-3 py-3 bg-[#050505]/90 border-t border-white/10">
-            <img src={user?.photoURL||'/logo.png'} className="w-8 h-8 rounded-full border border-pink-500 flex-shrink-0 object-cover"/>
-            <input
-              type="text"
-              value={viewerChatInput}
-              onChange={e => setViewerChatInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && sendViewerChatMessage()}
-              placeholder="Say something to the streamer..."
-              className="flex-1 bg-white/5 backdrop-blur-xl border border-white/10 border border-white/10 rounded-full px-4 py-2 text-[11px] text-white outline-none focus:ring-1 focus:ring-cyan-500 font-bold"
-            />
-            <button onClick={sendViewerChatMessage}
-              className="bg-cyan-500 p-2 rounded-full text-black active:scale-90 transition-all shadow-lg">
-              <Send size={14}/>
-            </button>
-          </div>
-        </div>
+          )}
+        </>
       )}
 
-      {/* FOOTER */}
-      <footer className="bg-[#050505] py-24 px-10 border-t border-white/5 text-center flex flex-col items-center relative overflow-hidden">
-        <div className="absolute inset-0 opacity-10 bg-[url('/logo.png')] bg-center bg-no-repeat bg-contain pointer-events-none scale-150"/>
-        <div className="text-7xl md:text-[10rem] font-black italic text-cyan-400 drop-shadow-[0_0_50px_rgba(6,182,212,0.3)] mb-12 uppercase tracking-tighter relative z-10">AJ STUDIO</div>
-        <div className="flex justify-center gap-4 md:gap-8 mb-12 relative z-10 flex-wrap">
-          <a href={CEO_WHATSAPP} target="_blank" className="text-green-500 border-2 border-green-500 px-8 py-3 rounded-full font-black uppercase hover:bg-green-500 hover:text-black transition-all shadow-xl text-sm tracking-widest">WhatsApp</a>
-          <a href="https://x.com/Ali20352061" target="_blank" className="text-white border-2 border-white px-8 py-3 rounded-full font-black uppercase hover:bg-white hover:text-black transition-all shadow-xl text-sm tracking-widest">X (Twitter)</a>
-          <a href={`mailto:${CEO_EMAIL}`} className="flex items-center gap-2 text-red-400 border-2 border-red-400 px-8 py-3 rounded-full font-black uppercase hover:bg-red-400 hover:text-white transition-all shadow-xl text-sm tracking-widest">
-            <Mail size={16}/> Email CEO
-          </a>
-        </div>
-        <button onClick={() => { const l=document.createElement('a'); l.href='/aj-portal.apk'; l.download='aj-portal.apk'; l.click(); }}
-          className="group relative px-16 py-6 bg-cyan-500 text-black font-black uppercase rounded-full shadow-[0_0_60px_#06b6d4] animate-pulse transition-all hover:scale-110 relative z-10 mb-16">
-          <span className="relative z-20 flex items-center gap-3 font-black tracking-[0.4em] text-xl text-black">
-            <Download size={28}/> Install AJ App
-          </span>
-          <div className="absolute inset-0 bg-white/30 group-hover:translate-x-full transition-transform duration-700 -skew-x-12 z-10"/>
-        </button>
-        <div className="mt-12 pt-12 border-t border-white/10 w-full relative z-10 text-center">
-          <p className="text-[10px] md:text-xs text-cyan-400 font-black uppercase tracking-[0.4em] leading-relaxed max-w-3xl mx-auto drop-shadow-[0_0_8px_#06b6d4] animate-pulse">
-            © 2026 AJ CREATOR STUDIO. All Rights Reserved.<br/>
-            Unauthorized copying or distribution is strictly prohibited.
-          </p>
-        </div>
-      </footer>
-    </main>
+    </div>
   );
 }
 
 // ============================================================
-// BELL ICON
-// ============================================================
-function Bell({ size, className }: { size:number; className?:string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24"
-      fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-      className={className}>
-      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-      <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-    </svg>
-  );
-}
-
-// ============================================================
-// APP ROOT — all wiring lives here in page.tsx
+// QUERY CLIENT WRAPPER + DEFAULT EXPORT
 // ============================================================
 const queryClient = new QueryClient();
 
-export default function App() {
+export default function Page() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AJSuperPortal />
+      <AJSuperPortal/>
     </QueryClientProvider>
   );
 }
