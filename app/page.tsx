@@ -355,15 +355,26 @@ function VVIPAlert({ msg, icon, onClose }: { msg: string; icon?: string; onClose
 }
 
 // ============================================================
-// MONETAG VIDEO AD COMPONENT — YouTube embed
+// MONETAG VIDEO AD COMPONENT — YouTube embed + Monetag script
 // ============================================================
-const AJ_AD_VIDEO_ID = 'aqz-KE-bpKQ';
+const AJ_AD_VIDEO_ID = PULSE_AD_VIDEO_ID || 'aqz-KE-bpKQ';
 
 function MonetagVideoAd({ publisherId }: { publisherId: number }) {
   const [adMuted, setAdMuted] = React.useState(true);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    if (!containerRef.current) return;
+    try {
+      const s = document.createElement('script');
+      s.async = true;
+      s.dataset.zone = String(publisherId);
+      s.src = 'https://nap5k.com';
+      containerRef.current.appendChild(s);
+    } catch {}
+  }, [publisherId]);
   const adSrc = `https://www.youtube-nocookie.com/embed/${AJ_AD_VIDEO_ID}?autoplay=1&mute=${adMuted?1:0}&loop=1&playlist=${AJ_AD_VIDEO_ID}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3`;
   return (
-    <div className="absolute inset-0 w-full h-full bg-[#050505] overflow-hidden">
+    <div ref={containerRef} className="absolute inset-0 w-full h-full bg-[#050505] overflow-hidden">
       <iframe
         src={adSrc}
         className="absolute inset-0 w-full h-full"
@@ -520,9 +531,10 @@ function AJFooter() {
               >
                 {/* Placeholder avatar — replace src with real photo */}
                 <img
-                  src="/logo.png"
+                  src="/founder_card.jpg"
                   alt="Ali Asim"
                   className="w-full h-full object-cover"
+                  onError={e => { (e.target as HTMLImageElement).src = '/logo.png'; }}
                 />
               </div>
               {/* Neon ring */}
@@ -662,6 +674,7 @@ export function AJSuperPortal() {
 
   // ── INTERACTIONS
   const [likedPosts,    setLikedPosts]    = useState<any>({});
+  const [postLikeCounts, setPostLikeCounts] = useState<{[key:string]:number}>({});
   const [activeMenuId,  setActiveMenuId]  = useState<string|null>(null);
   const [vvipAlert,     setVvipAlert]     = useState<{msg:string,icon?:string}|null>(null);
   const [editPostId,    setEditPostId]    = useState<string|null>(null);
@@ -670,6 +683,7 @@ export function AJSuperPortal() {
   const [showNotifs,    setShowNotifs]    = useState(false);
   const [isMutualFriend,setIsMutualFriend]= useState(false);
   const [commentPostId, setCommentPostId] = useState<string|null>(null);
+  const [commentCounts, setCommentCounts] = useState<{[key:string]:number}>({});
   const [postComments,  setPostComments]  = useState<any[]>([]);
   const [newComment,    setNewComment]    = useState('');
   const [selectedSound,     setSelectedSound]     = useState<string|null>(null);
@@ -943,16 +957,25 @@ export function AJSuperPortal() {
     if (socialScreen==='tikreels') {
       try {
         const q = query(collection(db,"user_posts"), orderBy("createdAt","desc"), limit(20));
-        return onSnapshot(q, snap => setUserPosts(snap.docs.map(d=>({id:d.id,...d.data()}))));
+        return onSnapshot(q, snap => {
+          const posts = snap.docs.map(d=>({id:d.id,...d.data()}));
+          setUserPosts(posts);
+          const lc: {[key:string]:number} = {};
+          posts.forEach((p: any) => { lc[p.id] = p.likes || 0; });
+          setPostLikeCounts(c => ({ ...c, ...lc }));
+        });
       } catch {}
     }
     if (socialScreen==='pulse') {
       try {
         const q = query(collection(db,"pulse_posts"), orderBy("createdAt","desc"), limit(20));
         return onSnapshot(q, snap => {
-          const firestorePosts = snap.docs.map(d=>({id:d.id,...d.data()}));
+        const firestorePosts = snap.docs.map(d=>({id:d.id,...d.data()}));
           // FIX #5: APPEND Firestore posts, do NOT delete Unsplash photos
           setPulsePosts(firestorePosts);
+          const lc: {[key:string]:number} = {};
+          firestorePosts.forEach((p: any) => { lc[p.id] = p.likes || 0; });
+          setPostLikeCounts(c => ({ ...c, ...lc }));
         });
       } catch {}
     }
@@ -960,7 +983,11 @@ export function AJSuperPortal() {
       try {
         const col = (socialScreen === 'pulse') ? 'pulse_posts' : 'user_posts';
         const q = query(collection(db, col, commentPostId,"comments"), orderBy("createdAt","asc"));
-        return onSnapshot(q, snap => setPostComments(snap.docs.map(d=>({id:d.id,...d.data()}))));
+        return onSnapshot(q, snap => {
+          const comments = snap.docs.map(d=>({id:d.id,...d.data()}));
+          setPostComments(comments);
+          setCommentCounts(c => ({ ...c, [commentPostId]: comments.length }));
+        });
       } catch {}
     }
     return () => {};
@@ -1097,10 +1124,18 @@ export function AJSuperPortal() {
   // FIREBASE REALTIME REELS & PULSE SYNC
   useEffect(() => {
     const unsubReels = onSnapshot(collection(db, "reels"), (snapshot) => {
-      setUserPosts(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+      const posts = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setUserPosts(posts);
+      const counts: {[key:string]:number} = {};
+      posts.forEach((p: any) => { counts[p.id] = p.likes || 0; });
+      setPostLikeCounts(c => ({ ...c, ...counts }));
     });
     const unsubPulse = onSnapshot(collection(db, "posts"), (snapshot) => {
-      setPulsePosts(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+      const posts = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setPulsePosts(posts);
+      const counts: {[key:string]:number} = {};
+      posts.forEach((p: any) => { counts[p.id] = p.likes || 0; });
+      setPostLikeCounts(c => ({ ...c, ...counts }));
     });
     return () => { unsubReels(); unsubPulse(); };
   }, []);
@@ -1874,7 +1909,16 @@ export function AJSuperPortal() {
     } catch(e) { console.error('handleDeletePost', e); }
   };
 
-  const handleLike  = (id:string) => setLikedPosts((p:any) => ({...p,[id]:!p[id]}));
+  const handleLike = async (id: string, collection_name?: string) => {
+    if (!user) return;
+    const col = collection_name || (socialScreen === 'pulse' ? 'pulse_posts' : 'user_posts');
+    const wasLiked = !!likedPosts[id];
+    setLikedPosts((p: any) => ({ ...p, [id]: !wasLiked }));
+    setPostLikeCounts((c: any) => ({ ...c, [id]: Math.max(0, (c[id] || 0) + (wasLiked ? -1 : 1)) }));
+    try {
+      await updateDoc(doc(db, col, id), { likes: increment(wasLiked ? -1 : 1) });
+    } catch (e) { console.error('handleLike', e); }
+  };
   const handleShare = (msg:string) => {
     if (navigator.share) {
       navigator.share({ title:'AJ Super Portal', text: msg, url: window.location.href }).catch(() => {});
@@ -2493,7 +2537,7 @@ export function AJSuperPortal() {
                 <div
                   ref={videoFeedRef}
                   className="flex-1 overflow-y-scroll snap-y snap-mandatory scrollbar-hide"
-                  style={{ scrollSnapType:'y mandatory' }}
+                  style={{ scrollSnapType:'y mandatory', WebkitOverflowScrolling:'touch', overscrollBehaviorY:'contain', touchAction:'pan-y' }}
                 >
                   {pixaVideos.map((vid:any, idx:number) => {
                     const isActive = activeVideoIdx === idx;
@@ -2531,19 +2575,19 @@ export function AJSuperPortal() {
                         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none"/>
                         {/* Right actions */}
                         <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-20">
-                          <button onClick={e => { e.stopPropagation(); handleLike(vid.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); handleLike(vid.id, 'user_posts'); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center ${likedPosts[vid.id] ? 'bg-red-500/30' : 'bg-black/40 backdrop-blur-sm'}`}>
                               <Heart size={18} className={likedPosts[vid.id] ? 'text-red-400 fill-red-400' : 'text-white'}/>
                             </div>
-                            <span className="text-white text-[9px] font-black">{formatViews(vid.likes||0)}</span>
+                            <span className="text-white text-[9px] font-black">{formatViews(postLikeCounts[vid.id] ?? vid.likes ?? 0)}</span>
                           </button>
                           <button onClick={e => { e.stopPropagation(); setCommentPostId(vid.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <MessageSquare size={18} className="text-white"/>
                             </div>
-                            <span className="text-white text-[9px] font-black">0</span>
+                            <span className="text-white text-[9px] font-black">{formatViews(commentCounts[vid.id] || 0)}</span>
                           </button>
-                          <button onClick={e => { e.stopPropagation(); handleShare(vid.title||''); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); handleShare(vid.title||'Check this out on AJ Super Portal!'); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <Share2 size={18} className="text-white"/>
                             </div>
@@ -2584,19 +2628,19 @@ export function AJSuperPortal() {
                         )}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none"/>
                         <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-20">
-                          <button onClick={e => { e.stopPropagation(); handleLike(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); handleLike(post.id, 'user_posts'); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center ${likedPosts[post.id] ? 'bg-red-500/30' : 'bg-black/40 backdrop-blur-sm'}`}>
                               <Heart size={18} className={likedPosts[post.id] ? 'text-red-400 fill-red-400' : 'text-white'}/>
                             </div>
-                            <span className="text-white text-[9px] font-black">{post.likes||0}</span>
+                            <span className="text-white text-[9px] font-black">{formatViews(postLikeCounts[post.id] ?? post.likes ?? 0)}</span>
                           </button>
                           <button onClick={e => { e.stopPropagation(); setCommentPostId(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <MessageSquare size={18} className="text-white"/>
                             </div>
-                            <span className="text-white text-[9px] font-black">0</span>
+                            <span className="text-white text-[9px] font-black">{formatViews(commentCounts[post.id] || 0)}</span>
                           </button>
-                          <button onClick={e => { e.stopPropagation(); handleShare(post.text||''); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); handleShare(post.text || ('@' + post.username + ' on AJ Super Portal')); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <Share2 size={18} className="text-white"/>
                             </div>
@@ -2777,7 +2821,7 @@ export function AJSuperPortal() {
                 <div
                   ref={videoFeedRef}
                   className="flex-1 overflow-y-scroll snap-y snap-mandatory scrollbar-hide"
-                  style={{ scrollSnapType: 'y mandatory' }}
+                  style={{ scrollSnapType: 'y mandatory', WebkitOverflowScrolling:'touch', overscrollBehaviorY:'contain', touchAction:'pan-y' }}
                 >
                   {combinedPulseFeed.map((post:any, idx:number) => {
                     if (idx > 0 && idx % 4 === 0) {
@@ -2807,19 +2851,19 @@ export function AJSuperPortal() {
                         {/* Right actions — hide for Unsplash items */}
                         {!post.isUnsplash && (
                           <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-20">
-                            <button onClick={e => { e.stopPropagation(); handleLike(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <button onClick={e => { e.stopPropagation(); handleLike(post.id, 'pulse_posts'); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                               <div className={`w-10 h-10 rounded-full flex items-center justify-center ${likedPosts[post.id] ? 'bg-red-500/30' : 'bg-black/40 backdrop-blur-sm'}`}>
                                 <Heart size={18} className={likedPosts[post.id] ? 'text-red-400 fill-red-400' : 'text-white'}/>
                               </div>
-                              <span className="text-white text-[9px] font-black">{post.likes||0}</span>
+                              <span className="text-white text-[9px] font-black">{formatViews(postLikeCounts[post.id] ?? post.likes ?? 0)}</span>
                             </button>
                             <button onClick={e => { e.stopPropagation(); setCommentPostId(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                               <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                                 <MessageSquare size={18} className="text-white"/>
                               </div>
-                              <span className="text-white text-[9px] font-black">0</span>
+                              <span className="text-white text-[9px] font-black">{formatViews(commentCounts[post.id] || 0)}</span>
                             </button>
-                            <button onClick={e => { e.stopPropagation(); handleShare(post.text||''); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <button onClick={e => { e.stopPropagation(); handleShare(post.text || ('@' + post.username + ' on AJ Pulse')); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                               <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                                 <Share2 size={18} className="text-white"/>
                               </div>
@@ -2957,7 +3001,7 @@ export function AJSuperPortal() {
                       ))}
                     </div>
                     <div className="flex gap-2">
-                      <input value={newComment} onChange={e => setNewComment(e.target.value)} placeholder="Add a comment…" className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-3 py-2 text-white text-xs focus:outline-none focus:border-pink-500/50" onKeyDown={e => e.key==='Enter' && submitComment()}/>
+                      <input value={newComment} onChange={e => setNewComment(e.target.value)} placeholder="Add a comment…" className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-3 py-2 text-white text-xs focus:outline-none focus:border-pink-500/50" onKeyDown={e => e.key==='Enter' && submitComment()} inputMode="text" autoFocus enterKeyHint="send"/>
                       <button onClick={submitComment} className="w-10 h-10 bg-pink-600 rounded-2xl flex items-center justify-center active:scale-90 transition-all">
                         <Send size={14} className="text-white"/>
                       </button>
@@ -3343,9 +3387,11 @@ export function AJSuperPortal() {
                     {profileVideos.map((vid:any) => (
                       <div key={vid.id} className="relative aspect-square bg-white/5 overflow-hidden">
                         {/* FIX #8: thumbnail fallback — vid.thumbnail || vid.videoUrl */}
-                        {(vid.thumbnail || vid.videoUrl || vid.image)
-                          ? <img src={vid.thumbnail || vid.videoUrl || vid.image} className="w-full h-full object-cover"/>
-                          : <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">🎬</span></div>
+                        {(vid.thumbnail || vid.image)
+                          ? <img src={vid.thumbnail || vid.image} className="w-full h-full object-cover" onError={e => { const t = e.target as HTMLImageElement; if (vid.videoUrl) { t.src = vid.videoUrl; } }}/>
+                          : vid.videoUrl
+                            ? <video src={vid.videoUrl} className="w-full h-full object-cover" muted playsInline preload="metadata"/>
+                            : <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">🎬</span></div>
                         }
                         <div className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5"><Film size={10} className="text-white"/></div>
                         {vid.views > 0 && (
