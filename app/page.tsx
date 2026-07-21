@@ -91,15 +91,35 @@ const PK_ENTRY_COINS = 100;
 const PK_DURATION    = 300;
 
 // ============================================================
-// MONETAG INTERSTITIAL TRIGGER — fires real ad
+// MONETAG INTERSTITIAL TRIGGER — fires real ad (FIXED)
 // ============================================================
 const triggerInterstitialAd = () => {
   try {
     if (typeof window !== 'undefined') {
+      // Method 1: Monetag interstitial via show_9087571 pattern
+      if (typeof (window as any).show_9087571 === 'function') {
+        (window as any).show_9087571();
+        return;
+      }
+      // Method 2: Direct script injection
       const s = document.createElement('script');
-      s.dataset.zone = String(MONETAG_INTERSTITIAL);
-      s.src = 'https://n6wxm.com';
-      document.body.appendChild(s);
+      s.async = true;
+      s.setAttribute('data-zone', String(MONETAG_INTERSTITIAL));
+      s.src = 'https://nap5k.com/tag.min.js';
+      document.head.appendChild(s);
+      // Method 3: atOptions interstitial
+      const s2 = document.createElement('script');
+      s2.type = 'text/javascript';
+      s2.innerHTML = `
+        (function() {
+          var d = document.createElement('script');
+          d.type = 'text/javascript';
+          d.async = true;
+          d.src = '//www.highperformanceformat.com/${MONETAG_INTERSTITIAL}/invoke.js';
+          document.head.appendChild(d);
+        })();
+      `;
+      document.head.appendChild(s2);
     }
   } catch {}
 };
@@ -290,24 +310,43 @@ const formatViews = (v: number): string => {
 };
 
 // ============================================================
-// MONETAG BANNER COMPONENT — Real injection
+// MONETAG BANNER COMPONENT — Real injection (FIXED)
 // ============================================================
 function MonetagBanner({ siteId }: { siteId: number }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const injectedRef = useRef(false);
   useEffect(() => {
-    if (!containerRef.current) return;
+    if (!containerRef.current || injectedRef.current) return;
+    injectedRef.current = true;
     try {
+      // Inject Monetag push/banner ad script
       const s = document.createElement('script');
       s.async = true;
-      s.dataset.zone = String(siteId);
-      s.src = siteId === 11337197 ? 'https://nap5k.com' : 'https://n6wxm.com';
+      s.setAttribute('data-zone', String(siteId));
+      // Monetag CDN — zone 11337197 = push/banner, 11349676 = interstitial
+      s.src = 'https://nap5k.com/tag.min.js';
       containerRef.current.appendChild(s);
+    } catch {}
+    try {
+      // Also inject via global atOptions for banner display
+      const s2 = document.createElement('script');
+      s2.type = 'text/javascript';
+      s2.innerHTML = `
+        window.atOptions = { 'key': '${siteId}', 'format': 'iframe', 'height': 60, 'width': 468, 'params': {} };
+      `;
+      containerRef.current.appendChild(s2);
+      const s3 = document.createElement('script');
+      s3.type = 'text/javascript';
+      s3.src = `//www.highperformanceformat.com/${siteId}/invoke.js`;
+      containerRef.current.appendChild(s3);
     } catch {}
   }, [siteId]);
   return (
-    <div ref={containerRef} className="w-full min-h-[60px] bg-white/5 border border-cyan-500/20 rounded-2xl flex items-center justify-center text-[9px] text-gray-500 uppercase tracking-widest font-black overflow-hidden">
-      <span className="opacity-40">📢 Sponsored</span>
-    </div>
+    <div
+      ref={containerRef}
+      className="w-full min-h-[60px] bg-white/5 border border-cyan-500/20 rounded-2xl overflow-hidden"
+      style={{ minHeight: 60 }}
+    />
   );
 }
 
@@ -355,35 +394,54 @@ function VVIPAlert({ msg, icon, onClose }: { msg: string; icon?: string; onClose
 }
 
 // ============================================================
-// MONETAG VIDEO AD COMPONENT — YouTube embed
+// MONETAG VIDEO AD COMPONENT — Real Monetag In-Stream Ad (FIXED)
 // ============================================================
-const AJ_AD_VIDEO_ID = 'aqz-KE-bpKQ';
+const AJ_AD_VIDEO_ID = 'aqz-KE-bpKQ'; // fallback
 
 function MonetagVideoAd({ publisherId }: { publisherId: number }) {
-  const [adMuted, setAdMuted] = React.useState(true);
-  const adSrc = `https://www.youtube-nocookie.com/embed/${AJ_AD_VIDEO_ID}?autoplay=1&mute=${adMuted?1:0}&loop=1&playlist=${AJ_AD_VIDEO_ID}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3`;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const injectedRef = useRef(false);
+  useEffect(() => {
+    if (!containerRef.current || injectedRef.current) return;
+    injectedRef.current = true;
+    try {
+      // Real Monetag In-Page Push / Video Ad
+      const s = document.createElement('script');
+      s.type = 'text/javascript';
+      s.innerHTML = `
+        window.atOptions = {
+          'key': '${publisherId}',
+          'format': 'iframe',
+          'height': 300,
+          'width': 160,
+          'params': {}
+        };
+      `;
+      containerRef.current.appendChild(s);
+      const s2 = document.createElement('script');
+      s2.type = 'text/javascript';
+      s2.src = `//www.highperformanceformat.com/${publisherId}/invoke.js`;
+      containerRef.current.appendChild(s2);
+    } catch {}
+    try {
+      // Monetag tag.min.js method
+      const s3 = document.createElement('script');
+      s3.async = true;
+      s3.setAttribute('data-zone', String(publisherId));
+      s3.src = 'https://nap5k.com/tag.min.js';
+      containerRef.current.appendChild(s3);
+    } catch {}
+  }, [publisherId]);
   return (
-    <div className="absolute inset-0 w-full h-full bg-[#050505] overflow-hidden">
-      <iframe
-        src={adSrc}
-        className="absolute inset-0 w-full h-full"
-        style={{ transform:'scale(1.15)', transformOrigin:'center center', pointerEvents:'auto' }}
-        allow="autoplay; encrypted-media; gyroscope; picture-in-picture"
-        allowFullScreen
-        frameBorder="0"
-        title="Sponsored Ad"
-      />
+    <div className="absolute inset-0 w-full h-full bg-[#050505] overflow-hidden flex items-center justify-center">
+      {/* Real Monetag ad container */}
+      <div ref={containerRef} className="absolute inset-0 w-full h-full" style={{ zIndex: 5 }}/>
+      {/* Ad label overlay */}
       <div className="absolute top-4 left-4 z-20 pointer-events-none">
         <span className="bg-pink-600/90 backdrop-blur-sm text-white text-[8px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest shadow-[0_0_14px_rgba(236,72,153,0.7)]">
           📢 Sponsored
         </span>
       </div>
-      <button
-        onClick={() => setAdMuted(m => !m)}
-        className="absolute bottom-6 right-4 z-20 bg-[#050505]/70 backdrop-blur-sm border border-white/20 rounded-full p-2 text-white active:scale-90 transition-all"
-      >
-        {adMuted ? <VolumeX size={16} className="text-red-400"/> : <Volume2 size={16} className="text-green-400"/>}
-      </button>
       <div className="absolute bottom-6 left-4 z-20 pointer-events-none">
         <span className="bg-[#050505]/60 backdrop-blur-sm text-gray-400 text-[9px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest">
           Ad · Scroll to skip
@@ -541,33 +599,43 @@ function AJFooter() {
 
         <div className="p-6 space-y-6">
 
-          {/* Founder Section */}
-          <div className="flex flex-col items-center gap-3">
+          {/* Founder Section — ENLARGED */}
+          <div className="flex flex-col items-center gap-4">
             <div className="relative">
+              {/* Outer glow ring */}
               <div
-                className="w-28 h-28 rounded-full overflow-hidden border-3 border-pink-500/60"
-                style={{ boxShadow: '0 0 40px rgba(236,72,153,0.7)' }}
+                className="absolute -inset-2 rounded-3xl animate-pulse"
+                style={{ background: 'linear-gradient(135deg,rgba(236,72,153,0.3),rgba(34,211,238,0.2))', filter: 'blur(12px)' }}
+              />
+              <div
+                className="relative w-full rounded-3xl overflow-hidden"
+                style={{
+                  width: '100%',
+                  maxWidth: 340,
+                  aspectRatio: '3/4',
+                  border: '2px solid rgba(236,72,153,0.6)',
+                  boxShadow: '0 0 60px rgba(236,72,153,0.5), 0 0 30px rgba(34,211,238,0.2)',
+                }}
               >
                 <img
                   src="/founder_card.jpg"
-                  alt="Ali Asim"
-                  className="w-full h-full object-cover"
+                  alt="Ali Asim — Founder & CEO"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                 />
+                {/* Gradient overlay at bottom */}
+                <div
+                  className="absolute bottom-0 left-0 right-0 p-4"
+                  style={{ background: 'linear-gradient(to top, rgba(5,5,5,0.95) 0%, transparent 100%)' }}
+                >
+                  <p className="text-white font-black text-base tracking-wide">Ali Asim</p>
+                  <p
+                    className="text-xs font-black uppercase tracking-[0.2em] mt-0.5"
+                    style={{ background: 'linear-gradient(90deg,#ec4899,#22d3ee)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}
+                  >
+                    Founder &amp; CEO — AJ Super Portal
+                  </p>
+                </div>
               </div>
-              {/* Neon ring */}
-              <div
-                className="absolute inset-0 rounded-full animate-pulse"
-                style={{ border: '1.5px solid rgba(236,72,153,0.35)' }}
-              />
-            </div>
-            <div className="text-center">
-              <p className="text-white font-black text-sm tracking-wide">Ali Asim</p>
-              <p
-                className="text-[10px] font-black uppercase tracking-[0.2em] mt-0.5"
-                style={{ background: 'linear-gradient(90deg,#ec4899,#22d3ee)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}
-              >
-                Founder &amp; CEO
-              </p>
             </div>
           </div>
 
@@ -884,25 +952,40 @@ export function AJSuperPortal() {
   const currentWithdrawMethod = WITHDRAW_METHODS.find(m => m.label === payoutMethod) || WITHDRAW_METHODS[0];
 
   // ==========================================================
-  // INJECT MONETAG ADS ON MOUNT (FIX #7)
+  // INJECT MONETAG ADS ON MOUNT (FIXED)
   // ==========================================================
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    // Banner/Push Ad — zone 11337197
     try {
-      // Banner Ad — zone 11337197
       const s1 = document.createElement('script');
       s1.async = true;
-      s1.dataset.zone = '11337197';
-      s1.src = 'https://nap5k.com';
-      document.body.appendChild(s1);
+      s1.setAttribute('data-zone', '11337197');
+      s1.src = 'https://nap5k.com/tag.min.js';
+      document.head.appendChild(s1);
     } catch {}
+    // Interstitial Ad — zone 11349676
     try {
-      // Interstitial Ad — zone 11349676
       const s2 = document.createElement('script');
       s2.async = true;
-      s2.dataset.zone = '11349676';
-      s2.src = 'https://n6wxm.com';
-      document.body.appendChild(s2);
+      s2.setAttribute('data-zone', '11349676');
+      s2.src = 'https://nap5k.com/tag.min.js';
+      document.head.appendChild(s2);
+    } catch {}
+    // Monetag Push Notification Ad
+    try {
+      const s3 = document.createElement('script');
+      s3.async = true;
+      s3.src = 'https://nap5k.com/push.min.js';
+      document.head.appendChild(s3);
+    } catch {}
+    // Wechat Sponsor Ad — zone 11337185
+    try {
+      const s4 = document.createElement('script');
+      s4.async = true;
+      s4.setAttribute('data-zone', '11337185');
+      s4.src = 'https://nap5k.com/tag.min.js';
+      document.head.appendChild(s4);
     } catch {}
   }, []);
 
@@ -1365,12 +1448,35 @@ export function AJSuperPortal() {
   };
 
   // ==========================================================
-  // GO LIVE
+  // GO LIVE (FIXED: ZegoCloud script loader + camera fix)
   // ==========================================================
+  const loadZegoScript = (): Promise<void> => {
+    return new Promise((resolve) => {
+      if (typeof window !== 'undefined' && (window as any).ZegoUIKitPrebuilt) {
+        resolve();
+        return;
+      }
+      const existing = document.getElementById('zego-sdk-script');
+      if (existing) {
+        existing.addEventListener('load', () => resolve());
+        return;
+      }
+      const s = document.createElement('script');
+      s.id = 'zego-sdk-script';
+      s.src = 'https://unpkg.com/@zegocloud/zego-uikit-prebuilt/zego-uikit-prebuilt.js';
+      s.async = true;
+      s.onload = () => resolve();
+      s.onerror = () => resolve(); // resolve anyway so app doesn't hang
+      document.head.appendChild(s);
+    });
+  };
+
   const startLive = async () => {
     if (!user) return;
     try {
-      // First get camera permission and show preview
+      // Load ZegoCloud SDK first
+      await loadZegoScript();
+      // Get camera permission and show preview
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } }, 
         audio: true 
@@ -1379,13 +1485,14 @@ export function AJSuperPortal() {
       setCameraReady(true);
       if (liveVideoRef.current) {
         liveVideoRef.current.srcObject = stream;
-        await liveVideoRef.current.play();
+        await liveVideoRef.current.play().catch(() => {});
       }
       // Now start ZegoCloud live
       const roomId = `live_${user.uid}_${Date.now()}`;
       setLiveRoomId(roomId);
       setLiveActive(true);
-      handleStartLiveOrCall(roomId, user.uid, username || 'AJ Member');
+      // Wait a tick for DOM to update before ZegoCloud attaches
+      setTimeout(() => handleStartLiveOrCall(roomId, user.uid, username || 'AJ Member'), 400);
       await setDoc(doc(db, "live_rooms", roomId), {
         uid: user.uid, username: username || 'AJ_Member',
         photo: tempPhoto || user.photoURL || '',
@@ -1427,7 +1534,7 @@ export function AJSuperPortal() {
   };
 
   // ==========================================================
-  // JOIN LIVE AS VIEWER
+  // JOIN LIVE AS VIEWER (FIXED: ZegoCloud viewer attach)
   // ==========================================================
   const joinLiveByRoomId = async (roomId?: string) => {
     const rid = (roomId || joinRoomInput).trim();
@@ -1442,6 +1549,7 @@ export function AJSuperPortal() {
       if (!roomSnap.exists()) return setVvipAlert({msg:'Room not found. Use the Copy button for the full ID.'});
       if (!roomSnap.data()?.active) return setVvipAlert({msg:'This stream has ended.'});
       setScreen('social');
+      setSocialScreen('joinlive');
       setViewerRoom({ id: roomSnap.id, ...roomSnap.data() });
       setViewerRoomId(roomSnap.id);
       setJoinRoomInput('');
@@ -1453,6 +1561,28 @@ export function AJSuperPortal() {
         }
       );
       viewerUnsubRef.current = unsub;
+      // Load ZegoCloud and attach viewer to #video-container
+      await loadZegoScript();
+      setTimeout(() => {
+        if (typeof window !== 'undefined' && (window as any).ZegoUIKitPrebuilt && user) {
+          try {
+            const kitToken = (window as any).ZegoUIKitPrebuilt.generateKitTokenForTest(
+              ZEGO_APP_ID, ZEGO_APP_SIGN, roomSnap.id, user.uid, username || 'Viewer'
+            );
+            const zp = (window as any).ZegoUIKitPrebuilt.create(kitToken);
+            const container = document.querySelector('#video-container');
+            if (container) {
+              zp.joinRoom({
+                container,
+                scenario: { mode: (window as any).ZegoUIKitPrebuilt.LiveStreaming },
+                showPreJoinView: false,
+                turnOnCameraWhenJoining: false,
+                turnOnMicrophoneWhenJoining: false,
+              });
+            }
+          } catch(e) { console.error('viewer zego attach', e); }
+        }
+      }, 800);
     } catch(e) { console.error('joinLiveByRoomId', e); setVvipAlert({msg:'Could not join room. Please try again.'}); }
   };
 
@@ -1792,20 +1922,23 @@ export function AJSuperPortal() {
     setZegoCallRoomId(roomId);
     setZegoCallType(callType);
     setZegoCallActive(true);
-    try {
-      addDoc(collection(db, 'call_signals'), {
-        roomId, callType,
-        callerUid: user.uid,
-        callerName: username || 'AJ Member',
-        callerPhoto: tempPhoto || user.photoURL || '',
-        calleeUid: activeChatUser.uid,
-        status: 'ringing',
-        createdAt: serverTimestamp(),
-      });
-    } catch {}
-    setTimeout(() => {
-      handleStartZegoCall(roomId, user.uid, username || 'AJ Member', callType);
-    }, 500);
+    // Load ZegoCloud SDK first, then start call
+    loadZegoScript().then(() => {
+      try {
+        addDoc(collection(db, 'call_signals'), {
+          roomId, callType,
+          callerUid: user.uid,
+          callerName: username || 'AJ Member',
+          callerPhoto: tempPhoto || user.photoURL || '',
+          calleeUid: activeChatUser.uid,
+          status: 'ringing',
+          createdAt: serverTimestamp(),
+        });
+      } catch {}
+      setTimeout(() => {
+        handleStartZegoCall(roomId, user.uid, username || 'AJ Member', callType);
+      }, 600);
+    });
   };
 
   const endZegoCall = () => {
@@ -2006,8 +2139,10 @@ export function AJSuperPortal() {
         text:newComment, username:username||"AJ_Member",
         photo:user?.photoURL||'', createdAt:serverTimestamp()
       });
+      const commentText = newComment;
       setNewComment('');
-    } catch(e) { console.error('submitComment', e); }
+      setVvipAlert({msg:`💬 Comment posted!`,icon:'💬'});
+    } catch(e) { console.error('submitComment', e); setVvipAlert({msg:'Failed to post comment. Try again.',icon:'⚠️'}); }
   };
 
   const handleDeleteNotification = async (id:string) => {
@@ -2052,21 +2187,45 @@ export function AJSuperPortal() {
       url: window.location.href
     };
     try {
-      if (navigator.share) {
-        await navigator.share(shareData);
-      } else if (navigator.clipboard) {
-        await navigator.clipboard.writeText(window.location.href);
-        setVvipAlert({msg:"📋 Link copied to clipboard!", icon:"📋"});
-      } else {
-        const ta = document.createElement('textarea');
-        ta.value = window.location.href;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-        setVvipAlert({msg:"📋 Link copied!", icon:"📋"});
+      // Method 1: Native Web Share API (opens native share sheet on mobile with all apps)
+      if (typeof navigator !== 'undefined' && navigator.share && navigator.canShare) {
+        try {
+          if (navigator.canShare(shareData)) {
+            await navigator.share(shareData);
+            return;
+          }
+        } catch(e) {
+          if (e instanceof Error && e.name !== 'AbortError') {
+            console.error('share api error', e);
+          }
+        }
       }
-    } catch(e) { console.error('share error', e); }
+      // Method 2: Clipboard API (modern browsers)
+      if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+        try {
+          await navigator.clipboard.writeText(shareData.text + ' ' + shareData.url);
+          setVvipAlert({msg:"📋 Link copied to clipboard!", icon:"📋"});
+          return;
+        } catch(e) {
+          console.error('clipboard error', e);
+        }
+      }
+      // Method 3: Fallback to textarea + execCommand
+      const ta = document.createElement('textarea');
+      ta.value = shareData.text + ' ' + shareData.url;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand('copy');
+        setVvipAlert({msg:"📋 Link copied to clipboard!", icon:"📋"});
+      } catch(e) {
+        console.error('execCommand error', e);
+        setVvipAlert({msg:"Share failed. Try again.", icon:"⚠️"});
+      }
+      document.body.removeChild(ta);
+    } catch(e) { console.error('handleShare error', e); }
   };
 
   const activateBot = async (tier:string, cost:number) => {
@@ -2452,7 +2611,7 @@ export function AJSuperPortal() {
           </div>
 
           {/* Sponsor Banner */}
-          <div className="px-4 pt-3 pointer-events-none">
+          <div className="px-4 pt-3">
             <MonetagBanner siteId={MONETAG_PULSE_BANNER}/>
           </div>
 
@@ -3225,12 +3384,27 @@ export function AJSuperPortal() {
                 {liveActive && <span className="ml-auto text-[9px] text-red-400 font-black animate-pulse">🔴 LIVE</span>}
               </div>
               <div className="flex-1 flex flex-col items-center justify-center gap-6 px-4">
-                <div id="video-container" className="w-full max-w-sm aspect-video bg-black rounded-3xl overflow-hidden border border-white/10 relative">
-                  {cameraReady && <video ref={liveVideoRef} autoPlay muted playsInline className="w-full h-full object-cover"/>}
+                {/* FIXED: ZegoCloud Live Container - always rendered so ZegoCloud can attach */}
+                <div
+                  id="video-container"
+                  className="w-full max-w-sm aspect-video bg-black rounded-3xl overflow-hidden border border-white/10 relative"
+                  style={{ minHeight: 220 }}
+                >
+                  {/* Local camera preview (before ZegoCloud takes over) */}
+                  {cameraReady && !liveActive && (
+                    <video ref={liveVideoRef} autoPlay muted playsInline className="absolute inset-0 w-full h-full object-cover"/>
+                  )}
+                  {/* ZegoCloud will inject its UI into #video-container when liveActive */}
                   {!cameraReady && !liveActive && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
                       <Video size={40} className="text-gray-600"/>
                       <p className="text-gray-500 text-xs">Camera preview will appear here</p>
+                      <p className="text-gray-600 text-[9px] text-center px-4">Tap “Start Live” to enable camera &amp; go live</p>
+                    </div>
+                  )}
+                  {liveActive && (
+                    <div className="absolute top-2 left-2 z-30 pointer-events-none">
+                      <span className="bg-red-600 text-white text-[8px] font-black px-2 py-1 rounded-full animate-pulse">🔴 LIVE</span>
                     </div>
                   )}
                 </div>
@@ -3731,9 +3905,12 @@ export function AJSuperPortal() {
               <iframe
                 src={selectedGame}
                 className="flex-1 w-full border-0"
-                allow="autoplay; fullscreen; gyroscope; accelerometer"
+                allow="autoplay; fullscreen; gyroscope; accelerometer; clipboard-write; encrypted-media; picture-in-picture"
                 allowFullScreen
+                sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-pointer-lock allow-top-navigation-by-user-activation allow-downloads"
+                referrerPolicy="no-referrer-when-downgrade"
                 title="Game"
+                style={{ minHeight: 'calc(100vh - 120px)' }}
               />
             </div>
           )}
