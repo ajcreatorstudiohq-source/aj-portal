@@ -308,7 +308,7 @@ function MonetagVideoAd({ publisherId }: { publisherId: number }) {
       <iframe
         src={adSrc}
         className="absolute inset-0 w-full h-full"
-        style={{ transform:'scale(1.15)', transformOrigin:'center center', pointerEvents:'none' }}
+        style={{ transform:'scale(1.15)', transformOrigin:'center center', pointerEvents:'auto' }}
         allow="autoplay; encrypted-media; gyroscope; picture-in-picture"
         allowFullScreen
         frameBorder="0"
@@ -2392,7 +2392,7 @@ useEffect(() => {
                         )}
                         <div className="flex gap-3 w-full">
                         <button
-                          onClick={() => viewingUid && handleFollow(viewingUid)}
+                          onClick={() => { if (viewingUid) { handleFollow(viewingUid); } }}
                           className={`flex-1 py-3 rounded-2xl font-black text-sm uppercase tracking-widest flex items-center justify-center gap-2 transition-all  ${isFollowing?'bg-white/5 backdrop-blur-xl border border-white/10 border border-white/20 text-white':'bg-pink-600 text-white shadow-lg'}`}>
                           {isFollowing ? <><UserCheck size={16}/> Following</> : <><UserPlus size={16}/> Follow</>}
                         </button>
