@@ -3,6 +3,9 @@ import Script from 'next/script';
 import React, { useState, useEffect, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
+// --- Zego Cloud Configuration ---
+const ZEGO_APP_ID = 16846398;
+const ZEGO_SERVER_SECRET = "830c1be79acb7e0bb63dbb4d081b2a95";
 // ── Fix #9: Firebase inline config with exact keys ──────────
 import { initializeApp, getApps } from 'firebase/app';
 import {
@@ -55,7 +58,6 @@ const CLOUDINARY_CLOUD_NAME  = "atm28akz";
 const CLOUDINARY_UPLOAD_PRESET = "aj_portal";
 const CEO_EMAIL              = "ajcreatorstudio.hq@gmail.com";
 const CEO_WHATSAPP           = "https://wa.me/96878994093";
-
 const AGORA_APP_ID           = "7863c5369b3648bf931893a52ebaa6db";
 const AGORA_APP_CERTIFICATE  = "dc66528c5a5646da8e3ce5d2426759af";
 const VAPID_KEY              = "BMaPMtGtA2VtDsj_JH_yv5dOv66Mpguf9v4TkqY96dcS-gwqgs-r5OlqRJQmZbNkaj-7_iMFbGGN0Qc4xH0qvKg";
@@ -78,7 +80,26 @@ const ADMIN_EARN_SHARE = 0.70;
 
 const PK_ENTRY_COINS = 100;
 const PK_DURATION = 300;
-
+// --- Zego Live & WeChat Call Handler ---
+const handleStartLiveOrCall = (roomID, currentUserId, currentUserName) => {
+  if (typeof window !== "undefined" && window.ZegoUIKitPrebuilt) {
+    const kitToken = window.ZegoUIKitPrebuilt.generateKitTokenForTest(
+      ZEGO_APP_ID,
+      ZEGO_SERVER_SECRET,
+      roomID,
+      currentUserId,
+      currentUserName
+    );
+    
+    const zp = window.ZegoUIKitPrebuilt.create(kitToken);
+    zp.joinRoom({
+      container: document.querySelector("#video-container"),
+      scenario: {
+        mode: window.ZegoUIKitPrebuilt.LiveStreaming,
+      },
+    });
+  }
+};
 // ============================================================
 // GIFT ITEMS
 // ============================================================
@@ -918,41 +939,52 @@ useEffect(() => {
   // GO LIVE
   // ==========================================================
   const startLive = async () => {
-    if (!user) return;
-    const roomId = `live_${user.uid}_${Date.now()}`;
-    setLiveRoomId(roomId);
-    setLiveActive(true);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video:true, audio:true });
-      liveStreamRef.current = stream;
-      setCameraReady(true);
-      if (liveVideoRef.current) {
-        liveVideoRef.current.srcObject = stream;
-        liveVideoRef.current.play();
-      }
-      await setDoc(doc(db,"live_rooms",roomId), {
-        uid:user.uid, username:username||'AJ_Member',
-        photo:tempPhoto||user.photoURL||'',
-        roomId, startedAt:serverTimestamp(), active:true,
-        lastSeenMs: Date.now()
-      });
-      const heartbeat = setInterval(async () => {
-        try { await updateDoc(doc(db,"live_rooms",roomId), { lastSeenMs: Date.now() }); } catch {}
-      }, 10000);
-      (liveStreamRef as any)._heartbeat = heartbeat;
-      try {
-        await addDoc(collection(db,"notifications"), {
-          title:"🔴 Live Now!",
-          message:`@${username||'AJ_Member'} just went LIVE! Tap to join.`,
-          deepLink:`/live/${roomId}`,
-          date:serverTimestamp()
-        });
-      } catch {}
-    } catch {
-      setVvipAlert({msg:"Camera permission denied. Please allow camera access."});
-      setCameraReady(false);
+  if (!user) return;
+  const roomId = `live_${user.uid}_${Date.now()}`;
+  setLiveRoomId(roomId);
+  setLiveActive(true);
+  
+  handleStartLiveOrCall(roomId, user.uid, username || 'AJ Member');
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    liveStreamRef.current = stream;
+    setCameraReady(true);
+    if (liveVideoRef.current) {
+      liveVideoRef.current.srcObject = stream;
+      liveVideoRef.current.play();
     }
-  };
+    await setDoc(doc(db, "live_rooms", roomId), {
+      uid: user.uid,
+      username: username || 'AJ_Member',
+      photo: tempPhoto || user.photoURL || '',
+      roomId,
+      startedAt: serverTimestamp(),
+      active: true,
+      lastSeenMs: Date.now()
+    });
+    
+    const heartbeat = setInterval(async () => {
+      try {
+        await updateDoc(doc(db, "live_rooms", roomId), { lastSeenMs: Date.now() });
+      } catch (e) {}
+    }, 10000);
+    
+    (liveStreamRef as any)._heartbeat = heartbeat;
+    
+    try {
+      await addDoc(collection(db, "notifications"), {
+        title: "🔴 Live Now!",
+        message: `@${username || 'AJ_Member'} just went LIVE! Tap to join.`,
+        deepLink: `/live/${roomId}`,
+        date: serverTimestamp()
+      });
+    } catch (e) {}
+  } catch (e) {
+    setVipAlert({msg:"Camera permission denied. Please allow camera access."});
+    setCameraReady(false);
+  }
+};
 
   const stopLive = async () => {
     if ((liveStreamRef as any)._heartbeat) {
@@ -2427,8 +2459,6 @@ useEffect(() => {
                 <button onClick={() => setSocialScreen('hub')} className="text-gray-500 uppercase text-[10px] font-black mt-10">Back</button>
               </div>
             )}
-
-
             {/* TIKREELS */}
             {socialScreen==='tikreels' && (
               <div className="flex flex-col h-full">
@@ -2445,18 +2475,18 @@ useEffect(() => {
                     <Radio size={13} className="animate-pulse"/><span className="text-[9px] font-black">🔴</span>
                   </button>
                 </div>
-
-               {/* FEED (TikReels) */}
-               {tiktabMode === 'feed' && (
-            <div ref={videoFeedRef} className="h-full w-full max-w-md mx-auto snap-y snap-mandatory overflow-y-auto no-scrollbar bg-black relative">
-           {(!userPosts || userPosts.length === 0) ? (
+                {/* FEED (TikReels) */}
+{tiktabMode === 'feed' && (
+  <div ref={videoFeedRef} className="h-full w-full max-w-md mx-auto snap-y snap-mandatory overflow-y-auto no-scrollbar bg-black relative">
+    {(!userPosts || userPosts.length === 0) ? (
       <div className="h-full flex flex-col items-center justify-center text-center p-6 text-gray-500">
         <p className="text-sm font-bold uppercase tracking-wider mb-2">No Reels Yet</p>
         <p className="text-xs">Be the first to upload a TikReel!</p>
       </div>
     ) : (
       userPosts.map((p: any, idx: number) => {
-        const videoSrc = p.url || p.videoUrl || p.mediaUrl || p.video || '';
+        // Safe media URL extraction
+        const videoSrc = p.url || p.videoUrl || p.mediaUrl || p.tiktokPostImg || p.video || '';
         const isYouTube = videoSrc.includes('youtube.com') || videoSrc.includes('youtu.be');
         const ytEmbedUrl = isYouTube ? (
           videoSrc.includes('embed') 
@@ -2474,10 +2504,10 @@ useEffect(() => {
                 allow="autoplay; encrypted-media" 
                 title="Shorts"
               />
-            ) : p.isVideo || videoSrc.includes('.mp4') || videoSrc.includes('video') ? (
+            ) : p.isVideo || videoSrc.includes('.mp4') || videoSrc.includes('video') || videoSrc.startsWith('data:video') ? (
               <video src={videoSrc} className="w-full h-full object-cover" autoPlay loop muted={!globalSoundOn} playsInline />
             ) : (
-              <img src={videoSrc || p.photo || p.image || '/logo.png'} className="w-full h-full object-cover" />
+              <img src={videoSrc || p.photo || p.image || '/logo.png'} className="w-full h-full object-cover" onError={(e: any) => { e.target.src = '/logo.png'; }} />
             )}
 
             {/* Mute/Unmute Toggle Button */}
@@ -2487,23 +2517,39 @@ useEffect(() => {
 
             {/* Right Action Sidebar */}
             <div className="absolute right-3 bottom-20 z-30 flex flex-col items-center gap-5">
-              <button 
-                type="button" 
-                onClick={() => setTiktabMode('profile')} 
-                className="relative group cursor-pointer focus:outline-none"
-              >
-                <img src={p.userPhoto || p.photo || '/logo.png'} className="w-11 h-11 rounded-full border-2 border-pink-500 object-cover shadow-lg" />
-                <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 bg-pink-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] font-bold">+</span>
-              </button>
+              {/* Profile Avatar & Follow Plus Button */}
+              <div className="relative group cursor-pointer">
+                <img 
+                  src={p.userPhoto || p.photo || '/logo.png'} 
+                  onClick={() => setTiktabMode('profile')}
+                  className="w-11 h-11 rounded-full border-2 border-pink-500 object-cover shadow-lg" 
+                />
+                <button 
+                  type="button" 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (typeof handleFollowUser === 'function') {
+                      handleFollowUser(p.author || p.username || p.userId);
+                    } else if (typeof toggleFollow === 'function') {
+                      toggleFollow(p.author || p.username || p.userId);
+                    } else {
+                      alert(`Followed @${p.username || p.author || 'User'}!`);
+                    }
+                  }} 
+                  className="absolute -bottom-1 left-1/2 -translate-x-1/2 bg-pink-500 hover:bg-pink-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-[12px] font-bold shadow-md active:scale-90 transition-transform"
+                >
+                  +
+                </button>
+              </div>
               
-              <button onClick={() => handleLike(p.id)} className="flex flex-col items-center gap-1 group">
+              <button onClick={() => handleLike && handleLike(p.id)} className="flex flex-col items-center gap-1 group">
                 <div className="p-3 bg-black/40 backdrop-blur-md rounded-full border border-white/10 group-active:scale-125 transition-transform">
                   ❤️
                 </div>
                 <span className="text-[11px] font-bold text-white shadow-sm">{p.likes || 0}</span>
               </button>
               
-              <button onClick={() => setCommentPostId(p.id)} className="flex flex-col items-center gap-1">
+              <button onClick={() => setCommentPostId && setCommentPostId(p.id)} className="flex flex-col items-center gap-1">
                 <div className="p-3 bg-black/40 backdrop-blur-md rounded-full border border-white/10">
                   💬
                 </div>
@@ -2532,7 +2578,6 @@ useEffect(() => {
     )}
   </div>
 )}
-
                 {/* CREATE (TikReels) */}
                 {tiktabMode==='create' && (
                   <div className="max-w-md mx-auto p-6 space-y-6">
@@ -2594,20 +2639,25 @@ useEffect(() => {
                           <UserCheck size={12} className="inline mr-1"/>Following ({following})
                         </button>
                       </div>
-                      {tikProfileSubTab==='posts' && (
-                        <div className="grid grid-cols-3 gap-1 mt-4">
-                          {userPosts.filter((p:any) => p.uid===user?.uid).map((p:any) => (
-                            <div key={p.id} className="aspect-square bg-white/5 rounded-xl overflow-hidden">
-                              {p.image
-                                ? <img src={p.image} className="w-full h-full object-cover"/>
-                                : <div className="w-full h-full flex items-center justify-center"><Film size={24} className="text-pink-400"/></div>}
-                            </div>
-                          ))}
-                          {userPosts.filter((p:any) => p.uid===user?.uid).length===0 && (
-                            <div className="col-span-3 py-10 text-gray-500 text-xs text-center">No posts yet.</div>
-                          )}
-                        </div>
-                      )}
+                     {tikProfileSubTab === 'posts' && (
+            <div className="grid grid-cols-3 gap-1 mt-4">
+              {userPosts.filter((p: any) => p.uid === user?.uid).map((p: any) => (
+                <div key={p.id} className="aspect-square bg-white/5 rounded-xl overflow-hidden">
+                  {(p.url || p.videoUrl || p.mediaUrl || p.tiktokPostImg || p.image || p.video) ? (
+                    <img 
+                      src={p.url || p.videoUrl || p.mediaUrl || p.tiktokPostImg || p.image || '/logo.png'} 
+                      className="w-full h-full object-cover" 
+                      onError={(e: any) => { e.target.src = '/logo.png'; }}
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-white/5">
+                      <Film size={24} className="text-pink-500/40" />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
                       {tikProfileSubTab==='following' && (
                         <div className="flex flex-col gap-0 mt-2">
                           {followingList.length===0 && (
