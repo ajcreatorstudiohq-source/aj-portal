@@ -393,8 +393,26 @@ export function AJSuperPortal() {
   const [pendingMode,setPendingMode]= useState('');
 
   // ── CONTENT
-  const [pixaData,     setPixaData]     = useState<any[]>([]);
-  const [pixaVideos,   setPixaVideos]   = useState<any[]>([]);
+  const [pixaData, setPixaData] = useState<any[]>([]);
+const [pixaVideos, setPixaVideos] = useState<any[]>([
+  {
+    id: "fallback_video_1",
+    video_files: [
+      {
+        link: "https://player.vimeo.com/external/485918788.sd.mp4?s=55e8f9c3e97553708e39a2b28613d44275250968&profile_id=165&oauth2_token_id=57447761"
+      }
+    ],
+    user: {
+      name: "AJ Super Portal",
+      avatar: "https://i.pravatar.cc/150?u=aj"
+    },
+    likes_count: 10,
+    comments_count: 2,
+    share_count: 1,
+    description: "Welcome to AJ Portal! Sample Reel."
+  }
+]);
+const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [userPosts,    setUserPosts]    = useState<any[]>([]);  // TikReels feed
   const [pulsePosts,   setPulsePosts]   = useState<any[]>([]);  // Fix #3: AJ Pulse separate feed
