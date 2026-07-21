@@ -398,22 +398,27 @@ function VVIPAlert({ msg, icon, onClose }: { msg: string; icon?: string; onClose
 // ============================================================
 const AJ_AD_VIDEO_ID = 'aqz-KE-bpKQ'; // fallback
 
-function MonetagVideoAd({ publisherId }: { publisherId: number }) {
+function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: number; type?: 'interstitial'|'banner' }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const injectedRef = useRef(false);
+  const [adReady, setAdReady] = useState(false);
+  const adKeyRef = useRef(0);
   useEffect(() => {
-    if (!containerRef.current || injectedRef.current) return;
-    injectedRef.current = true;
+    if (!containerRef.current) return;
+    // Clear previous ad content on re-mount
+    if (containerRef.current.innerHTML) containerRef.current.innerHTML = '';
+    adKeyRef.current++;
+    setAdReady(false);
     try {
-      // Real Monetag In-Page Push / Video Ad
+      // Method 1: atOptions iframe method (video/interstitial)
       const s = document.createElement('script');
       s.type = 'text/javascript';
       s.innerHTML = `
-        window.atOptions = {
+        if (!window.atOptions) window.atOptions = {};
+        window.atOptions['${adKeyRef.current}'] = {
           'key': '${publisherId}',
           'format': 'iframe',
-          'height': 300,
-          'width': 160,
+          'height': ${type === 'banner' ? 250 : 500},
+          'width': ${type === 'banner' ? 300 : 320},
           'params': {}
         };
       `;
@@ -421,30 +426,51 @@ function MonetagVideoAd({ publisherId }: { publisherId: number }) {
       const s2 = document.createElement('script');
       s2.type = 'text/javascript';
       s2.src = `//www.highperformanceformat.com/${publisherId}/invoke.js`;
+      s2.onload = () => setAdReady(true);
       containerRef.current.appendChild(s2);
-    } catch {}
+      // Timeout fallback — show "Ad" label even if ad doesn't load
+      const timer = setTimeout(() => setAdReady(true), 2000);
+      return () => { clearTimeout(timer); };
+    } catch {
+      setAdReady(true);
+    }
     try {
-      // Monetag tag.min.js method
-      const s3 = document.createElement('script');
-      s3.async = true;
-      s3.setAttribute('data-zone', String(publisherId));
-      s3.src = 'https://nap5k.com/tag.min.js';
-      containerRef.current.appendChild(s3);
+      // Method 2: tag.min.js — interstitial/push
+      if (type === 'interstitial') {
+        const s3 = document.createElement('script');
+        s3.async = true;
+        s3.setAttribute('data-zone', String(publisherId));
+        s3.src = 'https://nap5k.com/tag.min.js';
+        containerRef.current.appendChild(s3);
+      }
     } catch {}
-  }, [publisherId]);
+  }, [publisherId, type]);
   return (
-    <div className="absolute inset-0 w-full h-full bg-[#050505] overflow-hidden flex items-center justify-center">
+    <div className="absolute inset-0 w-full h-full bg-[#050505] overflow-hidden flex flex-col items-center justify-center">
       {/* Real Monetag ad container */}
-      <div ref={containerRef} className="absolute inset-0 w-full h-full" style={{ zIndex: 5 }}/>
+      <div ref={containerRef} className="relative w-full h-full flex items-center justify-center" style={{ zIndex: 5, minHeight: type === 'banner' ? 250 : 500 }}>
+        {!adReady && (
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-12 h-12 rounded-full border-2 border-pink-500 border-t-transparent animate-spin"/>
+            <span className="text-gray-400 text-xs font-black uppercase tracking-widest">Loading Ad...</span>
+          </div>
+        )}
+      </div>
       {/* Ad label overlay */}
       <div className="absolute top-4 left-4 z-20 pointer-events-none">
-        <span className="bg-pink-600/90 backdrop-blur-sm text-white text-[8px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest shadow-[0_0_14px_rgba(236,72,153,0.7)]">
+        <span className="bg-pink-600/90 backdrop-blur-sm text-white text-[9px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest shadow-[0_0_14px_rgba(236,72,153,0.7)]">
           📢 Sponsored
         </span>
       </div>
       <div className="absolute bottom-6 left-4 z-20 pointer-events-none">
-        <span className="bg-[#050505]/60 backdrop-blur-sm text-gray-400 text-[9px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest">
+        <span className="bg-[#050505]/60 backdrop-blur-sm text-gray-400 text-[10px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest">
           Ad · Scroll to skip
+        </span>
+      </div>
+      {/* Ad skip indicator */}
+      <div className="absolute top-4 right-4 z-20">
+        <span className="bg-white/10 backdrop-blur-sm text-gray-300 text-[9px] font-black px-2.5 py-1 rounded-full border border-white/10">
+          {adReady ? '✓ Ad Loaded' : '⏳ Loading...'}
         </span>
       </div>
     </div>
@@ -1078,7 +1104,8 @@ export function AJSuperPortal() {
     if (commentPostId && !commentPostId.startsWith('gift_')) {
       try {
         const q = query(collection(db, 'user_posts', commentPostId, "comments"), orderBy("createdAt","asc"));
-        return onSnapshot(q, snap => setPostComments(snap.docs.map(d=>({id:d.id,...d.data()}))));
+        const unsub = onSnapshot(q, snap => setPostComments(snap.docs.map(d=>({id:d.id,...d.data()}))));
+        return unsub;
       } catch(e) { console.error("Comment sub error", e); }
     }
     return () => {};
@@ -1211,88 +1238,143 @@ export function AJSuperPortal() {
     return () => {};
   }, [screen]);
 
-  // FIREBASE REALTIME REELS & PULSE SYNC
-  useEffect(() => {
-    const unsubReels = onSnapshot(collection(db, "reels"), (snapshot) => {
-      setUserPosts(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
-    const unsubPulse = onSnapshot(collection(db, "posts"), (snapshot) => {
-      setPulsePosts(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
-    return () => { unsubReels(); unsubPulse(); };
-  }, []);
+  // FIX: REMOVED duplicate reels/posts subscription — main listeners at socialScreen change handle this correctly.
 
-  // ── GAME COINS: postMessage listener (Game Bridge) + iframe injection
+  // ── GAME COINS: postMessage listener (Game Bridge) — 1 token = 0.01 AJ Coin
+  const gameScoreDebounceRef = useRef<ReturnType<typeof setTimeout>|null>(null);
+  const lastGameScoreRef = useRef<number>(0);
   useEffect(() => {
     if (!user) return;
     const handleGameMessage = async (e: MessageEvent) => {
       if (!e.data) return;
-      // Handle GAME_SCORE from HTML games
+      // Handle GAME_SCORE from HTML games — 1 token = 0.01 AJ Coin
       if (e.data.type === "GAME_SCORE" || e.data.type === "game_score" || e.data.type === "SCORE") {
-        const score = typeof e.data.score === 'number' ? e.data.score : Number(e.data.score);
-        const coinsEarned = score * 0.01;
+        const rawScore = typeof e.data.score === 'number' ? e.data.score : Number(e.data.score);
+        if (!rawScore || rawScore <= 0 || isNaN(rawScore)) return;
+        const coinsEarned = rawScore * 0.01;
+        if (coinsEarned <= 0 || isNaN(coinsEarned)) return;
+        // Debounce: prevent double-credit from rapid postMessages
+        if (gameScoreDebounceRef.current) clearTimeout(gameScoreDebounceRef.current);
+        gameScoreDebounceRef.current = setTimeout(async () => {
+          try {
+            await updateDoc(doc(db, "users", user.uid), { balance: increment(coinsEarned) });
+            setVvipAlert({msg:`🎮 +${coinsEarned.toFixed(2)} AJ Coins earned! Game score: ${rawScore}`, icon:"🎮"});
+            try {
+              await addDoc(collection(db, "notifications"), {
+                title: "🎮 Game Reward!",
+                message: `+${coinsEarned.toFixed(2)} Coins earned from Gaming Zone! Score: ${rawScore}`,
+                date: serverTimestamp(),
+              });
+            } catch {}
+          } catch(err) { console.error("Game coin credit error", err); }
+        }, 300);
+        return;
+      }
+      // Handle GAME_END from HTML games — flush any remaining score
+      if (e.data.type === "GAME_END" || e.data.type === "game_end") {
+        const rawScore = typeof e.data.score === 'number' ? e.data.score : Number(e.data.score);
+        const coinsEarned = rawScore * 0.01;
         if (!coinsEarned || coinsEarned <= 0 || isNaN(coinsEarned)) return;
         try {
           await updateDoc(doc(db, "users", user.uid), { balance: increment(coinsEarned) });
-          setVvipAlert({msg:`🎮 +${coinsEarned.toFixed(2)} AJ Coins earned! Game score: ${score}`, icon:"🎮"});
+          setVvipAlert({msg:`🏆 Game Over! Score: ${rawScore} = +${coinsEarned.toFixed(2)} AJ Coins!`, icon:"🏆"});
           try {
             await addDoc(collection(db, "notifications"), {
-              title: "🎮 Game Reward!",
-              message: `+${coinsEarned.toFixed(2)} Coins earned from Gaming Zone! Score: ${score}`,
+              title: "🏆 Game Complete!",
+              message: `Final score: ${rawScore} = +${coinsEarned.toFixed(2)} Coins credited to Wallet!`,
               date: serverTimestamp(),
             });
           } catch {}
-        } catch(err) { console.error("Game coin credit error", err); }
+        } catch(err) { console.error("Game end credit error", err); }
         return;
       }
-      // Handle GAME_END from HTML games
-      if (e.data.type === "GAME_END" || e.data.type === "game_end") {
-        const score = typeof e.data.score === 'number' ? e.data.score : Number(e.data.score);
-        const coinsEarned = score * 0.01;
-        if (!coinsEarned || coinsEarned <= 0 || isNaN(coinsEarned)) return;
+      // Handle GAME_CRASH — game crashed, flush last known score to wallet
+      if (e.data.type === "GAME_CRASH" || e.data.type === "game_crash") {
+        const rawScore = typeof e.data.score === 'number' ? e.data.score : Number(e.data.score || 0);
+        const coinsEarned = Math.max(rawScore * 0.01, 0.01); // minimum 0.01 coin for crash
         try {
           await updateDoc(doc(db, "users", user.uid), { balance: increment(coinsEarned) });
-          setVvipAlert({msg:`🏆 Game Over! Score: ${score} = +${coinsEarned.toFixed(2)} AJ Coins!`, icon:"🏆"});
-        } catch(err) { console.error("Game end credit error", err); }
+          setVvipAlert({msg:`⚠️ Game crashed! Still credited +${coinsEarned.toFixed(2)} AJ Coins!`, icon:"⚠️"});
+          try {
+            await addDoc(collection(db, "notifications"), {
+              title: "⚠️ Game Crash Recovery",
+              message: `Game crashed at score ${rawScore}. Recovered +${coinsEarned.toFixed(2)} Coins to Wallet!`,
+              date: serverTimestamp(),
+            });
+          } catch {}
+        } catch(err) { console.error("Game crash credit error", err); }
       }
     };
     window.addEventListener("message", handleGameMessage);
-    return () => window.removeEventListener("message", handleGameMessage);
+    return () => { window.removeEventListener("message", handleGameMessage); if (gameScoreDebounceRef.current) clearTimeout(gameScoreDebounceRef.current); };
   }, [user]);
 
-  // ── Inject bridge script into game iframes
+  // ── Inject bridge script into game iframes + crash detection
   useEffect(() => {
     if (!selectedGame || !user) return;
     const injectBridge = () => {
       try {
         const iframes = document.querySelectorAll('iframe');
         iframes.forEach(iframe => {
-          if (iframe.src && iframe.src.includes('onlinegames') || (iframe.src && iframe.src.includes('games'))) {
-            try {
-              const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
-              if (iframeDoc) {
-                const script = iframeDoc.createElement('script');
-                script.textContent = `
-                  window.addEventListener('message', function(e) {
-                    if (e.data && e.data.type === 'SEND_SCORE') {
-                      if (window.parent && window.parent !== window) {
-                        window.parent.postMessage({type: 'GAME_SCORE', score: e.data.score}, '*');
-                      }
-                    }
-                  });
-                  // Hook into common game score patterns
-                  if (typeof Game !== 'undefined' && Game.score !== undefined) {
-                    setInterval(function() {
-                      if (window.parent && Game.score) {
-                        window.parent.postMessage({type: 'GAME_SCORE', score: Game.score}, '*');
-                      }
-                    }, 2000);
+          if (!iframe.src) return;
+          try {
+            const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+            if (!iframeDoc) return;
+            const script = iframeDoc.createElement('script');
+            script.textContent = `
+              // Game Bridge: forward score messages to parent
+              window.addEventListener('message', function(e) {
+                if (e.data && e.data.type === 'SEND_SCORE') {
+                  if (window.parent && window.parent !== window) {
+                    window.parent.postMessage({type: 'GAME_SCORE', score: e.data.score}, '*');
                   }
-                `;
-                (iframeDoc.head || iframeDoc.documentElement).appendChild(script);
+                }
+              });
+              // Hook into common game score patterns
+              if (typeof Game !== 'undefined' && Game.score !== undefined) {
+                setInterval(function() {
+                  if (window.parent && Game.score) {
+                    window.parent.postMessage({type: 'GAME_SCORE', score: Game.score}, '*');
+                  }
+                }, 2000);
               }
-            } catch {}
-          }
+              // Detect game crash — if score counter exists but stops updating
+              var lastScoreCheck = null;
+              var scoreStuckCount = 0;
+              setInterval(function() {
+                if (typeof Game !== 'undefined' && Game.score !== undefined) {
+                  if (lastScoreCheck !== null && Game.score === lastScoreCheck) {
+                    scoreStuckCount++;
+                    if (scoreStuckCount >= 5) {
+                      // Score stuck for 10 seconds — likely crashed
+                      if (window.parent && Game.score > 0) {
+                        window.parent.postMessage({type: 'GAME_CRASH', score: Game.score}, '*');
+                      }
+                      scoreStuckCount = 0;
+                    }
+                  } else {
+                    scoreStuckCount = 0;
+                  }
+                  lastScoreCheck = Game.score;
+                }
+              }, 2000);
+              // Window error handler — notify parent of crash
+              window.addEventListener('error', function(e) {
+                if (window.parent && lastScoreCheck && lastScoreCheck > 0) {
+                  window.parent.postMessage({type: 'GAME_CRASH', score: lastScoreCheck}, '*');
+                }
+              });
+              // Unload handler — flush score on page leave
+              window.addEventListener('beforeunload', function() {
+                if (lastScoreCheck && lastScoreCheck > 0) {
+                  navigator.sendBeacon && navigator.sendBeacon
+                    ? (window.parent.postMessage({type: 'GAME_END', score: lastScoreCheck}, '*'))
+                    : null;
+                }
+              });
+            `;
+            (iframeDoc.head || iframeDoc.documentElement).appendChild(script);
+          } catch {}
         });
       } catch {}
     };
@@ -2139,13 +2221,19 @@ export function AJSuperPortal() {
 
   const submitComment = async () => {
     if (!newComment.trim() || !commentPostId) return;
-    const col = (socialScreen === 'pulse') ? 'pulse_posts' : 'user_posts';
+    // Comments are stored in user_posts/{postId}/comments for both TikReels and Pulse
     try {
-      await addDoc(collection(db, col, commentPostId, "comments"), {
-        text:newComment, username:username||"AJ_Member",
-        photo:user?.photoURL||'', createdAt:serverTimestamp()
-      });
-      const commentText = newComment;
+      const commentData = {
+        text: newComment,
+        username: username || "AJ_Member",
+        photo: user?.photoURL || '',
+        createdAt: serverTimestamp()
+      };
+      await addDoc(collection(db, "user_posts", commentPostId, "comments"), commentData);
+      // Also increment commentCount on the post
+      try {
+        await updateDoc(doc(db, "user_posts", commentPostId), { commentCount: increment(1) });
+      } catch {}
       setNewComment('');
       setVvipAlert({msg:`💬 Comment posted!`,icon:'💬'});
     } catch(e) { console.error('submitComment', e); setVvipAlert({msg:'Failed to post comment. Try again.',icon:'⚠️'}); }
@@ -2903,7 +2991,7 @@ export function AJSuperPortal() {
                     if (idx > 0 && idx % 4 === 0) {
                       return (
                         <div key={`tik_ad_${idx}`} data-vidx={idx} className="relative w-full h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
-                          <MonetagVideoAd publisherId={MONETAG_PULSE_BANNER}/>
+                          <MonetagVideoAd publisherId={MONETAG_PULSE_BANNER} type="interstitial"/>
                         </div>
                       );
                     }
@@ -3192,7 +3280,7 @@ export function AJSuperPortal() {
                     if (idx > 0 && idx % 4 === 0) {
                       return (
                         <div key={`pulse_ad_${idx}`} data-vidx={idx} className="relative w-full h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
-                          <MonetagVideoAd publisherId={MONETAG_PULSE_BANNER}/>
+                          <MonetagVideoAd publisherId={MONETAG_PULSE_BANNER} type="interstitial"/>
                         </div>
                       );
                     }
@@ -3347,35 +3435,7 @@ export function AJSuperPortal() {
                 </div>
               )}
 
-              {/* Pulse Comment Sheet */}
-              {commentPostId && (
-                <div className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end">
-                  <div className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl p-6 max-h-[70vh] flex flex-col">
-                    <div className="flex items-center justify-between mb-4">
-                      <p className="text-sm font-black text-white">Comments</p>
-                      <button onClick={() => setCommentPostId(null)}><X size={18} className="text-gray-400"/></button>
-                    </div>
-                    <div className="flex-1 overflow-y-auto space-y-3 mb-4">
-                      {postComments.length === 0 && <p className="text-gray-500 text-xs text-center mt-4">No comments yet. Be first!</p>}
-                      {postComments.map((c:any) => (
-                        <div key={c.id} className="flex items-start gap-2">
-                          <img src={c.photo||'/logo.png'} className="w-7 h-7 rounded-full border border-white/20 object-cover flex-shrink-0"/>
-                          <div className="bg-white/5 rounded-2xl px-3 py-2 flex-1">
-                            <p className="text-[9px] text-pink-400 font-black">@{c.username}</p>
-                            <p className="text-white text-xs mt-0.5">{c.text}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="flex gap-2">
-                      <input autoFocus value={newComment} onChange={e => setNewComment(e.target.value)} placeholder="Add a comment…" className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-3 py-2 text-white text-xs focus:outline-none focus:border-pink-500/50" onKeyDown={e => e.key==='Enter' && submitComment()}/>
-                      <button onClick={submitComment} className="w-10 h-10 bg-pink-600 rounded-2xl flex items-center justify-center active:scale-90 transition-all">
-                        <Send size={14} className="text-white"/>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
+
             </div>
           )}
 
@@ -3849,6 +3909,36 @@ export function AJSuperPortal() {
                   </div>
                 </div>
               )}
+
+              {/* Shared Comment Sheet — works for TikReels AND Pulse */}
+              {commentPostId && (
+                <div className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end">
+                  <div className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl p-6 max-h-[70vh] flex flex-col">
+                    <div className="flex items-center justify-between mb-4">
+                      <p className="text-sm font-black text-white">💬 Comments</p>
+                      <button onClick={() => { setCommentPostId(null); setPostComments([]); }}><X size={18} className="text-gray-400"/></button>
+                    </div>
+                    <div className="flex-1 overflow-y-auto space-y-3 mb-4">
+                      {postComments.length === 0 && <p className="text-gray-500 text-xs text-center mt-4">No comments yet. Be the first to comment!</p>}
+                      {postComments.map((c:any) => (
+                        <div key={c.id} className="flex items-start gap-2">
+                          <img src={c.photo||'/logo.png'} className="w-7 h-7 rounded-full border border-white/20 object-cover flex-shrink-0"/>
+                          <div className="bg-white/5 rounded-2xl px-3 py-2 flex-1">
+                            <p className="text-[9px] text-pink-400 font-black">@{c.username}</p>
+                            <p className="text-white text-xs mt-0.5">{c.text}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <input autoFocus value={newComment} onChange={e => setNewComment(e.target.value)} placeholder="Add a comment…" className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-3 py-2 text-white text-xs focus:outline-none focus:border-pink-500/50" onKeyDown={e => e.key==='Enter' && submitComment()}/>
+                      <button onClick={submitComment} className="w-10 h-10 bg-pink-600 rounded-2xl flex items-center justify-center active:scale-90 transition-all shadow-[0_0_12px_rgba(236,72,153,0.4)]">
+                        <Send size={14} className="text-white"/>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -3874,6 +3964,10 @@ export function AJSuperPortal() {
           {!selectedGame ? (
             <div className="px-4 py-4 space-y-3">
               <MonetagBanner siteId={MONETAG_PULSE_BANNER}/>
+              {/* Video Ad — Games Screen */}
+              <div className="w-full h-[420px] relative rounded-2xl overflow-hidden border border-pink-500/20">
+                <MonetagVideoAd publisherId={MONETAG_PULSE_BANNER} type="interstitial"/>
+              </div>
               {[
                 { id:'rider',    name:'Rider King',       emoji:'🏍️', desc:'Dodge obstacles, earn coins', url:'/games/rider-king/index.html' },
                 { id:'racer',    name:'Pulse Racer',      emoji:'🏎️', desc:'Speed racing challenge',      url:'/games/pulse-racer/index.html' },
@@ -3907,6 +4001,13 @@ export function AJSuperPortal() {
                 <button onClick={() => setSelectedGame(null)} className="flex items-center gap-1.5 text-[10px] text-gray-400 font-black active:scale-90 transition-all">
                   <ArrowLeft size={12}/> Back to Games
                 </button>
+                <span className="ml-auto text-[9px] text-pink-400 font-black bg-pink-500/10 border border-pink-500/20 px-2 py-0.5 rounded-full">1 Token = 0.01 Coin</span>
+              </div>
+              {/* Video Ad — Playing Game */}
+              <div className="px-4 pt-2">
+                <div className="w-full h-[200px] relative rounded-xl overflow-hidden border border-cyan-500/20">
+                  <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} type="banner"/>
+                </div>
               </div>
               {selectedGame ? (
                 <iframe
