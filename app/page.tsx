@@ -1,5 +1,12 @@
 "use client";
 // ============================================================
+// CRITICAL FIX V2 (Hinglish):
+// 1. Iframe Isolation: Ad ko ab hum iframe ke andar load kar rahe hain. Isse agar ad crash bhi ho jaye, toh aapki app "This page could not load" par nahi jayegi.
+// 2. No Main Thread Blocking: Ad script ab main app ko disturb nahi karegi.
+// 3. Duplicate Prevention: Ek hi ad script baar baar load hone se browser block ho raha tha, usey check laga kar fix kiya hai.
+// ============================================================
+
+// ============================================================
 // FINAL LAUNCH FIXES (Hinglish):
 // 1. Ads Fix: "Page could not load" error ko cleanup logic se solve kiya gaya hai.
 // 2. Pulse Comments: Pulse posts par comment nahi ho rahe thay kyunki wo 'user_posts' mein dhoond raha tha, ab fixed hai.
@@ -112,7 +119,7 @@ const triggerInterstitialAd = () => {
         (window as any).show_9087571();
       }
       try {
-        const s = document.createElement('script');
+        const existing = document.querySelector('script[data-zone="' + MONETAG_INTERSTITIAL + '"]'); if(existing) return; const s = document.createElement('script');
         s.async = true;
         s.setAttribute('data-zone', String(MONETAG_INTERSTITIAL));
         s.setAttribute('data-ad-type', 'monetag-trigger');
@@ -336,7 +343,7 @@ function MonetagBanner({ siteId }: { siteId: number }) {
     if (containerRef.current.innerHTML) containerRef.current.innerHTML = '';
     try {
       // Inject Monetag push/banner ad script
-      const s = document.createElement('script');
+      const existing = document.querySelector('script[data-zone="' + MONETAG_INTERSTITIAL + '"]'); if(existing) return; const s = document.createElement('script');
       s.async = true;
       s.setAttribute('data-zone', String(siteId));
       // Monetag CDN — zone 11337197 = push/banner, 11349676 = interstitial
@@ -414,79 +421,78 @@ function VVIPAlert({ msg, icon, onClose }: { msg: string; icon?: string; onClose
 // ============================================================
 const AJ_AD_VIDEO_ID = 'aqz-KE-bpKQ'; // fallback
 
+
 function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: number; type?: 'interstitial'|'banner' }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [adReady, setAdReady] = useState(false);
-  const adKeyRef = useRef(Math.random().toString(36).substring(7));
+  const adKey = useRef(Math.random().toString(36).substring(7));
+
   useEffect(() => {
     if (!containerRef.current) return;
-    // Clear previous ad content on re-mount
-    if (containerRef.current.innerHTML) containerRef.current.innerHTML = '';
-    // Unique key set
+    const container = containerRef.current;
+    container.innerHTML = '';
     setAdReady(false);
-    try {
-      // Method 1: atOptions iframe method (video/interstitial)
-      const s = document.createElement('script');
-      s.type = 'text/javascript';
-      s.innerHTML = `
-        if (!window.atOptions) window.atOptions = {};
-        window.atOptions[adKeyRef.current] = {
-          'key': '${publisherId}',
-          'format': 'iframe',
-          'height': ${type === 'banner' ? 250 : 500},
-          'width': ${type === 'banner' ? 300 : 320},
-          'params': {}
-        };
-      `;
-      containerRef.current.appendChild(s);
-      const s2 = document.createElement('script');
-      s2.type = 'text/javascript';
-      s2.src = `//www.highperformanceformat.com/${publisherId}/invoke.js`;
-      s2.onload = () => setAdReady(true);
-      containerRef.current.appendChild(s2);
-      // Timeout fallback — show "Ad" label even if ad doesn't load
-      const timer = setTimeout(() => setAdReady(true), 2000);
-      return () => { clearTimeout(timer); };
-    } catch {
-      setAdReady(true);
+
+    // FIX: "This page could not load" error ko khatam karne ke liye 
+    // hum ad ko ek isolated iframe mein load karenge.
+    const iframe = document.createElement('iframe');
+    iframe.style.width = '100%';
+    iframe.style.height = '100%';
+    iframe.style.border = 'none';
+    iframe.style.backgroundColor = 'transparent';
+    container.appendChild(iframe);
+
+    const doc = iframe.contentWindow?.document || iframe.contentDocument;
+    if (doc) {
+      doc.open();
+      doc.write(`
+        <html>
+          <body style="margin:0; padding:0; background:black; display:flex; align-items:center; justify-content:center;">
+            <div id="ad-slot"></div>
+            <script type="text/javascript">
+              window.atOptions = {
+                'key': '${publisherId}',
+                'format': 'iframe',
+                'height': ${type === 'banner' ? 250 : 500},
+                'width': ${type === 'banner' ? 300 : 320},
+                'params': {}
+              };
+              var s = document.createElement('script');
+              s.type = 'text/javascript';
+              s.src = '//www.highperformanceformat.com/${publisherId}/invoke.js';
+              s.onload = function() { window.parent.postMessage('ad-loaded-${adKey.current}', '*'); };
+              document.getElementById('ad-slot').appendChild(s);
+            </script>
+          </body>
+        </html>
+      `);
+      doc.close();
     }
-    try {
-      // Method 2: tag.min.js — interstitial/push
-      if (type === 'interstitial') {
-        const s3 = document.createElement('script');
-        s3.async = true;
-        s3.setAttribute('data-zone', String(publisherId));
-        s3.src = 'https://nap5k.com/tag.min.js';
-        containerRef.current.appendChild(s3);
-      }
-    } catch {}
+
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data === `ad-loaded-${adKey.current}`) setAdReady(true);
+    };
+    window.addEventListener('message', handleMessage);
+
+    const timer = setTimeout(() => setAdReady(true), 4000);
+    return () => {
+      window.removeEventListener('message', handleMessage);
+      clearTimeout(timer);
+    };
   }, [publisherId, type]);
+
   return (
     <div className="absolute inset-0 w-full h-full bg-[#050505] overflow-hidden flex flex-col items-center justify-center">
-      {/* Real Monetag ad container */}
-      <div ref={containerRef} className="relative w-full h-full flex items-center justify-center" style={{ zIndex: 5, minHeight: type === 'banner' ? 250 : 500 }}>
-        {!adReady && (
-          <div className="flex flex-col items-center gap-3">
-            <div className="w-12 h-12 rounded-full border-2 border-pink-500 border-t-transparent animate-spin"/>
-            <span className="text-gray-400 text-xs font-black uppercase tracking-widest">Loading Ad...</span>
-          </div>
-        )}
-      </div>
-      {/* Ad label overlay */}
+      <div ref={containerRef} className="relative w-full h-full flex items-center justify-center" style={{ zIndex: 5 }} />
+      {!adReady && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-10">
+          <div className="w-12 h-12 rounded-full border-2 border-pink-500 border-t-transparent animate-spin"/>
+          <span className="text-gray-400 text-xs font-black uppercase tracking-widest mt-3">Loading Sponsored Content...</span>
+        </div>
+      )}
       <div className="absolute top-4 left-4 z-20 pointer-events-none">
         <span className="bg-pink-600/90 backdrop-blur-sm text-white text-[9px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest shadow-[0_0_14px_rgba(236,72,153,0.7)]">
           📢 Sponsored
-        </span>
-      </div>
-      <div className="absolute bottom-6 left-4 z-20 pointer-events-none">
-        <span className="bg-[#050505]/60 backdrop-blur-sm text-gray-400 text-[10px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest">
-          Ad · Scroll to skip
-        </span>
-      </div>
-      {/* Ad skip indicator */}
-      <div className="absolute top-4 right-4 z-20">
-        <span className="bg-white/10 backdrop-blur-sm text-gray-300 text-[9px] font-black px-2.5 py-1 rounded-full border border-white/10">
-          {adReady ? '✓ Ad Loaded' : '⏳ Loading...'}
         </span>
       </div>
     </div>
@@ -1565,7 +1571,7 @@ export function AJSuperPortal() {
         existing.addEventListener('load', () => resolve());
         return;
       }
-      const s = document.createElement('script');
+      const existingScriptQuery = document.querySelector('script[data-zone="' + MONETAG_INTERSTITIAL + '"]'); if(existing) return; const s = document.createElement('script');
       s.id = 'zego-sdk-script';
       s.src = 'https://unpkg.com/@zegocloud/zego-uikit-prebuilt/zego-uikit-prebuilt.js';
       s.async = true;
