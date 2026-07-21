@@ -2445,54 +2445,28 @@ useEffect(() => {
                     <Radio size={13} className="animate-pulse"/><span className="text-[9px] font-black">🔴</span>
                   </button>
                 </div>
-               
 
-                {/* CREATE (TikReels) */}
-                {tiktabMode==='create' && (
-                  <div className="max-w-md mx-auto p-6 space-y-6">
-                    <h3 className="text-xl font-black text-pink-500 uppercase tracking-widest">📹 Create Video Post</h3>
-                    <div className="border-2 border-dashed border-pink-500/40 rounded-3xl p-8 text-center cursor-pointer bg-white/5 hover:bg-white/5 backdrop-blur-xl border border-white/10 transition-all" onClick={handleTiktokImage}>
-                      {tiktokPostImg
-                        ? tiktokPostIsVideo
-                          ? <video src={tiktokPostImg} controls className="w-full max-h-64 rounded-2xl object-cover" playsInline/>
-                          : <img src={tiktokPostImg} className="w-full max-h-48 object-cover rounded-2xl"/>
-                        : <><Film size={48} className="text-pink-500/40 mx-auto mb-3"/><p className="text-[10px] text-gray-500 uppercase font-black">Tap to select Video / Image</p></>
-                      }
-                    </div>
-                    <textarea value={tiktokPostText} onChange={e => setTiktokPostText(e.target.value)} placeholder="Add caption..."
-                      className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm text-white outline-none focus:border-pink-500 h-24 font-bold"/>
-                    {/* Fix 3a: Select Audio / Music from Phone */}
-                    <button
-                      type="button"
-                      onClick={() => audioFileRef.current?.click()}
-                      className="w-full py-3 bg-white/5 border border-pink-500/30 rounded-2xl font-black uppercase text-pink-400 text-xs tracking-widest flex items-center justify-center gap-2 hover:bg-pink-500/10  transition-all"
-                    >
-                      <Music size={14}/> {tiktokAudioFile ? `🎵 ${tiktokAudioFile.name}` : 'Select Audio / Music from Phone'}
-                    </button>
-                    {selectedSound && !tiktokAudioFile && (
-                      <p className="text-[10px] text-pink-400 font-bold text-center">🎵 Using: {selectedSound.slice(0,40)}</p>
-                    )}
-                    <button onClick={handleTiktokPost} className="w-full py-4 bg-pink-600 rounded-2xl font-black uppercase text-white tracking-widest shadow-lg  transition-all">
-                      PUBLISH (+20 🪙)
-                    </button>{tiktabMode === 'feed' && (
-  <div ref={videoFeedRef} className="h-full w-full max-w-md mx-auto snap-y snap-mandatory overflow-y-auto no-scrollbar bg-black relative">
-    {merged.length === 0 ? (
+               {/* FEED (TikReels) */}
+               {tiktabMode === 'feed' && (
+            <div ref={videoFeedRef} className="h-full w-full max-w-md mx-auto snap-y snap-mandatory overflow-y-auto no-scrollbar bg-black relative">
+           {(!userPosts || userPosts.length === 0) ? (
       <div className="h-full flex flex-col items-center justify-center text-center p-6 text-gray-500">
         <p className="text-sm font-bold uppercase tracking-wider mb-2">No Reels Yet</p>
         <p className="text-xs">Be the first to upload a TikReel!</p>
       </div>
     ) : (
-      merged.map((p: any, idx: number) => {
-        const isYouTube = p.url?.includes('youtube.com') || p.url?.includes('youtu.be') || p.vid?.includes('youtube');
+      userPosts.map((p: any, idx: number) => {
+        const videoSrc = p.url || p.videoUrl || p.mediaUrl || p.video || '';
+        const isYouTube = videoSrc.includes('youtube.com') || videoSrc.includes('youtu.be');
         const ytEmbedUrl = isYouTube ? (
-          p.url?.includes('embed') 
-            ? p.url 
-            : `https://www.youtube.com/embed/${p.url?.split('v=')[1]?.split('&')[0] || p.url?.split('shorts/')[1]?.split('?')[0]}?autoplay=1&mute=${globalSoundOn ? 0 : 1}&controls=0&loop=1`
+          videoSrc.includes('embed') 
+            ? videoSrc 
+            : `https://www.youtube.com/embed/${videoSrc.split('v=')[1]?.split('&')[0] || videoSrc.split('shorts/')[1]?.split('?')[0]}?autoplay=1&mute=${globalSoundOn ? 0 : 1}&controls=0&loop=1`
         ) : null;
 
         return (
           <div key={p.id || idx} className="h-full w-full snap-start relative flex items-center justify-center bg-black overflow-hidden shrink-0">
-            {/* Media Player: YouTube Shorts vs Direct MP4/Image */}
+            {/* Media Player */}
             {isYouTube && ytEmbedUrl ? (
               <iframe 
                 src={ytEmbedUrl} 
@@ -2500,10 +2474,10 @@ useEffect(() => {
                 allow="autoplay; encrypted-media" 
                 title="Shorts"
               />
-            ) : p.isVideo || p.url?.includes('.mp4') ? (
-              <video src={p.url || p.videoUrl} className="w-full h-full object-cover" autoPlay loop muted={!globalSoundOn} playsInline />
+            ) : p.isVideo || videoSrc.includes('.mp4') || videoSrc.includes('video') ? (
+              <video src={videoSrc} className="w-full h-full object-cover" autoPlay loop muted={!globalSoundOn} playsInline />
             ) : (
-              <img src={p.url || p.photo || p.image || '/logo.png'} className="w-full h-full object-cover" />
+              <img src={videoSrc || p.photo || p.image || '/logo.png'} className="w-full h-full object-cover" />
             )}
 
             {/* Mute/Unmute Toggle Button */}
@@ -2511,9 +2485,8 @@ useEffect(() => {
               {globalSoundOn ? '🔊' : '🔇'}
             </button>
 
-            {/* TikTok Right Action Sidebar */}
+            {/* Right Action Sidebar */}
             <div className="absolute right-3 bottom-20 z-30 flex flex-col items-center gap-5">
-              {/* Working Avatar Click -> Opens Profile */}
               <button 
                 type="button" 
                 onClick={() => setTiktabMode('profile')} 
@@ -2523,7 +2496,7 @@ useEffect(() => {
                 <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 bg-pink-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] font-bold">+</span>
               </button>
               
-              <button onClick={() => handleLikePost(p.id)} className="flex flex-col items-center gap-1 group">
+              <button onClick={() => handleLike(p.id)} className="flex flex-col items-center gap-1 group">
                 <div className="p-3 bg-black/40 backdrop-blur-md rounded-full border border-white/10 group-active:scale-125 transition-transform">
                   ❤️
                 </div>
@@ -2559,6 +2532,35 @@ useEffect(() => {
     )}
   </div>
 )}
+
+                {/* CREATE (TikReels) */}
+                {tiktabMode==='create' && (
+                  <div className="max-w-md mx-auto p-6 space-y-6">
+                    <h3 className="text-xl font-black text-pink-500 uppercase tracking-widest">📹 Create Video Post</h3>
+                    <div className="border-2 border-dashed border-pink-500/40 rounded-3xl p-8 text-center cursor-pointer bg-white/5 hover:bg-white/5 backdrop-blur-xl border border-white/10 transition-all" onClick={handleTiktokImage}>
+                      {tiktokPostImg
+                        ? tiktokPostIsVideo
+                          ? <video src={tiktokPostImg} controls className="w-full max-h-64 rounded-2xl object-cover" playsInline/>
+                          : <img src={tiktokPostImg} className="w-full max-h-48 object-cover rounded-2xl"/>
+                        : <><Film size={48} className="text-pink-500/40 mx-auto mb-3"/><p className="text-[10px] text-gray-500 uppercase font-black">Tap to select Video / Image</p></>
+                      }
+                    </div>
+                    <textarea value={tiktokPostText} onChange={e => setTiktokPostText(e.target.value)} placeholder="Add caption..."
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm text-white outline-none focus:border-pink-500 h-24 font-bold"/>
+                    {/* Fix 3a: Select Audio / Music from Phone */}
+                    <button
+                      type="button"
+                      onClick={() => audioFileRef.current?.click()}
+                      className="w-full py-3 bg-white/5 border border-pink-500/30 rounded-2xl font-black uppercase text-pink-400 text-xs tracking-widest flex items-center justify-center gap-2 hover:bg-pink-500/10  transition-all"
+                    >
+                      <Music size={14}/> {tiktokAudioFile ? `🎵 ${tiktokAudioFile.name}` : 'Select Audio / Music from Phone'}
+                    </button>
+                    {selectedSound && !tiktokAudioFile && (
+                      <p className="text-[10px] text-pink-400 font-bold text-center">🎵 Using: {selectedSound.slice(0,40)}</p>
+                    )}
+                    <button onClick={handleTiktokPost} className="w-full py-4 bg-pink-600 rounded-2xl font-black uppercase text-white tracking-widest shadow-lg  transition-all">
+                      PUBLISH (+20 🪙)
+                    </button>
                   </div>
                 )}
 
