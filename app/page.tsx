@@ -355,26 +355,15 @@ function VVIPAlert({ msg, icon, onClose }: { msg: string; icon?: string; onClose
 }
 
 // ============================================================
-// MONETAG VIDEO AD COMPONENT — YouTube embed + Monetag script
+// MONETAG VIDEO AD COMPONENT — YouTube embed
 // ============================================================
-const AJ_AD_VIDEO_ID = PULSE_AD_VIDEO_ID || 'aqz-KE-bpKQ';
+const AJ_AD_VIDEO_ID = 'aqz-KE-bpKQ';
 
 function MonetagVideoAd({ publisherId }: { publisherId: number }) {
   const [adMuted, setAdMuted] = React.useState(true);
-  const containerRef = React.useRef<HTMLDivElement>(null);
-  React.useEffect(() => {
-    if (!containerRef.current) return;
-    try {
-      const s = document.createElement('script');
-      s.async = true;
-      s.dataset.zone = String(publisherId);
-      s.src = 'https://nap5k.com';
-      containerRef.current.appendChild(s);
-    } catch {}
-  }, [publisherId]);
   const adSrc = `https://www.youtube-nocookie.com/embed/${AJ_AD_VIDEO_ID}?autoplay=1&mute=${adMuted?1:0}&loop=1&playlist=${AJ_AD_VIDEO_ID}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3`;
   return (
-    <div ref={containerRef} className="absolute inset-0 w-full h-full bg-[#050505] overflow-hidden">
+    <div className="absolute inset-0 w-full h-full bg-[#050505] overflow-hidden">
       <iframe
         src={adSrc}
         className="absolute inset-0 w-full h-full"
@@ -409,25 +398,55 @@ function MonetagVideoAd({ publisherId }: { publisherId: number }) {
 // ============================================================
 function CinematicGiftOverlay({ gift, sender, onDone }: { gift: any; sender: string; onDone: () => void }) {
   useEffect(() => {
-    const t = setTimeout(onDone, 3500);
+    const t = setTimeout(onDone, 4000);
     return () => clearTimeout(t);
   }, []);
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center pointer-events-none">
-      <div className="flex flex-col items-center gap-4 animate-bounce">
-        <div className="text-9xl drop-shadow-[0_0_40px_rgba(255,215,0,0.8)] animate-pulse">{gift.icon}</div>
-        <p className="text-2xl font-black text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text uppercase tracking-widest drop-shadow-[0_0_20px_gold]">{gift.name}!</p>
-        <p className="text-sm text-white font-bold opacity-80">from @{sender}</p>
-        <div className="flex gap-4 text-4xl">
-          <span className="animate-spin">✨</span>
+      {/* Background glow */}
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm"/>
+      {/* Confetti particles */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        {['✨','🎊','💫','🌟','⭐','🎉','💛','🔥'].map((emoji, i) => (
+          <span key={i} className="absolute text-2xl animate-bounce" style={{
+            left: `${Math.random()*90}%`,
+            top: `${Math.random()*90}%`,
+            animationDelay: `${i*0.2}s`,
+            animationDuration: `${1+Math.random()*2}s`
+          }}>{emoji}</span>
+        ))}
+      </div>
+      <div className="relative flex flex-col items-center gap-5" style={{animation:'bounceIn 0.6s ease-out'}}>
+        {/* Gift icon with glow */}
+        <div className="relative">
+          <div className="absolute inset-0 bg-yellow-400/30 rounded-full blur-3xl animate-pulse" style={{transform:'scale(3)'}}/>
+          <div className="text-[10rem] leading-none animate-bounce drop-shadow-[0_0_60px_rgba(255,215,0,0.9)]">{gift.icon}</div>
+        </div>
+        {/* Gift name */}
+        <p className="text-3xl font-black bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-600 bg-clip-text text-transparent uppercase tracking-widest" style={{filter:'drop-shadow(0 0 20px rgba(255,215,0,0.5))'}}>{gift.name}!</p>
+        {/* Cost */}
+        <div className="flex items-center gap-2 bg-yellow-500/20 border border-yellow-500/40 rounded-full px-4 py-1.5">
+          <span className="text-yellow-400 font-black text-lg">{gift.cost.toLocaleString()}</span>
+          <span className="text-yellow-300 text-sm">🪙</span>
+        </div>
+        {/* From */}
+        <p className="text-white font-bold text-sm opacity-90">from <span className="text-pink-400">@{sender}</span></p>
+        {/* Bottom icons */}
+        <div className="flex gap-5 text-3xl mt-2">
+          <span className="animate-spin" style={{animationDuration:'2s'}}>✨</span>
           <span className="animate-bounce" style={{animationDelay:'0.2s'}}>🎊</span>
-          <span className="animate-spin" style={{animationDelay:'0.4s'}}>✨</span>
+          <span className="animate-pulse" style={{animationDelay:'0.4s'}}>💫</span>
+          <span className="animate-bounce" style={{animationDelay:'0.6s'}}>🎉</span>
+          <span className="animate-spin" style={{animationDuration:'2s',animationDelay:'0.8s'}}>✨</span>
         </div>
       </div>
+      {/* Expanding rings */}
       <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute inset-0 border-8 border-yellow-400/30 rounded-full m-8 animate-ping"/>
-        <div className="absolute inset-0 border-4 border-yellow-400/20 rounded-full m-16 animate-ping" style={{animationDelay:'0.5s'}}/>
+        <div className="absolute inset-0 border-[6px] border-yellow-400/40 rounded-full m-8 animate-ping"/>
+        <div className="absolute inset-0 border-[4px] border-yellow-400/25 rounded-full m-16 animate-ping" style={{animationDelay:'0.5s'}}/>
+        <div className="absolute inset-0 border-[2px] border-yellow-400/15 rounded-full m-24 animate-ping" style={{animationDelay:'1s'}}/>
       </div>
+      <style>{`@keyframes bounceIn{0%{transform:scale(0.3);opacity:0}50%{transform:scale(1.1)}70%{transform:scale(0.9)}100%{transform:scale(1);opacity:1}}`}</style>
     </div>
   );
 }
@@ -526,15 +545,13 @@ function AJFooter() {
           <div className="flex flex-col items-center gap-3">
             <div className="relative">
               <div
-                className="w-16 h-16 rounded-full overflow-hidden border-2 border-pink-500/60"
-                style={{ boxShadow: '0 0 20px rgba(236,72,153,0.4)' }}
+                className="w-28 h-28 rounded-full overflow-hidden border-3 border-pink-500/60"
+                style={{ boxShadow: '0 0 40px rgba(236,72,153,0.7)' }}
               >
-                {/* Placeholder avatar — replace src with real photo */}
                 <img
                   src="/founder_card.jpg"
                   alt="Ali Asim"
                   className="w-full h-full object-cover"
-                  onError={e => { (e.target as HTMLImageElement).src = '/logo.png'; }}
                 />
               </div>
               {/* Neon ring */}
@@ -674,7 +691,6 @@ export function AJSuperPortal() {
 
   // ── INTERACTIONS
   const [likedPosts,    setLikedPosts]    = useState<any>({});
-  const [postLikeCounts, setPostLikeCounts] = useState<{[key:string]:number}>({});
   const [activeMenuId,  setActiveMenuId]  = useState<string|null>(null);
   const [vvipAlert,     setVvipAlert]     = useState<{msg:string,icon?:string}|null>(null);
   const [editPostId,    setEditPostId]    = useState<string|null>(null);
@@ -683,7 +699,6 @@ export function AJSuperPortal() {
   const [showNotifs,    setShowNotifs]    = useState(false);
   const [isMutualFriend,setIsMutualFriend]= useState(false);
   const [commentPostId, setCommentPostId] = useState<string|null>(null);
-  const [commentCounts, setCommentCounts] = useState<{[key:string]:number}>({});
   const [postComments,  setPostComments]  = useState<any[]>([]);
   const [newComment,    setNewComment]    = useState('');
   const [selectedSound,     setSelectedSound]     = useState<string|null>(null);
@@ -777,7 +792,7 @@ export function AJSuperPortal() {
   const [pulseTab, setPulseTab] = useState<'feed'|'create'|'profile'>('feed');
 
   // ── PULSE MUTE STATE
-  const [pulseMuted, setPulseMuted] = useState(true);
+  const [pulseMuted, setPulseMuted] = useState(false);
 
   // ── LIVE STREAM CHAT
   const [liveChatOpen,     setLiveChatOpen]     = useState(false);
@@ -795,7 +810,7 @@ export function AJSuperPortal() {
   const viewerUnsubRef   = useRef<any>(null);
 
   // ── GLOBAL SOUND TOGGLE for TikReels (FIX #6: default OFF, UNMUTE ALL button)
-  const [globalSoundOn, setGlobalSoundOn] = useState(false);
+  const [globalSoundOn, setGlobalSoundOn] = useState(true);
 
   // ── WECHAT CONTACTS
   const [wechatContacts, setWechatContacts] = useState<string[]>([]);
@@ -829,6 +844,10 @@ export function AJSuperPortal() {
 
   // ── PULSE GIFT PANEL
   const [pulseGiftPostId, setPulseGiftPostId] = useState<string|null>(null);
+
+  // ── LIVE GIFT PANEL (for both host and viewer)
+  const [liveGifting, setLiveGifting] = useState(false);
+  const [liveGiftPanelOpen, setLiveGiftPanelOpen] = useState(false);
 
   // ── USER PROFILE (viewer)
   const [viewingUid,    setViewingUid]    = useState<string|null>(null);
@@ -957,25 +976,16 @@ export function AJSuperPortal() {
     if (socialScreen==='tikreels') {
       try {
         const q = query(collection(db,"user_posts"), orderBy("createdAt","desc"), limit(20));
-        return onSnapshot(q, snap => {
-          const posts = snap.docs.map(d=>({id:d.id,...d.data()}));
-          setUserPosts(posts);
-          const lc: {[key:string]:number} = {};
-          posts.forEach((p: any) => { lc[p.id] = p.likes || 0; });
-          setPostLikeCounts(c => ({ ...c, ...lc }));
-        });
+        return onSnapshot(q, snap => setUserPosts(snap.docs.map(d=>({id:d.id,...d.data()}))));
       } catch {}
     }
     if (socialScreen==='pulse') {
       try {
         const q = query(collection(db,"pulse_posts"), orderBy("createdAt","desc"), limit(20));
         return onSnapshot(q, snap => {
-        const firestorePosts = snap.docs.map(d=>({id:d.id,...d.data()}));
+          const firestorePosts = snap.docs.map(d=>({id:d.id,...d.data()}));
           // FIX #5: APPEND Firestore posts, do NOT delete Unsplash photos
           setPulsePosts(firestorePosts);
-          const lc: {[key:string]:number} = {};
-          firestorePosts.forEach((p: any) => { lc[p.id] = p.likes || 0; });
-          setPostLikeCounts(c => ({ ...c, ...lc }));
         });
       } catch {}
     }
@@ -983,11 +993,7 @@ export function AJSuperPortal() {
       try {
         const col = (socialScreen === 'pulse') ? 'pulse_posts' : 'user_posts';
         const q = query(collection(db, col, commentPostId,"comments"), orderBy("createdAt","asc"));
-        return onSnapshot(q, snap => {
-          const comments = snap.docs.map(d=>({id:d.id,...d.data()}));
-          setPostComments(comments);
-          setCommentCounts(c => ({ ...c, [commentPostId]: comments.length }));
-        });
+        return onSnapshot(q, snap => setPostComments(snap.docs.map(d=>({id:d.id,...d.data()}))));
       } catch {}
     }
     return () => {};
@@ -1000,7 +1006,6 @@ export function AJSuperPortal() {
       return onSnapshot(q, snap => {
         const items = snap.docs.map(d=>({id:d.id,...d.data()}));
         setNotifications(items);
-        setUnreadCount(items.length);
       });
     } catch {}
     return () => {};
@@ -1124,43 +1129,91 @@ export function AJSuperPortal() {
   // FIREBASE REALTIME REELS & PULSE SYNC
   useEffect(() => {
     const unsubReels = onSnapshot(collection(db, "reels"), (snapshot) => {
-      const posts = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      setUserPosts(posts);
-      const counts: {[key:string]:number} = {};
-      posts.forEach((p: any) => { counts[p.id] = p.likes || 0; });
-      setPostLikeCounts(c => ({ ...c, ...counts }));
+      setUserPosts(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
     });
     const unsubPulse = onSnapshot(collection(db, "posts"), (snapshot) => {
-      const posts = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      setPulsePosts(posts);
-      const counts: {[key:string]:number} = {};
-      posts.forEach((p: any) => { counts[p.id] = p.likes || 0; });
-      setPostLikeCounts(c => ({ ...c, ...counts }));
+      setPulsePosts(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
     });
     return () => { unsubReels(); unsubPulse(); };
   }, []);
 
-  // ── GAME COINS: postMessage listener (Game Bridge)
+  // ── GAME COINS: postMessage listener (Game Bridge) + iframe injection
   useEffect(() => {
     if (!user) return;
     const handleGameMessage = async (e: MessageEvent) => {
-      if (!e.data || e.data.type !== "GAME_SCORE") return;
-      const coinsEarned = e.data.score * 0.010;
-      if (!coinsEarned || coinsEarned <= 0 || isNaN(coinsEarned)) return;
-      try {
-        await updateDoc(doc(db, "users", user.uid), { balance: increment(coinsEarned) });
+      if (!e.data) return;
+      // Handle GAME_SCORE from HTML games
+      if (e.data.type === "GAME_SCORE" || e.data.type === "game_score" || e.data.type === "SCORE") {
+        const score = typeof e.data.score === 'number' ? e.data.score : Number(e.data.score);
+        const coinsEarned = score * 0.01;
+        if (!coinsEarned || coinsEarned <= 0 || isNaN(coinsEarned)) return;
         try {
-          await addDoc(collection(db, "notifications"), {
-            title: "🎮 Game Reward!",
-            message: `+${coinsEarned.toFixed(2)} Coins earned from Gaming Zone!`,
-            date: serverTimestamp(),
-          });
-        } catch {}
-      } catch(err) { console.error("Game coin credit error", err); }
+          await updateDoc(doc(db, "users", user.uid), { balance: increment(coinsEarned) });
+          setVvipAlert({msg:`🎮 +${coinsEarned.toFixed(2)} AJ Coins earned! Game score: ${score}`, icon:"🎮"});
+          try {
+            await addDoc(collection(db, "notifications"), {
+              title: "🎮 Game Reward!",
+              message: `+${coinsEarned.toFixed(2)} Coins earned from Gaming Zone! Score: ${score}`,
+              date: serverTimestamp(),
+            });
+          } catch {}
+        } catch(err) { console.error("Game coin credit error", err); }
+        return;
+      }
+      // Handle GAME_END from HTML games
+      if (e.data.type === "GAME_END" || e.data.type === "game_end") {
+        const score = typeof e.data.score === 'number' ? e.data.score : Number(e.data.score);
+        const coinsEarned = score * 0.01;
+        if (!coinsEarned || coinsEarned <= 0 || isNaN(coinsEarned)) return;
+        try {
+          await updateDoc(doc(db, "users", user.uid), { balance: increment(coinsEarned) });
+          setVvipAlert({msg:`🏆 Game Over! Score: ${score} = +${coinsEarned.toFixed(2)} AJ Coins!`, icon:"🏆"});
+        } catch(err) { console.error("Game end credit error", err); }
+      }
     };
     window.addEventListener("message", handleGameMessage);
     return () => window.removeEventListener("message", handleGameMessage);
   }, [user]);
+
+  // ── Inject bridge script into game iframes
+  useEffect(() => {
+    if (!selectedGame || !user) return;
+    const injectBridge = () => {
+      try {
+        const iframes = document.querySelectorAll('iframe');
+        iframes.forEach(iframe => {
+          if (iframe.src && iframe.src.includes('onlinegames') || (iframe.src && iframe.src.includes('games'))) {
+            try {
+              const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+              if (iframeDoc) {
+                const script = iframeDoc.createElement('script');
+                script.textContent = `
+                  window.addEventListener('message', function(e) {
+                    if (e.data && e.data.type === 'SEND_SCORE') {
+                      if (window.parent && window.parent !== window) {
+                        window.parent.postMessage({type: 'GAME_SCORE', score: e.data.score}, '*');
+                      }
+                    }
+                  });
+                  // Hook into common game score patterns
+                  if (typeof Game !== 'undefined' && Game.score !== undefined) {
+                    setInterval(function() {
+                      if (window.parent && Game.score) {
+                        window.parent.postMessage({type: 'GAME_SCORE', score: Game.score}, '*');
+                      }
+                    }, 2000);
+                  }
+                `;
+                (iframeDoc.head || iframeDoc.documentElement).appendChild(script);
+              }
+            } catch {}
+          }
+        });
+      } catch {}
+    };
+    const t = setTimeout(injectBridge, 3000);
+    return () => clearTimeout(t);
+  }, [selectedGame, user]);
 
   // PK Timer
   useEffect(() => {
@@ -1229,6 +1282,35 @@ export function AJSuperPortal() {
     };
   }, [pixaVideos, socialScreen, tiktabMode, userPosts, pulseTab, pulsePosts]);
 
+  // ── Increment views when video becomes active
+  const trackedViewsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const isTikFeed = socialScreen === 'tikreels' && tiktabMode === 'feed';
+    const isPulseFeed = socialScreen === 'pulse' && pulseTab === 'feed';
+    if (!isTikFeed && !isPulseFeed) return;
+    // Track views for user posts only
+    if (socialScreen === 'tikreels' && userPosts.length > 0) {
+      const localIdx = activeVideoIdx - pixaVideos.length;
+      if (localIdx >= 0 && userPosts[localIdx]) {
+        const postId = userPosts[localIdx].id;
+        if (!trackedViewsRef.current.has(postId)) {
+          trackedViewsRef.current.add(postId);
+          try { updateDoc(doc(db, 'user_posts', postId), { views: increment(1) }); } catch {}
+        }
+      }
+    }
+    if (socialScreen === 'pulse' && pulsePosts.length > 0) {
+      const localIdx = activeVideoIdx;
+      if (localIdx >= 0 && pulsePosts[localIdx] && pulsePosts[localIdx].isVideo) {
+        const postId = pulsePosts[localIdx].id;
+        if (!trackedViewsRef.current.has(`pulse_${postId}`)) {
+          trackedViewsRef.current.add(`pulse_${postId}`);
+          try { updateDoc(doc(db, 'pulse_posts', postId), { views: increment(1) }); } catch {}
+        }
+      }
+    }
+  }, [activeVideoIdx, socialScreen, tiktabMode, pulseTab]);
+
   // Audio Kill — when activeVideoIdx changes, blank ALL off-screen YouTube iframes immediately (FIX #6)
   useEffect(() => {
     const isTikFeed   = socialScreen === 'tikreels' && tiktabMode === 'feed';
@@ -1287,22 +1369,28 @@ export function AJSuperPortal() {
   // ==========================================================
   const startLive = async () => {
     if (!user) return;
-    const roomId = `live_${user.uid}_${Date.now()}`;
-    setLiveRoomId(roomId);
-    setLiveActive(true);
-    handleStartLiveOrCall(roomId, user.uid, username || 'AJ Member');
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      // First get camera permission and show preview
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } }, 
+        audio: true 
+      });
       liveStreamRef.current = stream;
       setCameraReady(true);
       if (liveVideoRef.current) {
         liveVideoRef.current.srcObject = stream;
-        liveVideoRef.current.play();
+        await liveVideoRef.current.play();
       }
+      // Now start ZegoCloud live
+      const roomId = `live_${user.uid}_${Date.now()}`;
+      setLiveRoomId(roomId);
+      setLiveActive(true);
+      handleStartLiveOrCall(roomId, user.uid, username || 'AJ Member');
       await setDoc(doc(db, "live_rooms", roomId), {
         uid: user.uid, username: username || 'AJ_Member',
         photo: tempPhoto || user.photoURL || '',
-        roomId, startedAt: serverTimestamp(), active: true, lastSeenMs: Date.now()
+        roomId, startedAt: serverTimestamp(), active: true, lastSeenMs: Date.now(),
+        viewerCount: 0, startedAtMs: Date.now(), liveViewers: 0
       });
       const heartbeat = setInterval(async () => {
         try { await updateDoc(doc(db, "live_rooms", roomId), { lastSeenMs: Date.now() }); } catch {}
@@ -1315,9 +1403,11 @@ export function AJSuperPortal() {
           deepLink: `/live/${roomId}`, date: serverTimestamp()
         });
       } catch {}
-    } catch {
-      setVvipAlert({msg:"Camera permission denied. Please allow camera access."});
+    } catch(e) {
+      console.error('startLive error', e);
+      setVvipAlert({msg:"⚠️ Camera permission denied. Please allow camera & mic access in your browser settings."});
       setCameraReady(false);
+      setLiveActive(false);
     }
   };
 
@@ -1425,33 +1515,53 @@ export function AJSuperPortal() {
   // GIFTING — 60% creator | 40% admin
   // ==========================================================
   const sendGift = async (creatorId:string, gift:{name:string,cost:number,icon:string}) => {
-    if (!user) return;
+    if (!user || creatorId === user.uid) {
+      // Self-gift: only deduct and add (no split)
+      if (creatorId === user.uid) {
+        if (balance < gift.cost) {
+          setVvipAlert({msg:`Insufficient Balance! Need ${gift.cost} 🪙`,icon:'💰'});
+          return;
+        }
+        try {
+          await updateDoc(doc(db,"users",user.uid), { balance: increment(0) }); // no-op for self
+          setCinematicGift(gift);
+          setCinematicSender(username || 'You');
+          setVvipAlert({msg:`${gift.icon} ${gift.name}! 🎉 (Self-gift, no coin change)`,icon:gift.icon});
+        } catch(e) { console.error('self-gift error', e); }
+        return;
+      }
+    }
     if (balance < gift.cost) {
       setVvipAlert({msg:`Insufficient Balance! Need ${gift.cost} 🪙 — Go to Wallet to recharge.`,icon:'💰'});
-      setScreen('wallet'); setWalletTab('purchase');
       return;
     }
     try {
+      // Deduct from sender
       await updateDoc(doc(db,"users",user.uid), { balance: increment(-gift.cost) });
+      // Credit streamer: 60% of gift cost
       const creatorShare = gift.cost * 0.60;
       const adminShare   = gift.cost * 0.40;
-      try { await updateDoc(doc(db,"users",creatorId), { balance: increment(creatorShare) }); } catch {}
+      await updateDoc(doc(db,"users",creatorId), { balance: increment(creatorShare) });
+      // Admin ledger
       try {
         await addDoc(collection(db,"admin_ledger"), {
           giftName:gift.name, totalCost:gift.cost, adminShare,
           senderUid:user.uid, creatorUid:creatorId, date:serverTimestamp()
         });
       } catch {}
+      // Notification to creator
       try {
-        await addDoc(collection(db,"notifications"), {
-          title:`Gift Received! ${gift.icon}`,
-          message:`You received ${gift.icon} ${gift.name} from @${username||'Anonymous'}. +${creatorShare} Coins (60% yours)`,
-          date:serverTimestamp()
+        await addDoc(collection(db,"users",creatorId,"notifications"), {
+          type:'gift', giftName:gift.name, giftIcon:gift.icon,
+          giftCost:gift.cost, creatorShare,
+          senderUid:user.uid, senderUsername:username||'Anonymous',
+          date:serverTimestamp(), read:false
         });
       } catch {}
+      // Cinematic animation
       setCinematicGift(gift);
       setCinematicSender(username || 'Anonymous');
-      setVvipAlert({msg:`${gift.icon} ${gift.name} sent! Creator received ${creatorShare} Coins (60%).`});
+      setVvipAlert({msg:`${gift.icon} ${gift.name} sent! ${creatorShare} Coins credited to creator (60%).`,icon:gift.icon});
     } catch(e) { console.error('sendGift', e); setVvipAlert({msg:'Gift failed. Please try again.'}); }
   };
 
@@ -1900,6 +2010,14 @@ export function AJSuperPortal() {
     } catch(e) { console.error('submitComment', e); }
   };
 
+  const handleDeleteNotification = async (id:string) => {
+    try {
+      await deleteDoc(doc(db, "notifications", id));
+      setNotifications(n => n.filter(x => x.id !== id));
+      setVvipAlert({msg:"Notification deleted", icon:"🗑️"});
+    } catch(e) { console.error('delete notif', e); }
+  };
+
   const handleDeletePost = async (id:string) => {
     const col = (socialScreen === 'pulse') ? 'pulse_posts' : 'user_posts';
     try {
@@ -1909,23 +2027,46 @@ export function AJSuperPortal() {
     } catch(e) { console.error('handleDeletePost', e); }
   };
 
-  const handleLike = async (id: string, collection_name?: string) => {
-    if (!user) return;
-    const col = collection_name || (socialScreen === 'pulse' ? 'pulse_posts' : 'user_posts');
-    const wasLiked = !!likedPosts[id];
-    setLikedPosts((p: any) => ({ ...p, [id]: !wasLiked }));
-    setPostLikeCounts((c: any) => ({ ...c, [id]: Math.max(0, (c[id] || 0) + (wasLiked ? -1 : 1)) }));
+  const handleLike  = async (id:string, isVideo:boolean = false) => {
+    setLikedPosts((p:any) => ({...p,[id]:!p[id]}));
+    const col = isVideo ? 'user_posts' : 'pulse_posts';
     try {
-      await updateDoc(doc(db, col, id), { likes: increment(wasLiked ? -1 : 1) });
-    } catch (e) { console.error('handleLike', e); }
+      const postRef = doc(db, col, id);
+      const postSnap = await getDoc(postRef);
+      if (postSnap.exists()) {
+        const data = postSnap.data();
+        const currentLikes = data.likes || 0;
+        const currentlyLiked = likedPosts[id] || false;
+        if (!currentlyLiked) {
+          await updateDoc(postRef, { likes: currentLikes + 1 });
+        } else {
+          await updateDoc(postRef, { likes: Math.max(0, currentLikes - 1) });
+        }
+      }
+    } catch(e) { console.error('handleLike firestore', e); }
   };
-  const handleShare = (msg:string) => {
-    if (navigator.share) {
-      navigator.share({ title:'AJ Super Portal', text: msg, url: window.location.href }).catch(() => {});
-    } else {
-      navigator.clipboard?.writeText(window.location.href);
-      setVvipAlert({msg:"Link copied!"});
-    }
+  const handleShare = async (msg:string) => {
+    const shareData = {
+      title: 'AJ Super Portal',
+      text: msg || 'Check out AJ Super Portal! 🚀',
+      url: window.location.href
+    };
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+      } else if (navigator.clipboard) {
+        await navigator.clipboard.writeText(window.location.href);
+        setVvipAlert({msg:"📋 Link copied to clipboard!", icon:"📋"});
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = window.location.href;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        setVvipAlert({msg:"📋 Link copied!", icon:"📋"});
+      }
+    } catch(e) { console.error('share error', e); }
   };
 
   const activateBot = async (tier:string, cost:number) => {
@@ -2250,7 +2391,7 @@ export function AJSuperPortal() {
       {screen === 'splash' && (
         <div className="fixed inset-0 flex flex-col items-center justify-center bg-[#050505]">
           <div className="relative z-[50]">
-            <img src="/logo.png" alt="AJ" className="w-24 h-24 rounded-3xl shadow-[0_0_60px_rgba(236,72,153,0.6)] animate-pulse"/>
+            <img src="/logo.png" alt="AJ" className="w-32 h-32 rounded-3xl shadow-[0_0_80px_rgba(236,72,153,0.8)] animate-pulse"/>
           </div>
           <h1 className="mt-6 text-3xl font-black bg-gradient-to-r from-pink-500 to-cyan-400 bg-clip-text text-transparent uppercase tracking-widest">AJ SUPER PORTAL</h1>
           <p className="mt-2 text-xs text-gray-500 uppercase tracking-[0.3em]">Loading…</p>
@@ -2302,7 +2443,7 @@ export function AJSuperPortal() {
             <div className="flex items-center gap-2">
               <button onClick={() => { setNotifOpen(true); loadNotifications(); }} className="relative p-2 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all">
                 <span className="text-sm">🔔</span>
-                {unreadCount > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-pink-600 rounded-full text-[8px] font-black flex items-center justify-center">{unreadCount > 9 ? '9+' : unreadCount}</span>}
+                {notifications.length > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-pink-600 rounded-full text-[8px] font-black flex items-center justify-center">{notifications.length > 9 ? '9+' : notifications.length}</span>}
               </button>
               <button onClick={handleSignOut} className="p-2 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all">
                 <LogOut size={14} className="text-gray-400"/>
@@ -2338,21 +2479,67 @@ export function AJSuperPortal() {
             </div>
           </div>
 
-          {/* Quick Nav Grid — FIX #7: every card click triggers interstitial */}
-          <div className="px-4 pt-4 grid grid-cols-3 gap-3">
-            {[
-              { icon:'🎬', label:'TikReels', action:() => { triggerInterstitialAd(); setScreen('social'); setSocialScreen('tikreels'); setTiktabMode('feed'); } },
-              { icon:'📡', label:'AJ Pulse', action:() => { triggerInterstitialAd(); setScreen('social'); setSocialScreen('pulse'); setPulseTab('feed'); } },
-              { icon:'💬', label:'WeChat',   action:() => { triggerInterstitialAd(); setScreen('social'); setSocialScreen('wechat'); } },
-              { icon:'🎮', label:'Gaming',   action:() => { triggerInterstitialAd(); setScreen('games'); } },
-              { icon:'🤖', label:'AI Bot',   action:() => { triggerInterstitialAd(); setScreen('aibot'); } },
-              { icon:'💰', label:'Wallet',   action:() => { triggerInterstitialAd(); setScreen('wallet'); setWalletTab('main'); } },
-            ].map(item => (
-              <button key={item.label} onClick={item.action} className="flex flex-col items-center gap-2 bg-white/5 border border-white/10 rounded-2xl py-4 active:scale-95 transition-all hover:border-pink-500/30">
-                <span className="text-2xl">{item.icon}</span>
-                <span className="text-[10px] font-black text-gray-300 uppercase tracking-widest">{item.label}</span>
-              </button>
-            ))}
+          {/* Quick Nav Grid — 4 Main Cards with Details */}
+          <div className="px-4 pt-4 grid grid-cols-2 gap-4">
+            {/* GAMES Card */}
+            <button onClick={() => { triggerInterstitialAd(); setScreen('games'); }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-purple-500/50 shadow-[0_0_20px_rgba(147,51,234,0.2)]">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-[0_0_16px_rgba(147,51,234,0.5)]">
+                <span className="text-2xl">🎮</span>
+              </div>
+              <div className="text-left">
+                <p className="text-white font-black text-sm">Gaming Zone</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">Play & earn AJ Coins. 5+ games available with auto-score bridge.</p>
+              </div>
+              <div className="flex items-center gap-1 mt-1">
+                <span className="text-[8px] text-purple-400 font-black bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-full">5+ GAMES</span>
+                <ChevronRight size={12} className="text-purple-400"/>
+              </div>
+            </button>
+
+            {/* SOCIAL Card */}
+            <button onClick={() => { triggerInterstitialAd(); setScreen('social'); setSocialScreen('hub'); }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-cyan-900/40 to-blue-900/40 border border-cyan-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-cyan-500/50 shadow-[0_0_20px_rgba(6,182,212,0.2)]">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center shadow-[0_0_16px_rgba(6,182,212,0.5)]">
+                <span className="text-2xl">📡</span>
+              </div>
+              <div className="text-left">
+                <p className="text-white font-black text-sm">Social Hub</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">TikReels, Pulse, WeChat, Live Streaming & DMs.</p>
+              </div>
+              <div className="flex items-center gap-1 mt-1">
+                <span className="text-[8px] text-cyan-400 font-black bg-cyan-500/10 border border-cyan-500/20 px-2 py-0.5 rounded-full">ALL FEATURES</span>
+                <ChevronRight size={12} className="text-cyan-400"/>
+              </div>
+            </button>
+
+            {/* WALLET Card */}
+            <button onClick={() => { triggerInterstitialAd(); setScreen('wallet'); setWalletTab('main'); }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-yellow-900/40 to-orange-900/40 border border-yellow-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-yellow-500/50 shadow-[0_0_20px_rgba(234,179,8,0.2)]">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-yellow-500 to-orange-500 flex items-center justify-center shadow-[0_0_16px_rgba(234,179,8,0.5)]">
+                <span className="text-2xl">💰</span>
+              </div>
+              <div className="text-left">
+                <p className="text-white font-black text-sm">Wallet</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">Buy, Transfer, Withdraw & Referral Coins.</p>
+              </div>
+              <div className="flex items-center gap-1 mt-1">
+                <span className="text-[8px] text-yellow-400 font-black bg-yellow-500/10 border border-yellow-500/20 px-2 py-0.5 rounded-full">{parseFloat(displayBalance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} 🪙</span>
+                <ChevronRight size={12} className="text-yellow-400"/>
+              </div>
+            </button>
+
+            {/* AI TRADING BOT Card */}
+            <button onClick={() => { triggerInterstitialAd(); setScreen('aibot'); }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.2)]">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center shadow-[0_0_16px_rgba(34,197,94,0.5)]">
+                <span className="text-2xl">🤖</span>
+              </div>
+              <div className="text-left">
+                <p className="text-white font-black text-sm">AI Trading Bot</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">2-5% daily profit. Activate & earn passively.</p>
+              </div>
+              <div className="flex items-center gap-1 mt-1">
+                <span className={`text-[8px] font-black px-2 py-0.5 rounded-full ${botTier!=='none' ? 'text-green-400 bg-green-500/10 border border-green-500/20' : 'text-gray-400 bg-white/5 border border-white/10'}`}>{botTier!=='none' ? '● ACTIVE' : '○ INACTIVE'}</span>
+                <ChevronRight size={12} className={botTier!=='none' ? 'text-green-400' : 'text-gray-500'}/>
+              </div>
+            </button>
           </div>
 
           {/* Live Now */}
@@ -2400,9 +2587,14 @@ export function AJSuperPortal() {
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {notifications.length === 0 && <p className="text-center text-gray-500 text-sm mt-10">No notifications yet.</p>}
                 {notifications.map((n:any) => (
-                  <div key={n.id} className="bg-white/5 border border-white/10 rounded-2xl p-3">
-                    <p className="text-xs font-black text-white">{n.title}</p>
-                    <p className="text-[10px] text-gray-400 mt-1">{n.message}</p>
+                  <div key={n.id} className="bg-white/5 border border-white/10 rounded-2xl p-3 flex items-start justify-between gap-2">
+                    <div className="flex-1">
+                      <p className="text-xs font-black text-white">{n.title}</p>
+                      <p className="text-[10px] text-gray-400 mt-1">{n.message}</p>
+                    </div>
+                    <button onClick={() => handleDeleteNotification(n.id)} className="flex-shrink-0 p-1.5 rounded-xl bg-red-500/20 active:scale-90 transition-all">
+                      <Trash2 size={12} className="text-red-400"/>
+                    </button>
                   </div>
                 ))}
               </div>
@@ -2456,7 +2648,7 @@ export function AJSuperPortal() {
                 </div>
                 <button onClick={() => { setNotifOpen(true); loadNotifications(); }} className="relative p-2 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all">
                   <span className="text-sm">🔔</span>
-                  {unreadCount > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-pink-600 rounded-full text-[8px] font-black flex items-center justify-center">{unreadCount > 9 ? '9+' : unreadCount}</span>}
+                  {notifications.length > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-pink-600 rounded-full text-[8px] font-black flex items-center justify-center">{notifications.length > 9 ? '9+' : notifications.length}</span>}
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
@@ -2537,13 +2729,13 @@ export function AJSuperPortal() {
                 <div
                   ref={videoFeedRef}
                   className="flex-1 overflow-y-scroll snap-y snap-mandatory scrollbar-hide"
-                  style={{ scrollSnapType:'y mandatory', WebkitOverflowScrolling:'touch', overscrollBehaviorY:'contain', touchAction:'pan-y' }}
+                  style={{ scrollSnapType:'y mandatory' }}
                 >
                   {pixaVideos.map((vid:any, idx:number) => {
                     const isActive = activeVideoIdx === idx;
                     // FIX #6: mute=0 when globalSoundOn, else mute=1; audio kill on scroll
                     const embedSrc = `https://www.youtube.com/embed/${vid.id}?autoplay=${isActive?1:0}&mute=${(isActive && globalSoundOn)?0:1}&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3`;
-                    if (idx > 0 && idx % 5 === 0) {
+                    if (idx > 0 && idx % 4 === 0) {
                       return (
                         <div key={`tik_ad_${idx}`} data-vidx={idx} className="relative w-full h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
                           <MonetagVideoAd publisherId={MONETAG_PULSE_BANNER}/>
@@ -2575,19 +2767,19 @@ export function AJSuperPortal() {
                         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none"/>
                         {/* Right actions */}
                         <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-20">
-                          <button onClick={e => { e.stopPropagation(); handleLike(vid.id, 'user_posts'); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); handleLike(vid.id, true); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center ${likedPosts[vid.id] ? 'bg-red-500/30' : 'bg-black/40 backdrop-blur-sm'}`}>
                               <Heart size={18} className={likedPosts[vid.id] ? 'text-red-400 fill-red-400' : 'text-white'}/>
                             </div>
-                            <span className="text-white text-[9px] font-black">{formatViews(postLikeCounts[vid.id] ?? vid.likes ?? 0)}</span>
+                            <span className="text-white text-[9px] font-black">{formatViews((likedPosts[vid.id] ? (vid.likes||0) + 1 : vid.likes||0))}</span>
                           </button>
                           <button onClick={e => { e.stopPropagation(); setCommentPostId(vid.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <MessageSquare size={18} className="text-white"/>
                             </div>
-                            <span className="text-white text-[9px] font-black">{formatViews(commentCounts[vid.id] || 0)}</span>
+                            <span className="text-white text-[9px] font-black">{formatViews(vid.views||0)}</span>
                           </button>
-                          <button onClick={e => { e.stopPropagation(); handleShare(vid.title||'Check this out on AJ Super Portal!'); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); handleShare(vid.title||''); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <Share2 size={18} className="text-white"/>
                             </div>
@@ -2628,19 +2820,19 @@ export function AJSuperPortal() {
                         )}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none"/>
                         <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-20">
-                          <button onClick={e => { e.stopPropagation(); handleLike(post.id, 'user_posts'); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); handleLike(post.id, post.isVideo); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center ${likedPosts[post.id] ? 'bg-red-500/30' : 'bg-black/40 backdrop-blur-sm'}`}>
                               <Heart size={18} className={likedPosts[post.id] ? 'text-red-400 fill-red-400' : 'text-white'}/>
                             </div>
-                            <span className="text-white text-[9px] font-black">{formatViews(postLikeCounts[post.id] ?? post.likes ?? 0)}</span>
+                            <span className="text-white text-[9px] font-black">{(likedPosts[post.id] ? (post.likes||0) + 1 : post.likes||0)}</span>
                           </button>
                           <button onClick={e => { e.stopPropagation(); setCommentPostId(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <MessageSquare size={18} className="text-white"/>
                             </div>
-                            <span className="text-white text-[9px] font-black">{formatViews(commentCounts[post.id] || 0)}</span>
+                            <span className="text-white text-[9px] font-black">{formatViews(post.commentCount||0)}</span>
                           </button>
-                          <button onClick={e => { e.stopPropagation(); handleShare(post.text || ('@' + post.username + ' on AJ Super Portal')); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); handleShare(post.text||''); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <Share2 size={18} className="text-white"/>
                             </div>
@@ -2660,6 +2852,9 @@ export function AJSuperPortal() {
                             <span className="text-white font-black text-xs">@{post.username}</span>
                           </button>
                           <p className="text-gray-300 text-[10px] line-clamp-2">{post.text}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-gray-400 text-[8px]">👁️ {formatViews(post.views||0)}</span>
+                          </div>
                         </div>
                       </div>
                     );
@@ -2679,8 +2874,8 @@ export function AJSuperPortal() {
                   <div className="relative w-full aspect-video bg-white/5 border border-white/10 rounded-2xl overflow-hidden cursor-pointer" onClick={handleTiktokImage}>
                     {tiktokPostImg ? (
                       tiktokPostIsVideo
-                        ? <video src={tiktokPostImg} className="w-full h-full object-cover" muted loop autoPlay playsInline/>
-                        : <img src={tiktokPostImg} className="w-full h-full object-cover"/>
+                        ? <video src={tiktokPostImg} className="w-full h-full object-cover" muted loop autoPlay playsInline style={{filter: tikEditorFilter && tikEditorFilter !== 'none' ? tikEditorFilter : undefined}}/>
+                        : <img src={tiktokPostImg} className="w-full h-full object-cover" style={{filter: tikEditorFilter && tikEditorFilter !== 'none' ? tikEditorFilter : undefined}}/>
                     ) : (
                       <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
                         <PlusSquare size={32} className="text-gray-500"/>
@@ -2702,6 +2897,11 @@ export function AJSuperPortal() {
                   </div>
                   {/* Text Overlay */}
                   <input value={tikEditorTextOverlay} onChange={e => setTikEditorTextOverlay(e.target.value)} placeholder="Text overlay (optional)" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-pink-500/50"/>
+                  {tikEditorTextOverlay && tiktokPostImg && (
+                    <div className="absolute top-1/3 left-0 right-0 flex justify-center z-20 pointer-events-none">
+                      <span className="bg-black/60 backdrop-blur-sm text-white font-black text-lg px-4 py-2 rounded-2xl">{tikEditorTextOverlay}</span>
+                    </div>
+                  )}
                   {/* Music Picker */}
                   <button onClick={() => setTikEditorShowMusic(m => !m)} className="w-full flex items-center gap-2 bg-white/5 border border-white/10 rounded-2xl px-4 py-2.5 active:scale-95 transition-all">
                     <Music size={14} className="text-pink-400"/>
@@ -2821,7 +3021,7 @@ export function AJSuperPortal() {
                 <div
                   ref={videoFeedRef}
                   className="flex-1 overflow-y-scroll snap-y snap-mandatory scrollbar-hide"
-                  style={{ scrollSnapType: 'y mandatory', WebkitOverflowScrolling:'touch', overscrollBehaviorY:'contain', touchAction:'pan-y' }}
+                  style={{ scrollSnapType: 'y mandatory' }}
                 >
                   {combinedPulseFeed.map((post:any, idx:number) => {
                     if (idx > 0 && idx % 4 === 0) {
@@ -2851,19 +3051,19 @@ export function AJSuperPortal() {
                         {/* Right actions — hide for Unsplash items */}
                         {!post.isUnsplash && (
                           <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-20">
-                            <button onClick={e => { e.stopPropagation(); handleLike(post.id, 'pulse_posts'); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <button onClick={e => { e.stopPropagation(); handleLike(post.id, post.isVideo); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                               <div className={`w-10 h-10 rounded-full flex items-center justify-center ${likedPosts[post.id] ? 'bg-red-500/30' : 'bg-black/40 backdrop-blur-sm'}`}>
                                 <Heart size={18} className={likedPosts[post.id] ? 'text-red-400 fill-red-400' : 'text-white'}/>
                               </div>
-                              <span className="text-white text-[9px] font-black">{formatViews(postLikeCounts[post.id] ?? post.likes ?? 0)}</span>
+                              <span className="text-white text-[9px] font-black">{(likedPosts[post.id] ? (post.likes||0) + 1 : post.likes||0)}</span>
                             </button>
                             <button onClick={e => { e.stopPropagation(); setCommentPostId(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                               <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                                 <MessageSquare size={18} className="text-white"/>
                               </div>
-                              <span className="text-white text-[9px] font-black">{formatViews(commentCounts[post.id] || 0)}</span>
+                              <span className="text-white text-[9px] font-black">{formatViews(post.views||0)}</span>
                             </button>
-                            <button onClick={e => { e.stopPropagation(); handleShare(post.text || ('@' + post.username + ' on AJ Pulse')); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <button onClick={e => { e.stopPropagation(); handleShare(post.text||''); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                               <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                                 <Share2 size={18} className="text-white"/>
                               </div>
@@ -2948,9 +3148,11 @@ export function AJSuperPortal() {
                   <div className="grid grid-cols-3 gap-0.5 p-0.5">
                     {pulsePosts.filter((p:any) => p.uid===user?.uid).map((post:any) => (
                       <div key={post.id} className="relative aspect-square bg-white/5 overflow-hidden">
-                        {/* FIX #8: thumbnail fallback — vid.thumbnail || vid.videoUrl */}
                         {(post.thumbnail || post.image || post.videoUrl)
-                          ? <img src={post.thumbnail || post.image || post.videoUrl} className="w-full h-full object-cover"/>
+                          ? <>
+                              <img src={post.thumbnail || post.image || post.videoUrl} className="w-full h-full object-cover"/>
+                              {post.isVideo && <div className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5"><Film size={8} className="text-white"/></div>}
+                            </>
                           : <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">📝</span></div>
                         }
                       </div>
@@ -3001,7 +3203,7 @@ export function AJSuperPortal() {
                       ))}
                     </div>
                     <div className="flex gap-2">
-                      <input value={newComment} onChange={e => setNewComment(e.target.value)} placeholder="Add a comment…" className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-3 py-2 text-white text-xs focus:outline-none focus:border-pink-500/50" onKeyDown={e => e.key==='Enter' && submitComment()} inputMode="text" autoFocus enterKeyHint="send"/>
+                      <input autoFocus value={newComment} onChange={e => setNewComment(e.target.value)} placeholder="Add a comment…" className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-3 py-2 text-white text-xs focus:outline-none focus:border-pink-500/50" onKeyDown={e => e.key==='Enter' && submitComment()}/>
                       <button onClick={submitComment} className="w-10 h-10 bg-pink-600 rounded-2xl flex items-center justify-center active:scale-90 transition-all">
                         <Send size={14} className="text-white"/>
                       </button>
@@ -3034,6 +3236,12 @@ export function AJSuperPortal() {
                 </div>
                 {liveActive && (
                   <div className="w-full max-w-sm bg-white/5 border border-white/10 rounded-2xl p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-red-500 text-xs animate-pulse">● LIVE</span>
+                        <span className="text-white text-[10px] font-black">👁️ {liveNowList.length + 1} watching</span>
+                      </div>
+                    </div>
                     <p className="text-[9px] text-gray-400 font-black uppercase tracking-widest mb-1">Room ID</p>
                     <div className="flex items-center gap-2">
                       <p className="text-white text-xs font-black flex-1 truncate">{liveRoomId}</p>
@@ -3095,14 +3303,19 @@ export function AJSuperPortal() {
                     ⏹ End Live
                   </button>
                 )}
-                {/* Live Chat */}
+                {/* Live Gift + Chat Buttons */}
                 {liveActive && (
-                  <div className="w-full max-w-sm">
-                    <button onClick={() => setLiveChatOpen(o => !o)} className="w-full flex items-center gap-2 bg-white/5 border border-white/10 rounded-2xl px-4 py-2.5 active:scale-95 transition-all">
-                      <MessageCircle size={14} className="text-cyan-400"/>
-                      <span className="text-xs text-gray-300 font-black">Live Chat ({liveChatMessages.length})</span>
-                      <ChevronRight size={14} className="text-gray-500 ml-auto"/>
-                    </button>
+                  <div className="w-full max-w-sm space-y-2">
+                    <div className="flex gap-2">
+                      <button onClick={() => setLiveChatOpen(o => !o)} className="flex-1 flex items-center gap-2 bg-white/5 border border-white/10 rounded-2xl px-4 py-2.5 active:scale-95 transition-all">
+                        <MessageCircle size={14} className="text-cyan-400"/>
+                        <span className="text-xs text-gray-300 font-black">Chat ({liveChatMessages.length})</span>
+                      </button>
+                      <button onClick={() => setLiveGiftPanelOpen(true)} className="flex-1 flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/30 rounded-2xl px-4 py-2.5 active:scale-95 transition-all">
+                        <Gift size={14} className="text-yellow-400"/>
+                        <span className="text-xs text-yellow-300 font-black">Gifts</span>
+                      </button>
+                    </div>
                     {liveChatOpen && (
                       <div className="mt-2 bg-[#0a0a1a] border border-white/10 rounded-2xl overflow-hidden">
                         <div className="h-40 overflow-y-auto p-3 space-y-2">
@@ -3128,6 +3341,28 @@ export function AJSuperPortal() {
                   </div>
                 )}
               </div>
+              {/* Live Gift Panel Modal (Host) */}
+              {liveGiftPanelOpen && (
+                <div className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end">
+                  <div className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <p className="text-sm font-black text-white">Send a Gift to Yourself 🎁</p>
+                      <button onClick={() => setLiveGiftPanelOpen(false)}><X size={18} className="text-gray-400"/></button>
+                    </div>
+                    <p className="text-[10px] text-gray-400 mb-3">Balance: {parseFloat(displayBalance).toFixed(2)} AJ Coins</p>
+                    <div className="grid grid-cols-3 gap-3">
+                      {giftItems.map(g => (
+                        <button key={g.id} onClick={() => { sendGift(user!.uid, g); setCinematicGift(g); setCinematicSender(username||'You'); setLiveGiftPanelOpen(false); }} className="flex flex-col items-center gap-1.5 bg-white/5 border border-white/10 rounded-2xl p-3 active:scale-90 transition-all hover:border-yellow-500/30">
+                          <span className="text-2xl">{g.icon}</span>
+                          <span className="text-white text-[9px] font-black">{g.name}</span>
+                          <span className="text-yellow-400 text-[9px] font-black">{g.cost.toLocaleString()} 🪙</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* PK Challenge Modal */}
               {pkChallengeOpen && (
                 <div className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end">
@@ -3213,12 +3448,37 @@ export function AJSuperPortal() {
                   ))}
                   <div ref={viewerChatEndRef}/>
                 </div>
+                {/* Viewer Gift Button */}
                 <div className="flex gap-2 p-3 border-t border-white/5">
-                  <input value={viewerChatInput} onChange={e => setViewerChatInput(e.target.value)} placeholder="Say something…" className="flex-1 bg-white/10 rounded-xl px-3 py-2 text-white text-xs focus:outline-none" onKeyDown={e => e.key==='Enter' && sendViewerChatMessage()}/>
+                  <button onClick={() => setLiveGiftPanelOpen(true)} className="w-10 h-10 bg-yellow-500/20 border border-yellow-500/30 rounded-xl flex items-center justify-center active:scale-90 transition-all flex-shrink-0">
+                    <Gift size={16} className="text-yellow-400"/>
+                  </button>
+                  <input autoFocus value={viewerChatInput} onChange={e => setViewerChatInput(e.target.value)} placeholder="Say something…" className="flex-1 bg-white/10 rounded-xl px-3 py-2 text-white text-xs focus:outline-none" onKeyDown={e => e.key==='Enter' && sendViewerChatMessage()}/>
                   <button onClick={sendViewerChatMessage} className="w-9 h-9 bg-pink-600 rounded-xl flex items-center justify-center active:scale-90 transition-all">
                     <Send size={12} className="text-white"/>
                   </button>
                 </div>
+                {/* Viewer Gift Panel */}
+                {liveGiftPanelOpen && viewerRoom && (
+                  <div className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end">
+                    <div className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl p-6">
+                      <div className="flex items-center justify-between mb-4">
+                        <p className="text-sm font-black text-white">Send Gift to @{viewerRoom.username} 🎁</p>
+                        <button onClick={() => setLiveGiftPanelOpen(false)}><X size={18} className="text-gray-400"/></button>
+                      </div>
+                      <p className="text-[10px] text-gray-400 mb-3">Your Balance: {parseFloat(displayBalance).toFixed(2)} AJ Coins</p>
+                      <div className="grid grid-cols-3 gap-3">
+                        {giftItems.map(g => (
+                          <button key={g.id} onClick={() => { sendGift(viewerRoom.uid, g); setCinematicGift(g); setCinematicSender(username||'Viewer'); setLiveGiftPanelOpen(false); }} className="flex flex-col items-center gap-1.5 bg-white/5 border border-white/10 rounded-2xl p-3 active:scale-90 transition-all hover:border-yellow-500/30">
+                            <span className="text-2xl">{g.icon}</span>
+                            <span className="text-white text-[9px] font-black">{g.name}</span>
+                            <span className="text-yellow-400 text-[9px] font-black">{g.cost.toLocaleString()} 🪙</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -3386,14 +3646,13 @@ export function AJSuperPortal() {
                     ))}
                     {profileVideos.map((vid:any) => (
                       <div key={vid.id} className="relative aspect-square bg-white/5 overflow-hidden">
-                        {/* FIX #8: thumbnail fallback — vid.thumbnail || vid.videoUrl */}
-                        {(vid.thumbnail || vid.image)
-                          ? <img src={vid.thumbnail || vid.image} className="w-full h-full object-cover" onError={e => { const t = e.target as HTMLImageElement; if (vid.videoUrl) { t.src = vid.videoUrl; } }}/>
-                          : vid.videoUrl
-                            ? <video src={vid.videoUrl} className="w-full h-full object-cover" muted playsInline preload="metadata"/>
-                            : <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">🎬</span></div>
+                        {(vid.thumbnail || vid.videoUrl || vid.image)
+                          ? <>
+                              <img src={vid.thumbnail || vid.videoUrl || vid.image} className="w-full h-full object-cover"/>
+                              <div className="absolute inset-0 flex items-center justify-center bg-black/20"><div className="w-6 h-6 rounded-full bg-white/30 flex items-center justify-center"><span className="text-white text-[10px]">▶</span></div></div>
+                            </>
+                          : <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">🎬</span></div>
                         }
-                        <div className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5"><Film size={10} className="text-white"/></div>
                         {vid.views > 0 && (
                           <div className="absolute bottom-1 left-1 bg-black/60 rounded-full px-1.5 py-0.5">
                             <span className="text-white text-[8px] font-black">{formatViews(vid.views)}</span>
