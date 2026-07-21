@@ -611,8 +611,8 @@ function AJFooter() {
                 className="relative w-full rounded-3xl overflow-hidden"
                 style={{
                   width: '100%',
-                  maxWidth: 340,
-                  aspectRatio: '3/4',
+                  maxWidth: '100%',
+                  aspectRatio: '9/16',
                   border: '2px solid rgba(236,72,153,0.6)',
                   boxShadow: '0 0 60px rgba(236,72,153,0.5), 0 0 30px rgba(34,211,238,0.2)',
                 }}
@@ -2011,10 +2011,14 @@ export function AJSuperPortal() {
   // GENERAL HANDLERS
   // ==========================================================
   const navigateWithAd = (to:string) => {
-    triggerInterstitialAd(); // FIX #7: trigger real interstitial on navigation
-    if (to==='social')      { fetchSocialAPIs(); setScreen('social'); setSocialScreen('hub'); }
-    else if (to==='wallet') { setScreen('wallet'); setWalletTab('main'); }
-    else                    setScreen(to);
+    // Show video ad before navigation
+    triggerInterstitialAd();
+    // Slight delay for ad to start
+    setTimeout(() => {
+      if (to==='social')      { fetchSocialAPIs(); setScreen('social'); setSocialScreen('hub'); }
+      else if (to==='wallet') { setScreen('wallet'); setWalletTab('main'); }
+      else                    setScreen(to);
+    }, 300);
   };
 
   const enterSocialMode = (mode:string) => {
@@ -2887,8 +2891,8 @@ export function AJSuperPortal() {
               {tiktabMode === 'feed' && (
                 <div
                   ref={videoFeedRef}
-                  className="flex-1 overflow-y-scroll snap-y snap-mandatory scrollbar-hide"
-                  style={{ scrollSnapType:'y mandatory' }}
+                  className="flex-1 overflow-y-scroll snap-y snap-mandatory scrollbar-hide flex flex-col-reverse"
+                  style={{ scrollSnapType:'y mandatory', display:'flex', flexDirection:'column-reverse' }}
                 >
                   {pixaVideos.map((vid:any, idx:number) => {
                     const isActive = activeVideoIdx === idx;
@@ -3179,8 +3183,8 @@ export function AJSuperPortal() {
               {pulseTab === 'feed' && (
                 <div
                   ref={videoFeedRef}
-                  className="flex-1 overflow-y-scroll snap-y snap-mandatory scrollbar-hide"
-                  style={{ scrollSnapType: 'y mandatory' }}
+                  className="flex-1 overflow-y-scroll snap-y snap-mandatory scrollbar-hide flex flex-col-reverse"
+                  style={{ scrollSnapType: 'y mandatory', display:'flex', flexDirection:'column-reverse' }}
                 >
                   {combinedPulseFeed.map((post:any, idx:number) => {
                     if (idx > 0 && idx % 4 === 0) {
@@ -3902,16 +3906,24 @@ export function AJSuperPortal() {
                   <ArrowLeft size={12}/> Back to Games
                 </button>
               </div>
-              <iframe
-                src={selectedGame}
-                className="flex-1 w-full border-0"
-                allow="autoplay; fullscreen; gyroscope; accelerometer; clipboard-write; encrypted-media; picture-in-picture"
-                allowFullScreen
-                sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-pointer-lock allow-top-navigation-by-user-activation allow-downloads"
-                referrerPolicy="no-referrer-when-downgrade"
-                title="Game"
-                style={{ minHeight: 'calc(100vh - 120px)' }}
-              />
+              {selectedGame ? (
+                <iframe
+                  key={selectedGame}
+                  src={selectedGame}
+                  className="flex-1 w-full border-0 bg-black"
+                  allow="autoplay; fullscreen; gyroscope; accelerometer; clipboard-write; encrypted-media; picture-in-picture; camera; microphone"
+                  allowFullScreen
+                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-pointer-lock allow-top-navigation-by-user-activation allow-downloads allow-presentation"
+                  referrerPolicy="no-referrer-when-downgrade"
+                  title="Game"
+                  style={{ minHeight: 'calc(100vh - 120px)', display:'block' }}
+                  onError={() => setVvipAlert({msg:'Game failed to load. Try another game.',icon:'⚠️'})}
+                />
+              ) : (
+                <div className="flex-1 flex items-center justify-center">
+                  <p className="text-gray-400">Loading game...</p>
+                </div>
+              )}
             </div>
           )}
         </div>
