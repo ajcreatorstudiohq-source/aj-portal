@@ -1,4 +1,12 @@
 "use client";
+// ============================================================
+// FINAL LAUNCH FIXES (Hinglish):
+// 1. Ads Fix: "Page could not load" error ko cleanup logic se solve kiya gaya hai.
+// 2. Pulse Comments: Pulse posts par comment nahi ho rahe thay kyunki wo 'user_posts' mein dhoond raha tha, ab fixed hai.
+// 3. Video Thumbnails: Profile mein videos ke thumbnails ab #t=0.1 trick se better load honge.
+// 4. Real Ads: TikReels aur Pulse dono mein real Monetag ads integrate hain.
+// ============================================================
+
 import Script from 'next/script';
 import React, { useState, useEffect, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -96,7 +104,10 @@ const PK_DURATION    = 300;
 const triggerInterstitialAd = () => {
   try {
     if (typeof window !== 'undefined') {
-      // Fire the real Monetag interstitial script
+      // FIX: Purane scripts ko remove karein taaki "Page could not load" error na aaye
+      const existing = document.querySelectorAll('script[data-ad-type="monetag-trigger"]');
+      existing.forEach(e => e.remove());
+
       if (typeof (window as any).show_9087571 === 'function') {
         (window as any).show_9087571();
       }
@@ -104,22 +115,9 @@ const triggerInterstitialAd = () => {
         const s = document.createElement('script');
         s.async = true;
         s.setAttribute('data-zone', String(MONETAG_INTERSTITIAL));
+        s.setAttribute('data-ad-type', 'monetag-trigger');
         s.src = 'https://nap5k.com/tag.min.js';
         document.head.appendChild(s);
-      } catch {}
-      try {
-        const s2 = document.createElement('script');
-        s2.type = 'text/javascript';
-        s2.innerHTML = `
-          (function() {
-            var d = document.createElement('script');
-            d.type = 'text/javascript';
-            d.async = true;
-            d.src = '//www.highperformanceformat.com/${MONETAG_INTERSTITIAL}/invoke.js';
-            document.head.appendChild(d);
-          })();
-        `;
-        document.head.appendChild(s2);
       } catch {}
     }
   } catch {}
@@ -419,12 +417,12 @@ const AJ_AD_VIDEO_ID = 'aqz-KE-bpKQ'; // fallback
 function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: number; type?: 'interstitial'|'banner' }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [adReady, setAdReady] = useState(false);
-  const adKeyRef = useRef(0);
+  const adKeyRef = useRef(Math.random().toString(36).substring(7));
   useEffect(() => {
     if (!containerRef.current) return;
     // Clear previous ad content on re-mount
     if (containerRef.current.innerHTML) containerRef.current.innerHTML = '';
-    adKeyRef.current++;
+    // Unique key set
     setAdReady(false);
     try {
       // Method 1: atOptions iframe method (video/interstitial)
@@ -432,7 +430,7 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
       s.type = 'text/javascript';
       s.innerHTML = `
         if (!window.atOptions) window.atOptions = {};
-        window.atOptions['${adKeyRef.current}'] = {
+        window.atOptions[adKeyRef.current] = {
           'key': '${publisherId}',
           'format': 'iframe',
           'height': ${type === 'banner' ? 250 : 500},
@@ -1124,7 +1122,8 @@ export function AJSuperPortal() {
     }
     if (commentPostId && !commentPostId.startsWith('gift_')) {
       try {
-        const q = query(collection(db, 'user_posts', commentPostId, "comments"), orderBy("createdAt","asc"));
+        const col = pulsePosts.find(p => p.id === commentPostId) ? "pulse_posts" : "user_posts";
+        const q = query(collection(db, col, commentPostId, "comments"), orderBy("createdAt","asc"));
         const unsub = onSnapshot(q, snap => setPostComments(snap.docs.map(d=>({id:d.id,...d.data()}))));
         return unsub;
       } catch(e) { console.error("Comment sub error", e); }
@@ -2248,10 +2247,12 @@ export function AJSuperPortal() {
         photo: user?.photoURL || '',
         createdAt: serverTimestamp()
       };
-      await addDoc(collection(db, "user_posts", commentPostId, "comments"), commentData);
+      const col = pulsePosts.find(p => p.id === commentPostId) ? "pulse_posts" : "user_posts";
+      await addDoc(collection(db, col, commentPostId, "comments"), commentData);
       // Also increment commentCount on the post
       try {
-        await updateDoc(doc(db, "user_posts", commentPostId), { commentCount: increment(1) });
+        const col = pulsePosts.find(p => p.id === commentPostId) ? "pulse_posts" : "user_posts";
+        await updateDoc(doc(db, col, commentPostId), { commentCount: increment(1) });
       } catch {}
       setNewComment('');
       setVvipAlert({msg:`💬 Comment posted!`,icon:'💬'});
@@ -3270,7 +3271,7 @@ export function AJSuperPortal() {
                         <div key={post.id} className="relative aspect-square bg-white/5 overflow-hidden">
                           {/* FIX #8: thumbnail fallback — vid.thumbnail || vid.videoUrl */}
                           {(post.thumbnail || post.image || post.videoUrl)
-                            ? <img src={post.thumbnail || post.image || post.videoUrl} className="w-full h-full object-cover"/>
+                            ? <img src={post.thumbnail || post.image || (post.isVideo ? post.videoUrl + "#t=0.1" : post.videoUrl)} className="w-full h-full object-cover"/>
                             : <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">🎬</span></div>
                           }
                           {post.isVideo && <div className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5"><Film size={10} className="text-white"/></div>}
@@ -3461,7 +3462,7 @@ export function AJSuperPortal() {
                       <div key={post.id} className="relative aspect-square bg-white/5 overflow-hidden">
                         {(post.thumbnail || post.image || post.videoUrl)
                           ? <>
-                              <img src={post.thumbnail || post.image || post.videoUrl} className="w-full h-full object-cover"/>
+                              <img src={post.thumbnail || post.image || (post.isVideo ? post.videoUrl + "#t=0.1" : post.videoUrl)} className="w-full h-full object-cover"/>
                               {post.isVideo && <div className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5"><Film size={8} className="text-white"/></div>}
                             </>
                           : <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">📝</span></div>
@@ -3943,7 +3944,7 @@ export function AJSuperPortal() {
                     {profilePosts.map((post:any) => (
                       <div key={post.id} className="relative aspect-square bg-white/5 overflow-hidden">
                         {(post.thumbnail || post.image || post.videoUrl)
-                          ? <img src={post.thumbnail || post.image || post.videoUrl} className="w-full h-full object-cover"/>
+                          ? <img src={post.thumbnail || post.image || (post.isVideo ? post.videoUrl + "#t=0.1" : post.videoUrl)} className="w-full h-full object-cover"/>
                           : <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">📝</span></div>
                         }
                       </div>
@@ -3952,7 +3953,7 @@ export function AJSuperPortal() {
                       <div key={vid.id} className="relative aspect-square bg-white/5 overflow-hidden">
                         {(vid.thumbnail || vid.videoUrl || vid.image)
                           ? <>
-                              <img src={vid.thumbnail || vid.videoUrl || vid.image} className="w-full h-full object-cover"/>
+                              <img src={vid.thumbnail || (vid.isVideo ? vid.videoUrl + "#t=0.1" : vid.videoUrl) || vid.image} className="w-full h-full object-cover"/>
                               <div className="absolute inset-0 flex items-center justify-center bg-black/20"><div className="w-6 h-6 rounded-full bg-white/30 flex items-center justify-center"><span className="text-white text-[10px]">▶</span></div></div>
                             </>
                           : <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">🎬</span></div>
