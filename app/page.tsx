@@ -2445,67 +2445,7 @@ useEffect(() => {
                     <Radio size={13} className="animate-pulse"/><span className="text-[9px] font-black">🔴</span>
                   </button>
                 </div>
-                {tiktabMode === 'feed' && (
-  <div ref={videoFeedRef} className="h-full w-full max-w-md mx-auto snap-y snap-mandatory overflow-y-auto no-scrollbar bg-black relative">
-    {userPosts.length === 0 ? (
-      <div className="h-full flex flex-col items-center justify-center text-center p-6 text-gray-500">
-        <p className="text-sm font-bold uppercase tracking-wider mb-2">No Reels Yet</p>
-        <p className="text-xs">Be the first to upload a TikReel!</p>
-      </div>
-    ) : (
-      userPosts.map((p: any) => (
-        <div key={p.id} className="h-full w-full snap-start relative flex items-center justify-center bg-black overflow-hidden shrink-0">
-          {/* Media Player */}
-          {p.isVideo || p.url?.includes('.mp4') ? (
-            <video src={p.url || p.videoUrl} className="w-full h-full object-cover" autoPlay loop muted={!globalSoundOn} playsInline />
-          ) : (
-            <img src={p.url || p.photo || '/logo.png'} className="w-full h-full object-cover" />
-          )}
-
-          {/* Mute/Unmute Toggle Button */}
-          <button onClick={() => setGlobalSoundOn(!globalSoundOn)} className="absolute top-16 right-4 z-20 bg-black/40 backdrop-blur-md p-2 rounded-full text-white/80 hover:text-white border border-white/10">
-            {globalSoundOn ? '🔊' : '🔇'}
-          </button>
-
-          {/* TikTok Right Action Sidebar */}
-          <div className="absolute right-3 bottom-20 z-20 flex flex-col items-center gap-5">
-            <div className="relative group cursor-pointer" onClick={() => setSocialScreen('profile')}>
-              <img src={p.userPhoto || p.photo || '/logo.png'} className="w-11 h-11 rounded-full border-2 border-pink-500 object-cover shadow-lg" />
-              <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 bg-pink-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] font-bold">+</span>
-            </div>
-            <button onClick={() => handleLikePost(p.id)} className="flex flex-col items-center gap-1 group">
-              <div className="p-3 bg-black/40 backdrop-blur-md rounded-full border border-white/10 group-active:scale-125 transition-transform">
-                ❤️
-              </div>
-              <span className="text-[11px] font-bold text-white shadow-sm">{p.likes || 0}</span>
-            </button>
-            <button onClick={() => setCommentPostId(p.id)} className="flex flex-col items-center gap-1">
-              <div className="p-3 bg-black/40 backdrop-blur-md rounded-full border border-white/10">
-                💬
-              </div>
-              <span className="text-[11px] font-bold text-white shadow-sm">{p.commentsCount || 0}</span>
-            </button>
-            <button className="flex flex-col items-center gap-1">
-              <div className="p-3 bg-black/40 backdrop-blur-md rounded-full border border-white/10">
-                🔗
-              </div>
-              <span className="text-[10px] font-bold text-white shadow-sm">Share</span>
-            </button>
-          </div>
-
-          {/* Bottom Caption & User Overlay */}
-          <div className="absolute bottom-4 left-4 right-16 z-20 flex flex-col gap-1.5 text-left bg-gradient-to-t from-black/90 via-black/40 to-transparent p-2 rounded-xl">
-            <p className="font-black text-sm text-white tracking-wide">@{p.username || p.author || 'AJ_Creator'}</p>
-            <p className="text-xs text-gray-200 line-clamp-2 leading-snug">{p.caption || p.text || 'Check out this TikReel! 🔥'}</p>
-            <div className="flex items-center gap-2 mt-1 text-[11px] text-pink-400 font-semibold">
-              <span>🎵 Original Sound - {p.username || 'AJ Empire'}</span>
-            </div>
-          </div>
-        </div>
-      ))
-    )}
-  </div>
-)}
+               
 
                 {/* CREATE (TikReels) */}
                 {tiktabMode==='create' && (
@@ -2534,7 +2474,91 @@ useEffect(() => {
                     )}
                     <button onClick={handleTiktokPost} className="w-full py-4 bg-pink-600 rounded-2xl font-black uppercase text-white tracking-widest shadow-lg  transition-all">
                       PUBLISH (+20 🪙)
-                    </button>
+                    </button>{tiktabMode === 'feed' && (
+  <div ref={videoFeedRef} className="h-full w-full max-w-md mx-auto snap-y snap-mandatory overflow-y-auto no-scrollbar bg-black relative">
+    {merged.length === 0 ? (
+      <div className="h-full flex flex-col items-center justify-center text-center p-6 text-gray-500">
+        <p className="text-sm font-bold uppercase tracking-wider mb-2">No Reels Yet</p>
+        <p className="text-xs">Be the first to upload a TikReel!</p>
+      </div>
+    ) : (
+      merged.map((p: any, idx: number) => {
+        const isYouTube = p.url?.includes('youtube.com') || p.url?.includes('youtu.be') || p.vid?.includes('youtube');
+        const ytEmbedUrl = isYouTube ? (
+          p.url?.includes('embed') 
+            ? p.url 
+            : `https://www.youtube.com/embed/${p.url?.split('v=')[1]?.split('&')[0] || p.url?.split('shorts/')[1]?.split('?')[0]}?autoplay=1&mute=${globalSoundOn ? 0 : 1}&controls=0&loop=1`
+        ) : null;
+
+        return (
+          <div key={p.id || idx} className="h-full w-full snap-start relative flex items-center justify-center bg-black overflow-hidden shrink-0">
+            {/* Media Player: YouTube Shorts vs Direct MP4/Image */}
+            {isYouTube && ytEmbedUrl ? (
+              <iframe 
+                src={ytEmbedUrl} 
+                className="w-full h-full pointer-events-none" 
+                allow="autoplay; encrypted-media" 
+                title="Shorts"
+              />
+            ) : p.isVideo || p.url?.includes('.mp4') ? (
+              <video src={p.url || p.videoUrl} className="w-full h-full object-cover" autoPlay loop muted={!globalSoundOn} playsInline />
+            ) : (
+              <img src={p.url || p.photo || p.image || '/logo.png'} className="w-full h-full object-cover" />
+            )}
+
+            {/* Mute/Unmute Toggle Button */}
+            <button onClick={() => setGlobalSoundOn(!globalSoundOn)} className="absolute top-16 right-4 z-30 bg-black/40 backdrop-blur-md p-2 rounded-full text-white/80 hover:text-white border border-white/10">
+              {globalSoundOn ? '🔊' : '🔇'}
+            </button>
+
+            {/* TikTok Right Action Sidebar */}
+            <div className="absolute right-3 bottom-20 z-30 flex flex-col items-center gap-5">
+              {/* Working Avatar Click -> Opens Profile */}
+              <button 
+                type="button" 
+                onClick={() => setTiktabMode('profile')} 
+                className="relative group cursor-pointer focus:outline-none"
+              >
+                <img src={p.userPhoto || p.photo || '/logo.png'} className="w-11 h-11 rounded-full border-2 border-pink-500 object-cover shadow-lg" />
+                <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 bg-pink-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] font-bold">+</span>
+              </button>
+              
+              <button onClick={() => handleLikePost(p.id)} className="flex flex-col items-center gap-1 group">
+                <div className="p-3 bg-black/40 backdrop-blur-md rounded-full border border-white/10 group-active:scale-125 transition-transform">
+                  ❤️
+                </div>
+                <span className="text-[11px] font-bold text-white shadow-sm">{p.likes || 0}</span>
+              </button>
+              
+              <button onClick={() => setCommentPostId(p.id)} className="flex flex-col items-center gap-1">
+                <div className="p-3 bg-black/40 backdrop-blur-md rounded-full border border-white/10">
+                  💬
+                </div>
+                <span className="text-[11px] font-bold text-white shadow-sm">{p.commentsCount || 0}</span>
+              </button>
+              
+              <button className="flex flex-col items-center gap-1">
+                <div className="p-3 bg-black/40 backdrop-blur-md rounded-full border border-white/10">
+                  🔗
+                </div>
+                <span className="text-[10px] font-bold text-white shadow-sm">Share</span>
+              </button>
+            </div>
+
+            {/* Bottom Caption Overlay */}
+            <div className="absolute bottom-4 left-4 right-16 z-20 flex flex-col gap-1.5 text-left bg-gradient-to-t from-black/90 via-black/40 to-transparent p-2 rounded-xl">
+              <p className="font-black text-sm text-white tracking-wide">@{p.username || p.author || 'AJ_Creator'}</p>
+              <p className="text-xs text-gray-200 line-clamp-2 leading-snug">{p.caption || p.text || 'Check out this TikReel! 🔥'}</p>
+              <div className="flex items-center gap-2 mt-1 text-[11px] text-pink-400 font-semibold">
+                <span>🎵 Original Sound - {p.username || 'AJ Empire'}</span>
+              </div>
+            </div>
+          </div>
+        );
+      })
+    )}
+  </div>
+)}
                   </div>
                 )}
 
