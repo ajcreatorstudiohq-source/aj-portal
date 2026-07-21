@@ -1,4 +1,5 @@
 "use client";
+import Script from 'next/script';
 import React, { useState, useEffect, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -769,7 +770,16 @@ export function AJSuperPortal() {
     }
     return () => {};
   }, [screen]);
-
+// FIREBASE REALTIME REELS & PULSE SYNC
+useEffect(() => {
+  const unsubReels = onSnapshot(collection(db, "reels"), (snapshot) => {
+    setUserPosts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+  });
+  const unsubPulse = onSnapshot(collection(db, "posts"), (snapshot) => {
+    setPulsePosts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+  });
+  return () => { unsubReels(); unsubPulse(); };
+}, []);
   // ── GAME COINS: postMessage listener
   useEffect(() => {
     if (!user) return;
@@ -1989,7 +1999,9 @@ export function AJSuperPortal() {
           onDone={() => { setCinematicGift(null); setCinematicSender(''); }}
         />
       )}
-
+{/* MONETAG ADS */}
+<Script id="monetag-banner-ad" src="https://nap5k.com" data-zone="11337197" strategy="afterInteractive" />
+<Script id="monetag-vignette-ad" src="https://n6wxm.com" data-zone="11349676" strategy="afterInteractive" />
       {/* HEADER */}
       <header className="fixed top-0 w-full p-4 flex justify-between items-center z-[100] bg-[#050505]/80 backdrop-blur-xl border-b border-white/5 shadow-2xl">
         <div className="text-xl font-black italic text-cyan-400">AJ STUDIO</div>
@@ -2041,7 +2053,7 @@ export function AJSuperPortal() {
           </button>
         </div>
 
-        <h1 className="text-4xl md:text-8xl font-black text-center mb-12 uppercase drop-shadow-[0_0_20px_#22d3ee]">Oman's #1 Social Earnings Platform</h1>
+        <h1 className="text-4xl md:text-8xl font-black text-center mb-12 uppercase drop-shadow-[0_0_20px_#22d3ee]">AJ SUPER PORTAL</h1>
         <div className="grid grid-cols-2 gap-4 md:gap-16 w-full max-w-4xl relative z-30">
           {[
             { label:'Gaming',        icon:<Trophy className="text-cyan-400 w-10 h-10 md:w-20 md:h-20 mb-2"/>, sc:'arcade', hover:'hover:border-cyan-400' },
@@ -2416,52 +2428,6 @@ export function AJSuperPortal() {
               </div>
             )}
 
-            {/* DM CHAT */}
-            {socialScreen==='dm' && activeChatUser && (
-              <div className="fixed inset-0 z-[500] bg-[#0a0a0a] flex flex-col">
-                <div className="flex items-center gap-3 px-4 py-3 bg-[#050505]/90 border-b border-white/10 shrink-0">
-                  <button onClick={() => { setSocialScreen('profile'); if(dmUnsubRef.current){dmUnsubRef.current();dmUnsubRef.current=null;} }}
-                    className="text-pink-500 font-black text-xs uppercase tracking-widest">Back</button>
-                  <img src={activeChatUser.photo||'/logo.png'} className="w-9 h-9 rounded-full border-2 border-cyan-500 object-cover"/>
-                  <div>
-                    <p className="font-black text-white text-xs uppercase tracking-widest">@{activeChatUser.username||'AJ_MEMBER'}</p>
-                    {activeChatUser.name && <p className="text-[9px] text-cyan-400 font-bold">{activeChatUser.name}</p>}
-                  </div>
-                </div>
-                <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3">
-                  {dmMessages.length===0 && (
-                    <div className="flex items-center justify-center py-20 text-center">
-                      <div><MessageCircle size={40} className="text-gray-700 mx-auto mb-3"/>
-                        <p className="text-gray-500 text-xs font-black uppercase tracking-widest">No messages yet. Say hi!</p>
-                      </div>
-                    </div>
-                  )}
-                  {dmMessages.map((m:any) => {
-                    const isMe = m.uid===user?.uid;
-                    return (
-                      <div key={m.id} className={`flex gap-2 items-end ${isMe?'flex-row-reverse':''}`}>
-                        <img src={m.photo||'/logo.png'} className="w-7 h-7 rounded-full border border-pink-500 object-cover shrink-0"/>
-                        <div className={`max-w-[72%] px-4 py-2.5 rounded-2xl text-xs font-bold break-words ${
-                          isMe?'bg-pink-600 text-white rounded-br-sm':'bg-white/5 backdrop-blur-xl border border-white/10 text-gray-200 rounded-bl-sm'
-                        }`}>{m.text}</div>
-                      </div>
-                    );
-                  })}
-                  <div ref={dmEndRef}/>
-                </div>
-                <div className="flex gap-2 px-3 py-3 bg-[#050505]/90 border-t border-white/10 shrink-0">
-                  <img src={tempPhoto||user?.photoURL||'/logo.png'} className="w-8 h-8 rounded-full border border-pink-500 shrink-0 object-cover"/>
-                  <input type="text" value={dmInput} onChange={e=>setDmInput(e.target.value)}
-                    onKeyDown={e=>e.key==='Enter'&&sendDmMessage()}
-                    placeholder={'Message @'+(activeChatUser.username||'user')+'...'}
-                    className="flex-1 bg-white/5 backdrop-blur-xl border border-white/10 border border-white/10 rounded-full px-4 py-2 text-[11px] text-white outline-none focus:ring-1 focus:ring-cyan-500 font-bold"
-                  />
-                  <button onClick={sendDmMessage} className="bg-cyan-500 p-2 rounded-full text-black active:scale-90 transition-all shadow-lg">
-                    <Send size={14}/>
-                  </button>
-                </div>
-              </div>
-            )}
 
             {/* TIKREELS */}
             {socialScreen==='tikreels' && (
@@ -2479,274 +2445,67 @@ export function AJSuperPortal() {
                     <Radio size={13} className="animate-pulse"/><span className="text-[9px] font-black">🔴</span>
                   </button>
                 </div>
+                {tiktabMode === 'feed' && (
+  <div ref={videoFeedRef} className="h-full w-full max-w-md mx-auto snap-y snap-mandatory overflow-y-auto no-scrollbar bg-black relative">
+    {userPosts.length === 0 ? (
+      <div className="h-full flex flex-col items-center justify-center text-center p-6 text-gray-500">
+        <p className="text-sm font-bold uppercase tracking-wider mb-2">No Reels Yet</p>
+        <p className="text-xs">Be the first to upload a TikReel!</p>
+      </div>
+    ) : (
+      userPosts.map((p: any) => (
+        <div key={p.id} className="h-full w-full snap-start relative flex items-center justify-center bg-black overflow-hidden shrink-0">
+          {/* Media Player */}
+          {p.isVideo || p.url?.includes('.mp4') ? (
+            <video src={p.url || p.videoUrl} className="w-full h-full object-cover" autoPlay loop muted={!globalSoundOn} playsInline />
+          ) : (
+            <img src={p.url || p.photo || '/logo.png'} className="w-full h-full object-cover" />
+          )}
 
-                {/* FEED — TikTok style */}
-                {tiktabMode==='feed' && (
-                  <div ref={videoFeedRef} className="h-full w-full max-w-md mx-auto snap-y snap-mandatory overflow-y-auto bg-[#050505]" style={{ touchAction:'pan-y', overscrollBehavior:'contain' }}>
-                    <div className="sticky top-0 z-30 flex justify-end px-4 py-2 bg-[#050505]/80 backdrop-blur-sm border-b border-white/10">
-                      <button
-                        onClick={() => setGlobalSoundOn(s => !s)}
-                        className="flex items-center gap-2 bg-white/5 backdrop-blur-xl border border-white/10 border border-white/20 px-4 py-2 rounded-full text-[11px] font-black uppercase text-white hover:bg-white/20 transition-all ">
-                        {globalSoundOn ? <Volume2 size={14} className="text-green-400"/> : <VolumeX size={14} className="text-red-400"/>}
-                        {globalSoundOn ? 'Sound ON' : 'Sound OFF'}
-                      </button>
-                    </div>
-                    {(() => {
-                      // Merge: AJ member posts first (have real uid → profile click works), then YouTube
-                      const userReels = userPosts.filter((p:any) => p.uid);
-                      const merged: any[] = [
-                        ...userReels.map((p:any) => ({ ...p, _isUser: true })),
-                        ...pixaVideos,
-                      ];
-                      return merged.map((vid:any, i:number) => {
-                        const inWindow  = Math.abs(i - activeVideoIdx) <= (isLowEnd ? 0 : 1);
-                        const isUserPost = !!(vid as any)._isUser;
-                        const soundOn   = globalSoundOn;
-                        // Fix #11: Audio Bleeding — ONLY the active video gets mute=0.
-                        // All other in-window iframes stay mute=1 to prevent audio bleed.
-                        const isActive  = i === activeVideoIdx;
-                        const embedUrl  = isUserPost ? '' : (isActive && soundOn
-                          ? `https://www.youtube-nocookie.com/embed/${vid.id}?autoplay=1&mute=0&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3&enablejsapi=1`
-                          : `https://www.youtube-nocookie.com/embed/${vid.id}?autoplay=1&mute=1&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3&enablejsapi=1`);
-                        const avatarKey = isUserPost ? (vid.uid||vid.username) : vid.user;
-                        return (
-                        <React.Fragment key={`${isUserPost?'u':'y'}-${vid.id||i}`}>
-                          <div
-                            data-vidx={i}
-                            className="h-[85vh] w-full snap-start relative border-b border-white/5"
-                            style={{ contain:'layout style paint', willChange:'transform', transform:'translate3d(0,0,0)' }}
-                            onClick={() => {
-                              if (!isActive) return;
-                              const newPaused = !reelPaused;
-                              setReelPaused(newPaused);
-                              // Pause/Resume YouTube iframe via postMessage API
-                              const iframe = iframeRefs.current[i];
-                              if (iframe?.contentWindow) {
-                                iframe.contentWindow.postMessage(JSON.stringify({
-                                  event: 'command',
-                                  func: newPaused ? 'pauseVideo' : 'playVideo',
-                                  args: []
-                                }), '*');
-                              }
-                              // Pause/Resume user-uploaded video element
-                              const uv = userVideoRefs.current[i];
-                              if (uv) { newPaused ? uv.pause() : uv.play().catch(()=>{}); }
-                            }}>
-                            {!inWindow ? (
-                              <div className="absolute inset-0 bg-[#050505] flex items-center justify-center">
-                                {(vid.thumb||vid.image)
-                                  ? <img src={vid.thumb||vid.image} alt="" loading="lazy" decoding="async"
-                                      className="w-full h-full object-cover opacity-40"/>
-                                  : <Film size={48} className="text-white/20"/>}
-                              </div>
-                            ) : (
-                            <>
-                              {/* CONTENT */}
-                              {isUserPost ? (
-                                <div className="absolute inset-0 overflow-hidden bg-[#050505]">
-                                  {vid.image
-                                    ? vid.isVideo
-                                      ? <video
-                                          ref={el => { userVideoRefs.current[i] = el; }}
-                                          src={vid.image}
-                                          className="absolute inset-0 w-full h-full object-cover"
-                                          autoPlay playsInline loop muted={!soundOn}/>
-                                      : <img src={vid.image} className="absolute inset-0 w-full h-full object-cover" loading="lazy" decoding="async"/>
-                                    : <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-pink-900/40 to-cyan-900/40">
-                                        <Film size={64} className="text-white/30"/>
-                                      </div>
-                                  }
-                                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent"/>
-                                </div>
-                              ) : (
-                                <div className="absolute inset-0 overflow-hidden">
-                                  <iframe
-                                    ref={el => { iframeRefs.current[i] = el; }}
-                                    src={embedUrl}
-                                    className="absolute inset-0 w-full h-full"
-                                    style={{ transform:'scale(1.15)', transformOrigin:'center center', pointerEvents:'none' }}
-                                    title={vid.title}
-                                    allow="autoplay; encrypted-media; gyroscope; picture-in-picture"
-                                    allowFullScreen
-                                    frameBorder="0"
-                                  />
-                                  <div className="absolute top-0 left-0 w-28 h-14 z-10 pointer-events-auto bg-transparent"/>
-                                  <div className="absolute top-0 right-0 w-28 h-14 z-10 pointer-events-auto bg-transparent"/>
-                                  <div className="absolute bottom-0 left-0 w-28 h-14 z-10 pointer-events-auto bg-transparent"/>
-                                  <div className="absolute bottom-0 right-0 w-28 h-14 z-10 pointer-events-auto bg-transparent"/>
-                                </div>
-                              )}
-                              {/* Pause overlay — shows play icon when paused */}
-                              {isActive && reelPaused && (
-                                <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none">
-                                  <div className="w-20 h-20 bg-[#050505]/60 backdrop-blur-sm rounded-full flex items-center justify-center border-2 border-white/30 shadow-2xl animate-ping-once">
-                                    <svg width="32" height="32" viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21"/></svg>
-                                  </div>
-                                </div>
-                              )}
-                              {isActive && (
-                                <div className="absolute top-4 right-4 z-30 flex flex-col items-end gap-2">
-                                  <button
-                                    onClick={() => { setSocialScreen('hub'); setTimeout(startLive, 300); }}
-                                    className="flex items-center gap-2 rounded-full bg-red-600/95 px-3 py-2 text-[10px] font-black uppercase tracking-[0.2em] text-white shadow-[0_0_20px_rgba(239,68,68,0.6)] hover:scale-105 transition-all"
-                                  >
-                                    <Radio size={14} className="animate-pulse"/> LIVE
-                                  </button>
-                                </div>
-                              )}
-                              {/* Sound tap hint — Fix #11: only for active YouTube video */}
-                              {!soundOn && !isUserPost && isActive && !reelPaused && (
-                                <div
-                                  className="absolute inset-0 flex items-end justify-center pb-48 z-20 cursor-pointer"
-                                  onClick={e => { e.stopPropagation(); setGlobalSoundOn(true); }}>
-                                  <div className="flex items-center gap-2 bg-[#050505]/60 backdrop-blur-sm border border-white/20 px-4 py-2 rounded-full shadow-xl animate-pulse">
-                                    <VolumeX size={16} className="text-white"/>
-                                    <span className="text-white text-[11px] font-black uppercase tracking-widest">Tap for Sound</span>
-                                  </div>
-                                </div>
-                              )}
-                              {/* RIGHT SIDEBAR ACTIONS */}
-                              <div className="absolute right-4 bottom-32 flex flex-col gap-6 items-center z-10">
-                                {/* 🔴 GO LIVE — TikTok-style inside video overlay */}
-                                <div
-                                  className="flex flex-col items-center cursor-pointer group"
-                                  onClick={() => { setSocialScreen('hub'); setTimeout(startLive, 300); }}
-                                >
-                                  <div className="w-10 h-10 rounded-full bg-red-600 flex items-center justify-center shadow-[0_0_18px_rgba(239,68,68,0.8)] animate-pulse group-active:scale-90 transition-all">
-                                    <Radio size={18} className="text-white"/>
-                                  </div>
-                                  <span className="text-[9px] font-black text-red-400 mt-0.5 uppercase tracking-widest">LIVE</span>
-                                </div>
-                                {/* Avatar — clickable only for AJ member posts (have uid) */}
-                                <div className="flex flex-col items-center gap-0.5">
-                                  <div className="relative">
-                                    <img
-                                      src={isUserPost ? (vid.photo||'/logo.png') : (vid.thumb||'/logo.png')}
-                                      loading="lazy" decoding="async"
-                                      onClick={() => { if (isUserPost && vid.uid) openProfile(vid.uid); }}
-                                      className={`w-12 h-12 rounded-full border-2 border-white object-cover shadow-xl transition-all ${isUserPost && vid.uid ? 'cursor-pointer active:scale-90' : 'cursor-default'}`}
-                                    />
-                                    {/* Req 2: own post "+" → DP change; others → follow toggle */}
-                                    {isUserPost && vid.uid===user?.uid ? (
-                                      <button
-                                        title="Change Profile Photo"
-                                        onClick={() => {
-                                          const inp = document.createElement('input');
-                                          inp.type = 'file'; inp.accept = 'image/*';
-                                          inp.onchange = async (e: any) => {
-                                            const f = e.target.files?.[0];
-                                            if (!f) return;
-                                            const fd = new FormData();
-                                            fd.append('file', f);
-                                            fd.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
-                                            try {
-                                              const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`, { method:'POST', body:fd });
-                                              const data = await res.json();
-                                              if (data.secure_url) {
-                                                await updateDoc(doc(db,'users',user!.uid), { photoURL:data.secure_url, photo:data.secure_url });
-                                                setTempPhoto(data.secure_url);
-                                                setVvipAlert({msg:'✅ Profile photo updated!', icon:'📸'});
-                                              }
-                                            } catch {}
-                                          };
-                                          inp.click();
-                                        }}
-                                        className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center border-2 border-black font-black text-[11px] shadow-lg bg-cyan-500 text-white transition-all active:scale-125"
-                                      >+</button>
-                                    ) : (
-                                      <button
-                                        onClick={() => setFollowedYouTubers(prev => {
-                                          const next = new Set(prev);
-                                          if (next.has(avatarKey)) { next.delete(avatarKey); }
-                                          else { next.add(avatarKey); }
-                                          return next;
-                                        })}
-                                        className={`absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center border-2 border-black font-black text-[11px] shadow-lg transition-all active:scale-125 ${followedYouTubers.has(avatarKey) ? 'bg-white text-pink-600' : 'bg-pink-600 text-white'}`}
-                                      >
-                                        {followedYouTubers.has(avatarKey) ? '✓' : '+'}
-                                      </button>
-                                    )}
-                                  </div>
-                                </div>
-                                <div onClick={() => handleLike(vid.id)} className="flex flex-col items-center cursor-pointer active:scale-125 transition-all">
-                                  <Heart size={35} className={likedPosts[vid.id]?"text-red-500 fill-red-500":"text-white"}/>
-                                  <span className="text-[10px] font-bold text-white">12k</span>
-                                </div>
-                                <div className="flex flex-col items-center cursor-pointer" onClick={() => setCommentPostId(vid.id)}>
-                                  <MessageCircle size={35} className="text-white"/>
-                                  <span className="text-[10px] font-bold text-white">842</span>
-                                </div>
-                                <div onClick={() => handleShare(`Watch ${vid.title||vid.text||''} on AJ Portal!`)} className="flex flex-col items-center cursor-pointer text-white">
-                                  <Share2 size={35}/><span className="text-[10px] font-bold">Share</span>
-                                </div>
-                                <div className="flex flex-col items-center cursor-pointer text-yellow-500 bg-gradient-to-r from-yellow-300 to-yellow-600 bg-clip-text" onClick={() => setPulseGiftPostId(vid.id)}>
-                                  <Gift size={28}/><span className="text-[10px] font-bold">Gift</span>
-                                </div>
-                                {!isUserPost && (
-                                  <div className="flex flex-col items-center cursor-pointer text-white"
-                                    onClick={() => setGlobalSoundOn(s => !s)}>
-                                    {globalSoundOn ? <Volume2 size={28} className="text-green-400"/> : <VolumeX size={28} className="text-red-400"/>}
-                                    <span className="text-[10px] font-bold">{globalSoundOn?'Sound':'Muted'}</span>
-                                  </div>
-                                )}
-                              </div>
-                              {/* Req 2: 3-dot menu for own TikReel posts */}
-                              {isUserPost && vid.uid===user?.uid && (
-                                <div className="absolute top-4 right-4 z-20">
-                                  <button onClick={() => setActiveMenuId(activeMenuId===vid.id?null:vid.id)}
-                                    className="bg-[#050505]/50 backdrop-blur-sm rounded-full p-2 active:scale-90 transition-all">
-                                    <MoreVertical size={16} className="text-white"/>
-                                  </button>
-                                  {activeMenuId===vid.id && (
-                                    <div className="absolute right-0 top-11 bg-slate-900 border border-white/10 p-3 rounded-xl z-[1000] shadow-2xl min-w-[110px]">
-                                      <button
-                                        onClick={() => { setEditPostId(vid.id); setEditPostText(vid.text||''); setActiveMenuId(null); }}
-                                        className="text-blue-400 text-[10px] font-black flex items-center gap-2 uppercase w-full mb-2">
-                                        <Edit3 size={14}/> Edit
-                                      </button>
-                                      <button onClick={() => handleDeletePost(vid.id)}
-                                        className="text-red-500 text-[10px] font-black flex items-center gap-2 uppercase w-full">
-                                        <Trash2 size={14}/> Delete
-                                      </button>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                              {/* Bottom info */}
-                              <div className="absolute bottom-10 left-6 text-white max-w-[70%] z-10">
-                                <p className="font-black text-sm">@{isUserPost ? (vid.username||'AJ_Member') : vid.user}</p>
-                                {isUserPost && vid.text && <p className="text-[11px] text-gray-300 mt-1 line-clamp-2">{vid.text}</p>}
-                                <div
-                                  className="flex items-center gap-2 mt-3 bg-[#050505]/40 w-max p-1.5 rounded-full border border-white/10 cursor-pointer  transition-all"
-                                  onClick={() => {
-                                    const soundLabel = isUserPost
-                                      ? (vid.title || vid.text || 'AJ Studio Sound')
-                                      : (vid.title || 'AJ Studio Sound');
-                                    setSelectedSound(soundLabel);
-                                    // Req 1: clicking sound → set for next post + open Create tab
-                                     setTiktabMode('create');
-                                  }}
-                                >
-                                  <Music size={12} className="text-pink-400" style={{animation:'spin 3s linear infinite'}}/>
-                                  {/* @ts-ignore */}
-                                  <marquee className="text-[10px] w-24 uppercase font-bold">AJ Studio Sound</marquee>
-                                </div>
-                              </div>
-                            </>
-                            )}
-                          </div>
-                          {(i+1)%4===0 && (
-                             /* Monetag Video Ad every 4 TikReels */
-                             <div className="h-[85vh] w-full snap-start relative overflow-hidden bg-[#050505]">
-                               <MonetagVideoAd publisherId={11279683}/>
-                             </div>
-                           )}
-                        </React.Fragment>
-                        );
-                      });
-                    })()}
-                  </div>
-                )}
+          {/* Mute/Unmute Toggle Button */}
+          <button onClick={() => setGlobalSoundOn(!globalSoundOn)} className="absolute top-16 right-4 z-20 bg-black/40 backdrop-blur-md p-2 rounded-full text-white/80 hover:text-white border border-white/10">
+            {globalSoundOn ? '🔊' : '🔇'}
+          </button>
+
+          {/* TikTok Right Action Sidebar */}
+          <div className="absolute right-3 bottom-20 z-20 flex flex-col items-center gap-5">
+            <div className="relative group cursor-pointer" onClick={() => setSocialScreen('profile')}>
+              <img src={p.userPhoto || p.photo || '/logo.png'} className="w-11 h-11 rounded-full border-2 border-pink-500 object-cover shadow-lg" />
+              <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 bg-pink-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] font-bold">+</span>
+            </div>
+            <button onClick={() => handleLikePost(p.id)} className="flex flex-col items-center gap-1 group">
+              <div className="p-3 bg-black/40 backdrop-blur-md rounded-full border border-white/10 group-active:scale-125 transition-transform">
+                ❤️
+              </div>
+              <span className="text-[11px] font-bold text-white shadow-sm">{p.likes || 0}</span>
+            </button>
+            <button onClick={() => setCommentPostId(p.id)} className="flex flex-col items-center gap-1">
+              <div className="p-3 bg-black/40 backdrop-blur-md rounded-full border border-white/10">
+                💬
+              </div>
+              <span className="text-[11px] font-bold text-white shadow-sm">{p.commentsCount || 0}</span>
+            </button>
+            <button className="flex flex-col items-center gap-1">
+              <div className="p-3 bg-black/40 backdrop-blur-md rounded-full border border-white/10">
+                🔗
+              </div>
+              <span className="text-[10px] font-bold text-white shadow-sm">Share</span>
+            </button>
+          </div>
+
+          {/* Bottom Caption & User Overlay */}
+          <div className="absolute bottom-4 left-4 right-16 z-20 flex flex-col gap-1.5 text-left bg-gradient-to-t from-black/90 via-black/40 to-transparent p-2 rounded-xl">
+            <p className="font-black text-sm text-white tracking-wide">@{p.username || p.author || 'AJ_Creator'}</p>
+            <p className="text-xs text-gray-200 line-clamp-2 leading-snug">{p.caption || p.text || 'Check out this TikReel! 🔥'}</p>
+            <div className="flex items-center gap-2 mt-1 text-[11px] text-pink-400 font-semibold">
+              <span>🎵 Original Sound - {p.username || 'AJ Empire'}</span>
+            </div>
+          </div>
+        </div>
+      ))
+    )}
+  </div>
+)}
 
                 {/* CREATE (TikReels) */}
                 {tiktabMode==='create' && (
