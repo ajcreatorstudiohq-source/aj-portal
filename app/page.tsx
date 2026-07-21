@@ -611,16 +611,19 @@ function AJFooter() {
                 className="relative w-full rounded-3xl overflow-hidden"
                 style={{
                   width: '100%',
-                  maxWidth: '100%',
-                  aspectRatio: '9/16',
-                  border: '2px solid rgba(236,72,153,0.6)',
-                  boxShadow: '0 0 60px rgba(236,72,153,0.5), 0 0 30px rgba(34,211,238,0.2)',
+                  maxWidth: '480px',
+                  margin: '0 auto',
+                  aspectRatio: '4/5',
+                  border: '4px solid rgba(236,72,153,0.8)',
+                  boxShadow: '0 0 80px rgba(236,72,153,0.4)',
+                  borderRadius: '2rem'
                 }}
               >
                 <img
                   src="/founder_card.jpg"
                   alt="Ali Asim — Founder & CEO"
-                  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                  className="w-full h-full object-cover"
+                  style={{ display: 'block' }}
                 />
                 {/* Gradient overlay at bottom */}
                 <div
@@ -1074,10 +1077,9 @@ export function AJSuperPortal() {
     }
     if (commentPostId && !commentPostId.startsWith('gift_')) {
       try {
-        const col = (socialScreen === 'pulse') ? 'pulse_posts' : 'user_posts';
-        const q = query(collection(db, col, commentPostId,"comments"), orderBy("createdAt","asc"));
+        const q = query(collection(db, 'user_posts', commentPostId, "comments"), orderBy("createdAt","asc"));
         return onSnapshot(q, snap => setPostComments(snap.docs.map(d=>({id:d.id,...d.data()}))));
-      } catch {}
+      } catch(e) { console.error("Comment sub error", e); }
     }
     return () => {};
   }, [socialScreen, activeContact, commentPostId]);
@@ -3873,11 +3875,11 @@ export function AJSuperPortal() {
             <div className="px-4 py-4 space-y-3">
               <MonetagBanner siteId={MONETAG_PULSE_BANNER}/>
               {[
-                { id:'rider',    name:'Rider King',       emoji:'🏍️', desc:'Dodge obstacles, earn coins', url:'https://cloud.onlinegames.io/games/2025/unity/monster-truck-arena/index-og.html' },
-                { id:'racer',    name:'Pulse Racer',      emoji:'🏎️', desc:'Speed racing challenge',      url:'https://www.onlinegames.io/games/2021/unity2/city-car-stunt-4/index.html' },
-                { id:'subsea',   name:'Subsea Surge',     emoji:'🐠', desc:'Underwater adventure',        url:'https://www.onlinegames.io/games/2022/3/underwater-world/index.html' },
-                { id:'neon',     name:'Neon Strike',      emoji:'⚡', desc:'Neon arcade action',          url:'https://www.onlinegames.io/games/2023/2/neon-war/index.html' },
-                { id:'volcano',  name:'Volcano Escape',   emoji:'🌋', desc:'Escape the eruption',         url:'https://www.onlinegames.io/games/2023/unity/volcano-escape/index.html' },
+                { id:'rider',    name:'Rider King',       emoji:'🏍️', desc:'Dodge obstacles, earn coins', url:'/games/rider-king/index.html' },
+                { id:'racer',    name:'Pulse Racer',      emoji:'🏎️', desc:'Speed racing challenge',      url:'/games/pulse-racer/index.html' },
+                { id:'subsea',   name:'Subsea Surge',     emoji:'🐠', desc:'Underwater adventure',        url:'/games/subsea-surge/index.html' },
+                { id:'neon',     name:'Neon Strike',      emoji:'⚡', desc:'Neon arcade action',          url:'/games/neon-strike/index.html' },
+                { id:'volcano',  name:'Volcano Escape',   emoji:'🌋', desc:'Escape the eruption',         url:'/games/volcano-escape/index.html' },
                 { id:'ludo',     name:'Ludo Elite Royal', emoji:'🎲', desc:'Classic board game — COMING SOON', url:'' },
                 { id:'puck',     name:'Puck Pulse Elite', emoji:'🏒', desc:'Air hockey — COMING SOON',    url:'' },
               ].map(game => (
