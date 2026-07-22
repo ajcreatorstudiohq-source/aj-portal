@@ -108,10 +108,42 @@ const PK_DURATION    = 300;
 // ============================================================
 // MONETAG INTERSTITIAL TRIGGER — fires real ad (FIXED)
 // ============================================================
-const triggerInterstitialAd = () => { if (typeof window !== "undefined" && (window as any).show_9087571) { (window as any).show_9087571(); } };
+const triggerInterstitialAd = () => {
+  try {
+    if (typeof window !== 'undefined') {
+      // FIX: Purane scripts ko remove karein taaki "Page could not load" error na aaye
+      const existing = document.querySelectorAll('script[data-ad-type="monetag-trigger"]');
+      existing.forEach(e => e.remove());
+
+      if (typeof (window as any).show_9087571 === 'function') {
+        (window as any).show_9087571();
+      }
+      try {
+        const existing = document.querySelector('script[data-zone="' + MONETAG_INTERSTITIAL + '"]'); if(existing) return; const s = document.createElement('script');
+        s.async = true;
+        s.setAttribute('data-zone', String(MONETAG_INTERSTITIAL));
+        s.setAttribute('data-ad-type', 'monetag-trigger');
+        s.src = 'https://nap5k.com/tag.min.js';
+        document.head.appendChild(s);
+      } catch {}
+    }
+  } catch {}
+};
 
 // NEW: Show visible interstitial overlay + navigate after ad
-const navigateWithAdOverlay = (navFn) => { navFn(); };
+const navigateWithAdOverlay = (navFn: () => void) => {
+  // Fire the real interstitial ad
+  triggerInterstitialAd();
+  // Show visible overlay
+  setInterstitialAdOpen(true);
+  // Auto-close after 8 seconds (user can also skip)
+  const timer = setTimeout(() => {
+    setInterstitialAdOpen(false);
+    setAdAutoCloseTimer(null);
+    navFn();
+  }, 8000);
+  setAdAutoCloseTimer(timer);
+};
 
 // ============================================================
 // ZEGOCLOUD CALL HANDLER
@@ -185,11 +217,10 @@ const giftItems = [
 ];
 
 const WITHDRAW_METHODS = [
-  { label: 'EasyPaisa',          field: 'Mobile Number & Name',    placeholder: '03XX-XXXXXXX | Account Holder Name', type:'simple' },
-  { label: 'JazzCash',           field: 'Mobile Number & Name',    placeholder: '03XX-XXXXXXX | Account Holder Name', type:'simple' },
-  { label: 'Binance (USDT BSC)', field: 'USDT BSC Address',         placeholder: '0x... BSC wallet address', type:'simple' },
-  { label: 'Bank Transfer',      field: 'IBAN & Account Title',    placeholder: 'PKXX... | Full Name', type:'simple' },
-  { label: 'Visa/MasterCard',    field: 'Card Details',            placeholder: 'Card Number | Expiry | CVV', type:'simple' },
+  { label: 'EasyPaisa',          field: 'Mobile Number',    placeholder: '03XX-XXXXXXX',             type:'simple' },
+  { label: 'JazzCash',           field: 'Mobile Number',    placeholder: '03XX-XXXXXXX',             type:'simple' },
+  { label: 'Binance (USDT BSC)', field: 'USDT BSC Address', placeholder: '0x... BSC wallet address', type:'simple' },
+  { label: 'AirTM',              field: 'AirTM Email',      placeholder: 'your@email.com',           type:'simple' },
 ];
 
 // ============================================================
@@ -302,6 +333,46 @@ const formatViews = (v: number): string => {
 // ============================================================
 // MONETAG BANNER COMPONENT — Real injection (FIXED)
 // ============================================================
+function MonetagBanner({ siteId }: { siteId: number }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const keyRef = useRef(0);
+  useEffect(() => {
+    if (!containerRef.current) return;
+    keyRef.current++;
+    // Clear previous content for fresh injection
+    if (containerRef.current.innerHTML) containerRef.current.innerHTML = '';
+    try {
+      // Inject Monetag push/banner ad script
+      const existing = document.querySelector('script[data-zone="' + MONETAG_INTERSTITIAL + '"]'); if(existing) return; const s = document.createElement('script');
+      s.async = true;
+      s.setAttribute('data-zone', String(siteId));
+      // Monetag CDN — zone 11337197 = push/banner, 11349676 = interstitial
+      s.src = 'https://nap5k.com/tag.min.js';
+      containerRef.current.appendChild(s);
+    } catch {}
+    try {
+      // Also inject via global atOptions for banner display
+      const s2 = document.createElement('script');
+      s2.type = 'text/javascript';
+      s2.innerHTML = `
+        window.atOptions = { 'key': '${siteId}', 'format': 'iframe', 'height': 60, 'width': 468, 'params': {} };
+      `;
+      containerRef.current.appendChild(s2);
+      const s3 = document.createElement('script');
+      s3.type = 'text/javascript';
+      s3.src = `//www.highperformanceformat.com/${siteId}/invoke.js`;
+      containerRef.current.appendChild(s3);
+    } catch {}
+  }, [siteId]);
+  return (
+    <div
+      ref={containerRef}
+      className="w-full min-h-[60px] bg-white/5 border border-cyan-500/20 rounded-2xl overflow-hidden"
+      style={{ minHeight: 60 }}
+    />
+  );
+}
+
 // ============================================================
 // VVIP NEON GLASSMORPHISM ALERT MODAL
 // ============================================================
@@ -741,9 +812,9 @@ export function AJSuperPortal() {
   const [likedPosts,    setLikedPosts]    = useState<any>({});
   const [activeMenuId,  setActiveMenuId]  = useState<string|null>(null);
   const [vvipAlert,     setVvipAlert]     = useState<{msg:string,icon?:string}|null>(null);
-  
-  
-  
+  const [interstitialAdOpen, setInterstitialAdOpen] = useState(false);
+  const [pendingNav,  setPendingNav]  = useState<string|null>(null);
+  const [adAutoCloseTimer, setAdAutoCloseTimer] = useState<NodeJS.Timeout|null>(null);
   const [editPostId,    setEditPostId]    = useState<string|null>(null);
   const [editPostText,  setEditPostText]  = useState('');
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -2566,6 +2637,31 @@ export function AJSuperPortal() {
       {/* ══════════════════════════════════════════════════════
           INTERSTITIAL AD OVERLAY — Visible video ad on card clicks
       ══════════════════════════════════════════════════════ */}
+      {interstitialAdOpen && (
+        <div className="fixed inset-0 z-[9995] bg-black flex flex-col">
+          <div className="flex-1 relative flex items-center justify-center">
+            <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} type="interstitial"/>
+          </div>
+          {/* Skip button — top right */}
+          <button
+            onClick={() => {
+              if (adAutoCloseTimer) { clearTimeout(adAutoCloseTimer); setAdAutoCloseTimer(null); }
+              setInterstitialAdOpen(false);
+              if (pendingNav === 'social') { fetchSocialAPIs(); setScreen('social'); setSocialScreen('hub'); }
+              else if (pendingNav === 'wallet') { setScreen('wallet'); setWalletTab('main'); }
+              else if (pendingNav) { setScreen(pendingNav); }
+              setPendingNav(null);
+            }}
+            className="absolute top-6 right-4 z-[9996] bg-black/60 backdrop-blur-sm border border-white/20 text-white text-[11px] font-black px-5 py-2.5 rounded-2xl active:scale-90 transition-all shadow-[0_0_20px_rgba(236,72,153,0.4)]"
+          >
+            Skip Ad ✕
+          </button>
+          {/* Timer bar at bottom */}
+          <div className="h-1 w-full bg-white/10 relative">
+            <div className="h-full bg-gradient-to-r from-pink-500 to-cyan-400 transition-all" style={{width:'100%', transitionDuration:'8s'}}/>
+          </div>
+        </div>
+      )}
 
       {/* Incoming Call Overlay */}
       {incomingCall && (
@@ -2684,8 +2780,8 @@ export function AJSuperPortal() {
                   </div>
                 )}
                 <div className="mt-4 flex gap-2">
-                  <button onClick={() => { triggerInterstitialAd();   const t = setTimeout(() => {  setScreen('wallet'); setWalletTab('purchase'); }, 8000);  }} className="flex-1 py-2.5 rounded-2xl text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all shadow-[0_0_18px_rgba(236,72,153,0.3)]" style={{background:'linear-gradient(135deg,#ec4899,#8b5cf6)'}}>+ Buy Coins</button>
-                  <button onClick={() => { triggerInterstitialAd();   const t = setTimeout(() => {  setScreen('wallet'); setWalletTab('withdraw'); }, 8000);  }} className="flex-1 py-2.5 rounded-2xl text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all" style={{background:'linear-gradient(135deg,#0891b2,#0e7490)'}}>Withdraw</button>
+                  <button onClick={() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('wallet'); const t = setTimeout(() => { setInterstitialAdOpen(false); setScreen('wallet'); setWalletTab('purchase'); }, 8000); setAdAutoCloseTimer(t); }} className="flex-1 py-2.5 rounded-2xl text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all shadow-[0_0_18px_rgba(236,72,153,0.3)]" style={{background:'linear-gradient(135deg,#ec4899,#8b5cf6)'}}>+ Buy Coins</button>
+                  <button onClick={() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('wallet'); const t = setTimeout(() => { setInterstitialAdOpen(false); setScreen('wallet'); setWalletTab('withdraw'); }, 8000); setAdAutoCloseTimer(t); }} className="flex-1 py-2.5 rounded-2xl text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all" style={{background:'linear-gradient(135deg,#0891b2,#0e7490)'}}>Withdraw</button>
                 </div>
               </div>
             </div>
@@ -2694,7 +2790,7 @@ export function AJSuperPortal() {
           {/* Quick Nav Grid — 4 Main Cards with Details */}
           <div className="px-4 pt-4 grid grid-cols-2 gap-4">
             {/* GAMES Card */}
-            <button onClick={() => { triggerInterstitialAd();   const t = setTimeout(() => {  setScreen('games'); }, 8000);  }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-purple-500/50 shadow-[0_0_20px_rgba(147,51,234,0.2)]">
+            <button onClick={() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('games'); const t = setTimeout(() => { setInterstitialAdOpen(false); setScreen('games'); }, 8000); setAdAutoCloseTimer(t); }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-purple-500/50 shadow-[0_0_20px_rgba(147,51,234,0.2)]">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-[0_0_16px_rgba(147,51,234,0.5)]">
                 <span className="text-2xl">🎮</span>
               </div>
@@ -2709,7 +2805,7 @@ export function AJSuperPortal() {
             </button>
 
             {/* SOCIAL Card */}
-            <button onClick={() => { triggerInterstitialAd();   const t = setTimeout(() => {  fetchSocialAPIs(); setScreen('social'); setSocialScreen('hub'); }, 8000);  }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-cyan-900/40 to-blue-900/40 border border-cyan-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-cyan-500/50 shadow-[0_0_20px_rgba(6,182,212,0.2)]">
+            <button onClick={() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('social'); const t = setTimeout(() => { setInterstitialAdOpen(false); fetchSocialAPIs(); setScreen('social'); setSocialScreen('hub'); }, 8000); setAdAutoCloseTimer(t); }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-cyan-900/40 to-blue-900/40 border border-cyan-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-cyan-500/50 shadow-[0_0_20px_rgba(6,182,212,0.2)]">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center shadow-[0_0_16px_rgba(6,182,212,0.5)]">
                 <span className="text-2xl">📡</span>
               </div>
@@ -2724,7 +2820,7 @@ export function AJSuperPortal() {
             </button>
 
             {/* WALLET Card */}
-            <button onClick={() => { triggerInterstitialAd();   const t = setTimeout(() => {  setScreen('wallet'); setWalletTab('main'); }, 8000);  }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-yellow-900/40 to-orange-900/40 border border-yellow-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-yellow-500/50 shadow-[0_0_20px_rgba(234,179,8,0.2)]">
+            <button onClick={() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('wallet'); const t = setTimeout(() => { setInterstitialAdOpen(false); setScreen('wallet'); setWalletTab('main'); }, 8000); setAdAutoCloseTimer(t); }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-yellow-900/40 to-orange-900/40 border border-yellow-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-yellow-500/50 shadow-[0_0_20px_rgba(234,179,8,0.2)]">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-yellow-500 to-orange-500 flex items-center justify-center shadow-[0_0_16px_rgba(234,179,8,0.5)]">
                 <span className="text-2xl">💰</span>
               </div>
@@ -2739,7 +2835,7 @@ export function AJSuperPortal() {
             </button>
 
             {/* AI TRADING BOT Card */}
-            <button onClick={() => { triggerInterstitialAd();   const t = setTimeout(() => {  setScreen('aibot'); }, 8000);  }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.2)]">
+            <button onClick={() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('aibot'); const t = setTimeout(() => { setInterstitialAdOpen(false); setScreen('aibot'); }, 8000); setAdAutoCloseTimer(t); }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.2)]">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center shadow-[0_0_16px_rgba(34,197,94,0.5)]">
                 <span className="text-2xl">🤖</span>
               </div>
@@ -2799,7 +2895,7 @@ export function AJSuperPortal() {
               <div className="px-4 pt-3">
                 <MonetagBanner siteId={MONETAG_WECHAT_SPONSOR}/>
               </div>
-              <div className="flex-1 overflow-y-scroll snap-y snap-mandatory p-4 space-y-3">
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {notifications.length === 0 && <p className="text-center text-gray-500 text-sm mt-10">No notifications yet.</p>}
                 {notifications.map((n:any) => (
                   <div key={n.id} className="bg-white/5 border border-white/10 rounded-2xl p-3 flex items-start justify-between gap-2">
@@ -2827,7 +2923,7 @@ export function AJSuperPortal() {
 
           {/* ── PROFILE SETUP ── */}
           {socialScreen === 'setup' && (
-            <div className="flex-1 overflow-y-scroll snap-y snap-mandatory px-4 py-8 flex flex-col items-center gap-5">
+            <div className="flex-1 overflow-y-auto px-4 py-8 flex flex-col items-center gap-5">
               <div className="relative z-[50]">
                 <img src="/logo.png" alt="AJ" className="w-16 h-16 rounded-2xl shadow-[0_0_30px_rgba(236,72,153,0.5)]"/>
               </div>
@@ -2869,13 +2965,13 @@ export function AJSuperPortal() {
               <div className="px-4 pt-3">
                 <MonetagBanner siteId={MONETAG_PULSE_BANNER}/>
               </div>
-              <div className="flex-1 overflow-y-scroll snap-y snap-mandatory px-4 py-4 space-y-3">
+              <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
                 {[
-                  { icon:'🎬', label:'AJ TikReels',    sub:'Short Videos & Reels',   action:() => { triggerInterstitialAd();   const t = setTimeout(() => {  setSocialScreen('tikreels'); setTiktabMode('feed'); }, 8000);  } },
-                  { icon:'📡', label:'AJ Pulse',        sub:'Feed, Live & Stories',   action:() => { triggerInterstitialAd();   const t = setTimeout(() => {  setSocialScreen('pulse'); setPulseTab('feed'); }, 8000);  } },
-                  { icon:'💬', label:'AJ WeChat',       sub:'Private Encrypted Chat', action:() => { triggerInterstitialAd();   const t = setTimeout(() => {  setSocialScreen('wechat'); }, 8000);  } },
-                  { icon:'🔴', label:'Go Live',         sub:'Start Livestream',       action:() => { triggerInterstitialAd();   const t = setTimeout(() => {  setSocialScreen('golive'); }, 8000);  } },
-                  { icon:'👁️', label:'Join Live',       sub:'Watch a Livestream',     action:() => { triggerInterstitialAd();   const t = setTimeout(() => {  setSocialScreen('joinlive'); }, 8000);  } },
+                  { icon:'🎬', label:'AJ TikReels',    sub:'Short Videos & Reels',   action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('social'); const t = setTimeout(() => { setInterstitialAdOpen(false); setSocialScreen('tikreels'); setTiktabMode('feed'); }, 8000); setAdAutoCloseTimer(t); } },
+                  { icon:'📡', label:'AJ Pulse',        sub:'Feed, Live & Stories',   action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('social'); const t = setTimeout(() => { setInterstitialAdOpen(false); setSocialScreen('pulse'); setPulseTab('feed'); }, 8000); setAdAutoCloseTimer(t); } },
+                  { icon:'💬', label:'AJ WeChat',       sub:'Private Encrypted Chat', action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('social'); const t = setTimeout(() => { setInterstitialAdOpen(false); setSocialScreen('wechat'); }, 8000); setAdAutoCloseTimer(t); } },
+                  { icon:'🔴', label:'Go Live',         sub:'Start Livestream',       action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('social'); const t = setTimeout(() => { setInterstitialAdOpen(false); setSocialScreen('golive'); }, 8000); setAdAutoCloseTimer(t); } },
+                  { icon:'👁️', label:'Join Live',       sub:'Watch a Livestream',     action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('social'); const t = setTimeout(() => { setInterstitialAdOpen(false); setSocialScreen('joinlive'); }, 8000); setAdAutoCloseTimer(t); } },
                   { icon:'👤', label:'My Profile',      sub:'View & Edit Profile',    action:() => { if (user) openProfile(user.uid); } },
                 ].map(item => (
                   <button key={item.label} onClick={item.action} className="w-full flex items-center gap-4 bg-white/5 border border-white/10 rounded-2xl p-4 active:scale-95 transition-all hover:border-pink-500/30">
@@ -3088,7 +3184,7 @@ export function AJSuperPortal() {
 
               {/* ── CREATE ── */}
               {tiktabMode === 'create' && (
-                <div className="flex-1 overflow-y-scroll snap-y snap-mandatory px-4 py-4 space-y-4">
+                <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
                   <div className="relative w-full aspect-video bg-white/5 border border-white/10 rounded-2xl overflow-hidden cursor-pointer" onClick={handleTiktokImage}>
                     {tiktokPostImg ? (
                       tiktokPostIsVideo
@@ -3145,7 +3241,7 @@ export function AJSuperPortal() {
 
               {/* ── TIKREELS PROFILE ── */}
               {tiktabMode === 'profile' && (
-                <div className="flex-1 overflow-y-scroll snap-y snap-mandatory">
+                <div className="flex-1 overflow-y-auto">
                   <div className="flex flex-col items-center px-4 py-6">
                     {/* FIX #8: Neon Pink + button on avatar */}
                     <div className="relative">
@@ -3322,7 +3418,7 @@ export function AJSuperPortal() {
 
               {/* ── PULSE CREATE ── */}
               {pulseTab === 'create' && (
-                <div className="flex-1 overflow-y-scroll snap-y snap-mandatory px-4 py-4 space-y-4">
+                <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
                   <div className="relative w-full aspect-video bg-white/5 border border-white/10 rounded-2xl overflow-hidden cursor-pointer" onClick={handleImageClick}>
                     {tempPhoto ? (
                       pulsePostIsVideo
@@ -3344,7 +3440,7 @@ export function AJSuperPortal() {
 
               {/* ── PULSE PROFILE ── */}
               {pulseTab === 'profile' && (
-                <div className="flex-1 overflow-y-scroll snap-y snap-mandatory">
+                <div className="flex-1 overflow-y-auto">
                   <div className="flex flex-col items-center px-4 py-6">
                     {/* FIX #8: Neon Pink + button on avatar */}
                     <div className="relative">
@@ -3527,7 +3623,7 @@ export function AJSuperPortal() {
                     </div>
                     {liveChatOpen && (
                       <div className="mt-2 bg-[#0a0a1a] border border-white/10 rounded-2xl overflow-hidden">
-                        <div className="h-40 overflow-y-scroll snap-y snap-mandatory p-3 space-y-2">
+                        <div className="h-40 overflow-y-auto p-3 space-y-2">
                           {liveChatMessages.map((m:any) => (
                             <div key={m.id} className="flex items-start gap-2">
                               <img src={m.photo||'/logo.png'} className="w-5 h-5 rounded-full object-cover flex-shrink-0"/>
@@ -3645,7 +3741,7 @@ export function AJSuperPortal() {
               </div>
               <div className="flex-1 flex flex-col">
                 <div id="video-container" className="w-full aspect-video bg-black"/>
-                <div className="flex-1 overflow-y-scroll snap-y snap-mandatory p-3 space-y-2">
+                <div className="flex-1 overflow-y-auto p-3 space-y-2">
                   {viewerChatMessages.map((m:any) => (
                     <div key={m.id} className="flex items-start gap-2">
                       <img src={m.photo||'/logo.png'} className="w-5 h-5 rounded-full object-cover flex-shrink-0"/>
@@ -3709,7 +3805,7 @@ export function AJSuperPortal() {
               <div className="px-4 pt-3">
                 <MonetagBanner siteId={MONETAG_WECHAT_SPONSOR}/>
               </div>
-              <div className="flex-1 overflow-y-scroll snap-y snap-mandatory p-4 space-y-3">
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {wechatContacts.length === 0 && (
                   <div className="flex flex-col items-center justify-center h-full gap-4 pt-20">
                     <span className="text-5xl">💬</span>
@@ -3766,7 +3862,7 @@ export function AJSuperPortal() {
               <div className="px-4 pt-3">
                 <MonetagBanner siteId={MONETAG_WECHAT_SPONSOR}/>
               </div>
-              <div className="flex-1 overflow-y-scroll snap-y snap-mandatory p-4 space-y-3">
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {dmMessages.map((m:any) => (
                   <div key={m.id} className={`flex ${m.uid===user?.uid ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[75%] rounded-2xl px-4 py-2.5 ${m.uid===user?.uid ? 'bg-pink-600 text-white' : 'bg-white/10 text-white'}`}>
@@ -3799,7 +3895,7 @@ export function AJSuperPortal() {
                   <div className="w-8 h-8 border-2 border-pink-500 border-t-transparent rounded-full animate-spin"/>
                 </div>
               ) : (
-                <div className="flex-1 overflow-y-scroll snap-y snap-mandatory">
+                <div className="flex-1 overflow-y-auto">
                   {/* Cover */}
                   <div className="h-32 bg-gradient-to-br from-pink-900/50 to-cyan-900/50 relative">
                     <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-[#050505] to-transparent"/>
@@ -3893,7 +3989,7 @@ export function AJSuperPortal() {
                       <p className="text-sm font-black text-white">💬 Comments</p>
                       <button onClick={() => { setCommentPostId(null); setPostComments([]); }}><X size={18} className="text-gray-400"/></button>
                     </div>
-                    <div className="flex-1 overflow-y-scroll snap-y snap-mandatory space-y-3 mb-4">
+                    <div className="flex-1 overflow-y-auto space-y-3 mb-4">
                       {postComments.length === 0 && <p className="text-gray-500 text-xs text-center mt-4">No comments yet. Be the first to comment!</p>}
                       {postComments.map((c:any) => (
                         <div key={c.id} className="flex items-start gap-2">
@@ -4088,7 +4184,7 @@ export function AJSuperPortal() {
               </button>
               {botOpen && (
                 <div className="border-t border-white/5">
-                  <div className="h-64 overflow-y-scroll snap-y snap-mandatory p-4 space-y-3">
+                  <div className="h-64 overflow-y-auto p-4 space-y-3">
                     {botMessages.map((m, i) => (
                       <div key={i} className={`flex ${m.from==='user' ? 'justify-end' : 'justify-start'}`}>
                         <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-xs ${m.from==='user' ? 'bg-pink-600 text-white' : 'bg-white/10 text-white'}`}>
@@ -4128,13 +4224,13 @@ export function AJSuperPortal() {
           {/* Wallet Tab Bar */}
           <div className="flex border-b border-white/5">
             {(['main','purchase','withdraw','transfer','referral'] as const).map(tab => (
-              <button key={tab} onClick={() => { triggerInterstitialAd();   const t = setTimeout(() => {  setWalletTab(tab); }, 8000);  }} className={`flex-1 py-2.5 text-[9px] font-black uppercase tracking-widest transition-all ${walletTab===tab ? 'text-pink-400 border-b-2 border-pink-500' : 'text-gray-500'}`}>
+              <button key={tab} onClick={() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('wallet'); const t = setTimeout(() => { setInterstitialAdOpen(false); setWalletTab(tab); }, 8000); setAdAutoCloseTimer(t); }} className={`flex-1 py-2.5 text-[9px] font-black uppercase tracking-widest transition-all ${walletTab===tab ? 'text-pink-400 border-b-2 border-pink-500' : 'text-gray-500'}`}>
                 {tab==='main'?'💰':tab==='purchase'?'🛒':tab==='withdraw'?'💸':tab==='transfer'?'↔️':'👥'}
               </button>
             ))}
           </div>
 
-          <div className="flex-1 overflow-y-scroll snap-y snap-mandatory px-4 py-4 space-y-4">
+          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
             <MonetagBanner siteId={MONETAG_PULSE_BANNER}/>
 
             {/* ── MAIN ── */}
@@ -4160,10 +4256,10 @@ export function AJSuperPortal() {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   {[
-                    { icon:'🛒', label:'Buy Coins',   action:() => { triggerInterstitialAd();   const t = setTimeout(() => {  setWalletTab('purchase'); }, 8000);  } },
-                    { icon:'💸', label:'Withdraw',    action:() => { triggerInterstitialAd();   const t = setTimeout(() => {  setWalletTab('withdraw'); }, 8000);  } },
-                    { icon:'↔️', label:'Transfer',    action:() => { triggerInterstitialAd();   const t = setTimeout(() => {  setWalletTab('transfer'); }, 8000);  } },
-                    { icon:'👥', label:'Refer & Earn',action:() => { triggerInterstitialAd();   const t = setTimeout(() => {  setWalletTab('referral'); }, 8000);  } },
+                    { icon:'🛒', label:'Buy Coins',   action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('wallet'); const t = setTimeout(() => { setInterstitialAdOpen(false); setWalletTab('purchase'); }, 8000); setAdAutoCloseTimer(t); } },
+                    { icon:'💸', label:'Withdraw',    action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('wallet'); const t = setTimeout(() => { setInterstitialAdOpen(false); setWalletTab('withdraw'); }, 8000); setAdAutoCloseTimer(t); } },
+                    { icon:'↔️', label:'Transfer',    action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('wallet'); const t = setTimeout(() => { setInterstitialAdOpen(false); setWalletTab('transfer'); }, 8000); setAdAutoCloseTimer(t); } },
+                    { icon:'👥', label:'Refer & Earn',action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('wallet'); const t = setTimeout(() => { setInterstitialAdOpen(false); setWalletTab('referral'); }, 8000); setAdAutoCloseTimer(t); } },
                   ].map(item => (
                     <button key={item.label} onClick={item.action} className="flex flex-col items-center gap-2 bg-white/5 border border-white/10 rounded-2xl py-4 active:scale-95 transition-all hover:border-pink-500/30">
                       <span className="text-2xl">{item.icon}</span>
@@ -4274,7 +4370,7 @@ const queryClient = new QueryClient();
 export default function Page() {
   return (
     <QueryClientProvider client={queryClient}>
-      <><Script src="https://nap5k.com/tag.min.js" data-zone="11349676" strategy="lazyOnload" /><AJSuperPortal/></>
+      <AJSuperPortal/>
     </QueryClientProvider>
   );
 }
