@@ -219,8 +219,9 @@ const giftItems = [
 const WITHDRAW_METHODS = [
   { label: 'EasyPaisa',          field: 'Mobile Number',    placeholder: '03XX-XXXXXXX',             type:'simple' },
   { label: 'JazzCash',           field: 'Mobile Number',    placeholder: '03XX-XXXXXXX',             type:'simple' },
+  { label: 'Bank Transfer',      field: 'Bank Details',     placeholder: 'Bank Name, Account No, IBAN', type:'detail' },
+  { label: 'Visa/Mastercard',    field: 'Card Details',     placeholder: 'Card Holder, Card No, Expiry, CVV', type:'detail' },
   { label: 'Binance (USDT BSC)', field: 'USDT BSC Address', placeholder: '0x... BSC wallet address', type:'simple' },
-  { label: 'AirTM',              field: 'AirTM Email',      placeholder: 'your@email.com',           type:'simple' },
 ];
 
 // ============================================================
@@ -331,49 +332,6 @@ const formatViews = (v: number): string => {
 };
 
 // ============================================================
-// MONETAG BANNER COMPONENT — Real injection (FIXED)
-// ============================================================
-function MonetagBanner({ siteId }: { siteId: number }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const keyRef = useRef(0);
-  useEffect(() => {
-    if (!containerRef.current) return;
-    keyRef.current++;
-    // Clear previous content for fresh injection
-    if (containerRef.current.innerHTML) containerRef.current.innerHTML = '';
-    try {
-      // Inject Monetag push/banner ad script
-      const existing = document.querySelector('script[data-zone="' + MONETAG_INTERSTITIAL + '"]'); if(existing) return; const s = document.createElement('script');
-      s.async = true;
-      s.setAttribute('data-zone', String(siteId));
-      // Monetag CDN — zone 11337197 = push/banner, 11349676 = interstitial
-      s.src = 'https://nap5k.com/tag.min.js';
-      containerRef.current.appendChild(s);
-    } catch {}
-    try {
-      // Also inject via global atOptions for banner display
-      const s2 = document.createElement('script');
-      s2.type = 'text/javascript';
-      s2.innerHTML = `
-        window.atOptions = { 'key': '${siteId}', 'format': 'iframe', 'height': 60, 'width': 468, 'params': {} };
-      `;
-      containerRef.current.appendChild(s2);
-      const s3 = document.createElement('script');
-      s3.type = 'text/javascript';
-      s3.src = `//www.highperformanceformat.com/${siteId}/invoke.js`;
-      containerRef.current.appendChild(s3);
-    } catch {}
-  }, [siteId]);
-  return (
-    <div
-      ref={containerRef}
-      className="w-full min-h-[60px] bg-white/5 border border-cyan-500/20 rounded-2xl overflow-hidden"
-      style={{ minHeight: 60 }}
-    />
-  );
-}
-
-// ============================================================
 // VVIP NEON GLASSMORPHISM ALERT MODAL
 // ============================================================
 function VVIPAlert({ msg, icon, onClose }: { msg: string; icon?: string; onClose: () => void }) {
@@ -419,12 +377,12 @@ function VVIPAlert({ msg, icon, onClose }: { msg: string; icon?: string; onClose
 // ============================================================
 // MONETAG VIDEO AD COMPONENT — Real Monetag In-Stream Ad (FIXED)
 // ============================================================
-const AJ_AD_VIDEO_ID = 'aqz-KE-bpKQ'; // fallback
 
 
 function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: number; type?: 'interstitial'|'banner' }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [adReady, setAdReady] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const adKey = useRef(Math.random().toString(36).substring(7));
 
   useEffect(() => {
@@ -432,23 +390,25 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
     const container = containerRef.current;
     container.innerHTML = '';
     setAdReady(false);
+    setLoadFailed(false);
 
-    // FIX: "This page could not load" error ko khatam karne ke liye 
-    // hum ad ko ek isolated iframe mein load karenge.
+    // Load Monetag in an isolated iframe to prevent "page could not load" errors
     const iframe = document.createElement('iframe');
     iframe.style.width = '100%';
     iframe.style.height = '100%';
     iframe.style.border = 'none';
     iframe.style.backgroundColor = 'transparent';
+    iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin');
     container.appendChild(iframe);
 
-    const doc = iframe.contentWindow?.document || iframe.contentDocument;
-    if (doc) {
-      doc.open();
-      doc.write(`
+    const iDoc = iframe.contentWindow?.document || iframe.contentDocument;
+    if (iDoc) {
+      iDoc.open();
+      iDoc.write(`
         <html>
-          <body style="margin:0; padding:0; background:black; display:flex; align-items:center; justify-content:center;">
-            <div id="ad-slot"></div>
+          <head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
+          <body style="margin:0;padding:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh;overflow:hidden;">
+            <div id="ad-slot" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;"></div>
             <script type="text/javascript">
               window.atOptions = {
                 'key': '${publisherId}',
@@ -460,24 +420,52 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
               var s = document.createElement('script');
               s.type = 'text/javascript';
               s.src = '//www.highperformanceformat.com/${publisherId}/invoke.js';
-              s.onload = function() { window.parent.postMessage('ad-loaded-${adKey.current}', '*'); };
+              s.onload = function() {
+                // Signal parent that ad content is loaded
+                try { window.parent.postMessage({type:'aj-ad-loaded',key:'${adKey.current}'}, '*'); } catch(e){}
+              };
+              s.onerror = function() {
+                try { window.parent.postMessage({type:'aj-ad-error',key:'${adKey.current}'}, '*'); } catch(e){}
+              };
               document.getElementById('ad-slot').appendChild(s);
+              // Timeout fallback
+              setTimeout(function() {
+                var el = document.getElementById('ad-slot');
+                if (el && el.children.length === 0) {
+                  el.innerHTML = '<div style="color:#888;font-family:sans-serif;text-align:center;padding:20px;"><p style="font-size:14px;">Sponsored Content</p><p style="font-size:11px;color:#555;">Ad is being prepared...</p></div>';
+                  try { window.parent.postMessage({type:'aj-ad-loaded',key:'${adKey.current}'}, '*'); } catch(e){}
+                }
+              }, 5000);
             </script>
           </body>
         </html>
       `);
-      doc.close();
+      iDoc.close();
     }
 
     const handleMessage = (event: MessageEvent) => {
-      if (event.data === `ad-loaded-${adKey.current}`) setAdReady(true);
+      if (event.data && typeof event.data === 'object') {
+        if (event.data.type === 'aj-ad-loaded' && event.data.key === adKey.current) {
+          setAdReady(true);
+        }
+        if (event.data.type === 'aj-ad-error' && event.data.key === adKey.current) {
+          setLoadFailed(true);
+        }
+      }
     };
     window.addEventListener('message', handleMessage);
 
-    const timer = setTimeout(() => setAdReady(true), 4000);
+    // Timeout: mark as ready after 6 seconds regardless
+    const timer = setTimeout(() => {
+      if (!adReady) {
+        setAdReady(true);
+        setLoadFailed(true);
+      }
+    }, 6000);
     return () => {
       window.removeEventListener('message', handleMessage);
       clearTimeout(timer);
+      if (container.firstChild) container.removeChild(container.firstChild);
     };
   }, [publisherId, type]);
 
@@ -487,7 +475,16 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
       {!adReady && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-10">
           <div className="w-12 h-12 rounded-full border-2 border-pink-500 border-t-transparent animate-spin"/>
-          <span className="text-gray-400 text-xs font-black uppercase tracking-widest mt-3">Loading Sponsored Content...</span>
+          <span className="text-gray-400 text-xs font-black uppercase tracking-widest mt-3">Loading Ad...</span>
+        </div>
+      )}
+      {adReady && loadFailed && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-10 gap-3">
+          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-pink-500/20 to-cyan-500/20 flex items-center justify-center">
+            <span className="text-3xl">📢</span>
+          </div>
+          <p className="text-gray-300 text-xs font-black uppercase tracking-widest">Sponsored Content</p>
+          <p className="text-gray-500 text-[10px]">Ad will appear when available</p>
         </div>
       )}
       <div className="absolute top-4 left-4 z-20 pointer-events-none">
@@ -659,9 +656,9 @@ function AJFooter() {
                 className="relative w-full rounded-3xl overflow-hidden"
                 style={{
                   width: '100%',
-                  maxWidth: '480px',
+                  maxWidth: '600px',
                   margin: '0 auto',
-                  aspectRatio: '4/5',
+                  aspectRatio: '4/3',
                   border: '4px solid rgba(236,72,153,0.8)',
                   boxShadow: '0 0 80px rgba(236,72,153,0.4)',
                   borderRadius: '2rem'
@@ -751,17 +748,12 @@ function AJFooter() {
           {/* Divider */}
           <div className="h-[1px] w-full bg-gradient-to-r from-transparent via-white/10 to-transparent"/>
 
-          {/* License Note */}
+          {/* Copyright Notice */}
           <div className="text-center space-y-1">
             <p className="text-[9px] text-gray-400 font-black uppercase tracking-[0.15em] leading-relaxed">
-              © 2024 AJ CREATOR STUDIO. ALL RIGHTS RESERVED.
+              © 2026 AJ CREATOR STUDIO. ALL RIGHTS RESERVED.
             </p>
-            <p
-              className="text-[9px] font-black uppercase tracking-[0.12em]"
-              style={{ background: 'linear-gradient(90deg,#ec4899,#22d3ee,#a855f7)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}
-            >
-              Oman's Certified Digital Social Rewards Ecosystem.
-            </p>
+
           </div>
         </div>
 
@@ -1033,14 +1025,7 @@ export function AJSuperPortal() {
       s3.src = 'https://nap5k.com/push.min.js';
       document.head.appendChild(s3);
     } catch {}
-    // Wechat Sponsor Ad — zone 11337185
-    try {
-      const s4 = document.createElement('script');
-      s4.async = true;
-      s4.setAttribute('data-zone', '11337185');
-      s4.src = 'https://nap5k.com/tag.min.js';
-      document.head.appendChild(s4);
-    } catch {}
+
   }, []);
 
   // ==========================================================
@@ -1272,16 +1257,18 @@ export function AJSuperPortal() {
   useEffect(() => {
     if (!user) return;
     const handleGameMessage = async (e: MessageEvent) => {
-      if (!e.data) return;
+      if (!e.data || typeof e.data !== 'object') return;
       // Handle GAME_SCORE from HTML games — 1 token = 0.01 AJ Coin
-      if (e.data.type === "GAME_SCORE" || e.data.type === "game_score" || e.data.type === "SCORE") {
+      if (e.data.type === "GAME_SCORE" || e.data.type === "game_score" || e.data.type === "SCORE" || e.data.type === "SCORE_UPDATE") {
         const rawScore = typeof e.data.score === 'number' ? e.data.score : Number(e.data.score);
         if (!rawScore || rawScore <= 0 || isNaN(rawScore)) return;
         const coinsEarned = rawScore * 0.01;
         if (coinsEarned <= 0 || isNaN(coinsEarned)) return;
-        // Debounce: prevent double-credit from rapid postMessages
+        // Debounce: prevent double-credit from rapid postMessages but allow new higher scores
         if (gameScoreDebounceRef.current) clearTimeout(gameScoreDebounceRef.current);
         gameScoreDebounceRef.current = setTimeout(async () => {
+          if (rawScore <= lastGameScoreRef.current) return; // skip if not higher
+          lastGameScoreRef.current = rawScore;
           try {
             await updateDoc(doc(db, "users", user.uid), { balance: increment(coinsEarned) });
             setVvipAlert({msg:`🎮 +${coinsEarned.toFixed(2)} AJ Coins earned! Game score: ${rawScore}`, icon:"🎮"});
@@ -1348,54 +1335,71 @@ export function AJSuperPortal() {
             if (!iframeDoc) return;
             const script = iframeDoc.createElement('script');
             script.textContent = `
-              // Game Bridge: forward score messages to parent
-              window.addEventListener('message', function(e) {
-                if (e.data && e.data.type === 'SEND_SCORE') {
-                  if (window.parent && window.parent !== window) {
-                    window.parent.postMessage({type: 'GAME_SCORE', score: e.data.score}, '*');
-                  }
-                }
-              });
-              // Hook into common game score patterns
-              if (typeof Game !== 'undefined' && Game.score !== undefined) {
-                setInterval(function() {
-                  if (window.parent && Game.score) {
-                    window.parent.postMessage({type: 'GAME_SCORE', score: Game.score}, '*');
-                  }
-                }, 2000);
-              }
-              // Detect game crash — if score counter exists but stops updating
+              // Enhanced Game Bridge: forward score messages to parent with retry
               var lastScoreCheck = null;
               var scoreStuckCount = 0;
-              setInterval(function() {
-                if (typeof Game !== 'undefined' && Game.score !== undefined) {
-                  if (lastScoreCheck !== null && Game.score === lastScoreCheck) {
+              
+              // Forward score from parent message
+              window.addEventListener('message', function(e) {
+                if (e.data && (e.data.type === 'SEND_SCORE' || e.data.type === 'SCORE' || e.data.type === 'GAME_SCORE')) {
+                  try {
+                    if (window.parent && window.parent !== window) {
+                      window.parent.postMessage({type: 'GAME_SCORE', score: e.data.score || e.data.points || 0}, '*');
+                    }
+                  } catch(ex) {}
+                }
+              });
+              
+              // Hook into common game score patterns
+              function pollGameScore() {
+                var score = 0;
+                if (typeof Game !== 'undefined' && Game.score !== undefined) score = Game.score;
+                else if (typeof game !== 'undefined' && game.score !== undefined) score = game.score;
+                else if (typeof GAME !== 'undefined' && GAME.score !== undefined) score = GAME.score;
+                else if (typeof gameScore !== 'undefined') score = gameScore;
+                else if (typeof app !== 'undefined' && app.score !== undefined) score = app.score;
+                
+                if (score > 0) {
+                  try {
+                    if (window.parent && window.parent !== window) {
+                      window.parent.postMessage({type: 'GAME_SCORE', score: score}, '*');
+                    }
+                  } catch(ex) {}
+                  
+                  if (lastScoreCheck !== null && score === lastScoreCheck) {
                     scoreStuckCount++;
-                    if (scoreStuckCount >= 5) {
-                      // Score stuck for 10 seconds — likely crashed
-                      if (window.parent && Game.score > 0) {
-                        window.parent.postMessage({type: 'GAME_CRASH', score: Game.score}, '*');
-                      }
+                    if (scoreStuckCount >= 10) {
+                      try {
+                        if (window.parent && window.parent !== window) {
+                          window.parent.postMessage({type: 'GAME_CRASH', score: score}, '*');
+                        }
+                      } catch(ex) {}
                       scoreStuckCount = 0;
                     }
                   } else {
                     scoreStuckCount = 0;
                   }
-                  lastScoreCheck = Game.score;
+                  lastScoreCheck = score;
                 }
-              }, 2000);
+              }
+              
+              setInterval(pollGameScore, 1500);
+              
               // Window error handler — notify parent of crash
               window.addEventListener('error', function(e) {
                 if (window.parent && lastScoreCheck && lastScoreCheck > 0) {
-                  window.parent.postMessage({type: 'GAME_CRASH', score: lastScoreCheck}, '*');
+                  try {
+                    window.parent.postMessage({type: 'GAME_CRASH', score: lastScoreCheck}, '*');
+                  } catch(ex) {}
                 }
               });
+              
               // Unload handler — flush score on page leave
               window.addEventListener('beforeunload', function() {
                 if (lastScoreCheck && lastScoreCheck > 0) {
-                  navigator.sendBeacon && navigator.sendBeacon
-                    ? (window.parent.postMessage({type: 'GAME_END', score: lastScoreCheck}, '*'))
-                    : null;
+                  try {
+                    window.parent.postMessage({type: 'GAME_END', score: lastScoreCheck}, '*');
+                  } catch(ex) {}
                 }
               });
             `;
@@ -1571,7 +1575,7 @@ export function AJSuperPortal() {
         existing.addEventListener('load', () => resolve());
         return;
       }
-      const existingScriptQuery = document.querySelector('script[data-zone="' + MONETAG_INTERSTITIAL + '"]'); if(existing) return; const s = document.createElement('script');
+      const s = document.createElement('script');
       s.id = 'zego-sdk-script';
       s.src = 'https://unpkg.com/@zegocloud/zego-uikit-prebuilt/zego-uikit-prebuilt.js';
       s.async = true;
@@ -2413,16 +2417,23 @@ export function AJSuperPortal() {
   const handleWithdraw = async () => {
     if (balance < WITHDRAW_MIN)
       return setVvipAlert({msg:`Minimum withdrawal is ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE} USD). Current: ${balance.toFixed(0)} Coins.`});
-    const isCard = false;
-    if (!isCard) {
+    // Validate based on method type
+    if (currentWithdrawMethod.type === 'simple') {
       if (!payoutId.trim()) return setVvipAlert({msg:`Enter your ${currentWithdrawMethod.field}.`});
+    } else if (payoutMethod === 'Bank Transfer') {
+      if (!cardHolder.trim() || !cardNumber.trim() || !cardBank.trim() || !cardCountry.trim())
+        return setVvipAlert({msg:"Please fill all Bank Transfer fields."});
+    } else if (payoutMethod === 'Visa/Mastercard') {
+      if (!cardHolder.trim() || !cardNumber.trim() || !cardExpiry.trim() || !cardCVV.trim())
+        return setVvipAlert({msg:"Please fill all Card Details fields."});
     }
     try {
       const usdVal = balance / CASH_RATE;
+      const payoutDetails: any = { payoutAddress: payoutId, cardHolder, cardNumber, cardExpiry, cardCVV, cardBank, cardCountry };
       await updateDoc(doc(db,"users",user!.uid), { balance:0 });
       await addDoc(collection(db,"manual_withdrawals"), {
         uid:user!.uid, email:user!.email, coins:balance, amountUsd:usdVal,
-        method:payoutMethod, payoutAddress: payoutId,
+        method:payoutMethod, payoutDetails,
         status:"pending", date:serverTimestamp()
       });
       try {
@@ -2642,20 +2653,7 @@ export function AJSuperPortal() {
           <div className="flex-1 relative flex items-center justify-center">
             <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} type="interstitial"/>
           </div>
-          {/* Skip button — top right */}
-          <button
-            onClick={() => {
-              if (adAutoCloseTimer) { clearTimeout(adAutoCloseTimer); setAdAutoCloseTimer(null); }
-              setInterstitialAdOpen(false);
-              if (pendingNav === 'social') { fetchSocialAPIs(); setScreen('social'); setSocialScreen('hub'); }
-              else if (pendingNav === 'wallet') { setScreen('wallet'); setWalletTab('main'); }
-              else if (pendingNav) { setScreen(pendingNav); }
-              setPendingNav(null);
-            }}
-            className="absolute top-6 right-4 z-[9996] bg-black/60 backdrop-blur-sm border border-white/20 text-white text-[11px] font-black px-5 py-2.5 rounded-2xl active:scale-90 transition-all shadow-[0_0_20px_rgba(236,72,153,0.4)]"
-          >
-            Skip Ad ✕
-          </button>
+
           {/* Timer bar at bottom */}
           <div className="h-1 w-full bg-white/10 relative">
             <div className="h-full bg-gradient-to-r from-pink-500 to-cyan-400 transition-all" style={{width:'100%', transitionDuration:'8s'}}/>
@@ -2760,9 +2758,6 @@ export function AJSuperPortal() {
           </div>
 
           {/* Sponsor Banner */}
-          <div className="px-4 pt-3">
-            <MonetagBanner siteId={MONETAG_PULSE_BANNER}/>
-          </div>
 
           {/* Balance Card */}
           <div className="px-4 pt-4">
@@ -2892,9 +2887,6 @@ export function AJSuperPortal() {
                 <p className="text-sm font-black text-white">Notifications</p>
                 <button onClick={() => setNotifOpen(false)}><X size={18} className="text-gray-400"/></button>
               </div>
-              <div className="px-4 pt-3">
-                <MonetagBanner siteId={MONETAG_WECHAT_SPONSOR}/>
-              </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {notifications.length === 0 && <p className="text-center text-gray-500 text-sm mt-10">No notifications yet.</p>}
                 {notifications.map((n:any) => (
@@ -2962,9 +2954,6 @@ export function AJSuperPortal() {
                   {notifications.length > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-pink-600 rounded-full text-[8px] font-black flex items-center justify-center">{notifications.length > 9 ? '9+' : notifications.length}</span>}
                 </button>
               </div>
-              <div className="px-4 pt-3">
-                <MonetagBanner siteId={MONETAG_PULSE_BANNER}/>
-              </div>
               <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
                 {[
                   { icon:'🎬', label:'AJ TikReels',    sub:'Short Videos & Reels',   action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('social'); const t = setTimeout(() => { setInterstitialAdOpen(false); setSocialScreen('tikreels'); setTiktabMode('feed'); }, 8000); setAdAutoCloseTimer(t); } },
@@ -2972,7 +2961,7 @@ export function AJSuperPortal() {
                   { icon:'💬', label:'AJ WeChat',       sub:'Private Encrypted Chat', action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('social'); const t = setTimeout(() => { setInterstitialAdOpen(false); setSocialScreen('wechat'); }, 8000); setAdAutoCloseTimer(t); } },
                   { icon:'🔴', label:'Go Live',         sub:'Start Livestream',       action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('social'); const t = setTimeout(() => { setInterstitialAdOpen(false); setSocialScreen('golive'); }, 8000); setAdAutoCloseTimer(t); } },
                   { icon:'👁️', label:'Join Live',       sub:'Watch a Livestream',     action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('social'); const t = setTimeout(() => { setInterstitialAdOpen(false); setSocialScreen('joinlive'); }, 8000); setAdAutoCloseTimer(t); } },
-                  { icon:'👤', label:'My Profile',      sub:'View & Edit Profile',    action:() => { if (user) openProfile(user.uid); } },
+                  { icon:'👤', label:'My Profile',      sub:'View & Edit Profile',    action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('social'); const t = setTimeout(() => { setInterstitialAdOpen(false); openProfile(user.uid); }, 8000); setAdAutoCloseTimer(t); } },
                 ].map(item => (
                   <button key={item.label} onClick={item.action} className="w-full flex items-center gap-4 bg-white/5 border border-white/10 rounded-2xl p-4 active:scale-95 transition-all hover:border-pink-500/30">
                     <span className="text-2xl">{item.icon}</span>
@@ -3049,10 +3038,10 @@ export function AJSuperPortal() {
                     const isActive = activeVideoIdx === idx;
                     // FIX #6: mute=0 when globalSoundOn, else mute=1; audio kill on scroll
                     const embedSrc = `https://www.youtube.com/embed/${vid.id}?autoplay=${isActive?1:0}&mute=${(isActive && globalSoundOn)?0:1}&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3`;
-                    if (idx > 0 && idx % 4 === 0) {
+                    if (idx === 0 || (idx > 0 && idx % 4 === 0)) {
                       return (
                         <div key={`tik_ad_${idx}`} data-vidx={idx} className="relative w-full h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
-                          <MonetagVideoAd publisherId={MONETAG_PULSE_BANNER} type="interstitial"/>
+                          <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} type="interstitial"/>
                         </div>
                       );
                     }
@@ -3330,10 +3319,6 @@ export function AJSuperPortal() {
                 ))}
               </div>
 
-              <div className="px-4 pt-2">
-                <MonetagBanner siteId={MONETAG_PULSE_BANNER}/>
-              </div>
-
               {/* ── PULSE FEED — FIX #5: combinedPulseFeed (Unsplash + Firestore merged, no deletion) ── */}
               {pulseTab === 'feed' && (
                 <div
@@ -3342,10 +3327,10 @@ export function AJSuperPortal() {
                   style={{ scrollSnapType: 'y mandatory', display:'flex', flexDirection:'column-reverse' }}
                 >
                   {combinedPulseFeed.map((post:any, idx:number) => {
-                    if (idx > 0 && idx % 4 === 0) {
+                    if (idx === 0 || (idx > 0 && idx % 4 === 0)) {
                       return (
                         <div key={`pulse_ad_${idx}`} data-vidx={idx} className="relative w-full h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
-                          <MonetagVideoAd publisherId={MONETAG_PULSE_BANNER} type="interstitial"/>
+                          <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} type="interstitial"/>
                         </div>
                       );
                     }
@@ -3802,9 +3787,6 @@ export function AJSuperPortal() {
                   <UserPlus size={12}/> Add
                 </button>
               </div>
-              <div className="px-4 pt-3">
-                <MonetagBanner siteId={MONETAG_WECHAT_SPONSOR}/>
-              </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {wechatContacts.length === 0 && (
                   <div className="flex flex-col items-center justify-center h-full gap-4 pt-20">
@@ -3858,9 +3840,6 @@ export function AJSuperPortal() {
                     <VideoIcon size={14} className="text-cyan-400"/>
                   </button>
                 </div>
-              </div>
-              <div className="px-4 pt-3">
-                <MonetagBanner siteId={MONETAG_WECHAT_SPONSOR}/>
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {dmMessages.map((m:any) => (
@@ -4034,11 +4013,7 @@ export function AJSuperPortal() {
 
           {!selectedGame ? (
             <div className="px-4 py-4 space-y-3">
-              <MonetagBanner siteId={MONETAG_PULSE_BANNER}/>
               {/* Video Ad — Games Screen */}
-              <div className="w-full h-[420px] relative rounded-2xl overflow-hidden border border-pink-500/20">
-                <MonetagVideoAd publisherId={MONETAG_PULSE_BANNER} type="interstitial"/>
-              </div>
               {[
                 { id:'rider',    name:'Rider King',       emoji:'🏍️', desc:'Dodge obstacles, earn coins', url:'/games/rider-king/index.html' },
                 { id:'racer',    name:'Pulse Racer',      emoji:'🏎️', desc:'Speed racing challenge',      url:'/games/pulse-racer/index.html' },
@@ -4075,11 +4050,6 @@ export function AJSuperPortal() {
                 <span className="ml-auto text-[9px] text-pink-400 font-black bg-pink-500/10 border border-pink-500/20 px-2 py-0.5 rounded-full">1 Token = 0.01 Coin</span>
               </div>
               {/* Video Ad — Playing Game */}
-              <div className="px-4 pt-2">
-                <div className="w-full h-[200px] relative rounded-xl overflow-hidden border border-cyan-500/20">
-                  <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} type="banner"/>
-                </div>
-              </div>
               {selectedGame ? (
                 <iframe
                   key={selectedGame}
@@ -4119,7 +4089,6 @@ export function AJSuperPortal() {
           </div>
 
           <div className="px-4 py-4 space-y-4">
-            <MonetagBanner siteId={MONETAG_PULSE_BANNER}/>
 
             {/* Bot Status */}
             <div className="rounded-3xl overflow-hidden" style={{background:'linear-gradient(135deg,#0a0a1a,#1a0a2e)',border:'1px solid rgba(236,72,153,0.2)'}}>
@@ -4231,7 +4200,6 @@ export function AJSuperPortal() {
           </div>
 
           <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-            <MonetagBanner siteId={MONETAG_PULSE_BANNER}/>
 
             {/* ── MAIN ── */}
             {walletTab === 'main' && (
@@ -4305,12 +4273,33 @@ export function AJSuperPortal() {
                   <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Payment Method</p>
                   <div className="grid grid-cols-2 gap-2">
                     {WITHDRAW_METHODS.map(m => (
-                      <button key={m.label} onClick={() => setPayoutMethod(m.label)} className={`px-3 py-2 rounded-xl text-[9px] font-black transition-all text-left ${payoutMethod===m.label ? 'bg-pink-600 text-white' : 'bg-white/5 border border-white/10 text-gray-400'}`}>
+                      <button key={m.label} onClick={() => { setPayoutMethod(m.label); if (m.type === 'simple') setPayoutId(''); }} className={`px-3 py-2 rounded-xl text-[9px] font-black transition-all text-left ${payoutMethod===m.label ? 'bg-pink-600 text-white' : 'bg-white/5 border border-white/10 text-gray-400'}`}>
                         {m.label}
                       </button>
                     ))}
                   </div>
-                  <input value={payoutId} onChange={e => setPayoutId(e.target.value)} placeholder={currentWithdrawMethod.placeholder} className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"/>
+                  {/* Simple methods (EasyPaisa, JazzCash, Binance) */}
+                  {currentWithdrawMethod.type === 'simple' && (
+                    <input value={payoutId} onChange={e => setPayoutId(e.target.value)} placeholder={currentWithdrawMethod.placeholder} className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"/>
+                  )}
+                  {/* Bank Transfer Detail */}
+                  {payoutMethod === 'Bank Transfer' && (
+                    <div className="space-y-2">
+                      <input value={cardHolder} onChange={e => setCardHolder(e.target.value)} placeholder="Account Holder Name" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"/>
+                      <input value={cardNumber} onChange={e => setCardNumber(e.target.value)} placeholder="Account Number" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"/>
+                      <input value={cardBank} onChange={e => setCardBank(e.target.value)} placeholder="Bank Name (e.g. HBL, UBL, Meezan)" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"/>
+                      <input value={cardCountry} onChange={e => setCardCountry(e.target.value)} placeholder="IBAN (PK...)" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"/>
+                    </div>
+                  )}
+                  {/* Visa/Mastercard Detail */}
+                  {payoutMethod === 'Visa/Mastercard' && (
+                    <div className="space-y-2">
+                      <input value={cardHolder} onChange={e => setCardHolder(e.target.value)} placeholder="Card Holder Name" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"/>
+                      <input value={cardNumber} onChange={e => setCardNumber(e.target.value)} placeholder="Card Number (XXXX XXXX XXXX XXXX)" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"/>
+                      <input value={cardExpiry} onChange={e => setCardExpiry(e.target.value)} placeholder="Expiry (MM/YY)" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"/>
+                      <input value={cardCVV} onChange={e => setCardCVV(e.target.value)} placeholder="CVV (3 digits)" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"/>
+                    </div>
+                  )}
                 </div>
                 <button onClick={handleWithdraw} className="w-full py-4 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all shadow-[0_0_24px_rgba(34,211,238,0.3)]" style={{background:'linear-gradient(135deg,#0891b2,#0e7490)'}}>
                   💸 Request Withdrawal
