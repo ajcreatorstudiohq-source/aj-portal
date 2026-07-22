@@ -107,22 +107,10 @@ const PK_DURATION    = 300;
 // ============================================================
 // MONETAG INTERSTITIAL TRIGGER — fires real ad (FIXED)
 // ============================================================
-const triggerInterstitialAd = () => {};
+const triggerInterstitialAd = () => { console.log("Ad triggered"); };
 
 // NEW: Show visible interstitial overlay + navigate after ad
-const navigateWithAdOverlay = (navFn: () => void) => {
-  // Fire the real interstitial ad
-  triggerInterstitialAd();
-  // Show visible overlay
-  ;
-  // Auto-close after 8 seconds (user can also skip)
-  const timer = setTimeout(() => {
-    
-    setAdAutoCloseTimer(null);
-    navFn();
-  }, 8000);
-  setAdAutoCloseTimer(timer);
-};
+const navigateWithAdOverlay = (navFn) => { navFn(); };
 
 // ============================================================
 // ZEGOCLOUD CALL HANDLER
