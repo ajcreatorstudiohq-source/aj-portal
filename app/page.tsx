@@ -412,7 +412,7 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
             <script type="text/javascript">
               window.atOptions = {
                 'key': '${publisherId}',
-                'format': 'video',
+                'format': 'iframe',
                 'height': ${type === 'banner' ? 250 : 500},
                 'width': ${type === 'banner' ? 300 : 320},
                 'params': {}
@@ -432,7 +432,7 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
               setTimeout(function() {
                 var el = document.getElementById('ad-slot');
                 if (el && el.children.length === 0) {
-                  el.innerHTML = '<div style="width:100%;height:100%;background:#000;display:flex;flex-direction:column;justify-content:center;align-items:center;"><div style="width:50px;height:50px;border:3px solid #ec4899;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;"></div><style>@keyframes spin{to{transform:rotate(360deg)}}</style></div>';
+                  el.innerHTML = '<div style="width:100%;height:100%;background:#000;"></div>';
                   try { window.parent.postMessage({type:'aj-ad-loaded',key:'${adKey.current}'}, '*'); } catch(e){}
                 }
               }, 5000);
@@ -1263,10 +1263,12 @@ export function AJSuperPortal() {
         // Debounce: prevent double-credit from rapid postMessages but allow new higher scores
         if (gameScoreDebounceRef.current) clearTimeout(gameScoreDebounceRef.current);
         gameScoreDebounceRef.current = setTimeout(async () => {
-          if (rawScore <= lastGameScoreRef.current) return; // skip if not higher
+          const diff = rawScore - lastGameScoreRef.current;
+          if (diff <= 0) return; 
           lastGameScoreRef.current = rawScore;
+          const coinsToCredit = diff * 0.01;
           try {
-            await updateDoc(doc(db, "users", user.uid), { balance: increment(coinsEarned) });
+            await updateDoc(doc(db, "users", user.uid), { balance: increment(coinsToCredit) });
             setVvipAlert({msg:`🎮 +${coinsEarned.toFixed(2)} AJ Coins earned! Game score: ${rawScore}`, icon:"🎮"});
             try {
               await addDoc(collection(db, "notifications"), {
@@ -1282,8 +1284,10 @@ export function AJSuperPortal() {
       // Handle GAME_END from HTML games — flush any remaining score
       if (e.data.type === "GAME_END" || e.data.type === "game_end") {
         const rawScore = typeof e.data.score === 'number' ? e.data.score : Number(e.data.score);
-        const coinsEarned = rawScore * 0.01;
-        if (!coinsEarned || coinsEarned <= 0 || isNaN(coinsEarned)) return;
+        const diff = rawScore - lastGameScoreRef.current;
+        if (diff <= 0) return;
+        lastGameScoreRef.current = rawScore;
+        const coinsEarned = diff * 0.01;
         try {
           await updateDoc(doc(db, "users", user.uid), { balance: increment(coinsEarned) });
           setVvipAlert({msg:`🏆 Game Over! Score: ${rawScore} = +${coinsEarned.toFixed(2)} AJ Coins!`, icon:"🏆"});
@@ -4026,9 +4030,7 @@ export function AJSuperPortal() {
                   key={game.id}
                   onClick={() => {
                     if (!game.url) return setVvipAlert({msg:`${game.name} coming soon! 🔜`});
-                    triggerInterstitialAd();
-                    setVvipAlert({msg:'🎮 Loading Reward Ad...', icon:'🎁'});
-                    setTimeout(() => setSelectedGame(game.url), 2000);
+                    lastGameScoreRef.current = 0; setSelectedGame(game.url);
                   }}
                   className="w-full flex items-center gap-4 bg-white/5 border border-white/10 rounded-2xl p-4 active:scale-95 transition-all hover:border-pink-500/30"
                 >
