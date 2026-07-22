@@ -135,6 +135,30 @@
     <canvas id="gameCanvas"></canvas>
 
 <script>
+
+    // ===== AJ GAME BRIDGE — sends score to parent app for wallet credit =====
+    var AJ_GAME_SCORE = 0;
+    function ajSendScore(s) {
+        AJ_GAME_SCORE = s;
+        try { window.parent.postMessage({type:'GAME_SCORE', score: s}, '*'); } catch(e) {}
+    }
+    function ajSendGameEnd(s) {
+        AJ_GAME_SCORE = s;
+        try { window.parent.postMessage({type:'GAME_END', score: s}, '*'); } catch(e) {}
+        try { window.parent.postMessage({type:'GAME_CRASH', score: s}, '*'); } catch(e) {}
+    }
+    window.addEventListener('error', function(e) {
+        if (AJ_GAME_SCORE > 0) {
+            try { window.parent.postMessage({type:'GAME_CRASH', score: AJ_GAME_SCORE}, '*'); } catch(err) {}
+        }
+    });
+    window.addEventListener('beforeunload', function() {
+        if (AJ_GAME_SCORE > 0) {
+            try { window.parent.postMessage({type:'GAME_END', score: AJ_GAME_SCORE}, '*'); } catch(e) {}
+        }
+    });
+    // ===== END AJ GAME BRIDGE =====
+
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
@@ -288,6 +312,8 @@
                 source: "Volcano Escape Sync"
             });
         }
+        // AJ BRIDGE: send current crystals to parent app
+        ajSendScore(totalCrystals);
     }
 
     function revivePlayer() { 
@@ -424,6 +450,8 @@
         document.getElementById('gameOver').classList.add('active-screen'); document.getElementById('hud').style.display = 'none';
         localStorage.setItem('volcano_crystals', totalCrystals);
         syncWithPortal();
+        // AJ BRIDGE: send game over crystals to parent app for wallet credit
+        ajSendGameEnd(totalCrystals);
         updateUIDisplays();
     }
 
@@ -433,3 +461,5 @@
 </script>
 </body>
 </html>
+
+yeh lo 5ncho games ky code as it is rakh ker bridge ad ker do or her game name ky code file do

@@ -392,12 +392,10 @@ function VVIPAlert({ msg, icon, onClose }: { msg: string; icon?: string; onClose
 
 function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: number; type?: 'interstitial'|'banner' }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
   const [adReady, setAdReady] = useState(false);
   const [countdown, setCountdown] = useState(5);
   const [canSkip, setCanSkip] = useState(false);
   const [adFinished, setAdFinished] = useState(false);
-  const adKey = useRef(Math.random().toString(36).substring(7));
 
   // 5-second countdown — after this, user can skip
   useEffect(() => {
@@ -420,72 +418,54 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
     const container = containerRef.current;
     container.innerHTML = '';
 
-    // 1) Try to fire the REAL Monetag interstitial ad
+    // FIX: Use nap5k.com/tag.min.js — SAME as game screen (which works!)
     try {
-      const script = document.createElement('script');
-      script.type = 'text/javascript';
-      script.src = `//pl25615822.highperformancegate.com/${publisherId}/invoke.js`;
-      script.setAttribute('data-cfasync', 'false');
-      script.onerror = () => { /* fallback video will handle it */ };
-      container.appendChild(script);
-    } catch {}
+      // Remove any existing ad scripts to prevent "page could not load" errors
+      const existingAds = container.querySelectorAll('script');
+      existingAds.forEach(s => s.remove());
 
-    // 2) Also fire the interstitial trigger function if available
-    try {
+      // Inject the Monetag interstitial ad script (same as triggerInterstitialAd)
+      const adScript = document.createElement('script');
+      adScript.async = true;
+      adScript.setAttribute('data-zone', String(publisherId));
+      adScript.src = 'https://nap5k.com/tag.min.js';
+      adScript.onload = () => setAdReady(true);
+      adScript.onerror = () => setAdReady(true); // proceed to fallback anyway
+      container.appendChild(adScript);
+
+      // Also call show function if available
       if (typeof (window as any).show_9087571 === 'function') {
-        (window as any).show_9087571();
+        try { (window as any).show_9087571(); } catch {}
       }
     } catch {}
 
-    // 3) Mark ad as ready immediately so fallback video plays
-    const readyTimer = setTimeout(() => setAdReady(true), 800);
-
-    // 4) Listen for Monetag ad messages
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data && typeof event.data === 'object') {
-        if (event.data.type === 'aj-ad-loaded' || event.data.type === 'ad-loaded') {
-          setAdReady(true);
-        }
-      }
-    };
-    window.addEventListener('message', handleMessage);
+    // Mark as ready after 1.5s regardless (so fallback video plays)
+    const readyTimer = setTimeout(() => setAdReady(true), 1500);
 
     return () => {
-      window.removeEventListener('message', handleMessage);
       clearTimeout(readyTimer);
       container.innerHTML = '';
     };
   }, [publisherId, type]);
-
-  // Play the fallback video as soon as adReady
-  useEffect(() => {
-    if (adReady && videoRef.current) {
-      videoRef.current.play().catch(() => {
-        // Autoplay blocked — will play on user interaction
-      });
-    }
-  }, [adReady]);
 
   const skipAd = () => {
     setAdFinished(true);
     setCanSkip(true);
   };
 
-  // Fallback ad video — a real video ad sample (public domain ad / promo content)
-  // Using a reliable sample video that acts as the ad content
+  // Fallback ad video — plays as the ad content
   const adVideoSrc = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
 
   if (adFinished) return null;
 
   return (
     <div className="absolute inset-0 w-full h-full bg-black overflow-hidden flex flex-col items-center justify-center z-[100]">
-      {/* Real Monetag ad container (hidden behind fallback) */}
+      {/* Real Monetag ad container */}
       <div ref={containerRef} className="absolute inset-0 w-full h-full" style={{ zIndex: 1 }} />
 
       {/* Fallback video ad — plays full screen like a real ad */}
       <div className="absolute inset-0 w-full h-full bg-black flex items-center justify-center" style={{ zIndex: 2 }}>
         <video
-          ref={videoRef}
           src={adVideoSrc}
           className="w-full h-full object-cover"
           autoPlay
@@ -1723,17 +1703,46 @@ export function AJSuperPortal() {
   };
 
   const stopLive = async () => {
+    // FIX: Stop heartbeat
     if ((liveStreamRef as any)._heartbeat) {
       clearInterval((liveStreamRef as any)._heartbeat);
       (liveStreamRef as any)._heartbeat = null;
     }
-    liveStreamRef.current?.getTracks().forEach(t => t.stop());
-    liveStreamRef.current = null;
+    // FIX: Destroy Zego instance if available to prevent "page could not load"
+    try {
+      if (typeof (window as any).zp !== 'undefined' && (window as any).zp) {
+        try { (window as any).zp.destroy(); } catch {}
+        (window as any).zp = null;
+      }
+      // Also try to clear the video container
+      const container = document.querySelector('#video-container');
+      if (container) container.innerHTML = '';
+    } catch {}
+    // FIX: Stop all media tracks (camera + mic)
+    if (liveStreamRef.current) {
+      liveStreamRef.current.getTracks().forEach(t => {
+        try { t.stop(); } catch {}
+      });
+      liveStreamRef.current = null;
+    }
+    // FIX: Also stop any video element streams
+    if (liveVideoRef.current) {
+      try {
+        if (liveVideoRef.current.srcObject) {
+          const stream = liveVideoRef.current.srcObject as MediaStream;
+          stream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
+          liveVideoRef.current.srcObject = null;
+        }
+        liveVideoRef.current.pause();
+      } catch {}
+    }
     setCameraReady(false);
     setLiveActive(false);
     setPkActive(false);
+    setPkWinner(null);
     if (liveRoomId) {
       try { await deleteDoc(doc(db,"live_rooms",liveRoomId)); } catch {}
+      setLiveRoomId('');
     }
   };
 

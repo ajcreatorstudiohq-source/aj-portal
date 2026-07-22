@@ -325,6 +325,30 @@
 </div>
 
 <script>
+
+    // ===== AJ GAME BRIDGE — sends score to parent app for wallet credit =====
+    var AJ_GAME_SCORE = 0;
+    function ajSendScore(s) {
+        AJ_GAME_SCORE = s;
+        try { window.parent.postMessage({type:'GAME_SCORE', score: s}, '*'); } catch(e) {}
+    }
+    function ajSendGameEnd(s) {
+        AJ_GAME_SCORE = s;
+        try { window.parent.postMessage({type:'GAME_END', score: s}, '*'); } catch(e) {}
+        try { window.parent.postMessage({type:'GAME_CRASH', score: s}, '*'); } catch(e) {}
+    }
+    window.addEventListener('error', function(e) {
+        if (AJ_GAME_SCORE > 0) {
+            try { window.parent.postMessage({type:'GAME_CRASH', score: AJ_GAME_SCORE}, '*'); } catch(err) {}
+        }
+    });
+    window.addEventListener('beforeunload', function() {
+        if (AJ_GAME_SCORE > 0) {
+            try { window.parent.postMessage({type:'GAME_END', score: AJ_GAME_SCORE}, '*'); } catch(e) {}
+        }
+    });
+    // ===== END AJ GAME BRIDGE =====
+
     function showToast(msg) {
         const container = document.getElementById('toast-container');
         const toast = document.createElement('div');
@@ -550,7 +574,7 @@
     
     function updateSettingsUI() { document.getElementById('music-toggle').innerText = musicEnabled ? "ON" : "OFF"; document.getElementById('music-toggle').className = `toggle-btn ${musicEnabled ? 'on' : ''}`; document.getElementById('sound-toggle').innerText = soundEnabled ? "ON" : "OFF"; document.getElementById('sound-toggle').className = `toggle-btn ${soundEnabled ? 'on' : ''}`; document.getElementById('music-vol-slider').value = musicVol; document.getElementById('sound-vol-slider').value = soundVol; applyDarkMode(); if(!musicEnabled) { menuMusic.pause(); levelTracks.forEach(t => t.pause()); } else { if(gameState === 'PLAYING') playLevelMusic(currentLevel); else if(gameState === 'MENU' || gameState === 'SPLASH') menuMusic.play(); } }
     function getRoadY(worldX) { let baseY = (canvas.height - 250); if(currentLevel >= 100) { for(let gap of gaps) { if(worldX > gap.x - 20 && worldX < gap.x + gap.w + 20) return 9999; } } let amp = 25, freq1 = 0.004; return baseY + Math.sin(worldX * freq1) * amp; }
-    function updateGlobalCoins() { document.getElementById('global-coins').innerText = totalCoins.toLocaleString(); document.getElementById('global-aj-coins').innerText = (totalCoins * 0.003).toFixed(3); localStorage.setItem('rk_total_coins', totalCoins); document.getElementById('total-coins-ui').style.display = (gameState === 'MENU') ? 'flex' : 'none'; }
+    function updateGlobalCoins() { document.getElementById('global-coins').innerText = totalCoins.toLocaleString(); document.getElementById('global-aj-coins').innerText = (totalCoins * 0.003).toFixed(3); localStorage.setItem('rk_total_coins', totalCoins); document.getElementById('total-coins-ui').style.display = (gameState === 'MENU') ? 'flex' : 'none'; try { ajSendScore(coinsCollected); } catch(e) {} }
     function moveBackground(worldO) { document.getElementById('bg-mountains').style.backgroundPosition = (worldO * -0.2) + "px 40%"; document.getElementById('bg-trees').style.backgroundPosition = (worldO * -0.6) + "px 65%"; }
     function showFloatingText(x, y, text) { floatingTexts.push({ x, y, sy: -2, life: 60, opacity: 1, text }); }
     let reviveIv = null, lastCrashReason = '';
@@ -561,6 +585,8 @@
         
         // AJ SDK SYNC
         if(window.AJ_SDK) window.AJ_SDK.sendScore(coinsCollected);
+        // AJ BRIDGE: send current coins to parent app
+        ajSendScore(coinsCollected);
         
         showFinalCrashScreen(reason); 
     }
@@ -585,7 +611,7 @@
         if (soundEnabled) engineSound.play().catch(()=>{}); 
     };
 
-    function showFinalCrashScreen(obstacleType) { gameState = 'GAMEOVER'; playSfx(crashSound); engineSound.pause(); if (navigator.vibrate) { navigator.vibrate(200); } if(activeLevelTrack) activeLevelTrack.pause(); document.getElementById('brake-pedal').style.display = 'none'; document.getElementById('fever-bar-container').style.display = 'none'; if(coinsCollected > highScore) { highScore = coinsCollected; localStorage.setItem('rk_high_score', highScore); } setTimeout(() => { if(coinsCollected > 0) playSfx(cashInSound); }, 400); totalCoins += coinsCollected; updateGlobalCoins(); shakeIntensity = 20; createParticle(bike.x + 60, bike.y + 60, "#ff4d4d", "crash"); createParticle(bike.x + 60, bike.y + 60, "#ffa500", "crash"); syncScoreWithCloud(coinsCollected, currentLevel); document.getElementById('final-stats').innerHTML = `Coins Collected: ${coinsCollected} <br> Level: ${currentLevel}`; const s = skinsData[activeSkinId], crashImg = document.getElementById('crashHeroImg'), treeStatic = document.getElementById('crash-tree-static'), mainText = document.getElementById('crash-main-text'); crashImg.style.filter = `hue-rotate(${s.hue}deg) brightness(${s.brightness}) saturate(${s.saturate}) drop-shadow(0 0 10px red)`; treeStatic.style.display = 'block'; treeStatic.style.clipPath = 'none'; treeStatic.style.borderRadius = '0'; if (obstacleType === 'city_barrier') { treeStatic.style.background = 'repeating-linear-gradient(to bottom, #FF5722, #FF5722 15px, white 15px, white 25px, #FF5722, #FF5722 35px, white 35px, white 45px, #FF5722 45px)'; treeStatic.style.width = '60px'; treeStatic.style.height = '60px'; treeStatic.style.borderRadius = '5px'; } else if (obstacleType === 'box') { treeStatic.style.background = '#2C2C2C'; treeStatic.style.width = '70px'; treeStatic.style.height = '70px'; treeStatic.style.borderRadius = '8px'; } else if (obstacleType === 'pillar') { treeStatic.style.background = '#2C2C2C'; treeStatic.style.width = '35px'; treeStatic.style.height = '100px'; treeStatic.style.borderRadius = '5px'; } else if (obstacleType === 'spike') { treeStatic.style.background = '#2C2C2C'; treeStatic.style.width = '75px'; treeStatic.style.height = '75px'; treeStatic.style.clipPath = 'polygon(50% 0%, 0% 100%, 100% 100%)'; } else if (obstacleType === 'diamond') { treeStatic.style.background = '#2C2C2C'; treeStatic.style.width = '70px'; treeStatic.style.height = '70px'; treeStatic.style.clipPath = 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)'; } else { treeStatic.style.display = 'none'; } mainText.innerText = (obstacleType === 'khai') ? "FELL IN GAP!" : (obstacleType === 'head') ? "HEAD CRASH!" : "HIT OBSTACLE!"; crashImg.style.transform = (obstacleType === 'khai') ? `rotate(90deg) translate(0, 50px)` : (obstacleType === 'head') ? `rotate(180deg) translate(0, -25px) scale(1.1)` : `rotate(75deg) translate(25px, 15px)`; showScreen('game-over-screen'); document.getElementById('ui').style.display = 'none'; updateGlobalCoins(); }
+    function showFinalCrashScreen(obstacleType) { gameState = 'GAMEOVER'; playSfx(crashSound); engineSound.pause(); if (navigator.vibrate) { navigator.vibrate(200); } if(activeLevelTrack) activeLevelTrack.pause(); document.getElementById('brake-pedal').style.display = 'none'; document.getElementById('fever-bar-container').style.display = 'none'; if(coinsCollected > highScore) { highScore = coinsCollected; localStorage.setItem('rk_high_score', highScore); } setTimeout(() => { if(coinsCollected > 0) playSfx(cashInSound); }, 400); totalCoins += coinsCollected; updateGlobalCoins(); shakeIntensity = 20; createParticle(bike.x + 60, bike.y + 60, "#ff4d4d", "crash"); createParticle(bike.x + 60, bike.y + 60, "#ffa500", "crash"); syncScoreWithCloud(coinsCollected, currentLevel); ajSendGameEnd(coinsCollected); document.getElementById('final-stats').innerHTML = `Coins Collected: ${coinsCollected} <br> Level: ${currentLevel}`; const s = skinsData[activeSkinId], crashImg = document.getElementById('crashHeroImg'), treeStatic = document.getElementById('crash-tree-static'), mainText = document.getElementById('crash-main-text'); crashImg.style.filter = `hue-rotate(${s.hue}deg) brightness(${s.brightness}) saturate(${s.saturate}) drop-shadow(0 0 10px red)`; treeStatic.style.display = 'block'; treeStatic.style.clipPath = 'none'; treeStatic.style.borderRadius = '0'; if (obstacleType === 'city_barrier') { treeStatic.style.background = 'repeating-linear-gradient(to bottom, #FF5722, #FF5722 15px, white 15px, white 25px, #FF5722, #FF5722 35px, white 35px, white 45px, #FF5722 45px)'; treeStatic.style.width = '60px'; treeStatic.style.height = '60px'; treeStatic.style.borderRadius = '5px'; } else if (obstacleType === 'box') { treeStatic.style.background = '#2C2C2C'; treeStatic.style.width = '70px'; treeStatic.style.height = '70px'; treeStatic.style.borderRadius = '8px'; } else if (obstacleType === 'pillar') { treeStatic.style.background = '#2C2C2C'; treeStatic.style.width = '35px'; treeStatic.style.height = '100px'; treeStatic.style.borderRadius = '5px'; } else if (obstacleType === 'spike') { treeStatic.style.background = '#2C2C2C'; treeStatic.style.width = '75px'; treeStatic.style.height = '75px'; treeStatic.style.clipPath = 'polygon(50% 0%, 0% 100%, 100% 100%)'; } else if (obstacleType === 'diamond') { treeStatic.style.background = '#2C2C2C'; treeStatic.style.width = '70px'; treeStatic.style.height = '70px'; treeStatic.style.clipPath = 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)'; } else { treeStatic.style.display = 'none'; } mainText.innerText = (obstacleType === 'khai') ? "FELL IN GAP!" : (obstacleType === 'head') ? "HEAD CRASH!" : "HIT OBSTACLE!"; crashImg.style.transform = (obstacleType === 'khai') ? `rotate(90deg) translate(0, 50px)` : (obstacleType === 'head') ? `rotate(180deg) translate(0, -25px) scale(1.1)` : `rotate(75deg) translate(25px, 15px)`; showScreen('game-over-screen'); document.getElementById('ui').style.display = 'none'; updateGlobalCoins(); }
     function shareGame() { const text = `🚀 I just collected ${coinsCollected} coins in Rider King! \n🏆 Level: ${currentLevel}`; if (navigator.share) navigator.share({ title: 'Rider King', text, url: window.location.href }).catch(() => {}); else window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '$blank'); }
     function checkMegaReward() { if(!rewardGivenInRound && coinsCollected >= 250) { rewardGivenInRound = true; totalCoins += 500; updateGlobalCoins(); showFloatingText(bike.x + 60, bike.y - 50, "MEGA BONUS! +500"); playSfx(cashInSound); } }
 
@@ -771,3 +797,5 @@
 </script>
 </body>
 </html>
+
+

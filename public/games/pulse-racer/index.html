@@ -274,6 +274,30 @@
     <canvas id="gameCanvas"></canvas>
 
 <script>
+
+    // ===== AJ GAME BRIDGE — sends score to parent app for wallet credit =====
+    var AJ_GAME_SCORE = 0;
+    function ajSendScore(s) {
+        AJ_GAME_SCORE = s;
+        try { window.parent.postMessage({type:'GAME_SCORE', score: s}, '*'); } catch(e) {}
+    }
+    function ajSendGameEnd(s) {
+        AJ_GAME_SCORE = s;
+        try { window.parent.postMessage({type:'GAME_END', score: s}, '*'); } catch(e) {}
+        try { window.parent.postMessage({type:'GAME_CRASH', score: s}, '*'); } catch(e) {}
+    }
+    window.addEventListener('error', function(e) {
+        if (AJ_GAME_SCORE > 0) {
+            try { window.parent.postMessage({type:'GAME_CRASH', score: AJ_GAME_SCORE}, '*'); } catch(err) {}
+        }
+    });
+    window.addEventListener('beforeunload', function() {
+        if (AJ_GAME_SCORE > 0) {
+            try { window.parent.postMessage({type:'GAME_END', score: AJ_GAME_SCORE}, '*'); } catch(e) {}
+        }
+    });
+    // ===== END AJ GAME BRIDGE =====
+
 // --- AUDIO SYSTEM ---
 let musicVol = 0.5;
 let sfxVol = 0.7;
@@ -421,7 +445,9 @@ function triggerGameOver() {
     document.getElementById('finalAJ').innerText = (sessionRings * 0.003).toFixed(3);
     document.getElementById('gameOverScreen').style.display = 'flex'; 
     document.getElementById('pauseBtn').style.display = 'none';
-    if(window.AJ_SDK) window.parent.postMessage({ type: 'EARNED', coins: score }, "*");
+    // AJ BRIDGE: send game over score to parent app for wallet credit
+    ajSendGameEnd(score);
+    ajSendScore(score);
 }
 
 function watchAdToRevive() {
@@ -534,3 +560,5 @@ update();
 </script>
 </body>
 </html>
+
+

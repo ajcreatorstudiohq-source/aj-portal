@@ -137,6 +137,30 @@
     <div id="abilityBtn" onclick="useAbility(event)"><div style="font-size:10px">BLAST</div><div id="abPerc" style="font-size:22px">0%</div></div>
 
 <script>
+
+    // ===== AJ GAME BRIDGE — sends score to parent app for wallet credit =====
+    var AJ_GAME_SCORE = 0;
+    function ajSendScore(s) {
+        AJ_GAME_SCORE = s;
+        try { window.parent.postMessage({type:'GAME_SCORE', score: s}, '*'); } catch(e) {}
+    }
+    function ajSendGameEnd(s) {
+        AJ_GAME_SCORE = s;
+        try { window.parent.postMessage({type:'GAME_END', score: s}, '*'); } catch(e) {}
+        try { window.parent.postMessage({type:'GAME_CRASH', score: s}, '*'); } catch(e) {}
+    }
+    window.addEventListener('error', function(e) {
+        if (AJ_GAME_SCORE > 0) {
+            try { window.parent.postMessage({type:'GAME_CRASH', score: AJ_GAME_SCORE}, '*'); } catch(err) {}
+        }
+    });
+    window.addEventListener('beforeunload', function() {
+        if (AJ_GAME_SCORE > 0) {
+            try { window.parent.postMessage({type:'GAME_END', score: AJ_GAME_SCORE}, '*'); } catch(e) {}
+        }
+    });
+    // ===== END AJ GAME BRIDGE =====
+
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     const homeBg = document.getElementById('homeBg');
@@ -281,6 +305,8 @@
         if(window.AJ_SDK) {
             window.AJ_SDK.addBalance({ game_coins: totalPoints, aj_net: (totalPoints * 0.003), source: "Neon Strike Sync" });
         }
+        // AJ BRIDGE: send current score to parent app
+        ajSendScore(score);
     }
 
     class Gem { constructor(x, y) { this.x = x; this.y = y; this.size = 13; this.shine = 0; } update() { this.shine += 0.2; let d = Math.hypot(this.x - player.x, this.y - player.y); if(d < 150) { let ang = Math.atan2(player.y - this.y, player.x - this.x); this.x += Math.cos(ang) * 8; this.y += Math.sin(ang) * 8; } } draw() { ctx.save(); ctx.strokeStyle = "rgba(255, 200, 0, 0.4)"; ctx.lineWidth = 8; this.drawHex(this.size + 2); ctx.stroke(); ctx.globalAlpha = 1; ctx.lineWidth = 2; ctx.strokeStyle = "#fff"; ctx.fillStyle = "#00ffff"; this.drawHex(this.size); ctx.fill(); ctx.stroke(); let s = (Math.sin(this.shine) * 0.5) + 0.5; ctx.fillStyle = `rgba(255, 255, 255, ${0.7 + s * 0.3})`; this.drawHex(this.size * 0.5); ctx.fill(); ctx.restore(); } drawHex(s) { ctx.beginPath(); for (let i = 0; i < 6; i++) { let ang = i * Math.PI / 3; ctx.lineTo(this.x + s * Math.cos(ang), this.y + s * Math.sin(ang)); } ctx.closePath(); } }
@@ -326,6 +352,8 @@
         document.getElementById('finalScore').innerText = score; 
         document.getElementById('finalAJ').innerText = (score * 0.003).toFixed(3); 
         updateUIDisplays(); syncWithPortal(); 
+        // AJ BRIDGE: send final score (game over) to parent app for wallet credit
+        ajSendGameEnd(score);
         document.querySelectorAll('.screen').forEach(s => s.classList.remove('active-screen'));
         document.getElementById('gameOver').classList.add('active-screen'); 
         homeBg.style.display = 'block'; homeBg.classList.remove('bg-blurred'); 
@@ -380,3 +408,5 @@
 </script>
 </body>
 </html>
+
+
