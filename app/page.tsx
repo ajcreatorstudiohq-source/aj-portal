@@ -381,67 +381,45 @@ function VVIPAlert({ msg, icon, onClose }: { msg: string; icon?: string; onClose
 
 function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: number; type?: 'interstitial'|'banner' }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [adReady, setAdReady] = useState(false);
-  const [loadFailed, setLoadFailed] = useState(false);
   const adKey = useRef(Math.random().toString(36).substring(7));
 
   useEffect(() => {
     if (!containerRef.current) return;
     const container = containerRef.current;
     container.innerHTML = '';
-    setAdReady(false);
-    setLoadFailed(false);
 
-    // Load Monetag in an isolated iframe to prevent "page could not load" errors
-    const iframe = document.createElement('iframe');
-    iframe.style.width = '100%';
-    iframe.style.height = '100%';
-    iframe.style.border = 'none';
-    iframe.style.backgroundColor = 'transparent';
-    iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin');
-    container.appendChild(iframe);
-
-    const iDoc = iframe.contentWindow?.document || iframe.contentDocument;
-    if (iDoc) {
-      iDoc.open();
-      iDoc.write(`
-        <html>
-          <head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
-          <body style="margin:0;padding:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh;overflow:hidden;">
-            <div id="ad-slot" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;"></div>
-            <script type="text/javascript">
-              window.atOptions = {
-                'key': '${publisherId}',
-                'format': 'iframe',
-                'height': ${type === 'banner' ? 250 : 500},
-                'width': ${type === 'banner' ? 300 : 320},
-                'params': {}
-              };
-              var s = document.createElement('script');
-              s.type = 'text/javascript';
-              s.src = '//pl25615822.highperformancegate.com/${publisherId}/invoke.js'; s.setAttribute('data-cfasync', 'false');
-              s.onload = function() {
-                // Signal parent that ad content is loaded
-                try { window.parent.postMessage({type:'aj-ad-loaded',key:'${adKey.current}'}, '*'); } catch(e){}
-              };
-              s.onerror = function() {
-                try { window.parent.postMessage({type:'aj-ad-error',key:'${adKey.current}'}, '*'); } catch(e){}
-              };
-              document.getElementById('ad-slot').appendChild(s);
-              // Timeout fallback
-              setTimeout(function() {
-                var el = document.getElementById('ad-slot');
-                if (el && el.children.length === 0) {
-                  el.innerHTML = '<div style="width:100%;height:100%;background:#000;"></div>';
-                  try { window.parent.postMessage({type:'aj-ad-loaded',key:'${adKey.current}'}, '*'); } catch(e){}
-                }
-              }, 5000);
-            </script>
-          </body>
-        </html>
-      `);
-      iDoc.close();
-    }
+    // Use a direct script injection for maximum reliability
+    const script = document.createElement('script');
+    script.type = 'text/javascript';
+    script.src = `//pl25615822.highperformancegate.com/${publisherId}/invoke.js`;
+    script.setAttribute('data-cfasync', 'false');
+    
+    // Create a container for the ad
+    const adSlot = document.createElement('div');
+    adSlot.id = `ad-slot-${adKey.current}`;
+    adSlot.style.width = '100%';
+    adSlot.style.height = '100%';
+    adSlot.style.display = 'flex';
+    adSlot.style.alignItems = 'center';
+    adSlot.style.justifyContent = 'center';
+    adSlot.style.background = '#000';
+    
+    container.appendChild(adSlot);
+    
+    // Define options before script loads
+    (window as any).atOptions = {
+      'key': publisherId.toString(),
+      'format': 'iframe',
+      'height': type === 'banner' ? 250 : 500,
+      'width': type === 'banner' ? 300 : 320,
+      'params': {}
+    };
+    
+    container.appendChild(script);
+    
+    return () => {
+      container.innerHTML = '';
+    };
 
     const handleMessage = (event: MessageEvent) => {
       if (event.data && typeof event.data === 'object') {
