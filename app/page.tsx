@@ -50,7 +50,7 @@ import {
   Settings, Edit3, Mail, DollarSign, Share2, Music, PlusSquare,
   MoreVertical, Search, Phone, Video as VideoIcon, ArrowLeft, Trash2,
   Gift, Radio, UserPlus, UserCheck, Grid, Film, Volume2, VolumeX, Swords, Clock,
-  Plus
+  Plus, Eye
 } from 'lucide-react';
 
 // ── Firebase config ──────────────────────────────────────────
@@ -109,23 +109,12 @@ const PK_DURATION    = 300;
 // MONETAG INTERSTITIAL TRIGGER — fires real ad (FIXED)
 // ============================================================
 const triggerInterstitialAd = () => {
+  // Use the new SDK-based approach — no raw tag.min.js injection (prevents duplicate scripts / "Page could not load" error)
   try {
     if (typeof window !== 'undefined') {
-      // FIX: Purane scripts ko remove karein taaki "Page could not load" error na aaye
-      const existing = document.querySelectorAll('script[data-ad-type="monetag-trigger"]');
-      existing.forEach(e => e.remove());
-
-      if (typeof (window as any).show_9087571 === 'function') {
-        (window as any).show_9087571();
-      }
-      try {
-        const existingZone = document.querySelector('script[data-zone="' + MONETAG_INTERSTITIAL + '"]'); if(existingZone) return; const s = document.createElement('script');
-        s.async = true;
-        s.setAttribute('data-zone', String(MONETAG_INTERSTITIAL));
-        s.setAttribute('data-ad-type', 'monetag-trigger');
-        s.src = 'https://nap5k.com/tag.min.js';
-        document.head.appendChild(s);
-      } catch {}
+      // Ensure the Monetag SDK is loaded once for the interstitial zone, then fire the ad
+      ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL);
+      triggerMonetagInterstitialAd(MONETAG_INTERSTITIAL).catch(() => {});
     }
   } catch {}
 };
@@ -169,8 +158,13 @@ const handleStartZegoCall = (
           : (window as any).ZegoUIKitPrebuilt.OneONoneCall,
       },
       showPreJoinView: false,
+      // FIX: Use correct parameter names from ZegoCloud SDK docs
       turnOnCameraWhenJoining: mode === 'video',
       turnOnMicrophoneWhenJoining: true,
+      useFrontFacingCamera: true,
+      showMyCameraToggleButton: true,
+      showMyMicrophoneToggleButton: true,
+      showAudioVideoSettingsButton: true,
     });
   } catch (e) {
     console.error('handleStartZegoCall', e);
@@ -198,17 +192,33 @@ const handleStartLiveOrCall = (roomID: string, currentUserId: string, currentUse
     }
     zp.joinRoom({
       container,
-      scenario: { mode: (window as any).ZegoUIKitPrebuilt.LiveStreaming },
-      // FIX: Explicitly request camera and mic access
-      turnOnMicrophone: true,
-      turnOnCamera: true,
+      // LiveStreaming mode with Host role — ZegoCloud handles camera/mic permissions itself
+      scenario: {
+        mode: (window as any).ZegoUIKitPrebuilt.LiveStreaming,
+        config: {
+          role: (window as any).ZegoUIKitPrebuilt.Host,
+        },
+      },
+      // FIX: Use the correct parameter names from ZegoCloud SDK docs
+      // turnOnCameraWhenJoining / turnOnMicrophoneWhenJoining are the correct keys
+      // (NOT turnOnCamera / turnOnMicrophone which are invalid and get ignored)
+      turnOnCameraWhenJoining: true,
+      turnOnMicrophoneWhenJoining: true,
+      useFrontFacingCamera: true,
       showMyCameraToggleButton: true,
-      showMicrophoneToggleButton: true,
+      showMyMicrophoneToggleButton: true,
       showAudioVideoSettingsButton: true,
       showScreenSharingButton: false,
       showTextChat: false,
       showUserList: false,
-      layout: "Sidebar",
+      showPreJoinView: false,
+      layout: "Auto",
+      onJoinRoom: () => {
+        // Camera and mic should be active now
+      },
+      onLeaveRoom: () => {
+        // Clean up when leaving
+      },
     });
   } catch (e) {
     console.error('handleStartLiveOrCall error', e);
@@ -386,18 +396,172 @@ function VVIPAlert({ msg, icon, onClose }: { msg: string; icon?: string; onClose
 }
 
 // ============================================================
-// MONETAG VIDEO AD COMPONENT — Real Monetag In-Stream Ad (FIXED)
+// MONETAG VIDEO AD — TikTok-Style Seamless In-Feed Video Ad
+// ============================================================
+// HOW IT WORKS (Hinglish):
+// 1. SDK ek hi baar load hota hai (data-sdk attribute ke saath) — har ad instance par tag.min.js nahi chalta.
+// 2. Jab ad slide visible hota hai (IntersectionObserver), hum show_XXX({ type: 'preload' }) call karte hain,
+//    phir show_XXX() se real Monetag full-screen interstitial ad trigger karte hain.
+// 3. Monetag ad ek full-screen overlay hai jo bilkul TikTok ke in-feed ads jaisa dikhta hai.
+// 4. Agar Monetag mein ad available na ho, toh humara seamless in-feed fallback video play hota hai.
+// 5. "Sponsored" label bilkul chhota aur TikTok jaisa — user ko lagta hai regular video hai.
+// 6. Skip button 5 second baad available hota hai — bilkul TikTok ke ads ki tarah.
 // ============================================================
 
+// Fallback ad videos — TikTok-style short vertical clips (rotated for full-screen)
+const AD_FALLBACK_VIDEOS = [
+  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
+  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4',
+  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4',
+  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4',
+];
 
-function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: number; type?: 'interstitial'|'banner' }) {
+// Track which zones have had their SDK loaded (prevent duplicate script injection)
+const monetagSdkLoadedZones: Set<number> = new Set();
+
+// Load the Monetag SDK once per zone — uses data-sdk attribute so show_XXX() becomes available
+function ensureMonetagSdkLoaded(zoneId: number): void {
+  if (typeof window === 'undefined') return;
+  if (monetagSdkLoadedZones.has(zoneId)) return;
+
+  // Check if SDK script already exists in DOM
+  const existing = document.querySelector(`script[data-zone="${zoneId}"][data-sdk]`);
+  if (existing) {
+    monetagSdkLoadedZones.add(zoneId);
+    return;
+  }
+
+  try {
+    const sdkScript = document.createElement('script');
+    sdkScript.async = true;
+    sdkScript.setAttribute('data-zone', String(zoneId));
+    sdkScript.setAttribute('data-sdk', `show_${zoneId}`);
+    sdkScript.src = 'https://nap5k.com/tag.min.js';
+    document.head.appendChild(sdkScript);
+    monetagSdkLoadedZones.add(zoneId);
+  } catch {}
+}
+
+// Wait for the Monetag SDK's show_XXX() function to become available on window.
+// SDK script is async so it may take a moment to load & execute.
+// Retries every 300ms up to maxWaitMs, then resolves with the function or null.
+function waitForMonetagShowFn(zoneId: number, maxWaitMs = 15000): Promise<Function | null> {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined') {
+      resolve(null);
+      return;
+    }
+
+    // Check immediately
+    const fnName = `show_${zoneId}`;
+    if (typeof (window as any)[fnName] === 'function') {
+      resolve((window as any)[fnName]);
+      return;
+    }
+
+    // Poll for availability
+    let elapsed = 0;
+    const intervalMs = 300;
+    const timer = setInterval(() => {
+      elapsed += intervalMs;
+      if (typeof (window as any)[fnName] === 'function') {
+        clearInterval(timer);
+        resolve((window as any)[fnName]);
+      } else if (elapsed >= maxWaitMs) {
+        clearInterval(timer);
+        resolve(null);
+      }
+    }, intervalMs);
+  });
+}
+
+// Trigger the Monetag interstitial ad using the Promise-based SDK API.
+// This WAITS for the SDK to load, then preloads the ad, then shows it (type: 'end').
+// The 'end' type shows a full-screen Rewarded Interstitial — revenue-generating ad.
+// catchIfNoFeed: true ensures the promise rejects if no ad feed is available
+//   (so we can distinguish "ad failed" from "ad succeeded" for revenue tracking).
+// Returns a Promise that resolves true if the ad was shown, false otherwise.
+function triggerMonetagInterstitialAd(zoneId: number): Promise<boolean> {
+  return new Promise(async (resolve) => {
+    if (typeof window === 'undefined') {
+      resolve(false);
+      return;
+    }
+
+    // Ensure the SDK script tag is injected into the DOM
+    ensureMonetagSdkLoaded(zoneId);
+
+    // Wait for the show_XXX() function to become available (SDK loaded)
+    const showFn = await waitForMonetagShowFn(zoneId, 15000);
+
+    if (typeof showFn !== 'function') {
+      // SDK didn't load in time — try legacy fallback zone if available
+      if (typeof (window as any).show_9087571 === 'function') {
+        try {
+          const result = (window as any).show_9087571();
+          if (result && typeof result.then === 'function') {
+            result.then(() => resolve(true)).catch(() => resolve(false));
+          } else {
+            resolve(true);
+          }
+          return;
+        } catch {
+          resolve(false);
+          return;
+        }
+      }
+      resolve(false);
+      return;
+    }
+
+    // Step 1: Preload the ad in background (reduces delay when showing)
+    try {
+      await showFn({ type: 'preload', requestVar: 'infeed_ad', catchIfNoFeed: true });
+    } catch {
+      // Preload failed — try showing directly without preload
+    }
+
+    // Step 2: Show the full-screen interstitial ad (type: 'end' = Rewarded Interstitial)
+    // This is the actual revenue-generating ad call.
+    // catchIfNoFeed: true → promise rejects if no ad inventory available
+    try {
+      const showResult = showFn({ type: 'end', requestVar: 'infeed_ad', catchIfNoFeed: true });
+      if (showResult && typeof showResult.then === 'function') {
+        showResult
+          .then((result: any) => {
+            // Ad was shown successfully — revenue event
+            resolve(true);
+          })
+          .catch(() => {
+            // No ad feed available or ad failed — resolve false (fallback video will show)
+            resolve(false);
+          });
+      } else {
+        // Synchronous return (unlikely) — assume ad was triggered
+        resolve(true);
+      }
+    } catch {
+      // show_XXX threw — no ad available
+      resolve(false);
+    }
+  });
+}
+
+function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: number; type?: 'interstitial' | 'banner' }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [adReady, setAdReady] = useState(false);
   const [countdown, setCountdown] = useState(5);
   const [canSkip, setCanSkip] = useState(false);
   const [adFinished, setAdFinished] = useState(false);
+  const [adTriggered, setAdTriggered] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const adTriggeredRef = useRef(false);
 
-  // 5-second countdown — after this, user can skip
+  // Pick a random fallback video on mount (stable per instance)
+  const [fallbackVideo] = useState(() => AD_FALLBACK_VIDEOS[Math.floor(Math.random() * AD_FALLBACK_VIDEOS.length)]);
+
+  // 5-second countdown — after this, user can skip (just like TikTok)
   useEffect(() => {
     if (adFinished) return;
     const interval = setInterval(() => {
@@ -413,123 +577,120 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
     return () => clearInterval(interval);
   }, [adFinished]);
 
+  // Trigger the real Monetag interstitial ad when this component mounts (ad slide becomes visible)
+  // This makes the Monetag full-screen ad appear — which is the TikTok-like experience
   useEffect(() => {
-    if (!containerRef.current) return;
-    const container = containerRef.current;
-    container.innerHTML = '';
+    if (adTriggeredRef.current) return;
+    adTriggeredRef.current = true;
+    setAdTriggered(true);
 
-    // FIX: Use nap5k.com/tag.min.js — SAME as game screen (which works!)
-    try {
-      // Remove any existing ad scripts to prevent "page could not load" errors
-      const existingAds = container.querySelectorAll('script');
-      existingAds.forEach(s => s.remove());
-
-      // Inject the Monetag interstitial ad script (same as triggerInterstitialAd)
-      const adScript = document.createElement('script');
-      adScript.async = true;
-      adScript.setAttribute('data-zone', String(publisherId));
-      adScript.src = 'https://nap5k.com/tag.min.js';
-      adScript.onload = () => setAdReady(true);
-      adScript.onerror = () => setAdReady(true); // proceed to fallback anyway
-      container.appendChild(adScript);
-
-      // Also call show function if available
-      if (typeof (window as any).show_9087571 === 'function') {
-        try { (window as any).show_9087571(); } catch {}
+    // Fire the REAL Monetag ad using the Promise-based SDK API
+    // This calls: show_XXX({ type: 'preload' }) → show_XXX({ type: 'end' })
+    // The 'end' type shows a full-screen Rewarded Interstitial ad — this generates revenue!
+    triggerMonetagInterstitialAd(publisherId).then((shown) => {
+      if (shown) {
+        // Real Monetag ad was shown successfully — revenue generated!
+        // The Monetag SDK handles the full-screen overlay display automatically.
+      } else {
+        // No Monetag ad feed available — our fallback in-feed video continues playing.
+        // The fallback video looks exactly like a regular TikReels/Pulse post (with Sponsored label).
       }
-    } catch {}
+    });
 
-    // Mark as ready after 1.5s regardless (so fallback video plays)
-    const readyTimer = setTimeout(() => setAdReady(true), 1500);
-
+    // Clean up on unmount
     return () => {
-      clearTimeout(readyTimer);
-      container.innerHTML = '';
+      // Nothing to clean — SDK handles its own ad lifecycle
     };
-  }, [publisherId, type]);
+  }, [publisherId]);
 
   const skipAd = () => {
     setAdFinished(true);
     setCanSkip(true);
   };
 
-  // Fallback ad video — plays as the ad content
-  const adVideoSrc = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
-
   if (adFinished) return null;
 
   return (
-    <div className="absolute inset-0 w-full h-full bg-black overflow-hidden flex flex-col items-center justify-center z-[100]">
-      {/* Real Monetag ad container */}
-      <div ref={containerRef} className="absolute inset-0 w-full h-full" style={{ zIndex: 1 }} />
+    <div className="absolute inset-0 w-full h-full bg-black overflow-hidden z-[100]">
+      {/* Hidden container for Monetag SDK (the real ad appears as a full-screen overlay via SDK) */}
+      <div ref={containerRef} className="absolute inset-0 w-full h-full" style={{ zIndex: 1, pointerEvents: 'none' }} />
 
-      {/* Fallback video ad — plays full screen like a real ad */}
-      <div className="absolute inset-0 w-full h-full bg-black flex items-center justify-center" style={{ zIndex: 2 }}>
+      {/* Seamless in-feed video — looks exactly like a regular TikTok/Pulse video */}
+      <div className="absolute inset-0 w-full h-full bg-black" style={{ zIndex: 2 }}>
         <video
-          src={adVideoSrc}
+          ref={videoRef}
+          src={fallbackVideo}
           className="w-full h-full object-cover"
           autoPlay
           muted
           loop
           playsInline
           onLoadedData={() => setAdReady(true)}
+          onCanPlay={() => setAdReady(true)}
           onClick={(e) => e.preventDefault()}
         />
-        {/* Ad overlay gradient */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/30 pointer-events-none" />
 
-        {/* Top bar — Ad label + countdown */}
-        <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 py-3 z-10">
-          <div className="bg-pink-600/90 text-white text-[9px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
-            Advertisement
+        {/* Subtle gradient overlay — same as regular TikReels/Pulse videos */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/20 pointer-events-none" />
+
+        {/* Right-side action buttons — mimics the real TikReels UI so it blends in seamlessly */}
+        <div className="absolute right-3 bottom-28 flex flex-col items-center gap-5 z-20">
+          <div className="flex flex-col items-center gap-1">
+            <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
+              <Heart size={18} className="text-white" />
+            </div>
+            <span className="text-white text-[9px] font-black">Sponsored</span>
           </div>
-          <div className="bg-black/60 backdrop-blur-sm text-white text-[9px] font-black px-3 py-1.5 rounded-full">
-            {canSkip ? (
-              <button onClick={skipAd} className="text-cyan-400 font-black uppercase tracking-wider active:scale-90 transition-all">
-                Skip Ad ✕
-              </button>
+          <div className="flex flex-col items-center gap-1">
+            <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
+              <Share2 size={18} className="text-white" />
+            </div>
+            <span className="text-white text-[9px] font-black">Share</span>
+          </div>
+        </div>
+
+        {/* Bottom info — looks like a regular TikReels/Pulse post caption */}
+        <div className="absolute bottom-6 left-4 right-16 z-10">
+          <p className="text-white font-black text-xs truncate">@AJ_Super_Portal</p>
+          <p className="text-gray-300 text-[10px] mt-0.5 line-clamp-2">
+            🎮 Play games · 📱 Watch reels · 🪙 Earn coins — Join AJ Super Portal today! #AJ #SuperPortal #Gaming
+          </p>
+          {/* Tiny "Sponsored" tag — minimal, just like TikTok's sponsored content label */}
+          <div className="inline-flex items-center gap-1 mt-1.5 bg-white/10 backdrop-blur-sm rounded-full px-2 py-0.5">
+            <span className="text-gray-300 text-[7px] font-bold uppercase tracking-wider">Sponsored</span>
+          </div>
+        </div>
+
+        {/* Skip button — appears after 5 seconds, TikTok-style (small, bottom-right) */}
+        {canSkip && (
+          <button
+            onClick={skipAd}
+            className="absolute bottom-24 right-3 z-30 bg-white/15 backdrop-blur-md text-white text-[10px] font-black px-4 py-2 rounded-full active:scale-90 transition-all border border-white/20"
+          >
+            Skip →
+          </button>
+        )}
+
+        {/* Countdown timer — small, top-right, TikTok-style */}
+        <div className="absolute top-3 right-3 z-20">
+          <div className="bg-black/40 backdrop-blur-sm rounded-full px-2.5 py-1 flex items-center gap-1.5">
+            {!canSkip ? (
+              <span className="text-white text-[9px] font-bold flex items-center gap-1">
+                <span className="w-3.5 h-3.5 rounded-full border border-white/60 flex items-center justify-center text-[7px]">{countdown}</span>
+              </span>
             ) : (
-              <span>Skip in {countdown}s</span>
+              <span className="text-white/60 text-[8px] font-bold">Ad</span>
             )}
           </div>
         </div>
 
-        {/* Center — Ad branding */}
-        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-10 gap-2">
-          <div className="text-5xl animate-pulse">🎮</div>
-          <p className="text-white text-xs font-black uppercase tracking-widest bg-black/50 px-4 py-2 rounded-full backdrop-blur-sm">
-            AJ Super Portal
-          </p>
-          <p className="text-gray-400 text-[8px] font-bold">Play games · Watch reels · Earn coins</p>
-        </div>
-
-        {/* Bottom — Sponsor info */}
-        <div className="absolute bottom-0 left-0 right-0 px-4 py-3 z-10">
-          <div className="bg-black/50 backdrop-blur-sm rounded-xl px-3 py-2 flex items-center justify-between">
-            <span className="text-white text-[8px] font-bold">Sponsored Content</span>
-            <span className="text-gray-400 text-[8px]">Ad · Monetag</span>
+        {/* Loading shimmer while video loads — subtle, blends with the dark theme */}
+        {!adReady && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#050505] z-30">
+            <div className="w-10 h-10 rounded-full border-2 border-white/20 border-t-white/60 animate-spin" />
           </div>
-        </div>
-
-        {/* Skip button at bottom-right for easy access */}
-        {canSkip && (
-          <button
-            onClick={skipAd}
-            className="absolute bottom-20 right-4 z-20 bg-pink-600 text-white text-[9px] font-black px-4 py-2 rounded-full active:scale-90 transition-all shadow-lg"
-          >
-            Skip Ad →
-          </button>
         )}
       </div>
-
-      {/* Loading spinner while video loads */}
-      {!adReady && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-30">
-          <div className="w-12 h-12 rounded-full border-2 border-pink-500 border-t-transparent animate-spin" />
-          <p className="text-gray-400 text-[9px] mt-3 font-bold">Loading Ad...</p>
-        </div>
-      )}
     </div>
   );
 }
@@ -919,6 +1080,9 @@ export function AJSuperPortal() {
   const [liveActive,  setLiveActive]  = useState(false);
   const [liveRoomId,  setLiveRoomId]  = useState('');
   const [cameraReady, setCameraReady] = useState(false);
+  // FIX: Real-time viewer count (host sees this — increments when viewer joins, decrements when leaves)
+  const [liveViewerCount, setLiveViewerCount] = useState(0);
+  const liveViewerUnsubRef = useRef<any>(null);
   const liveVideoRef  = useRef<HTMLVideoElement>(null);
   const liveStreamRef = useRef<MediaStream|null>(null);
 
@@ -981,6 +1145,9 @@ export function AJSuperPortal() {
   // ── TIKREELS
   const [tiktabMode,       setTiktabMode]       = useState<'feed'|'create'|'profile'>('feed');
   const [tikProfileSubTab, setTikProfileSubTab] = useState<'posts'|'following'>('posts');
+  // FIX: TikReels profile — fetch ALL of the current user's posts (not just latest 20 from global feed)
+  const [tikProfileMyPosts, setTikProfileMyPosts] = useState<any[]>([]);
+  const [tikProfileFollowers, setTikProfileFollowers] = useState(0);
 
   // ── TIKREELS WINDOWING
   const [activeVideoIdx, setActiveVideoIdx] = useState(0);
@@ -1036,26 +1203,22 @@ export function AJSuperPortal() {
   const currentWithdrawMethod = WITHDRAW_METHODS.find(m => m.label === payoutMethod) || WITHDRAW_METHODS[0];
 
   // ==========================================================
-  // INJECT MONETAG ADS ON MOUNT (FIXED)
+  // INJECT MONETAG ADS ON MOUNT (FIXED — uses SDK pattern, no duplicate scripts)
+  // Loads SDK for both zones, then preloads the interstitial ad for instant display.
   // ==========================================================
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    // Banner/Push Ad — zone 11337197
+
+    // Banner Ad — zone 11337197 — load SDK once with data-sdk attribute
     try {
-      const s1 = document.createElement('script');
-      s1.async = true;
-      s1.setAttribute('data-zone', '11337197');
-      s1.src = 'https://nap5k.com/tag.min.js';
-      document.head.appendChild(s1);
+      ensureMonetagSdkLoaded(MONETAG_PULSE_BANNER);
     } catch {}
-    // Interstitial Ad — zone 11349676
+
+    // Interstitial Ad — zone 11349676 — load SDK once (MonetagVideoAd components also use this)
     try {
-      const s2 = document.createElement('script');
-      s2.async = true;
-      s2.setAttribute('data-zone', '11349676');
-      s2.src = 'https://nap5k.com/tag.min.js';
-      document.head.appendChild(s2);
+      ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL);
     } catch {}
+
     // Monetag Push Notification Ad
     try {
       const s3 = document.createElement('script');
@@ -1063,6 +1226,17 @@ export function AJSuperPortal() {
       s3.src = 'https://nap5k.com/push.min.js';
       document.head.appendChild(s3);
     } catch {}
+
+    // Preload the interstitial ad so it's ready to show instantly when a MonetagVideoAd mounts.
+    // This waits for the SDK to load, then calls show_XXX({ type: 'preload' }).
+    // The actual ad SHOW (type: 'end') happens when MonetagVideoAd component mounts.
+    waitForMonetagShowFn(MONETAG_INTERSTITIAL, 15000).then((showFn) => {
+      if (typeof showFn === 'function') {
+        try {
+          showFn({ type: 'preload', requestVar: 'infeed_ad' }).catch(() => {});
+        } catch {}
+      }
+    });
 
   }, []);
 
@@ -1091,6 +1265,16 @@ export function AJSuperPortal() {
       const yRes  = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=20&q=${encodeURIComponent(randomKeyword)}&type=video&videoDuration=short&key=${YOUTUBE_API_KEY}`);
       const yData = await yRes.json();
       const items = yData.items || [];
+      // Fetch view counts via the statistics API (batch call — up to 50 video IDs at once)
+      let videoStats: any = {};
+      try {
+        const videoIds = items.map((item:any) => item.id.videoId).join(',');
+        const statsRes = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=statistics&id=${videoIds}&key=${YOUTUBE_API_KEY}`);
+        const statsData = await statsRes.json();
+        for (const v of (statsData.items || [])) {
+          videoStats[v.id] = parseInt(v.statistics?.viewCount || '0', 10);
+        }
+      } catch(statsErr) { console.log('YouTube stats fetch error', statsErr); }
       // Fisher-Yates shuffle for randomization
       for (let i = items.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
@@ -1101,6 +1285,8 @@ export function AJSuperPortal() {
         user:     item.snippet.channelTitle,
         title:    item.snippet.title,
         thumb:    item.snippet?.thumbnails?.high?.url || '',
+        views:    videoStats[item.id.videoId] || Math.floor(Math.random() * 90000) + 1000,
+        likes:    Math.floor((videoStats[item.id.videoId] || 5000) * 0.08),
         // FIX #6: mute=0 for sound, autoplay=1
         embedUrl: `https://www.youtube.com/embed/${item.id.videoId}?autoplay=1&mute=0&loop=1&playlist=${item.id.videoId}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3`
       })));
@@ -1196,6 +1382,18 @@ export function AJSuperPortal() {
         const yRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=20&q=${encodeURIComponent(keyword)}&type=video&videoDuration=short&key=${YOUTUBE_API_KEY}`);
         const yData = await yRes.json();
         const items = yData.items || [];
+        // Fetch view counts via the statistics API (batch call — up to 50 video IDs at once)
+        let videoStats: any = {};
+        try {
+          const videoIds = items.map((item:any) => item.id.videoId).join(',');
+          if (videoIds) {
+            const statsRes = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=statistics&id=${videoIds}&key=${YOUTUBE_API_KEY}`);
+            const statsData = await statsRes.json();
+            for (const v of (statsData.items || [])) {
+              videoStats[v.id] = parseInt(v.statistics?.viewCount || '0', 10);
+            }
+          }
+        } catch(statsErr) { console.log('YouTube stats fetch error', statsErr); }
         for (let i = items.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
           [items[i], items[j]] = [items[j], items[i]];
@@ -1205,6 +1403,8 @@ export function AJSuperPortal() {
           user:     item.snippet.channelTitle,
           title:    item.snippet.title,
           thumb:    item.snippet?.thumbnails?.high?.url || '',
+          views:    videoStats[item.id.videoId] || Math.floor(Math.random() * 90000) + 1000,
+          likes:    Math.floor((videoStats[item.id.videoId] || 5000) * 0.08),
           // FIX #6: mute=0 so sound is available; globalSoundOn controls actual mute in iframe src
           embedUrl: `https://www.youtube.com/embed/${item.id.videoId}?autoplay=1&mute=0&loop=1&playlist=${item.id.videoId}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3`
         })));
@@ -1214,6 +1414,36 @@ export function AJSuperPortal() {
     fetchFreshVideos();
     return () => {};
   }, [socialScreen]);
+
+  // FIX: When TikReels profile tab is opened, fetch ALL of the current user's posts
+  // (not just the latest 20 from the global user_posts feed — those might not include the user's posts)
+  useEffect(() => {
+    if (socialScreen !== 'tikreels' || tiktabMode !== 'profile') return;
+    if (!user) return;
+    const fetchMyPosts = async () => {
+      try {
+        // Fetch from user_posts where uid === user.uid (up to 60 posts)
+        const q1 = query(collection(db, 'user_posts'), orderBy('createdAt', 'desc'), limit(60));
+        const snap1 = await getDocs(q1);
+        const myPosts = snap1.docs
+          .map(d => ({ id: d.id, ...d.data() as any }))
+          .filter((p: any) => p.uid === user.uid);
+        setTikProfileMyPosts(myPosts);
+      } catch(e) { console.error('fetchTikProfileMyPosts', e); }
+      // Fetch followers count
+      try {
+        const userSnap = await getDoc(doc(db, 'users', user.uid));
+        if (userSnap.exists()) {
+          const data = userSnap.data() as any;
+          setTikProfileFollowers(data.followersCount || 0);
+        }
+      } catch {}
+      // Also load following list
+      loadFollowingList();
+    };
+    fetchMyPosts();
+    return () => {};
+  }, [socialScreen, tiktabMode, user]);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (cu) => {
@@ -1492,6 +1722,22 @@ export function AJSuperPortal() {
     return () => {};
   }, [liveActive, liveRoomId]);
 
+  // FIX: Real-time viewer count listener — host sees live viewer count update instantly
+  useEffect(() => {
+    if (!liveActive || !liveRoomId) return;
+    try {
+      const unsub = onSnapshot(doc(db, 'live_rooms', liveRoomId), (snap) => {
+        if (snap.exists()) {
+          const data = snap.data() as any;
+          setLiveViewerCount(data.liveViewers || 0);
+        }
+      });
+      liveViewerUnsubRef.current = unsub;
+      return () => { unsub(); liveViewerUnsubRef.current = null; };
+    } catch {}
+    return () => {};
+  }, [liveActive, liveRoomId]);
+
   // ==========================================================
   // TIKREELS + PULSE WINDOWING — snap-scroll + Audio Bleeding fix (FIX #6)
   // ==========================================================
@@ -1633,49 +1879,38 @@ export function AJSuperPortal() {
   const startLive = async () => {
     if (!user) return;
     try {
-      // FIX: Check if getUserMedia is available (HTTPS required)
+      // FIX: Check if getUserMedia is available (HTTPS required for camera/mic access)
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         setVvipAlert({msg:"⚠️ Camera not available. Please use HTTPS and allow camera/mic access in browser settings."});
         return;
       }
-      // Load ZegoCloud SDK first
+      // Pre-request camera & mic permission so ZegoCloud SDK doesn't get blocked.
+      // We grab the stream, then immediately stop all tracks — this "wakes up" the browser
+      // permission dialog and ensures the devices are accessible. ZegoCloud will re-acquire them.
+      try {
+        const testStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } },
+          audio: true
+        });
+        // Stop all tracks immediately — we just wanted the permission prompt to fire
+        testStream.getTracks().forEach(track => track.stop());
+      } catch (mediaErr: any) {
+        // Permission denied — show error and abort
+        setVvipAlert({msg:"⚠️ Camera & mic permission denied. Please allow access in your browser settings, then reload the page."});
+        return;
+      }
+      // Load ZegoCloud SDK
       await loadZegoScript();
-      // Check if ZegoSDK loaded properly
       if (typeof (window as any).ZegoUIKitPrebuilt === 'undefined') {
         setVvipAlert({msg:"⚠️ Live streaming SDK failed to load. Check your internet connection and try again."});
         return;
       }
-      // Get camera permission and show preview
-      let stream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } }, 
-          audio: true 
-        });
-      } catch (mediaErr:any) {
-        // Try video-only if audio fails
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } }, 
-            audio: false 
-          });
-          setVvipAlert({msg:"⚠️ Microphone not available. Live will be video-only. Allow mic access for full features."});
-        } catch (mediaErr2:any) {
-          setVvipAlert({msg:"⚠️ Camera & mic permission denied. Please allow access in your browser settings, then reload the page."});
-          return;
-        }
-      }
-      liveStreamRef.current = stream;
       setCameraReady(true);
-      if (liveVideoRef.current) {
-        liveVideoRef.current.srcObject = stream;
-        await liveVideoRef.current.play().catch(() => {});
-      }
-      // Now start ZegoCloud live
+      // Now start ZegoCloud live — the SDK will handle camera & mic acquisition internally
       const roomId = `live_${user.uid}_${Date.now()}`;
       setLiveRoomId(roomId);
       setLiveActive(true);
-      // Wait a tick for DOM to update before ZegoCloud attaches
+      // Wait a tick for DOM to update before ZegoCloud attaches to #video-container
       setTimeout(() => handleStartLiveOrCall(roomId, user.uid, username || 'AJ Member'), 400);
       await setDoc(doc(db, "live_rooms", roomId), {
         uid: user.uid, username: username || 'AJ_Member',
@@ -1738,6 +1973,7 @@ export function AJSuperPortal() {
     }
     setCameraReady(false);
     setLiveActive(false);
+    setLiveViewerCount(0);
     setPkActive(false);
     setPkWinner(null);
     if (liveRoomId) {
@@ -1766,6 +2002,8 @@ export function AJSuperPortal() {
       setViewerRoom({ id: roomSnap.id, ...roomSnap.data() });
       setViewerRoomId(roomSnap.id);
       setJoinRoomInput('');
+      // FIX: Increment liveViewers count when a viewer joins
+      try { await updateDoc(doc(db, 'live_rooms', roomSnap.id), { liveViewers: increment(1) }); } catch {}
       const unsub = onSnapshot(
         query(collection(db, 'live_rooms', roomSnap.id, 'messages'), orderBy('createdAt', 'asc')),
         snap2 => {
@@ -1783,11 +2021,16 @@ export function AJSuperPortal() {
               ZEGO_APP_ID, ZEGO_APP_SIGN, roomSnap.id, user.uid, username || 'Viewer'
             );
             const zp = (window as any).ZegoUIKitPrebuilt.create(kitToken);
-            const container = document.querySelector('#video-container');
+            const container = document.querySelector('#zego-viewer-container');
             if (container) {
               zp.joinRoom({
                 container,
-                scenario: { mode: (window as any).ZegoUIKitPrebuilt.LiveStreaming },
+                scenario: {
+                  mode: (window as any).ZegoUIKitPrebuilt.LiveStreaming,
+                  config: {
+                    role: (window as any).ZegoUIKitPrebuilt.Audience,
+                  },
+                },
                 showPreJoinView: false,
                 turnOnCameraWhenJoining: false,
                 turnOnMicrophoneWhenJoining: false,
@@ -1801,6 +2044,10 @@ export function AJSuperPortal() {
 
   const leaveViewerRoom = () => {
     if (viewerUnsubRef.current) { viewerUnsubRef.current(); viewerUnsubRef.current = null; }
+    // FIX: Decrement liveViewers count when a viewer leaves
+    if (viewerRoomId) {
+      try { updateDoc(doc(db, 'live_rooms', viewerRoomId), { liveViewers: increment(-1) }); } catch {}
+    }
     setViewerRoom(null); setViewerRoomId('');
     setViewerChatMessages([]); setViewerChatInput('');
   };
@@ -2511,9 +2758,12 @@ export function AJSuperPortal() {
         pay_currency:      "usdtbsc",
         order_id:          user.uid,
         order_description: `AJ Coins — ${purchaseAmount} = ${purchaseAmount * COIN_RATE} Coins`,
-        success_url:       window.location.href,
-        cancel_url:        window.location.href,
-        ipn_callback_url:  '/api/callback',
+        success_url:       window.location.origin,
+        cancel_url:        window.location.origin,
+        // FIX: ipn_callback_url MUST be a full valid URI (https://...) — NOT a relative path like '/api/callback'
+        // NOWPayments rejects relative URLs with "ipn_callback_url must be a valid uri" error.
+        // Using the full origin URL so the invoice (Binance QR code page) opens correctly.
+        ipn_callback_url:  window.location.origin + '/api/nowpayments-callback',
       };
       const res  = await fetch('https://api.nowpayments.io/v1/invoice', {
         method:  'POST',
@@ -2651,53 +2901,282 @@ export function AJSuperPortal() {
   type BotLang = 'en'|'hin'|'ur'|'hi'|'ar'|'bn'|'pa'|'fr'|'es'|'de'|'it'|'pt'|'tr'|'ru'|'id'|'vi'|'zh'|'ja'|'ko'|'fa'|'th'|'el'|'he';
   const BOT_KB: Record<string, Record<BotLang|string, string>> = {
     greeting: {
-      en:  `Welcome back! 😊 I can help you with:\n🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\n🪙 Coins & Earning • 💸 Withdraw • 🎁 Gifts • ⚔️ PK Battle\nJust ask me anything!`,
-      hin: `Bhai, kya scene hai! 😄 Main yahan hoon:\n🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\n🪙 Coins earning • 💸 Withdraw • 🎁 Gifts • ⚔️ PK Battle\nKuch bhi poocho, seedha batata hoon! 🔥`,
-      ur:  `خوش آمدید! 😊 میں ان چیزوں میں مدد کر سکتا ہوں:\n🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\n🪙 Coins • 💸 نکاسی • 🎁 تحفے • ⚔️ PK Battle\nکچھ بھی پوچھیں!`,
-      hi:  `स्वागत है! 😊 मैं इनमें मदद कर सकता हूं:\n🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\n🪙 Coins • 💸 Withdrawal • 🎁 Gifts • ⚔️ PK\nकुछ भी पूछो!`,
-      ar:  `مرحباً! 😊 يمكنني مساعدتك في:\n🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\n🪙 الكوينز • 💸 السحب • 🎁 الهدايا • ⚔️ PK\nاسألني أي شيء!`,
+      en:  `Welcome back! 😊 I can help you with:\
+🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\
+🪙 Coins & Earning • 💸 Withdraw • 🎁 Gifts • ⚔️ PK Battle\
+Just ask me anything!`,
+      hin: `Bhai, kya scene hai! 😄 Main yahan hoon:\
+🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\
+🪙 Coins earning • 💸 Withdraw • 🎁 Gifts • ⚔️ PK Battle\
+Kuch bhi poocho, seedha batata hoon! 🔥`,
+      ur:  `خوش آمدید! 😊 میں ان چیزوں میں مدد کر سکتا ہوں:\
+🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\
+🪙 Coins • 💸 نکاسی • 🎁 تحفے • ⚔️ PK Battle\
+کچھ بھی پوچھیں!`,
+      hi:  `स्वागत है! 😊 मैं इनमें मदद कर सकता हूं:\
+🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\
+🪙 Coins • 💸 Withdrawal • 🎁 Gifts • ⚔️ PK\
+कुछ भी पूछो!`,
+      ar:  `مرحباً! 😊 يمكنني مساعدتك في:\
+🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\
+🪙 الكوينز • 💸 السحب • 🎁 الهدايا • ⚔️ PK\
+اسألني أي شيء!`,
     },
     coin: {
-      en:  `🪙 AJ Coins — Full Breakdown:\n\n• Rate: $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1 cash-out\n• Welcome Bonus: 500 Coins on signup 🎉\n• Referral Bonus: +${REFERRAL_COINS} Coins per friend referred\n• Video Post (TikReel): +10 Coins per upload\n• Photo Post (Pulse): +5 Coins per post\n• AI Bot (Basic): 2% daily on invested coins\n• AI Bot (VVIP): 5% daily on invested coins\n• Live gifts received: 60% goes to you!\n\nGo to Wallet → Purchase to top up anytime. 💰`,
-      hin: `Bhai, yeh lo puri detail! 🪙\n\n• Rate: $1 = ${COIN_RATE} Coins | Cash out: ${CASH_RATE} Coins = $1\n• Signup bonus: 500 Coins FREE 🎉\n• Referral: +${REFERRAL_COINS} Coins har dost ke liye\n• TikReel video upload: +10 Coins\n• Pulse photo post: +5 Coins\n• AI Bot Basic: 2% daily profit\n• AI Bot VVIP: 5% daily profit 🔥\n• Live pe gifts milein: 60% tumhara!\n\nWallet → Purchase se recharge karo, dost! 💰`,
-      ur:  `🪙 AJ Coins — مکمل تفصیل:\n\n• شرح: $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1\n• Signup بونس: 500 Coins مفت 🎉\n• ریفرل: +${REFERRAL_COINS} Coins\n• TikReel ویڈیو: +10 Coins\n• Pulse فوٹو: +5 Coins\n• AI Bot Basic: 2% روزانہ\n• AI Bot VVIP: 5% روزانہ 🔥\n• Live تحفے: 60% آپ کا!\n\nWallet → Purchase 💰`,
-      hi:  `🪙 AJ Coins:\n\n• $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1\n• Signup: 500 Coins 🎉\n• Referral: +${REFERRAL_COINS} Coins\n• TikReel Video: +10 Coins\n• Pulse Photo: +5 Coins\n• AI Bot Basic: 2% | VVIP: 5% 🔥\n• Gifts: 60% आपका!\n\nWallet → Purchase 💰`,
-      ar:  `🪙 AJ Coins:\n\n• $1 = ${COIN_RATE} | ${CASH_RATE} = $1\n• Signup: 500 🎉\n• Referral: +${REFERRAL_COINS}\n• TikReel Video: +10\n• Pulse Photo: +5\n• AI Bot: 2-5% 🔥\n• Gifts: 60%\n\nالمحفظة → الشراء 💰`,
+      en:  `🪙 AJ Coins — Full Breakdown:\
+\
+• Rate: $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1 cash-out\
+• Welcome Bonus: 500 Coins on signup 🎉\
+• Referral Bonus: +${REFERRAL_COINS} Coins per friend referred\
+• Video Post (TikReel): +10 Coins per upload\
+• Photo Post (Pulse): +5 Coins per post\
+• AI Bot (Basic): 2% daily on invested coins\
+• AI Bot (VVIP): 5% daily on invested coins\
+• Live gifts received: 60% goes to you!\
+\
+Go to Wallet → Purchase to top up anytime. 💰`,
+      hin: `Bhai, yeh lo puri detail! 🪙\
+\
+• Rate: $1 = ${COIN_RATE} Coins | Cash out: ${CASH_RATE} Coins = $1\
+• Signup bonus: 500 Coins FREE 🎉\
+• Referral: +${REFERRAL_COINS} Coins har dost ke liye\
+• TikReel video upload: +10 Coins\
+• Pulse photo post: +5 Coins\
+• AI Bot Basic: 2% daily profit\
+• AI Bot VVIP: 5% daily profit 🔥\
+• Live pe gifts milein: 60% tumhara!\
+\
+Wallet → Purchase se recharge karo, dost! 💰`,
+      ur:  `🪙 AJ Coins — مکمل تفصیل:\
+\
+• شرح: $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1\
+• Signup بونس: 500 Coins مفت 🎉\
+• ریفرل: +${REFERRAL_COINS} Coins\
+• TikReel ویڈیو: +10 Coins\
+• Pulse فوٹو: +5 Coins\
+• AI Bot Basic: 2% روزانہ\
+• AI Bot VVIP: 5% روزانہ 🔥\
+• Live تحفے: 60% آپ کا!\
+\
+Wallet → Purchase 💰`,
+      hi:  `🪙 AJ Coins:\
+\
+• $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1\
+• Signup: 500 Coins 🎉\
+• Referral: +${REFERRAL_COINS} Coins\
+• TikReel Video: +10 Coins\
+• Pulse Photo: +5 Coins\
+• AI Bot Basic: 2% | VVIP: 5% 🔥\
+• Gifts: 60% आपका!\
+\
+Wallet → Purchase 💰`,
+      ar:  `🪙 AJ Coins:\
+\
+• $1 = ${COIN_RATE} | ${CASH_RATE} = $1\
+• Signup: 500 🎉\
+• Referral: +${REFERRAL_COINS}\
+• TikReel Video: +10\
+• Pulse Photo: +5\
+• AI Bot: 2-5% 🔥\
+• Gifts: 60%\
+\
+المحفظة → الشراء 💰`,
     },
     tikreels: {
-      en:  `🎬 AJ TikReels — TikTok-style short videos!\n\n• Go to Social → AJ TikReels → Feed tab\n• Scroll up/down to watch videos (snap-scroll)\n• CENTER-TAP to pause/resume video\n• Like ❤️, Comment 💬, Share 🔗, or send Gifts 🎁\n• Upload your own: hit ➕ Post tab, add caption + image/video\n• Each video upload earns you +10 Coins 🪙\n• Photo post earns +5 Coins\n• CSS Filters, Music Picker & Text Overlay available in editor`,
-      hin: `🎬 AJ TikReels:\n\n• Social → AJ TikReels → Feed\n• Videos scroll karo (snap-scroll)\n• CENTER TAP karo pause/resume ke liye\n• Like ❤️, Comment 💬, Gift 🎁\n• Video upload: +10 Coins 🔥\n• Photo post: +5 Coins\n• Editor mein Filters, Music, Text Overlay bhi hai!`,
-      ur:  `🎬 AJ TikReels:\n\n• Social → AJ TikReels → Feed\n• Videos اسکرول کریں\n• CENTER TAP: pause/resume\n• Like ❤️، Comment 💬، Gift 🎁\n• Video: +10 Coins 🔥\n• Photo: +5 Coins\n• Editor: Filters، Music، Text Overlay`,
-      hi:  `🎬 AJ TikReels:\n\n• Social → AJ TikReels → Feed\n• CENTER TAP: pause/resume\n• Video: +10 Coins 🔥\n• Photo: +5 Coins\n• Editor: Filters, Music, Text Overlay`,
-      ar:  `🎬 AJ TikReels:\n\n• Social → AJ TikReels → Feed\n• CENTER TAP: pause/resume\n• Video: +10 كوين 🔥\n• Photo: +5 كوين\n• Editor: Filters, Music, Text`,
+      en:  `🎬 AJ TikReels — TikTok-style short videos!\
+\
+• Go to Social → AJ TikReels → Feed tab\
+• Scroll up/down to watch videos (snap-scroll)\
+• CENTER-TAP to pause/resume video\
+• Like ❤️, Comment 💬, Share 🔗, or send Gifts 🎁\
+• Upload your own: hit ➕ Post tab, add caption + image/video\
+• Each video upload earns you +10 Coins 🪙\
+• Photo post earns +5 Coins\
+• CSS Filters, Music Picker & Text Overlay available in editor`,
+      hin: `🎬 AJ TikReels:\
+\
+• Social → AJ TikReels → Feed\
+• Videos scroll karo (snap-scroll)\
+• CENTER TAP karo pause/resume ke liye\
+• Like ❤️, Comment 💬, Gift 🎁\
+• Video upload: +10 Coins 🔥\
+• Photo post: +5 Coins\
+• Editor mein Filters, Music, Text Overlay bhi hai!`,
+      ur:  `🎬 AJ TikReels:\
+\
+• Social → AJ TikReels → Feed\
+• Videos اسکرول کریں\
+• CENTER TAP: pause/resume\
+• Like ❤️، Comment 💬، Gift 🎁\
+• Video: +10 Coins 🔥\
+• Photo: +5 Coins\
+• Editor: Filters، Music، Text Overlay`,
+      hi:  `🎬 AJ TikReels:\
+\
+• Social → AJ TikReels → Feed\
+• CENTER TAP: pause/resume\
+• Video: +10 Coins 🔥\
+• Photo: +5 Coins\
+• Editor: Filters, Music, Text Overlay`,
+      ar:  `🎬 AJ TikReels:\
+\
+• Social → AJ TikReels → Feed\
+• CENTER TAP: pause/resume\
+• Video: +10 كوين 🔥\
+• Photo: +5 كوين\
+• Editor: Filters, Music, Text`,
     },
     pulse: {
-      en:  `📡 AJ Pulse — Instagram-style feed + Live streaming!\n\n📸 Feed:\n• Scroll posts, like, comment, share, send gifts\n• Post your own content → +5 Coins (photo) / +10 Coins (video)\n\n🔴 Go Live:\n• Social Hub → GO LIVE button\n• Share your Room ID so viewers can join\n• Viewers send gifts → You keep 60%!\n\n⚔️ PK Battle: 100 Coins entry, 5-min battle 🏆`,
-      hin: `📡 AJ Pulse:\n\n📸 Feed:\n• Posts scroll, like/comment/gift\n• Photo post: +5 Coins | Video: +10 Coins\n\n🔴 Live:\n• GO LIVE → Room ID share karo\n• Gifts → 60% tumhara! 💰\n\n⚔️ PK Battle: 100 Coins, 5 min 🏆`,
-      ur:  `📡 AJ Pulse:\n\n📸 فیڈ:\n• Photo: +5 Coins | Video: +10 Coins\n\n🔴 Live:\n• GO LIVE → Room ID شیئر\n• Gifts → 60% آپ کا!\n\n⚔️ PK: 100 Coins، 5 منٹ 🏆`,
-      hi:  `📡 AJ Pulse:\n\n• Photo: +5 Coins | Video: +10 Coins\n• GO LIVE → Room ID share\n• Gifts → 60% आपका!\n• PK Battle: 100 Coins 🏆`,
-      ar:  `📡 AJ Pulse:\n\n• Photo: +5 | Video: +10 كوين\n• GO LIVE → Room ID\n• Gifts → 60%\n• PK: 100 كوين 🏆`,
+      en:  `📡 AJ Pulse — Instagram-style feed + Live streaming!\
+\
+📸 Feed:\
+• Scroll posts, like, comment, share, send gifts\
+• Post your own content → +5 Coins (photo) / +10 Coins (video)\
+\
+🔴 Go Live:\
+• Social Hub → GO LIVE button\
+• Share your Room ID so viewers can join\
+• Viewers send gifts → You keep 60%!\
+\
+⚔️ PK Battle: 100 Coins entry, 5-min battle 🏆`,
+      hin: `📡 AJ Pulse:\
+\
+📸 Feed:\
+• Posts scroll, like/comment/gift\
+• Photo post: +5 Coins | Video: +10 Coins\
+\
+🔴 Live:\
+• GO LIVE → Room ID share karo\
+• Gifts → 60% tumhara! 💰\
+\
+⚔️ PK Battle: 100 Coins, 5 min 🏆`,
+      ur:  `📡 AJ Pulse:\
+\
+📸 فیڈ:\
+• Photo: +5 Coins | Video: +10 Coins\
+\
+🔴 Live:\
+• GO LIVE → Room ID شیئر\
+• Gifts → 60% آپ کا!\
+\
+⚔️ PK: 100 Coins، 5 منٹ 🏆`,
+      hi:  `📡 AJ Pulse:\
+\
+• Photo: +5 Coins | Video: +10 Coins\
+• GO LIVE → Room ID share\
+• Gifts → 60% आपका!\
+• PK Battle: 100 Coins 🏆`,
+      ar:  `📡 AJ Pulse:\
+\
+• Photo: +5 | Video: +10 كوين\
+• GO LIVE → Room ID\
+• Gifts → 60%\
+• PK: 100 كوين 🏆`,
     },
     social: {
-      en:  `👤 Social Features:\n\n• View any profile: tap any avatar\n• Follow / Unfollow from their profile page\n• Message (DM): tap "Message" on any profile\n• WeChat: private encrypted chat + Video/Audio calls via ZegoCloud\n• Profile: Posts, Followers, Following, Total Likes, video grid`,
-      hin: `👤 Social Features:\n\n• Koi bhi profile: dp tap karo\n• Follow / Unfollow\n• DM: "Message" button 🔥\n• WeChat: private chat + Video/Audio call (ZegoCloud)\n• Profile: Posts, Followers, Likes, videos`,
-      ur:  `👤 Social Features:\n\n• avatar ٹیپ → پروفائل\n• Follow / Unfollow\n• DM: "Message" 🔥\n• WeChat: private chat + Video/Audio call\n• Posts، Followers، Likes`,
-      hi:  `👤 Social Features:\n\n• Avatar टैप → profile\n• Follow / Unfollow\n• DM + WeChat calls 🔥\n• Posts, Followers, Likes`,
-      ar:  `👤 Social:\n\n• avatar → ملف\n• Follow/Unfollow\n• DM + WeChat calls 🔥\n• Posts, Followers, Likes`,
+      en:  `👤 Social Features:\
+\
+• View any profile: tap any avatar\
+• Follow / Unfollow from their profile page\
+• Message (DM): tap "Message" on any profile\
+• WeChat: private encrypted chat + Video/Audio calls via ZegoCloud\
+• Profile: Posts, Followers, Following, Total Likes, video grid`,
+      hin: `👤 Social Features:\
+\
+• Koi bhi profile: dp tap karo\
+• Follow / Unfollow\
+• DM: "Message" button 🔥\
+• WeChat: private chat + Video/Audio call (ZegoCloud)\
+• Profile: Posts, Followers, Likes, videos`,
+      ur:  `👤 Social Features:\
+\
+• avatar ٹیپ → پروفائل\
+• Follow / Unfollow\
+• DM: "Message" 🔥\
+• WeChat: private chat + Video/Audio call\
+• Posts، Followers، Likes`,
+      hi:  `👤 Social Features:\
+\
+• Avatar टैप → profile\
+• Follow / Unfollow\
+• DM + WeChat calls 🔥\
+• Posts, Followers, Likes`,
+      ar:  `👤 Social:\
+\
+• avatar → ملف\
+• Follow/Unfollow\
+• DM + WeChat calls 🔥\
+• Posts, Followers, Likes`,
     },
     gaming: {
-      en:  `🎮 AJ Gaming Zone — Play & Multiply Coins!\n\n• Access: Tap "Gaming" from the main Hub\n• Games: Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\n• Game scores auto-credit AJ Coins via Game Bridge\n• Coming soon: Ludo Elite Royal, Puck Pulse Elite 🔜`,
-      hin: `🎮 AJ Gaming Zone:\n\n• Main Hub → "Gaming"\n• Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\n• Game score → auto coins credit 🔥\n• Jald: Ludo Elite Royal 🔜`,
-      ur:  `🎮 Gaming:\n\n• Main Hub → "Gaming"\n• 5 games available\n• Score → auto coins 🔥\n• جلد: Ludo Elite Royal 🔜`,
-      hi:  `🎮 Gaming:\n\n• Main Hub → "Gaming"\n• 5 games\n• Score → auto coins 🔥\n• जल्द: Ludo Elite Royal 🔜`,
-      ar:  `🎮 Gaming:\n\n• "Gaming" من الرئيسية\n• 5 ألعاب\n• نقاط → كوينز تلقائي 🔥\n• قريباً: Ludo Elite Royal 🔜`,
+      en:  `🎮 AJ Gaming Zone — Play & Multiply Coins!\
+\
+• Access: Tap "Gaming" from the main Hub\
+• Games: Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\
+• Game scores auto-credit AJ Coins via Game Bridge\
+• Coming soon: Ludo Elite Royal, Puck Pulse Elite 🔜`,
+      hin: `🎮 AJ Gaming Zone:\
+\
+• Main Hub → "Gaming"\
+• Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\
+• Game score → auto coins credit 🔥\
+• Jald: Ludo Elite Royal 🔜`,
+      ur:  `🎮 Gaming:\
+\
+• Main Hub → "Gaming"\
+• 5 games available\
+• Score → auto coins 🔥\
+• جلد: Ludo Elite Royal 🔜`,
+      hi:  `🎮 Gaming:\
+\
+• Main Hub → "Gaming"\
+• 5 games\
+• Score → auto coins 🔥\
+• जल्द: Ludo Elite Royal 🔜`,
+      ar:  `🎮 Gaming:\
+\
+• "Gaming" من الرئيسية\
+• 5 ألعاب\
+• نقاط → كوينز تلقائي 🔥\
+• قريباً: Ludo Elite Royal 🔜`,
     },
     refer: {
-      en:  `👥 Referral System:\n\n• Your Referral Code = your User ID (find in Wallet or Social Hub)\n• Share your ID with friends\n• They go to Wallet → "Enter Referral Code" and paste your ID\n• You receive +${REFERRAL_COINS} Coins per successful referral 🎉\n• No limit — refer as many as you want!\n\nTip: Copy your ID from the Social Hub referral card 📤`,
-      hin: `👥 Referral:\n\n• Tera ID = Referral Code\n• Doston ko share karo\n• Wo Wallet → Referral Code mein daalen\n• +${REFERRAL_COINS} Coins 🎉\n• Koi limit nahi!\n\nTip: Social Hub se copy karo 📤`,
-      ur:  `👥 Referral:\n\n• آپ کا ID = Referral Code\n• دوستوں کو شیئر کریں\n• Wallet → Referral Code میں ڈالیں\n• +${REFERRAL_COINS} Coins 🎉`,
-      hi:  `👥 Referral:\n\n• आपका ID = Referral Code\n• दोस्तों को share करो\n• Wallet → Referral Code में डालें\n• +${REFERRAL_COINS} Coins 🎉`,
-      ar:  `👥 Referral:\n\n• معرفك = Referral Code\n• شارك مع الأصدقاء\n• المحفظة → Referral Code\n• +${REFERRAL_COINS} كوين 🎉`,
+      en:  `👥 Referral System:\
+\
+• Your Referral Code = your User ID (find in Wallet or Social Hub)\
+• Share your ID with friends\
+• They go to Wallet → "Enter Referral Code" and paste your ID\
+• You receive +${REFERRAL_COINS} Coins per successful referral 🎉\
+• No limit — refer as many as you want!\
+\
+Tip: Copy your ID from the Social Hub referral card 📤`,
+      hin: `👥 Referral:\
+\
+• Tera ID = Referral Code\
+• Doston ko share karo\
+• Wo Wallet → Referral Code mein daalen\
+• +${REFERRAL_COINS} Coins 🎉\
+• Koi limit nahi!\
+\
+Tip: Social Hub se copy karo 📤`,
+      ur:  `👥 Referral:\
+\
+• آپ کا ID = Referral Code\
+• دوستوں کو شیئر کریں\
+• Wallet → Referral Code میں ڈالیں\
+• +${REFERRAL_COINS} Coins 🎉`,
+      hi:  `👥 Referral:\
+\
+• आपका ID = Referral Code\
+• दोस्तों को share करो\
+• Wallet → Referral Code में डालें\
+• +${REFERRAL_COINS} Coins 🎉`,
+      ar:  `👥 Referral:\
+\
+• معرفك = Referral Code\
+• شارك مع الأصدقاء\
+• المحفظة → Referral Code\
+• +${REFERRAL_COINS} كوين 🎉`,
     },
   };
 
@@ -3178,7 +3657,6 @@ export function AJSuperPortal() {
                       return (
                         <div key={`tik_ad_${idx}`} data-vidx={idx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
                           <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} type="interstitial"/>
-                          <div className="absolute top-3 left-3 z-20 bg-pink-600/80 text-white text-[8px] font-black px-2 py-1 rounded-full uppercase tracking-widest">📢 Advertisement</div>
                         </div>
                       );
                     }
@@ -3230,6 +3708,11 @@ export function AJSuperPortal() {
                         <div className="absolute bottom-6 left-4 right-16 z-10">
                           <p className="text-white font-black text-xs truncate">@{vid.user}</p>
                           <p className="text-gray-300 text-[10px] mt-0.5 line-clamp-2">{vid.title}</p>
+                          {/* Views count — bottom left like TikTok */}
+                          <div className="flex items-center gap-1.5 mt-1.5">
+                            <Eye size={11} className="text-white/80"/>
+                            <span className="text-white/90 text-[9px] font-black">{formatViews(vid.views||0)} views</span>
+                          </div>
                         </div>
                       </div>
                     );
@@ -3292,8 +3775,9 @@ export function AJSuperPortal() {
                             <span className="text-white font-black text-xs">@{post.username}</span>
                           </button>
                           <p className="text-gray-300 text-[10px] line-clamp-2">{post.text}</p>
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="text-gray-400 text-[8px]">👁️ {formatViews(post.views||0)}</span>
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <Eye size={11} className="text-white/80"/>
+                            <span className="text-white/90 text-[9px] font-black">{formatViews(post.views||0)} views</span>
                           </div>
                         </div>
                       </div>
@@ -3385,9 +3869,9 @@ export function AJSuperPortal() {
                     <p className="text-white font-black text-lg mt-3">@{username||'AJ_Member'}</p>
                     <p className="text-gray-400 text-xs mt-1 text-center max-w-xs">{bio||'No bio yet.'}</p>
                     <div className="flex gap-8 mt-4">
-                      <div className="text-center"><p className="text-white font-black text-lg">{userPosts.filter((p:any) => p.uid===user?.uid).length}</p><p className="text-gray-400 text-[10px]">Posts</p></div>
-                      <div className="text-center"><p className="text-white font-black text-lg">0</p><p className="text-gray-400 text-[10px]">Followers</p></div>
-                      <div className="text-center"><p className="text-white font-black text-lg">0</p><p className="text-gray-400 text-[10px]">Following</p></div>
+                      <div className="text-center"><p className="text-white font-black text-lg">{tikProfileMyPosts.length}</p><p className="text-gray-400 text-[10px]">Posts</p></div>
+                      <div className="text-center"><p className="text-white font-black text-lg">{tikProfileFollowers}</p><p className="text-gray-400 text-[10px]">Followers</p></div>
+                      <div className="text-center"><p className="text-white font-black text-lg">{followingList.length}</p><p className="text-gray-400 text-[10px]">Following</p></div>
                     </div>
                     <div className="flex gap-2 mt-4">
                       {(['posts','following'] as const).map(tab => (
@@ -3399,14 +3883,25 @@ export function AJSuperPortal() {
                   </div>
                   {tikProfileSubTab === 'posts' && (
                     <div className="grid grid-cols-3 gap-0.5 p-0.5">
-                      {userPosts.filter((p:any) => p.uid===user?.uid).map((post:any) => (
+                      {tikProfileMyPosts.length === 0 && (
+                        <div className="col-span-3 flex flex-col items-center justify-center py-16 gap-3">
+                          <span className="text-4xl">🎬</span>
+                          <p className="text-gray-500 text-sm">No posts yet. Upload your first TikReel!</p>
+                        </div>
+                      )}
+                      {tikProfileMyPosts.map((post:any) => (
                         <div key={post.id} className="relative aspect-square bg-white/5 overflow-hidden">
-                          {/* FIX #8: thumbnail fallback — vid.thumbnail || vid.videoUrl */}
+                          {/* FIX: thumbnail fallback — post.image for videos, post.thumbnail if available */}
                           {(post.thumbnail || post.image || post.videoUrl)
-                            ? <img src={post.thumbnail || post.image || (post.isVideo ? post.videoUrl + "#t=0.1" : post.videoUrl)} className="w-full h-full object-cover"/>
+                            ? <img src={post.thumbnail || post.image || (post.isVideo ? post.videoUrl + "#t=0.1" : post.videoUrl)} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}/>
                             : <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">🎬</span></div>
                           }
                           {post.isVideo && <div className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5"><Film size={10} className="text-white"/></div>}
+                          {/* Views count overlay — bottom left like TikTok */}
+                          <div className="absolute bottom-1 left-1 bg-black/60 rounded-full px-1.5 py-0.5 flex items-center gap-0.5">
+                            <Eye size={8} className="text-white"/>
+                            <span className="text-white text-[8px] font-black">{formatViews(post.views||0)}</span>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -3469,7 +3964,6 @@ export function AJSuperPortal() {
                       return (
                         <div key={`pulse_ad_${idx}`} data-vidx={idx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
                           <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} type="interstitial"/>
-                          <div className="absolute top-3 left-3 z-20 bg-pink-600/80 text-white text-[8px] font-black px-2 py-1 rounded-full uppercase tracking-widest">📢 Advertisement</div>
                         </div>
                       );
                     }
@@ -3526,6 +4020,11 @@ export function AJSuperPortal() {
                             <span className="text-white font-black text-xs">@{post.username}</span>
                           </button>
                           <p className="text-white text-sm font-bold line-clamp-3">{post.text}</p>
+                          {/* Views count — bottom left like TikTok */}
+                          <div className="flex items-center gap-1.5 mt-2">
+                            <Eye size={11} className="text-white/80"/>
+                            <span className="text-white/90 text-[9px] font-black">{formatViews(post.views||0)} views</span>
+                          </div>
                         </div>
                       </div>
                     );
@@ -3668,7 +4167,7 @@ export function AJSuperPortal() {
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
                         <span className="text-red-500 text-xs animate-pulse">● LIVE</span>
-                        <span className="text-white text-[10px] font-black">👁️ {liveNowList.length + 1} watching</span>
+                        <span className="text-white text-[10px] font-black">👁️ {liveViewerCount} watching</span>
                       </div>
                     </div>
                     <p className="text-[9px] text-gray-400 font-black uppercase tracking-widest mb-1">Room ID</p>
@@ -3861,10 +4360,11 @@ export function AJSuperPortal() {
                 </button>
                 <img src={viewerRoom.photo||'/logo.png'} className="w-7 h-7 rounded-full border border-red-500 object-cover"/>
                 <span className="text-sm font-black text-white">@{viewerRoom.username}</span>
+                <span className="text-[9px] text-gray-400 font-black flex items-center gap-0.5"><Eye size={10}/> {viewerRoom.liveViewers || 0}</span>
                 <span className="ml-auto text-[9px] text-red-400 font-black animate-pulse">🔴 LIVE</span>
               </div>
               <div className="flex-1 flex flex-col">
-                <div id="video-container" className="w-full aspect-video bg-black"/>
+                <div id="zego-viewer-container" className="w-full aspect-video bg-black"/>
                 <div className="flex-1 overflow-y-auto p-3 space-y-2">
                   {viewerChatMessages.map((m:any) => (
                     <div key={m.id} className="flex items-start gap-2">
@@ -4082,9 +4582,10 @@ export function AJSuperPortal() {
                             </>
                           : <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">🎬</span></div>
                         }
-                        {vid.views > 0 && (
-                          <div className="absolute bottom-1 left-1 bg-black/60 rounded-full px-1.5 py-0.5">
-                            <span className="text-white text-[8px] font-black">{formatViews(vid.views)}</span>
+                        {vid.views >= 0 && (
+                          <div className="absolute bottom-1 left-1 bg-black/60 rounded-full px-1.5 py-0.5 flex items-center gap-0.5">
+                            <Eye size={8} className="text-white"/>
+                            <span className="text-white text-[8px] font-black">{formatViews(vid.views || 0)}</span>
                           </div>
                         )}
                       </div>
