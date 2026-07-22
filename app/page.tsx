@@ -84,11 +84,10 @@ const CEO_WHATSAPP             = "https://wa.me/96878994093";
 const AGORA_APP_ID             = "7863c5369b3648bf931893a52ebaa6db";
 const AGORA_APP_CERTIFICATE    = "dc66528c5a5646da8e3ce5d2426759af";
 const VAPID_KEY                = "BMaPMtGtA2VtDsj_JH_yv5dOv66Mpguf9v4TkqY96dcS-gwqgs-r5OlqRJQmZbNkaj-7_iMFbGGN0Qc4xH0qvKg";
-const MONETAG_PULSE_BANNER     = 11337197;
+
 const MONETAG_INTERSTITIAL     = 11349676;
 const PULSE_AD_VIDEO_ID        = 'aqz-KE-bpKQ';
 const NOWPAYMENTS_IPN_SECRET   = '9eeeBo6K1ljJSQtUCb1Up88Gv6n1AreU';
-
 
 // ============================================================
 // ECONOMY RATES
@@ -332,48 +331,6 @@ const formatViews = (v: number): string => {
 };
 
 // ============================================================
-// MONETAG BANNER COMPONENT — Real injection (FIXED)
-// ============================================================
-function MonetagBanner({ siteId }: { siteId: number }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const keyRef = useRef(0);
-  useEffect(() => {
-    if (!containerRef.current) return;
-    keyRef.current++;
-    // Clear previous content for fresh injection
-    if (containerRef.current.innerHTML) containerRef.current.innerHTML = '';
-    try {
-      // Inject Monetag push/banner ad script
-      const existing = document.querySelector('script[data-zone="' + MONETAG_INTERSTITIAL + '"]'); if(existing) return; const s = document.createElement('script');
-      s.async = true;
-      s.setAttribute('data-zone', String(siteId));
-      // Monetag CDN — zone 11337197 = push/banner, 11349676 = interstitial
-      s.src = 'https://nap5k.com/tag.min.js';
-      containerRef.current.appendChild(s);
-    } catch {}
-    try {
-      // Also inject via global atOptions for banner display
-      const s2 = document.createElement('script');
-      s2.type = 'text/javascript';
-      s2.innerHTML = `
-        window.atOptions = { 'key': '${siteId}', 'format': 'iframe', 'height': 60, 'width': 468, 'params': {} };
-      `;
-      containerRef.current.appendChild(s2);
-      const s3 = document.createElement('script');
-      s3.type = 'text/javascript';
-      s3.src = `//www.highperformanceformat.com/${siteId}/invoke.js`;
-      containerRef.current.appendChild(s3);
-    } catch {}
-  }, [siteId]);
-  return (
-    <div
-      ref={containerRef}
-      className="w-full min-h-[60px] bg-white/5 border border-cyan-500/20 rounded-2xl overflow-hidden"
-      style={{ minHeight: 60 }}
-    />
-  );
-}
-
 // ============================================================
 // VVIP NEON GLASSMORPHISM ALERT MODAL
 // ============================================================
@@ -421,7 +378,6 @@ function VVIPAlert({ msg, icon, onClose }: { msg: string; icon?: string; onClose
 // MONETAG VIDEO AD COMPONENT — Real Monetag In-Stream Ad (FIXED)
 // ============================================================
 const AJ_AD_VIDEO_ID = 'aqz-KE-bpKQ'; // fallback
-
 
 function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: number; type?: 'interstitial'|'banner' }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -773,7 +729,6 @@ function AJFooter() {
   );
 }
 
-
 // ============================================================
 // COMPONENT
 // ============================================================
@@ -1013,42 +968,7 @@ export function AJSuperPortal() {
   const currentWithdrawMethod = WITHDRAW_METHODS.find(m => m.label === payoutMethod) || WITHDRAW_METHODS[0];
 
   // ==========================================================
-  // INJECT MONETAG ADS ON MOUNT (FIXED)
-  // ==========================================================
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    // Banner/Push Ad — zone 11337197
-    try {
-      const s1 = document.createElement('script');
-      s1.async = true;
-      s1.setAttribute('data-zone', '11337197');
-      s1.src = 'https://nap5k.com/tag.min.js';
-      document.head.appendChild(s1);
-    } catch {}
-    // Interstitial Ad — zone 11349676
-    try {
-      const s2 = document.createElement('script');
-      s2.async = true;
-      s2.setAttribute('data-zone', '11349676');
-      s2.src = 'https://nap5k.com/tag.min.js';
-      document.head.appendChild(s2);
-    } catch {}
-    // Monetag Push Notification Ad
-    try {
-      const s3 = document.createElement('script');
-      s3.async = true;
-      s3.src = 'https://nap5k.com/push.min.js';
-      document.head.appendChild(s3);
-    } catch {}
-    
-    try {
-      const s4 = document.createElement('script');
-      s4.async = true;
-      s4.setAttribute('data-zone', '11337185');
-      s4.src = 'https://nap5k.com/tag.min.js';
-      document.head.appendChild(s4);
-    } catch {}
-  }, []);
+  
 
   // ==========================================================
   // FETCH APIs — FIX #5: Multi-keyword YT mix + Unsplash append
@@ -2609,7 +2529,6 @@ export function AJSuperPortal() {
     return merged;
   }, [pulsePosts, pixaData]);
 
-
   // ==========================================================
   // RENDER
   // ==========================================================
@@ -2766,9 +2685,8 @@ export function AJSuperPortal() {
             </div>
           </div>
 
-          {/* Sponsor Banner */}
           <div className="px-4 pt-3">
-            <MonetagBanner siteId={MONETAG_PULSE_BANNER}/>
+            
           </div>
 
           {/* Balance Card */}
@@ -2921,7 +2839,6 @@ export function AJSuperPortal() {
         </div>
       )}
 
-
       {/* ══════════════════════════════════════════════════════
           SOCIAL SCREEN
       ══════════════════════════════════════════════════════ */}
@@ -2970,7 +2887,7 @@ export function AJSuperPortal() {
                 </button>
               </div>
               <div className="px-4 pt-3">
-                <MonetagBanner siteId={MONETAG_PULSE_BANNER}/>
+                
               </div>
               <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
                 {[
@@ -3338,7 +3255,7 @@ export function AJSuperPortal() {
               </div>
 
               <div className="px-4 pt-2">
-                <MonetagBanner siteId={MONETAG_PULSE_BANNER}/>
+                
               </div>
 
               {/* ── PULSE FEED — FIX #5: combinedPulseFeed (Unsplash + Firestore merged, no deletion) ── */}
@@ -3506,7 +3423,6 @@ export function AJSuperPortal() {
                   </div>
                 </div>
               )}
-
 
             </div>
           )}
@@ -4023,7 +3939,6 @@ export function AJSuperPortal() {
         </div>
       )}
 
-
       {/* ══════════════════════════════════════════════════════
           GAMES SCREEN — FIX #7: card click triggers interstitial
       ══════════════════════════════════════════════════════ */}
@@ -4041,7 +3956,7 @@ export function AJSuperPortal() {
 
           {!selectedGame ? (
             <div className="px-4 py-4 space-y-3">
-              <MonetagBanner siteId={MONETAG_PULSE_BANNER}/>
+              
               {/* Video Ad — Games Screen */}
               <div className="w-full h-[420px] relative rounded-2xl overflow-hidden border border-pink-500/20">
                 <MonetagVideoAd publisherId={MONETAG_PULSE_BANNER} type="interstitial"/>
@@ -4126,7 +4041,6 @@ export function AJSuperPortal() {
           </div>
 
           <div className="px-4 py-4 space-y-4">
-            <MonetagBanner siteId={MONETAG_PULSE_BANNER}/>
 
             {/* Bot Status */}
             <div className="rounded-3xl overflow-hidden" style={{background:'linear-gradient(135deg,#0a0a1a,#1a0a2e)',border:'1px solid rgba(236,72,153,0.2)'}}>
@@ -4238,7 +4152,6 @@ export function AJSuperPortal() {
           </div>
 
           <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-            <MonetagBanner siteId={MONETAG_PULSE_BANNER}/>
 
             {/* ── MAIN ── */}
             {walletTab === 'main' && (
