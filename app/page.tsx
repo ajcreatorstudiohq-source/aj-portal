@@ -134,10 +134,10 @@ const navigateWithAdOverlay = (navFn: () => void) => {
   // Fire the real interstitial ad
   triggerInterstitialAd();
   // Show visible overlay
-  setInterstitialAdOpen(true);
+  ;
   // Auto-close after 8 seconds (user can also skip)
   const timer = setTimeout(() => {
-    setInterstitialAdOpen(false);
+    
     setAdAutoCloseTimer(null);
     navFn();
   }, 8000);
@@ -337,7 +337,7 @@ const formatViews = (v: number): string => {
 function VVIPAlert({ msg, icon, onClose }: { msg: string; icon?: string; onClose: () => void }) {
   useEffect(() => {
     const t = setTimeout(onClose, 5000);
-    return () => clearTimeout(t);
+    return () => clearInterval(t);
   }, [onClose]);
   return (
     <div
@@ -462,7 +462,7 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
 function CinematicGiftOverlay({ gift, sender, onDone }: { gift: any; sender: string; onDone: () => void }) {
   useEffect(() => {
     const t = setTimeout(onDone, 4000);
-    return () => clearTimeout(t);
+    return () => clearInterval(t);
   }, []);
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center pointer-events-none">
@@ -736,6 +736,8 @@ export function AJSuperPortal() {
 
   // ── SCREENS
   const [screen, _setScreen] = useState('splash');
+  
+
   const setScreen = (s) => {
     if (!['games', 'tikreels', 'pulse', 'wechat'].includes(s)) {
       triggerInterstitialAd();
@@ -774,9 +776,9 @@ export function AJSuperPortal() {
   const [likedPosts,    setLikedPosts]    = useState<any>({});
   const [activeMenuId,  setActiveMenuId]  = useState<string|null>(null);
   const [vvipAlert,     setVvipAlert]     = useState<{msg:string,icon?:string}|null>(null);
-  const [interstitialAdOpen, setInterstitialAdOpen] = useState(false);
-  const [pendingNav,  setPendingNav]  = useState<string|null>(null);
-  const [adAutoCloseTimer, setAdAutoCloseTimer] = useState<NodeJS.Timeout|null>(null);
+  
+  
+  
   const [editPostId,    setEditPostId]    = useState<string|null>(null);
   const [editPostText,  setEditPostText]  = useState('');
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -1279,7 +1281,7 @@ export function AJSuperPortal() {
               window.addEventListener('message', function(e) {
                 if (e.data && e.data.type === 'SEND_SCORE') {
                   if (window.parent && window.parent !== window) {
-                    window.parent.postMessage({type: 'GAME_SCORE', score: e.data.score}, '*');
+                    window.parent.postMessage({type: 'GAME_SCORE', score: e.data.score}, '*'); window.parent.postMessage({type: 'SCORE', score: e.data.score}, '*');
                   }
                 }
               });
@@ -1331,8 +1333,8 @@ export function AJSuperPortal() {
         });
       } catch {}
     };
-    const t = setTimeout(injectBridge, 3000);
-    return () => clearTimeout(t);
+    const t = setInterval(injectBridge, 2000);
+    return () => clearInterval(t);
   }, [selectedGame, user]);
 
   // PK Timer
@@ -2053,7 +2055,7 @@ export function AJSuperPortal() {
       else if (to==='wallet') { setScreen('wallet'); setWalletTab('main'); }
       else                    setScreen(to);
     };
-    navigateWithAdOverlay(navFn);
+    triggerInterstitialAd(); navFn();
   };
 
   const enterSocialMode = (mode:string) => {
@@ -2560,34 +2562,7 @@ export function AJSuperPortal() {
         />
       )}
 
-      {/* ══════════════════════════════════════════════════════
-          INTERSTITIAL AD OVERLAY — Visible video ad on card clicks
-      ══════════════════════════════════════════════════════ */}
-      {interstitialAdOpen && (
-        <div className="fixed inset-0 z-[9995] bg-black flex flex-col">
-          <div className="flex-1 relative flex items-center justify-center">
-            <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} type="interstitial"/>
-          </div>
-          {/* Skip button — top right */}
-          <button
-            onClick={() => {
-              if (adAutoCloseTimer) { clearTimeout(adAutoCloseTimer); setAdAutoCloseTimer(null); }
-              setInterstitialAdOpen(false);
-              if (pendingNav === 'social') { fetchSocialAPIs(); setScreen('social'); setSocialScreen('hub'); }
-              else if (pendingNav === 'wallet') { setScreen('wallet'); setWalletTab('main'); }
-              else if (pendingNav) { setScreen(pendingNav); }
-              setPendingNav(null);
-            }}
-            className="absolute top-6 right-4 z-[9996] bg-black/60 backdrop-blur-sm border border-white/20 text-white text-[11px] font-black px-5 py-2.5 rounded-2xl active:scale-90 transition-all shadow-[0_0_20px_rgba(236,72,153,0.4)]"
-          >
-            Skip Ad ✕
-          </button>
-          {/* Timer bar at bottom */}
-          <div className="h-1 w-full bg-white/10 relative">
-            <div className="h-full bg-gradient-to-r from-pink-500 to-cyan-400 transition-all" style={{width:'100%', transitionDuration:'8s'}}/>
-          </div>
-        </div>
-      )}
+      
 
       {/* Incoming Call Overlay */}
       {incomingCall && (
@@ -2705,8 +2680,8 @@ export function AJSuperPortal() {
                   </div>
                 )}
                 <div className="mt-4 flex gap-2">
-                  <button onClick={() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('wallet'); const t = setTimeout(() => { setInterstitialAdOpen(false); setScreen('wallet'); setWalletTab('purchase'); }, 8000); setAdAutoCloseTimer(t); }} className="flex-1 py-2.5 rounded-2xl text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all shadow-[0_0_18px_rgba(236,72,153,0.3)]" style={{background:'linear-gradient(135deg,#ec4899,#8b5cf6)'}}>+ Buy Coins</button>
-                  <button onClick={() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('wallet'); const t = setTimeout(() => { setInterstitialAdOpen(false); setScreen('wallet'); setWalletTab('withdraw'); }, 8000); setAdAutoCloseTimer(t); }} className="flex-1 py-2.5 rounded-2xl text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all" style={{background:'linear-gradient(135deg,#0891b2,#0e7490)'}}>Withdraw</button>
+                  <button onClick={() => { triggerInterstitialAd(); setScreen('wallet'); setWalletTab('purchase'); }} className="flex-1 py-2.5 rounded-2xl text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all shadow-[0_0_18px_rgba(236,72,153,0.3)]" style={{background:'linear-gradient(135deg,#ec4899,#8b5cf6)'}}>+ Buy Coins</button>
+                  <button onClick={() => { triggerInterstitialAd(); setScreen('wallet'); setWalletTab('withdraw'); }} className="flex-1 py-2.5 rounded-2xl text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all" style={{background:'linear-gradient(135deg,#0891b2,#0e7490)'}}>Withdraw</button>
                 </div>
               </div>
             </div>
@@ -2715,7 +2690,7 @@ export function AJSuperPortal() {
           {/* Quick Nav Grid — 4 Main Cards with Details */}
           <div className="px-4 pt-4 grid grid-cols-2 gap-4">
             {/* GAMES Card */}
-            <button onClick={() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('games'); const t = setTimeout(() => { setInterstitialAdOpen(false); setScreen('games'); }, 8000); setAdAutoCloseTimer(t); }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-purple-500/50 shadow-[0_0_20px_rgba(147,51,234,0.2)]">
+            <button onClick={() => { triggerInterstitialAd(); setScreen('games'); }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-purple-500/50 shadow-[0_0_20px_rgba(147,51,234,0.2)]">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-[0_0_16px_rgba(147,51,234,0.5)]">
                 <span className="text-2xl">🎮</span>
               </div>
@@ -2730,7 +2705,7 @@ export function AJSuperPortal() {
             </button>
 
             {/* SOCIAL Card */}
-            <button onClick={() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('social'); const t = setTimeout(() => { setInterstitialAdOpen(false); fetchSocialAPIs(); setScreen('social'); setSocialScreen('hub'); }, 8000); setAdAutoCloseTimer(t); }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-cyan-900/40 to-blue-900/40 border border-cyan-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-cyan-500/50 shadow-[0_0_20px_rgba(6,182,212,0.2)]">
+            <button onClick={() => { triggerInterstitialAd(); ; setPendingNav('social'); const t = setTimeout(() => {  fetchSocialAPIs(); setScreen('social'); setSocialScreen('hub'); }, 8000); setAdAutoCloseTimer(t); }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-cyan-900/40 to-blue-900/40 border border-cyan-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-cyan-500/50 shadow-[0_0_20px_rgba(6,182,212,0.2)]">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center shadow-[0_0_16px_rgba(6,182,212,0.5)]">
                 <span className="text-2xl">📡</span>
               </div>
@@ -2745,7 +2720,7 @@ export function AJSuperPortal() {
             </button>
 
             {/* WALLET Card */}
-            <button onClick={() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('wallet'); const t = setTimeout(() => { setInterstitialAdOpen(false); setScreen('wallet'); setWalletTab('main'); }, 8000); setAdAutoCloseTimer(t); }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-yellow-900/40 to-orange-900/40 border border-yellow-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-yellow-500/50 shadow-[0_0_20px_rgba(234,179,8,0.2)]">
+            <button onClick={() => { triggerInterstitialAd(); setScreen('wallet'); }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-yellow-900/40 to-orange-900/40 border border-yellow-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-yellow-500/50 shadow-[0_0_20px_rgba(234,179,8,0.2)]">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-yellow-500 to-orange-500 flex items-center justify-center shadow-[0_0_16px_rgba(234,179,8,0.5)]">
                 <span className="text-2xl">💰</span>
               </div>
@@ -2760,7 +2735,7 @@ export function AJSuperPortal() {
             </button>
 
             {/* AI TRADING BOT Card */}
-            <button onClick={() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('aibot'); const t = setTimeout(() => { setInterstitialAdOpen(false); setScreen('aibot'); }, 8000); setAdAutoCloseTimer(t); }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.2)]">
+            <button onClick={() => { triggerInterstitialAd(); ; setPendingNav('aibot'); const t = setTimeout(() => {  setScreen('aibot'); }, 8000); setAdAutoCloseTimer(t); }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.2)]">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center shadow-[0_0_16px_rgba(34,197,94,0.5)]">
                 <span className="text-2xl">🤖</span>
               </div>
@@ -2891,11 +2866,11 @@ export function AJSuperPortal() {
               </div>
               <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
                 {[
-                  { icon:'🎬', label:'AJ TikReels',    sub:'Short Videos & Reels',   action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('social'); const t = setTimeout(() => { setInterstitialAdOpen(false); setSocialScreen('tikreels'); setTiktabMode('feed'); }, 8000); setAdAutoCloseTimer(t); } },
-                  { icon:'📡', label:'AJ Pulse',        sub:'Feed, Live & Stories',   action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('social'); const t = setTimeout(() => { setInterstitialAdOpen(false); setSocialScreen('pulse'); setPulseTab('feed'); }, 8000); setAdAutoCloseTimer(t); } },
-                  { icon:'💬', label:'AJ WeChat',       sub:'Private Encrypted Chat', action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('social'); const t = setTimeout(() => { setInterstitialAdOpen(false); setSocialScreen('wechat'); }, 8000); setAdAutoCloseTimer(t); } },
-                  { icon:'🔴', label:'Go Live',         sub:'Start Livestream',       action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('social'); const t = setTimeout(() => { setInterstitialAdOpen(false); setSocialScreen('golive'); }, 8000); setAdAutoCloseTimer(t); } },
-                  { icon:'👁️', label:'Join Live',       sub:'Watch a Livestream',     action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('social'); const t = setTimeout(() => { setInterstitialAdOpen(false); setSocialScreen('joinlive'); }, 8000); setAdAutoCloseTimer(t); } },
+                  { icon:'🎬', label:'AJ TikReels',    sub:'Short Videos & Reels',   action:() => { triggerInterstitialAd(); ; setPendingNav('social'); const t = setTimeout(() => {  setSocialScreen('tikreels'); setTiktabMode('feed'); }, 8000); setAdAutoCloseTimer(t); } },
+                  { icon:'📡', label:'AJ Pulse',        sub:'Feed, Live & Stories',   action:() => { triggerInterstitialAd(); ; setPendingNav('social'); const t = setTimeout(() => {  setSocialScreen('pulse'); setPulseTab('feed'); }, 8000); setAdAutoCloseTimer(t); } },
+                  { icon:'💬', label:'AJ WeChat',       sub:'Private Encrypted Chat', action:() => { triggerInterstitialAd(); ; setPendingNav('social'); const t = setTimeout(() => {  setSocialScreen('wechat'); }, 8000); setAdAutoCloseTimer(t); } },
+                  { icon:'🔴', label:'Go Live',         sub:'Start Livestream',       action:() => { triggerInterstitialAd(); ; setPendingNav('social'); const t = setTimeout(() => {  setSocialScreen('golive'); }, 8000); setAdAutoCloseTimer(t); } },
+                  { icon:'👁️', label:'Join Live',       sub:'Watch a Livestream',     action:() => { triggerInterstitialAd(); ; setPendingNav('social'); const t = setTimeout(() => {  setSocialScreen('joinlive'); }, 8000); setAdAutoCloseTimer(t); } },
                   { icon:'👤', label:'My Profile',      sub:'View & Edit Profile',    action:() => { if (user) openProfile(user.uid); } },
                 ].map(item => (
                   <button key={item.label} onClick={item.action} className="w-full flex items-center gap-4 bg-white/5 border border-white/10 rounded-2xl p-4 active:scale-95 transition-all hover:border-pink-500/30">
@@ -2973,7 +2948,7 @@ export function AJSuperPortal() {
                     const isActive = activeVideoIdx === idx;
                     // FIX #6: mute=0 when globalSoundOn, else mute=1; audio kill on scroll
                     const embedSrc = `https://www.youtube.com/embed/${vid.id}?autoplay=${isActive?1:0}&mute=${(isActive && globalSoundOn)?0:1}&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3`;
-                    if (idx % 4 === 0) {
+                    if (idx > 0 && idx % 4 === 0) {
                       return (
                         <div key={`tik_ad_${idx}`} data-vidx={idx} className="relative w-full h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
                           <MonetagVideoAd publisherId={MONETAG_PULSE_BANNER} type="interstitial"/>
@@ -3266,7 +3241,7 @@ export function AJSuperPortal() {
                   style={{ scrollSnapType: 'y mandatory', display:'flex', flexDirection:'column-reverse' }}
                 >
                   {combinedPulseFeed.map((post:any, idx:number) => {
-                    if (idx % 4 === 0) {
+                    if (idx > 0 && idx % 4 === 0) {
                       return (
                         <div key={`pulse_ad_${idx}`} data-vidx={idx} className="relative w-full h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
                           <MonetagVideoAd publisherId={MONETAG_PULSE_BANNER} type="interstitial"/>
@@ -4145,7 +4120,7 @@ export function AJSuperPortal() {
           {/* Wallet Tab Bar */}
           <div className="flex border-b border-white/5">
             {(['main','purchase','withdraw','transfer','referral'] as const).map(tab => (
-              <button key={tab} onClick={() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('wallet'); const t = setTimeout(() => { setInterstitialAdOpen(false); setWalletTab(tab); }, 8000); setAdAutoCloseTimer(t); }} className={`flex-1 py-2.5 text-[9px] font-black uppercase tracking-widest transition-all ${walletTab===tab ? 'text-pink-400 border-b-2 border-pink-500' : 'text-gray-500'}`}>
+              <button key={tab} onClick={() => { triggerInterstitialAd(); ; setPendingNav('wallet'); const t = setTimeout(() => {  setWalletTab(tab); }, 8000); setAdAutoCloseTimer(t); }} className={`flex-1 py-2.5 text-[9px] font-black uppercase tracking-widest transition-all ${walletTab===tab ? 'text-pink-400 border-b-2 border-pink-500' : 'text-gray-500'}`}>
                 {tab==='main'?'💰':tab==='purchase'?'🛒':tab==='withdraw'?'💸':tab==='transfer'?'↔️':'👥'}
               </button>
             ))}
@@ -4176,10 +4151,10 @@ export function AJSuperPortal() {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   {[
-                    { icon:'🛒', label:'Buy Coins',   action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('wallet'); const t = setTimeout(() => { setInterstitialAdOpen(false); setWalletTab('purchase'); }, 8000); setAdAutoCloseTimer(t); } },
-                    { icon:'💸', label:'Withdraw',    action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('wallet'); const t = setTimeout(() => { setInterstitialAdOpen(false); setWalletTab('withdraw'); }, 8000); setAdAutoCloseTimer(t); } },
-                    { icon:'↔️', label:'Transfer',    action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('wallet'); const t = setTimeout(() => { setInterstitialAdOpen(false); setWalletTab('transfer'); }, 8000); setAdAutoCloseTimer(t); } },
-                    { icon:'👥', label:'Refer & Earn',action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('wallet'); const t = setTimeout(() => { setInterstitialAdOpen(false); setWalletTab('referral'); }, 8000); setAdAutoCloseTimer(t); } },
+                    { icon:'🛒', label:'Buy Coins',   action:() => { triggerInterstitialAd(); ; setPendingNav('wallet'); const t = setTimeout(() => {  setWalletTab('purchase'); }, 8000); setAdAutoCloseTimer(t); } },
+                    { icon:'💸', label:'Withdraw',    action:() => { triggerInterstitialAd(); ; setPendingNav('wallet'); const t = setTimeout(() => {  setWalletTab('withdraw'); }, 8000); setAdAutoCloseTimer(t); } },
+                    { icon:'↔️', label:'Transfer',    action:() => { triggerInterstitialAd(); ; setPendingNav('wallet'); const t = setTimeout(() => {  setWalletTab('transfer'); }, 8000); setAdAutoCloseTimer(t); } },
+                    { icon:'👥', label:'Refer & Earn',action:() => { triggerInterstitialAd(); ; setPendingNav('wallet'); const t = setTimeout(() => {  setWalletTab('referral'); }, 8000); setAdAutoCloseTimer(t); } },
                   ].map(item => (
                     <button key={item.label} onClick={item.action} className="flex flex-col items-center gap-2 bg-white/5 border border-white/10 rounded-2xl py-4 active:scale-95 transition-all hover:border-pink-500/30">
                       <span className="text-2xl">{item.icon}</span>
