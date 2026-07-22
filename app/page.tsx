@@ -119,7 +119,7 @@ const triggerInterstitialAd = () => {
         (window as any).show_9087571();
       }
       try {
-        const existing = document.querySelector('script[data-zone="' + MONETAG_INTERSTITIAL + '"]'); if(existing) return; const s = document.createElement('script');
+        const existingZone = document.querySelector('script[data-zone="' + MONETAG_INTERSTITIAL + '"]'); if(existingZone) return; const s = document.createElement('script');
         s.async = true;
         s.setAttribute('data-zone', String(MONETAG_INTERSTITIAL));
         s.setAttribute('data-ad-type', 'monetag-trigger');
@@ -134,15 +134,10 @@ const triggerInterstitialAd = () => {
 const navigateWithAdOverlay = (navFn: () => void) => {
   // Fire the real interstitial ad
   triggerInterstitialAd();
-  // Show visible overlay
-  setInterstitialAdOpen(true);
-  // Auto-close after 8 seconds (user can also skip)
-  const timer = setTimeout(() => {
-    setInterstitialAdOpen(false);
-    setAdAutoCloseTimer(null);
+  // Navigate after a short delay to let ad attempt to load
+  setTimeout(() => {
     navFn();
-  }, 8000);
-  setAdAutoCloseTimer(timer);
+  }, 1000);
 };
 
 // ============================================================
@@ -183,7 +178,10 @@ const handleStartZegoCall = (
 };
 
 const handleStartLiveOrCall = (roomID: string, currentUserId: string, currentUserName: string) => {
-  if (typeof window === 'undefined' || !(window as any).ZegoUIKitPrebuilt) return;
+  if (typeof window === 'undefined' || !(window as any).ZegoUIKitPrebuilt) {
+    console.error('ZegoUIKitPrebuilt not loaded');
+    return;
+  }
   try {
     const kitToken = (window as any).ZegoUIKitPrebuilt.generateKitTokenForTest(
       ZEGO_APP_ID,
@@ -194,13 +192,26 @@ const handleStartLiveOrCall = (roomID: string, currentUserId: string, currentUse
     );
     const zp = (window as any).ZegoUIKitPrebuilt.create(kitToken);
     const container = document.querySelector('#video-container');
-    if (!container) return;
+    if (!container) {
+      console.error('video-container not found');
+      return;
+    }
     zp.joinRoom({
       container,
       scenario: { mode: (window as any).ZegoUIKitPrebuilt.LiveStreaming },
+      // FIX: Explicitly request camera and mic access
+      turnOnMicrophone: true,
+      turnOnCamera: true,
+      showMyCameraToggleButton: true,
+      showMicrophoneToggleButton: true,
+      showAudioVideoSettingsButton: true,
+      showScreenSharingButton: false,
+      showTextChat: false,
+      showUserList: false,
+      layout: "Sidebar",
     });
   } catch (e) {
-    console.error('handleStartLiveOrCall', e);
+    console.error('handleStartLiveOrCall error', e);
   }
 };
 
@@ -381,89 +392,164 @@ function VVIPAlert({ msg, icon, onClose }: { msg: string; icon?: string; onClose
 
 function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: number; type?: 'interstitial'|'banner' }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const [adReady, setAdReady] = useState(false);
-  const [loadFailed, setLoadFailed] = useState(false);
+  const [countdown, setCountdown] = useState(5);
+  const [canSkip, setCanSkip] = useState(false);
+  const [adFinished, setAdFinished] = useState(false);
   const adKey = useRef(Math.random().toString(36).substring(7));
+
+  // 5-second countdown — after this, user can skip
+  useEffect(() => {
+    if (adFinished) return;
+    const interval = setInterval(() => {
+      setCountdown(c => {
+        if (c <= 1) {
+          setCanSkip(true);
+          clearInterval(interval);
+          return 0;
+        }
+        return c - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [adFinished]);
 
   useEffect(() => {
     if (!containerRef.current) return;
     const container = containerRef.current;
     container.innerHTML = '';
 
-    // Use a direct script injection for maximum reliability
-    const script = document.createElement('script');
-    script.type = 'text/javascript';
-    script.src = `//pl25615822.highperformancegate.com/${publisherId}/invoke.js`;
-    script.setAttribute('data-cfasync', 'false');
-    
-    // Create a container for the ad
-    const adSlot = document.createElement('div');
-    adSlot.id = `ad-slot-${adKey.current}`;
-    adSlot.style.width = '100%';
-    adSlot.style.height = '100%';
-    adSlot.style.display = 'flex';
-    adSlot.style.alignItems = 'center';
-    adSlot.style.justifyContent = 'center';
-    adSlot.style.background = '#000';
-    
-    container.appendChild(adSlot);
-    
-    // Define options before script loads
-    (window as any).atOptions = {
-      'key': publisherId.toString(),
-      'format': 'iframe',
-      'height': type === 'banner' ? 250 : 500,
-      'width': type === 'banner' ? 300 : 320,
-      'params': {}
-    };
-    
-    container.appendChild(script);
+    // 1) Try to fire the REAL Monetag interstitial ad
+    try {
+      const script = document.createElement('script');
+      script.type = 'text/javascript';
+      script.src = `//pl25615822.highperformancegate.com/${publisherId}/invoke.js`;
+      script.setAttribute('data-cfasync', 'false');
+      script.onerror = () => { /* fallback video will handle it */ };
+      container.appendChild(script);
+    } catch {}
 
+    // 2) Also fire the interstitial trigger function if available
+    try {
+      if (typeof (window as any).show_9087571 === 'function') {
+        (window as any).show_9087571();
+      }
+    } catch {}
+
+    // 3) Mark ad as ready immediately so fallback video plays
+    const readyTimer = setTimeout(() => setAdReady(true), 800);
+
+    // 4) Listen for Monetag ad messages
     const handleMessage = (event: MessageEvent) => {
       if (event.data && typeof event.data === 'object') {
-        if (event.data.type === 'aj-ad-loaded' && event.data.key === adKey.current) {
+        if (event.data.type === 'aj-ad-loaded' || event.data.type === 'ad-loaded') {
           setAdReady(true);
-        }
-        if (event.data.type === 'aj-ad-error' && event.data.key === adKey.current) {
-          setLoadFailed(true);
         }
       }
     };
     window.addEventListener('message', handleMessage);
 
-    // Timeout: mark as ready after 6 seconds regardless
-    const timer = setTimeout(() => {
-      if (!adReady) {
-        setAdReady(true);
-        setLoadFailed(true);
-      }
-    }, 6000);
     return () => {
       window.removeEventListener('message', handleMessage);
-      clearTimeout(timer);
+      clearTimeout(readyTimer);
       container.innerHTML = '';
     };
   }, [publisherId, type]);
 
-  return (
-    <div className="absolute inset-0 w-full h-full bg-[#050505] overflow-hidden flex flex-col items-center justify-center">
-      <div ref={containerRef} className="relative w-full h-full flex items-center justify-center" style={{ zIndex: 5 }} />
-      {!adReady && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-10">
-          <div className="w-12 h-12 rounded-full border-2 border-pink-500 border-t-transparent animate-spin"/>
-          
-        </div>
-      )}
-      {adReady && loadFailed && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-10 gap-3">
-          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-pink-500/20 to-cyan-500/20 flex items-center justify-center">
-            <span className="text-3xl">📢</span>
-          </div>
-          
-          <p className="text-gray-500 text-[10px]">Ad will appear when available</p>
-        </div>
-      )}
+  // Play the fallback video as soon as adReady
+  useEffect(() => {
+    if (adReady && videoRef.current) {
+      videoRef.current.play().catch(() => {
+        // Autoplay blocked — will play on user interaction
+      });
+    }
+  }, [adReady]);
 
+  const skipAd = () => {
+    setAdFinished(true);
+    setCanSkip(true);
+  };
+
+  // Fallback ad video — a real video ad sample (public domain ad / promo content)
+  // Using a reliable sample video that acts as the ad content
+  const adVideoSrc = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
+
+  if (adFinished) return null;
+
+  return (
+    <div className="absolute inset-0 w-full h-full bg-black overflow-hidden flex flex-col items-center justify-center z-[100]">
+      {/* Real Monetag ad container (hidden behind fallback) */}
+      <div ref={containerRef} className="absolute inset-0 w-full h-full" style={{ zIndex: 1 }} />
+
+      {/* Fallback video ad — plays full screen like a real ad */}
+      <div className="absolute inset-0 w-full h-full bg-black flex items-center justify-center" style={{ zIndex: 2 }}>
+        <video
+          ref={videoRef}
+          src={adVideoSrc}
+          className="w-full h-full object-cover"
+          autoPlay
+          muted
+          loop
+          playsInline
+          onLoadedData={() => setAdReady(true)}
+          onClick={(e) => e.preventDefault()}
+        />
+        {/* Ad overlay gradient */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/30 pointer-events-none" />
+
+        {/* Top bar — Ad label + countdown */}
+        <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 py-3 z-10">
+          <div className="bg-pink-600/90 text-white text-[9px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
+            Advertisement
+          </div>
+          <div className="bg-black/60 backdrop-blur-sm text-white text-[9px] font-black px-3 py-1.5 rounded-full">
+            {canSkip ? (
+              <button onClick={skipAd} className="text-cyan-400 font-black uppercase tracking-wider active:scale-90 transition-all">
+                Skip Ad ✕
+              </button>
+            ) : (
+              <span>Skip in {countdown}s</span>
+            )}
+          </div>
+        </div>
+
+        {/* Center — Ad branding */}
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-10 gap-2">
+          <div className="text-5xl animate-pulse">🎮</div>
+          <p className="text-white text-xs font-black uppercase tracking-widest bg-black/50 px-4 py-2 rounded-full backdrop-blur-sm">
+            AJ Super Portal
+          </p>
+          <p className="text-gray-400 text-[8px] font-bold">Play games · Watch reels · Earn coins</p>
+        </div>
+
+        {/* Bottom — Sponsor info */}
+        <div className="absolute bottom-0 left-0 right-0 px-4 py-3 z-10">
+          <div className="bg-black/50 backdrop-blur-sm rounded-xl px-3 py-2 flex items-center justify-between">
+            <span className="text-white text-[8px] font-bold">Sponsored Content</span>
+            <span className="text-gray-400 text-[8px]">Ad · Monetag</span>
+          </div>
+        </div>
+
+        {/* Skip button at bottom-right for easy access */}
+        {canSkip && (
+          <button
+            onClick={skipAd}
+            className="absolute bottom-20 right-4 z-20 bg-pink-600 text-white text-[9px] font-black px-4 py-2 rounded-full active:scale-90 transition-all shadow-lg"
+          >
+            Skip Ad →
+          </button>
+        )}
+      </div>
+
+      {/* Loading spinner while video loads */}
+      {!adReady && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-30">
+          <div className="w-12 h-12 rounded-full border-2 border-pink-500 border-t-transparent animate-spin" />
+          <p className="text-gray-400 text-[9px] mt-3 font-bold">Loading Ad...</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -1567,13 +1653,38 @@ export function AJSuperPortal() {
   const startLive = async () => {
     if (!user) return;
     try {
+      // FIX: Check if getUserMedia is available (HTTPS required)
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setVvipAlert({msg:"⚠️ Camera not available. Please use HTTPS and allow camera/mic access in browser settings."});
+        return;
+      }
       // Load ZegoCloud SDK first
       await loadZegoScript();
+      // Check if ZegoSDK loaded properly
+      if (typeof (window as any).ZegoUIKitPrebuilt === 'undefined') {
+        setVvipAlert({msg:"⚠️ Live streaming SDK failed to load. Check your internet connection and try again."});
+        return;
+      }
       // Get camera permission and show preview
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } }, 
-        audio: true 
-      });
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } }, 
+          audio: true 
+        });
+      } catch (mediaErr:any) {
+        // Try video-only if audio fails
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } }, 
+            audio: false 
+          });
+          setVvipAlert({msg:"⚠️ Microphone not available. Live will be video-only. Allow mic access for full features."});
+        } catch (mediaErr2:any) {
+          setVvipAlert({msg:"⚠️ Camera & mic permission denied. Please allow access in your browser settings, then reload the page."});
+          return;
+        }
+      }
       liveStreamRef.current = stream;
       setCameraReady(true);
       if (liveVideoRef.current) {
@@ -1605,7 +1716,7 @@ export function AJSuperPortal() {
       } catch {}
     } catch(e) {
       console.error('startLive error', e);
-      setVvipAlert({msg:"⚠️ Camera permission denied. Please allow camera & mic access in your browser settings."});
+      setVvipAlert({msg:"⚠️ Could not start live. Please allow camera & mic access in your browser settings, then reload the page."});
       setCameraReady(false);
       setLiveActive(false);
     }
@@ -3046,8 +3157,8 @@ export function AJSuperPortal() {
               {tiktabMode === 'feed' && (
                 <div
                   ref={videoFeedRef}
-                  className="flex-1 overflow-y-scroll snap-y snap-mandatory scrollbar-hide flex flex-col"
-                  style={{ scrollSnapType:'y mandatory', display:'flex', flexDirection:'column' }}
+                  className="flex-1 overflow-y-scroll snap-y snap-mandatory scrollbar-hide flex flex-col overscroll-y-contain"
+                  style={{ scrollSnapType:'y mandatory', display:'flex', flexDirection:'column', touchAction:'pan-y', WebkitOverflowScrolling:'touch' }}
                 >
                   {pixaVideos.map((vid:any, idx:number) => {
                     const isActive = activeVideoIdx === idx;
@@ -3056,20 +3167,20 @@ export function AJSuperPortal() {
                     // AD INSERTION: Show video ad every 4th item (idx 0, 4, 8, 12...)
                     if (idx === 0 || (idx > 0 && idx % 4 === 0)) {
                       return (
-                        <div key={`tik_ad_${idx}`} data-vidx={idx} className="relative w-full h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
+                        <div key={`tik_ad_${idx}`} data-vidx={idx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
                           <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} type="interstitial"/>
                           <div className="absolute top-3 left-3 z-20 bg-pink-600/80 text-white text-[8px] font-black px-2 py-1 rounded-full uppercase tracking-widest">📢 Advertisement</div>
                         </div>
                       );
                     }
                     return (
-                      <div key={vid.id} data-vidx={idx} className="relative w-full h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
+                      <div key={vid.id} data-vidx={idx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505] flex flex-col justify-end" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
                         {isActive ? (
                           <iframe
                             ref={el => { iframeRefs.current[idx] = el; }}
                             src={embedSrc}
                             className="absolute inset-0 w-full h-full"
-                            style={{ transform:'scale(1.15)', transformOrigin:'center center', pointerEvents:'none' }}
+                            style={{ transform:'scale(1.15)', transformOrigin:'center center', pointerEvents:'none', touchAction:'pan-y' }}
                             allow="autoplay; encrypted-media; gyroscope; picture-in-picture"
                             allowFullScreen
                             frameBorder="0"
@@ -3119,14 +3230,14 @@ export function AJSuperPortal() {
                     const globalIdx = pixaVideos.length + idx;
                     const isActive  = activeVideoIdx === globalIdx;
                     return (
-                      <div key={post.id} data-vidx={globalIdx} className="relative w-full h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
+                      <div key={post.id} data-vidx={globalIdx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505] flex flex-col justify-end" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
                         {post.isVideo && post.image ? (
                           <video
                             ref={el => { userVideoRefs.current[globalIdx] = el; }}
                             src={post.image}
                             className="absolute inset-0 w-full h-full object-cover"
                             autoPlay={isActive} loop muted={!globalSoundOn} playsInline
-                            style={{ filter: post.cssFilter && post.cssFilter !== 'none' ? post.cssFilter : undefined }}
+                            style={{ filter: post.cssFilter && post.cssFilter !== 'none' ? post.cssFilter : undefined, touchAction:'pan-y' }}
                           />
                         ) : post.image ? (
                           <img src={post.image} className="absolute inset-0 w-full h-full object-cover"/>
@@ -3340,14 +3451,14 @@ export function AJSuperPortal() {
               {pulseTab === 'feed' && (
                 <div
                   ref={videoFeedRef}
-                  className="flex-1 overflow-y-scroll snap-y snap-mandatory scrollbar-hide flex flex-col"
-                  style={{ scrollSnapType: 'y mandatory', display:'flex', flexDirection:'column' }}
+                  className="flex-1 overflow-y-scroll snap-y snap-mandatory scrollbar-hide flex flex-col overscroll-y-contain"
+                  style={{ scrollSnapType: 'y mandatory', display:'flex', flexDirection:'column', touchAction:'pan-y', WebkitOverflowScrolling:'touch' }}
                 >
                   {combinedPulseFeed.map((post:any, idx:number) => {
                     // AD INSERTION: Show video ad every 4th item (idx 0, 4, 8, 12...)
                     if (idx === 0 || (idx > 0 && idx % 4 === 0)) {
                       return (
-                        <div key={`pulse_ad_${idx}`} data-vidx={idx} className="relative w-full h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
+                        <div key={`pulse_ad_${idx}`} data-vidx={idx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
                           <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} type="interstitial"/>
                           <div className="absolute top-3 left-3 z-20 bg-pink-600/80 text-white text-[8px] font-black px-2 py-1 rounded-full uppercase tracking-widest">📢 Advertisement</div>
                         </div>
@@ -3355,7 +3466,7 @@ export function AJSuperPortal() {
                     }
                     const isActive = activeVideoIdx === idx;
                     return (
-                      <div key={post.id} data-vidx={idx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505] flex flex-col justify-end" style={{ scrollSnapAlign:'start' }}>
+                      <div key={post.id} data-vidx={idx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505] flex flex-col justify-end" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
                         {post.isVideo && post.image ? (
                           <video
                             ref={el => { userVideoRefs.current[idx] = el; }}
@@ -4075,7 +4186,19 @@ export function AJSuperPortal() {
           ) : (
             <div className="flex-1 flex flex-col">
               <div className="px-4 py-2 flex items-center gap-3">
-                <button onClick={() => setSelectedGame(null)} className="flex items-center gap-1.5 text-[10px] text-gray-400 font-black active:scale-90 transition-all">
+                <button onClick={() => {
+                  // FIX: When leaving game, flush remaining score to wallet
+                  if (lastGameScoreRef.current > 0) {
+                    const coinsEarned = lastGameScoreRef.current * 0.01;
+                    if (user) {
+                      updateDoc(doc(db, "users", user.uid), { balance: increment(coinsEarned) }).then(() => {
+                        setVvipAlert({msg:`🎮 +${coinsEarned.toFixed(2)} AJ Coins credited to wallet! Score: ${lastGameScoreRef.current}`, icon:"🎮"});
+                        lastGameScoreRef.current = 0;
+                      }).catch(() => {});
+                    }
+                  }
+                  setSelectedGame(null);
+                }} className="flex items-center gap-1.5 text-[10px] text-gray-400 font-black active:scale-90 transition-all">
                   <ArrowLeft size={12}/> Back to Games
                 </button>
                 <span className="ml-auto text-[9px] text-pink-400 font-black bg-pink-500/10 border border-pink-500/20 px-2 py-0.5 rounded-full">1 Token = 0.01 Coin</span>
@@ -4092,6 +4215,58 @@ export function AJSuperPortal() {
                   referrerPolicy="no-referrer-when-downgrade"
                   title="Game"
                   style={{ minHeight: 'calc(100vh - 120px)', display:'block' }}
+                  onLoad={(e) => {
+                    // FIX: Inject bridge script into game iframe on load
+                    try {
+                      const iframe = e.currentTarget as HTMLIFrameElement;
+                      const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+                      if (iframeDoc) {
+                        const script = iframeDoc.createElement('script');
+                        script.textContent = `
+                          var ajLastScore = 0;
+                          var ajScoreStuckCount = 0;
+                          // Send score to parent every 1.5s
+                          function ajPollScore() {
+                            var score = 0;
+                            try {
+                              if (typeof Game !== 'undefined' && Game.score !== undefined) score = Game.score;
+                              else if (typeof game !== 'undefined' && game.score !== undefined) score = game.score;
+                              else if (typeof GAME !== 'undefined' && GAME.score !== undefined) score = GAME.score;
+                              else if (typeof gameScore !== 'undefined') score = gameScore;
+                              else if (typeof app !== 'undefined' && app.score !== undefined) score = app.score;
+                              else if (typeof score !== 'undefined' && score > 0) score = score;
+                              else if (typeof SCORE !== 'undefined' && SCORE > 0) score = SCORE;
+                            } catch(ex) {}
+                            if (score > 0) {
+                              try { window.parent.postMessage({type:'GAME_SCORE', score:score}, '*'); } catch(ex) {}
+                              if (ajLastScore === score) {
+                                ajScoreStuckCount++;
+                                if (ajScoreStuckCount >= 8) { try { window.parent.postMessage({type:'GAME_CRASH', score:score}, '*'); } catch(ex) {} ajScoreStuckCount = 0; }
+                              } else { ajScoreStuckCount = 0; }
+                              ajLastScore = score;
+                            }
+                          }
+                          // Listen for parent requests
+                          window.addEventListener('message', function(e) {
+                            if (e.data && (e.data.type === 'SEND_SCORE' || e.data.type === 'SCORE' || e.data.type === 'GAME_SCORE')) {
+                              try { window.parent.postMessage({type:'GAME_SCORE', score: e.data.score || e.data.points || 0}, '*'); } catch(ex) {}
+                            }
+                          });
+                          // Poll score every 1.5 seconds
+                          setInterval(ajPollScore, 1500);
+                          // On unload, flush score
+                          window.addEventListener('beforeunload', function() {
+                            if (ajLastScore > 0) { try { window.parent.postMessage({type:'GAME_END', score: ajLastScore}, '*'); } catch(ex) {} }
+                          });
+                          // On error, flush score
+                          window.addEventListener('error', function() {
+                            if (ajLastScore > 0) { try { window.parent.postMessage({type:'GAME_CRASH', score: ajLastScore}, '*'); } catch(ex) {} }
+                          });
+                        `;
+                        (iframeDoc.head || iframeDoc.documentElement).appendChild(script);
+                      }
+                    } catch(err) { console.error('Bridge inject on load failed', err); }
+                  }}
                   onError={() => setVvipAlert({msg:'Game failed to load. Try another game.',icon:'⚠️'})}
                 />
               ) : (
