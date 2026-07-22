@@ -381,6 +381,8 @@ function VVIPAlert({ msg, icon, onClose }: { msg: string; icon?: string; onClose
 
 function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: number; type?: 'interstitial'|'banner' }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [adReady, setAdReady] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const adKey = useRef(Math.random().toString(36).substring(7));
 
   useEffect(() => {
@@ -416,10 +418,6 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
     };
     
     container.appendChild(script);
-    
-    return () => {
-      container.innerHTML = '';
-    };
 
     const handleMessage = (event: MessageEvent) => {
       if (event.data && typeof event.data === 'object') {
@@ -443,7 +441,7 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
     return () => {
       window.removeEventListener('message', handleMessage);
       clearTimeout(timer);
-      if (container.firstChild) container.removeChild(container.firstChild);
+      container.innerHTML = '';
     };
   }, [publisherId, type]);
 
@@ -746,7 +744,7 @@ export function AJSuperPortal() {
 
   // ── SCREENS
   const [screen,       setScreen]       = useState('splash');
-  const [walletTab,    setWalletTab]    = useState('main');
+  const [walletTab,   setWalletTab]    = useState('main');
   const [socialScreen, setSocialScreen] = useState('hub');
   const [selectedGame, setSelectedGame] = useState<string|null>(null);
 
@@ -1246,6 +1244,7 @@ export function AJSuperPortal() {
           lastGameScoreRef.current = rawScore;
           const coinsToCredit = diff * 0.01;
           try {
+            // FIX: Game coins are credited to user's main balance (Hub wallet)
             await updateDoc(doc(db, "users", user.uid), { balance: increment(coinsToCredit) });
             setVvipAlert({msg:`🎮 +${coinsEarned.toFixed(2)} AJ Coins earned! Game score: ${rawScore}`, icon:"🎮"});
             try {
@@ -1376,7 +1375,9 @@ export function AJSuperPortal() {
               window.addEventListener('beforeunload', function() {
                 if (lastScoreCheck && lastScoreCheck > 0) {
                   try {
-                    window.parent.postMessage({type: 'GAME_END', score: lastScoreCheck}, '*');
+                    if (window.parent && window.parent !== window) {
+                      window.parent.postMessage({type: 'GAME_END', score: lastScoreCheck}, '*');
+                    }
                   } catch(ex) {}
                 }
               });
@@ -2239,8 +2240,8 @@ export function AJSuperPortal() {
       await addDoc(collection(db, col, commentPostId, "comments"), commentData);
       // Also increment commentCount on the post
       try {
-        const col = pulsePosts.find(p => p.id === commentPostId) ? "pulse_posts" : "user_posts";
-        await updateDoc(doc(db, col, commentPostId), { commentCount: increment(1) });
+        const col2 = pulsePosts.find(p => p.id === commentPostId) ? "pulse_posts" : "user_posts";
+        await updateDoc(doc(db, col2, commentPostId), { commentCount: increment(1) });
       } catch {}
       setNewComment('');
       setVvipAlert({msg:`💬 Comment posted!`,icon:'💬'});
@@ -2264,24 +2265,61 @@ export function AJSuperPortal() {
     } catch(e) { console.error('handleDeletePost', e); }
   };
 
-  const handleLike  = async (id:string, isVideo:boolean = false) => {
-    setLikedPosts((p:any) => ({...p,[id]:!p[id]}));
+  // ============================================================
+  // ONE LIKE PER PERSON — Firestore based (each user can like a post only once)
+  // Uses {postId}/likes/{uid} subcollection to track who liked
+  // ============================================================
+  const handleLike = async (id:string, isVideo:boolean = false) => {
+    if (!user) return;
     const col = isVideo ? 'user_posts' : 'pulse_posts';
+    const likeRef = doc(db, col, id, 'likes', user.uid);
     try {
+      const likeSnap = await getDoc(likeRef);
       const postRef = doc(db, col, id);
       const postSnap = await getDoc(postRef);
-      if (postSnap.exists()) {
-        const data = postSnap.data();
-        const currentLikes = data.likes || 0;
-        const currentlyLiked = likedPosts[id] || false;
-        if (!currentlyLiked) {
-          await updateDoc(postRef, { likes: currentLikes + 1 });
-        } else {
-          await updateDoc(postRef, { likes: Math.max(0, currentLikes - 1) });
-        }
+      if (!postSnap.exists()) return;
+      const currentLikes = postSnap.data()?.likes || 0;
+      if (likeSnap.exists()) {
+        // User already liked — REMOVE the like (toggle off)
+        await deleteDoc(likeRef);
+        await updateDoc(postRef, { likes: Math.max(0, currentLikes - 1) });
+        setLikedPosts((p:any) => ({...p,[id]:false}));
+      } else {
+        // User hasn't liked yet — ADD the like (one like per person)
+        await setDoc(likeRef, { uid: user.uid, date: serverTimestamp() });
+        await updateDoc(postRef, { likes: currentLikes + 1 });
+        setLikedPosts((p:any) => ({...p,[id]:true}));
       }
     } catch(e) { console.error('handleLike firestore', e); }
   };
+
+  // Load like status for the current user on mount and when posts change
+  const likedStatusLoadedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!user) return;
+    const loadLikedStatus = async () => {
+      // Check TikReels user_posts
+      for (const post of userPosts) {
+        if (likedStatusLoadedRef.current.has(post.id)) continue;
+        likedStatusLoadedRef.current.add(post.id);
+        try {
+          const snap = await getDoc(doc(db, 'user_posts', post.id, 'likes', user.uid));
+          if (snap.exists()) setLikedPosts((p:any) => ({...p,[post.id]:true}));
+        } catch {}
+      }
+      // Check Pulse posts
+      for (const post of pulsePosts) {
+        if (likedStatusLoadedRef.current.has(post.id)) continue;
+        likedStatusLoadedRef.current.add(post.id);
+        try {
+          const snap = await getDoc(doc(db, 'pulse_posts', post.id, 'likes', user.uid));
+          if (snap.exists()) setLikedPosts((p:any) => ({...p,[post.id]:true}));
+        } catch {}
+      }
+    };
+    loadLikedStatus();
+  }, [user, userPosts, pulsePosts]);
+
   const handleShare = async (msg:string) => {
     const shareData = {
       title: 'AJ Super Portal',
@@ -2933,8 +2971,7 @@ export function AJSuperPortal() {
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-                {[
-                  { icon: '🎬', label: 'AJ TikReels', sub: 'Short Videos', action: () => { setSocialScreen('tikreels'); setTiktabMode('feed'); } },
+                {[ { icon: '🎬', label: 'AJ TikReels', sub: 'Short Videos', action: () => { setSocialScreen('tikreels'); setTiktabMode('feed'); } },
                   { icon: '🎬', label: 'AJ Pulse', sub: 'Social features', action: () => { setSocialScreen('pulse'); setPulseTab('feed'); } },
                   { icon: '🎬', label: 'AJ WeChat', sub: 'Social features', action: () => { setSocialScreen('wechat'); } },
                   { icon: 'G', label: 'Go Live', sub: 'Social features', action: () => { setSocialScreen('golive'); } },
@@ -3016,10 +3053,12 @@ export function AJSuperPortal() {
                     const isActive = activeVideoIdx === idx;
                     // FIX #6: mute=0 when globalSoundOn, else mute=1; audio kill on scroll
                     const embedSrc = `https://www.youtube.com/embed/${vid.id}?autoplay=${isActive?1:0}&mute=${(isActive && globalSoundOn)?0:1}&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3`;
+                    // AD INSERTION: Show video ad every 4th item (idx 0, 4, 8, 12...)
                     if (idx === 0 || (idx > 0 && idx % 4 === 0)) {
                       return (
                         <div key={`tik_ad_${idx}`} data-vidx={idx} className="relative w-full h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
                           <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} type="interstitial"/>
+                          <div className="absolute top-3 left-3 z-20 bg-pink-600/80 text-white text-[8px] font-black px-2 py-1 rounded-full uppercase tracking-widest">📢 Advertisement</div>
                         </div>
                       );
                     }
@@ -3048,19 +3087,19 @@ export function AJSuperPortal() {
                         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none"/>
                         {/* Right actions */}
                         <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-20">
-                          <button onClick={e => { e.stopPropagation(); handleLike(vid.id, true); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); handleLike(vid.id, true); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center ${likedPosts[vid.id] ? 'bg-red-500/30' : 'bg-black/40 backdrop-blur-sm'}`}>
                               <Heart size={18} className={likedPosts[vid.id] ? 'text-red-400 fill-red-400' : 'text-white'}/>
                             </div>
                             <span className="text-white text-[9px] font-black">{formatViews((likedPosts[vid.id] ? (vid.likes||0) + 1 : vid.likes||0))}</span>
                           </button>
-                          <button onClick={e => { e.stopPropagation(); setCommentPostId(vid.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(vid.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <MessageSquare size={18} className="text-white"/>
                             </div>
                             <span className="text-white text-[9px] font-black">{formatViews(vid.views||0)}</span>
                           </button>
-                          <button onClick={e => { e.stopPropagation(); handleShare(vid.title||''); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); handleShare(vid.title||''); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <Share2 size={18} className="text-white"/>
                             </div>
@@ -3101,26 +3140,26 @@ export function AJSuperPortal() {
                         )}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none"/>
                         <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-20">
-                          <button onClick={e => { e.stopPropagation(); handleLike(post.id, post.isVideo); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); handleLike(post.id, post.isVideo); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center ${likedPosts[post.id] ? 'bg-red-500/30' : 'bg-black/40 backdrop-blur-sm'}`}>
                               <Heart size={18} className={likedPosts[post.id] ? 'text-red-400 fill-red-400' : 'text-white'}/>
                             </div>
                             <span className="text-white text-[9px] font-black">{(likedPosts[post.id] ? (post.likes||0) + 1 : post.likes||0)}</span>
                           </button>
-                          <button onClick={e => { e.stopPropagation(); setCommentPostId(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <MessageSquare size={18} className="text-white"/>
                             </div>
                             <span className="text-white text-[9px] font-black">{formatViews(post.commentCount||0)}</span>
                           </button>
-                          <button onClick={e => { e.stopPropagation(); handleShare(post.text||''); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); handleShare(post.text||''); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <Share2 size={18} className="text-white"/>
                             </div>
                             <span className="text-white text-[9px] font-black">Share</span>
                           </button>
                           {post.uid === user?.uid && (
-                            <button onClick={e => { e.stopPropagation(); handleDeletePost(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <button onClick={e => { e.stopPropagation(); e.preventDefault(); handleDeletePost(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                               <div className="w-10 h-10 rounded-full bg-red-500/30 backdrop-blur-sm flex items-center justify-center">
                                 <Trash2 size={18} className="text-red-400"/>
                               </div>
@@ -3305,10 +3344,12 @@ export function AJSuperPortal() {
                   style={{ scrollSnapType: 'y mandatory', display:'flex', flexDirection:'column' }}
                 >
                   {combinedPulseFeed.map((post:any, idx:number) => {
+                    // AD INSERTION: Show video ad every 4th item (idx 0, 4, 8, 12...)
                     if (idx === 0 || (idx > 0 && idx % 4 === 0)) {
                       return (
                         <div key={`pulse_ad_${idx}`} data-vidx={idx} className="relative w-full h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
                           <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} type="interstitial"/>
+                          <div className="absolute top-3 left-3 z-20 bg-pink-600/80 text-white text-[8px] font-black px-2 py-1 rounded-full uppercase tracking-widest">📢 Advertisement</div>
                         </div>
                       );
                     }
@@ -3332,25 +3373,25 @@ export function AJSuperPortal() {
                         {/* Right actions — hide for Unsplash items */}
                         {!post.isUnsplash && (
                           <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-20">
-                            <button onClick={e => { e.stopPropagation(); handleLike(post.id, post.isVideo); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <button onClick={e => { e.stopPropagation(); e.preventDefault(); handleLike(post.id, post.isVideo); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                               <div className={`w-10 h-10 rounded-full flex items-center justify-center ${likedPosts[post.id] ? 'bg-red-500/30' : 'bg-black/40 backdrop-blur-sm'}`}>
                                 <Heart size={18} className={likedPosts[post.id] ? 'text-red-400 fill-red-400' : 'text-white'}/>
                               </div>
                               <span className="text-white text-[9px] font-black">{(likedPosts[post.id] ? (post.likes||0) + 1 : post.likes||0)}</span>
                             </button>
-                            <button onClick={e => { e.stopPropagation(); setCommentPostId(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                               <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                                 <MessageSquare size={18} className="text-white"/>
                               </div>
                               <span className="text-white text-[9px] font-black">{formatViews(post.views||0)}</span>
                             </button>
-                            <button onClick={e => { e.stopPropagation(); handleShare(post.text||''); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <button onClick={e => { e.stopPropagation(); e.preventDefault(); handleShare(post.text||''); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                               <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                                 <Share2 size={18} className="text-white"/>
                               </div>
                               <span className="text-white text-[9px] font-black">Share</span>
                             </button>
-                            <button onClick={e => { e.stopPropagation(); setPulseGiftPostId(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <button onClick={e => { e.stopPropagation(); e.preventDefault(); setPulseGiftPostId(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                               <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                                 <Gift size={18} className="text-white"/>
                               </div>
@@ -3940,7 +3981,7 @@ export function AJSuperPortal() {
 
               {/* Shared Comment Sheet — works for TikReels AND Pulse */}
               {commentPostId && (
-                <div className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end">
+                <div className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end" onClick={(e) => { if (e.target === e.currentTarget) { setCommentPostId(null); setPostComments([]); } }}>
                   <div className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl p-6 max-h-[70vh] flex flex-col">
                     <div className="flex items-center justify-between mb-4">
                       <p className="text-sm font-black text-white">💬 Comments</p>
@@ -3959,7 +4000,18 @@ export function AJSuperPortal() {
                       ))}
                     </div>
                     <div className="flex gap-2">
-                      <input autoFocus value={newComment} onChange={e => setNewComment(e.target.value)} placeholder="Add a comment…" className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-3 py-2 text-white text-xs focus:outline-none focus:border-pink-500/50" onKeyDown={e => e.key==='Enter' && submitComment()}/>
+                      {/* FIX: Comment input — removed autoFocus (was causing keyboard issues on mobile), added inputMode="text" and proper focus handling */}
+                      <input
+                        value={newComment}
+                        onChange={e => setNewComment(e.target.value)}
+                        placeholder="Add a comment…"
+                        inputMode="text"
+                        autoCapitalize="sentences"
+                        className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-3 py-2 text-white text-xs focus:outline-none focus:border-pink-500/50"
+                        style={{ touchAction: 'manipulation' }}
+                        onKeyDown={e => e.key==='Enter' && submitComment()}
+                        ref={(el) => { if (el) { setTimeout(() => { el.focus(); el.click(); }, 100); } }}
+                      />
                       <button onClick={submitComment} className="w-10 h-10 bg-pink-600 rounded-2xl flex items-center justify-center active:scale-90 transition-all shadow-[0_0_12px_rgba(236,72,153,0.4)]">
                         <Send size={14} className="text-white"/>
                       </button>
@@ -3995,8 +4047,7 @@ export function AJSuperPortal() {
           {!selectedGame ? (
             <div className="px-4 py-4 space-y-3">
               {/* Video Ad — Games Screen */}
-              {[
-                { id:'rider',    name:'Rider King',       emoji:'🏍️', desc:'Dodge obstacles, earn coins', url:'/games/rider-king/index.html' },
+              {[ { id:'rider',    name:'Rider King',       emoji:'🏍️', desc:'Dodge obstacles, earn coins', url:'/games/rider-king/index.html' },
                 { id:'racer',    name:'Pulse Racer',      emoji:'🏎️', desc:'Speed racing challenge',      url:'/games/pulse-racer/index.html' },
                 { id:'subsea',   name:'Subsea Surge',     emoji:'🐠', desc:'Underwater adventure',        url:'/games/subsea-surge/index.html' },
                 { id:'neon',     name:'Neon Strike',      emoji:'⚡', desc:'Neon arcade action',          url:'/games/neon-strike/index.html' },
@@ -4099,8 +4150,7 @@ export function AJSuperPortal() {
             </div>
 
             {/* Bot Plans — FIX #7: card click triggers interstitial */}
-            {[
-              { tier:'basic', label:'Basic Bot', cost:1000, rate:'2% daily', icon:'🤖', color:'from-blue-600 to-cyan-600' },
+            {[ { tier:'basic', label:'Basic Bot', cost:1000, rate:'2% daily', icon:'🤖', color:'from-blue-600 to-cyan-600' },
               { tier:'vvip',  label:'VVIP Bot',  cost:5000, rate:'5% daily', icon:'🚀', color:'from-pink-600 to-purple-600' },
             ].map(plan => (
               <button
@@ -4173,7 +4223,7 @@ export function AJSuperPortal() {
           {/* Wallet Tab Bar */}
           <div className="flex border-b border-white/5">
             {(['main','purchase','withdraw','transfer','referral'] as const).map(tab => (
-              <button key={tab} onClick={() => { setScreen('wallet'); setWalletTab('main'); }} className={`flex-1 py-2.5 text-[9px] font-black uppercase tracking-widest transition-all ${walletTab===tab ? 'text-pink-400 border-b-2 border-pink-500' : 'text-gray-500'}`}>
+              <button key={tab} onClick={() => { setWalletTab(tab); }} className={`flex-1 py-2.5 text-[9px] font-black uppercase tracking-widest transition-all ${walletTab===tab ? 'text-pink-400 border-b-2 border-pink-500' : 'text-gray-500'}`}>
                 {tab==='main'?'💰':tab==='purchase'?'🛒':tab==='withdraw'?'💸':tab==='transfer'?'↔️':'👥'}
               </button>
             ))}
@@ -4203,11 +4253,10 @@ export function AJSuperPortal() {
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  {[
-                    { icon:'🛒', label:'Buy Coins',   action:() => { wallet } },
-                    { icon:'💸', label:'Withdraw',    action:() => { wallet } },
-                    { icon:'↔️', label:'Transfer',    action:() => { wallet } },
-                    { icon:'👥', label:'Refer & Earn',action:() => { wallet } },
+                  {[ { icon:'🛒', label:'Buy Coins',   action:() => setWalletTab('purchase') },
+                    { icon:'💸', label:'Withdraw',    action:() => setWalletTab('withdraw') },
+                    { icon:'↔️', label:'Transfer',    action:() => setWalletTab('transfer') },
+                    { icon:'👥', label:'Refer & Earn',action:() => setWalletTab('referral') },
                   ].map(item => (
                     <button key={item.label} onClick={item.action} className="flex flex-col items-center gap-2 bg-white/5 border border-white/10 rounded-2xl py-4 active:scale-95 transition-all hover:border-pink-500/30">
                       <span className="text-2xl">{item.icon}</span>
