@@ -88,7 +88,7 @@ const MONETAG_PULSE_BANNER     = 11337197;
 const MONETAG_INTERSTITIAL     = 11349676;
 const PULSE_AD_VIDEO_ID        = 'aqz-KE-bpKQ';
 const NOWPAYMENTS_IPN_SECRET   = '9eeeBo6K1ljJSQtUCb1Up88Gv6n1AreU';
-const MONETAG_WECHAT_SPONSOR   = 11337185;
+
 
 // ============================================================
 // ECONOMY RATES
@@ -217,10 +217,11 @@ const giftItems = [
 ];
 
 const WITHDRAW_METHODS = [
-  { label: 'EasyPaisa',          field: 'Mobile Number',    placeholder: '03XX-XXXXXXX',             type:'simple' },
-  { label: 'JazzCash',           field: 'Mobile Number',    placeholder: '03XX-XXXXXXX',             type:'simple' },
-  { label: 'Binance (USDT BSC)', field: 'USDT BSC Address', placeholder: '0x... BSC wallet address', type:'simple' },
-  { label: 'AirTM',              field: 'AirTM Email',      placeholder: 'your@email.com',           type:'simple' },
+  { label: 'EasyPaisa',          field: 'Mobile Number & Name',    placeholder: '03XX-XXXXXXX | Account Holder Name', type:'simple' },
+  { label: 'JazzCash',           field: 'Mobile Number & Name',    placeholder: '03XX-XXXXXXX | Account Holder Name', type:'simple' },
+  { label: 'Bank Transfer',      field: 'IBAN & Bank Name',        placeholder: 'PKXX XXXX XXXX XXXX XXXX | Bank Name', type:'simple' },
+  { label: 'Visa/MasterCard',    field: 'Card Details',            placeholder: 'Card Number | Expiry | CVV',           type:'simple' },
+  { label: 'Binance (USDT BSC)', field: 'USDT BSC Address',         placeholder: '0x... BSC wallet address',             type:'simple' },
 ];
 
 // ============================================================
@@ -487,12 +488,12 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
       {!adReady && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-10">
           <div className="w-12 h-12 rounded-full border-2 border-pink-500 border-t-transparent animate-spin"/>
-          <span className="text-gray-400 text-xs font-black uppercase tracking-widest mt-3">Loading Sponsored Content...</span>
+          <span className="text-gray-400 text-xs font-black uppercase tracking-widest mt-3"></span>
         </div>
       )}
       <div className="absolute top-4 left-4 z-20 pointer-events-none">
         <span className="bg-pink-600/90 backdrop-blur-sm text-white text-[9px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest shadow-[0_0_14px_rgba(236,72,153,0.7)]">
-          📢 Sponsored
+          
         </span>
       </div>
     </div>
@@ -659,9 +660,9 @@ function AJFooter() {
                 className="relative w-full rounded-3xl overflow-hidden"
                 style={{
                   width: '100%',
-                  maxWidth: '480px',
+                  maxWidth: '600px',
                   margin: '0 auto',
-                  aspectRatio: '4/5',
+                  aspectRatio: '16/10',
                   border: '4px solid rgba(236,72,153,0.8)',
                   boxShadow: '0 0 80px rgba(236,72,153,0.4)',
                   borderRadius: '2rem'
@@ -669,7 +670,7 @@ function AJFooter() {
               >
                 <img
                   src="/founder_card.jpg"
-                  alt="Ali Asim — Founder & CEO"
+                  alt="Ali Asim — Founder & CEO" onClick={() => triggerInterstitialAd()}
                   className="w-full h-full object-cover"
                   style={{ display: 'block' }}
                 />
@@ -751,10 +752,10 @@ function AJFooter() {
           {/* Divider */}
           <div className="h-[1px] w-full bg-gradient-to-r from-transparent via-white/10 to-transparent"/>
 
-          {/* License Note */}
+          {/* Copyrights Note */}
           <div className="text-center space-y-1">
             <p className="text-[9px] text-gray-400 font-black uppercase tracking-[0.15em] leading-relaxed">
-              © 2024 AJ CREATOR STUDIO. ALL RIGHTS RESERVED.
+              © 2026 AJ CREATOR STUDIO. ALL RIGHTS RESERVED.
             </p>
             <p
               className="text-[9px] font-black uppercase tracking-[0.12em]"
@@ -779,7 +780,13 @@ function AJFooter() {
 export function AJSuperPortal() {
 
   // ── SCREENS
-  const [screen,       setScreen]       = useState('splash');
+  const [screen, _setScreen] = useState('splash');
+  const setScreen = (s) => {
+    if (!['games', 'tikreels', 'pulse', 'wechat'].includes(s)) {
+      triggerInterstitialAd();
+    }
+    _setScreen(s);
+  };
   const [walletTab,    setWalletTab]    = useState('main');
   const [socialScreen, setSocialScreen] = useState('hub');
   const [selectedGame, setSelectedGame] = useState<string|null>(null);
@@ -1033,7 +1040,7 @@ export function AJSuperPortal() {
       s3.src = 'https://nap5k.com/push.min.js';
       document.head.appendChild(s3);
     } catch {}
-    // Wechat Sponsor Ad — zone 11337185
+    
     try {
       const s4 = document.createElement('script');
       s4.async = true;
@@ -2893,7 +2900,7 @@ export function AJSuperPortal() {
                 <button onClick={() => setNotifOpen(false)}><X size={18} className="text-gray-400"/></button>
               </div>
               <div className="px-4 pt-3">
-                <MonetagBanner siteId={MONETAG_WECHAT_SPONSOR}/>
+                
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {notifications.length === 0 && <p className="text-center text-gray-500 text-sm mt-10">No notifications yet.</p>}
@@ -3042,14 +3049,14 @@ export function AJSuperPortal() {
               {tiktabMode === 'feed' && (
                 <div
                   ref={videoFeedRef}
-                  className="flex-1 overflow-y-scroll snap-y snap-mandatory scrollbar-hide flex flex-col-reverse"
+                  className="flex-1 overflow-y-scroll snap-y snap-mandatory scrollbar-hide flex flex-col-reverse" style={{ display:'flex', flexDirection:'column-reverse' }}
                   style={{ scrollSnapType:'y mandatory', display:'flex', flexDirection:'column-reverse' }}
                 >
                   {pixaVideos.map((vid:any, idx:number) => {
                     const isActive = activeVideoIdx === idx;
                     // FIX #6: mute=0 when globalSoundOn, else mute=1; audio kill on scroll
                     const embedSrc = `https://www.youtube.com/embed/${vid.id}?autoplay=${isActive?1:0}&mute=${(isActive && globalSoundOn)?0:1}&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3`;
-                    if (idx > 0 && idx % 4 === 0) {
+                    if (idx % 4 === 0) {
                       return (
                         <div key={`tik_ad_${idx}`} data-vidx={idx} className="relative w-full h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
                           <MonetagVideoAd publisherId={MONETAG_PULSE_BANNER} type="interstitial"/>
@@ -3338,11 +3345,11 @@ export function AJSuperPortal() {
               {pulseTab === 'feed' && (
                 <div
                   ref={videoFeedRef}
-                  className="flex-1 overflow-y-scroll snap-y snap-mandatory scrollbar-hide flex flex-col-reverse"
+                  className="flex-1 overflow-y-scroll snap-y snap-mandatory scrollbar-hide flex flex-col-reverse" style={{ display:'flex', flexDirection:'column-reverse' }}
                   style={{ scrollSnapType: 'y mandatory', display:'flex', flexDirection:'column-reverse' }}
                 >
                   {combinedPulseFeed.map((post:any, idx:number) => {
-                    if (idx > 0 && idx % 4 === 0) {
+                    if (idx % 4 === 0) {
                       return (
                         <div key={`pulse_ad_${idx}`} data-vidx={idx} className="relative w-full h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
                           <MonetagVideoAd publisherId={MONETAG_PULSE_BANNER} type="interstitial"/>
@@ -3803,7 +3810,7 @@ export function AJSuperPortal() {
                 </button>
               </div>
               <div className="px-4 pt-3">
-                <MonetagBanner siteId={MONETAG_WECHAT_SPONSOR}/>
+                
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {wechatContacts.length === 0 && (
@@ -3860,7 +3867,7 @@ export function AJSuperPortal() {
                 </div>
               </div>
               <div className="px-4 pt-3">
-                <MonetagBanner siteId={MONETAG_WECHAT_SPONSOR}/>
+                
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {dmMessages.map((m:any) => (
