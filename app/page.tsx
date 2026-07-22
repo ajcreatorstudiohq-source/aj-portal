@@ -412,14 +412,14 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
             <script type="text/javascript">
               window.atOptions = {
                 'key': '${publisherId}',
-                'format': 'iframe',
+                'format': 'video',
                 'height': ${type === 'banner' ? 250 : 500},
                 'width': ${type === 'banner' ? 300 : 320},
                 'params': {}
               };
               var s = document.createElement('script');
               s.type = 'text/javascript';
-              s.src = '//www.highperformanceformat.com/${publisherId}/invoke.js';
+              s.src = '//pl25615822.highperformancegate.com/${publisherId}/invoke.js'; s.setAttribute('data-cfasync', 'false');
               s.onload = function() {
                 // Signal parent that ad content is loaded
                 try { window.parent.postMessage({type:'aj-ad-loaded',key:'${adKey.current}'}, '*'); } catch(e){}
@@ -2785,7 +2785,7 @@ export function AJSuperPortal() {
           {/* Quick Nav Grid — 4 Main Cards with Details */}
           <div className="px-4 pt-4 grid grid-cols-2 gap-4">
             {/* GAMES Card */}
-            <button onClick={() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('games'); const t = setTimeout(() => { setInterstitialAdOpen(false); setScreen('games'); }, 8000); setAdAutoCloseTimer(t); }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-purple-500/50 shadow-[0_0_20px_rgba(147,51,234,0.2)]">
+            <button onClick={() => setScreen('games')} className="flex flex-col items-start gap-3 bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-purple-500/50 shadow-[0_0_20px_rgba(147,51,234,0.2)]">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-[0_0_16px_rgba(147,51,234,0.5)]">
                 <span className="text-2xl">🎮</span>
               </div>
@@ -2800,7 +2800,7 @@ export function AJSuperPortal() {
             </button>
 
             {/* SOCIAL Card */}
-            <button onClick={() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('social'); const t = setTimeout(() => { setInterstitialAdOpen(false); fetchSocialAPIs(); setScreen('social'); setSocialScreen('hub'); }, 8000); setAdAutoCloseTimer(t); }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-cyan-900/40 to-blue-900/40 border border-cyan-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-cyan-500/50 shadow-[0_0_20px_rgba(6,182,212,0.2)]">
+            <button onClick={() => { fetchSocialAPIs(); setScreen('social'); setSocialScreen('hub'); }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-cyan-900/40 to-blue-900/40 border border-cyan-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-cyan-500/50 shadow-[0_0_20px_rgba(6,182,212,0.2)]">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center shadow-[0_0_16px_rgba(6,182,212,0.5)]">
                 <span className="text-2xl">📡</span>
               </div>
@@ -2956,12 +2956,12 @@ export function AJSuperPortal() {
               </div>
               <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
                 {[
-                  { icon:'🎬', label:'AJ TikReels',    sub:'Short Videos & Reels',   action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('social'); const t = setTimeout(() => { setInterstitialAdOpen(false); setSocialScreen('tikreels'); setTiktabMode('feed'); }, 8000); setAdAutoCloseTimer(t); } },
-                  { icon:'📡', label:'AJ Pulse',        sub:'Feed, Live & Stories',   action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('social'); const t = setTimeout(() => { setInterstitialAdOpen(false); setSocialScreen('pulse'); setPulseTab('feed'); }, 8000); setAdAutoCloseTimer(t); } },
-                  { icon:'💬', label:'AJ WeChat',       sub:'Private Encrypted Chat', action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('social'); const t = setTimeout(() => { setInterstitialAdOpen(false); setSocialScreen('wechat'); }, 8000); setAdAutoCloseTimer(t); } },
-                  { icon:'🔴', label:'Go Live',         sub:'Start Livestream',       action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('social'); const t = setTimeout(() => { setInterstitialAdOpen(false); setSocialScreen('golive'); }, 8000); setAdAutoCloseTimer(t); } },
-                  { icon:'👁️', label:'Join Live',       sub:'Watch a Livestream',     action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('social'); const t = setTimeout(() => { setInterstitialAdOpen(false); setSocialScreen('joinlive'); }, 8000); setAdAutoCloseTimer(t); } },
-                  { icon:'👤', label:'My Profile',      sub:'View & Edit Profile',    action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('social'); const t = setTimeout(() => { setInterstitialAdOpen(false); openProfile(user.uid); }, 8000); setAdAutoCloseTimer(t); } },
+                  { icon: '🎬', label: 'AJ TikReels', sub: 'Short Videos', action: () => { setSocialScreen('tikreels'); setTiktabMode('feed'); } },
+                  { icon: '🎬', label: 'AJ Pulse', sub: 'Social features', action: () => { setSocialScreen('pulse'); setPulseTab('feed'); } },
+                  { icon: '🎬', label: 'AJ WeChat', sub: 'Social features', action: () => { setSocialScreen('wechat'); } },
+                  { icon: 'G', label: 'Go Live', sub: 'Social features', action: () => { setSocialScreen('golive'); } },
+                  { icon: 'J', label: 'Join Live', sub: 'Social features', action: () => { setSocialScreen('joinlive'); } },
+                  { icon: 'M', label: 'My Profile', sub: 'Social features', action: () => { openProfile(user.uid); } },
                 ].map(item => (
                   <button key={item.label} onClick={item.action} className="w-full flex items-center gap-4 bg-white/5 border border-white/10 rounded-2xl p-4 active:scale-95 transition-all hover:border-pink-500/30">
                     <span className="text-2xl">{item.icon}</span>
@@ -4026,7 +4026,6 @@ export function AJSuperPortal() {
                 <button
                   key={game.id}
                   onClick={() => {
-                    triggerInterstitialAd(); // FIX #7
                     if (!game.url) return setVvipAlert({msg:`${game.name} coming soon! 🔜`});
                     setSelectedGame(game.url);
                   }}
