@@ -742,7 +742,7 @@ export function AJSuperPortal() {
     if (!['games', 'tikreels', 'pulse', 'wechat'].includes(s)) {
       triggerInterstitialAd();
     }
-    _setScreen(s);
+    _setScreen(s); setBotOpen(false); setNotifOpen(false);
   };
   const [walletTab,    setWalletTab]    = useState('main');
   const [socialScreen, setSocialScreen] = useState('hub');
@@ -1187,7 +1187,7 @@ export function AJSuperPortal() {
   useEffect(() => {
     if (screen==='splash') {
       const iv = setInterval(() => setLoading(p => Math.min(100,p+10)), 50);
-      const tm = setTimeout(() => setScreen('hub'), 2000);
+      const tm = setTimeout(() => { if(!user) setScreen('auth'); else setScreen('hub'); }, 2000);
       return () => { clearInterval(iv); clearTimeout(tm); };
     }
     return () => {};
@@ -2720,7 +2720,7 @@ export function AJSuperPortal() {
             </button>
 
             {/* WALLET Card */}
-            <button onClick={() => { triggerInterstitialAd(); setScreen('wallet'); }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-yellow-900/40 to-orange-900/40 border border-yellow-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-yellow-500/50 shadow-[0_0_20px_rgba(234,179,8,0.2)]">
+            <button onClick={() => { triggerInterstitialAd(); setScreen('wallet'); setWalletTab('main'); }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-yellow-900/40 to-orange-900/40 border border-yellow-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-yellow-500/50 shadow-[0_0_20px_rgba(234,179,8,0.2)]">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-yellow-500 to-orange-500 flex items-center justify-center shadow-[0_0_16px_rgba(234,179,8,0.5)]">
                 <span className="text-2xl">💰</span>
               </div>
@@ -2795,7 +2795,7 @@ export function AJSuperPortal() {
               <div className="px-4 pt-3">
                 
               </div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              <div className="flex-1 overflow-y-scroll snap-y snap-mandatory p-4 space-y-3">
                 {notifications.length === 0 && <p className="text-center text-gray-500 text-sm mt-10">No notifications yet.</p>}
                 {notifications.map((n:any) => (
                   <div key={n.id} className="bg-white/5 border border-white/10 rounded-2xl p-3 flex items-start justify-between gap-2">
@@ -2822,7 +2822,7 @@ export function AJSuperPortal() {
 
           {/* ── PROFILE SETUP ── */}
           {socialScreen === 'setup' && (
-            <div className="flex-1 overflow-y-auto px-4 py-8 flex flex-col items-center gap-5">
+            <div className="flex-1 overflow-y-scroll snap-y snap-mandatory px-4 py-8 flex flex-col items-center gap-5">
               <div className="relative z-[50]">
                 <img src="/logo.png" alt="AJ" className="w-16 h-16 rounded-2xl shadow-[0_0_30px_rgba(236,72,153,0.5)]"/>
               </div>
@@ -2864,7 +2864,7 @@ export function AJSuperPortal() {
               <div className="px-4 pt-3">
                 
               </div>
-              <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+              <div className="flex-1 overflow-y-scroll snap-y snap-mandatory px-4 py-4 space-y-3">
                 {[
                   { icon:'🎬', label:'AJ TikReels',    sub:'Short Videos & Reels',   action:() => { triggerInterstitialAd(); ; setPendingNav('social'); const t = setTimeout(() => {  setSocialScreen('tikreels'); setTiktabMode('feed'); }, 8000); setAdAutoCloseTimer(t); } },
                   { icon:'📡', label:'AJ Pulse',        sub:'Feed, Live & Stories',   action:() => { triggerInterstitialAd(); ; setPendingNav('social'); const t = setTimeout(() => {  setSocialScreen('pulse'); setPulseTab('feed'); }, 8000); setAdAutoCloseTimer(t); } },
@@ -3083,7 +3083,7 @@ export function AJSuperPortal() {
 
               {/* ── CREATE ── */}
               {tiktabMode === 'create' && (
-                <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+                <div className="flex-1 overflow-y-scroll snap-y snap-mandatory px-4 py-4 space-y-4">
                   <div className="relative w-full aspect-video bg-white/5 border border-white/10 rounded-2xl overflow-hidden cursor-pointer" onClick={handleTiktokImage}>
                     {tiktokPostImg ? (
                       tiktokPostIsVideo
@@ -3140,7 +3140,7 @@ export function AJSuperPortal() {
 
               {/* ── TIKREELS PROFILE ── */}
               {tiktabMode === 'profile' && (
-                <div className="flex-1 overflow-y-auto">
+                <div className="flex-1 overflow-y-scroll snap-y snap-mandatory">
                   <div className="flex flex-col items-center px-4 py-6">
                     {/* FIX #8: Neon Pink + button on avatar */}
                     <div className="relative">
@@ -3317,7 +3317,7 @@ export function AJSuperPortal() {
 
               {/* ── PULSE CREATE ── */}
               {pulseTab === 'create' && (
-                <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+                <div className="flex-1 overflow-y-scroll snap-y snap-mandatory px-4 py-4 space-y-4">
                   <div className="relative w-full aspect-video bg-white/5 border border-white/10 rounded-2xl overflow-hidden cursor-pointer" onClick={handleImageClick}>
                     {tempPhoto ? (
                       pulsePostIsVideo
@@ -3339,7 +3339,7 @@ export function AJSuperPortal() {
 
               {/* ── PULSE PROFILE ── */}
               {pulseTab === 'profile' && (
-                <div className="flex-1 overflow-y-auto">
+                <div className="flex-1 overflow-y-scroll snap-y snap-mandatory">
                   <div className="flex flex-col items-center px-4 py-6">
                     {/* FIX #8: Neon Pink + button on avatar */}
                     <div className="relative">
@@ -3521,7 +3521,7 @@ export function AJSuperPortal() {
                     </div>
                     {liveChatOpen && (
                       <div className="mt-2 bg-[#0a0a1a] border border-white/10 rounded-2xl overflow-hidden">
-                        <div className="h-40 overflow-y-auto p-3 space-y-2">
+                        <div className="h-40 overflow-y-scroll snap-y snap-mandatory p-3 space-y-2">
                           {liveChatMessages.map((m:any) => (
                             <div key={m.id} className="flex items-start gap-2">
                               <img src={m.photo||'/logo.png'} className="w-5 h-5 rounded-full object-cover flex-shrink-0"/>
@@ -3639,7 +3639,7 @@ export function AJSuperPortal() {
               </div>
               <div className="flex-1 flex flex-col">
                 <div id="video-container" className="w-full aspect-video bg-black"/>
-                <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                <div className="flex-1 overflow-y-scroll snap-y snap-mandatory p-3 space-y-2">
                   {viewerChatMessages.map((m:any) => (
                     <div key={m.id} className="flex items-start gap-2">
                       <img src={m.photo||'/logo.png'} className="w-5 h-5 rounded-full object-cover flex-shrink-0"/>
@@ -3703,7 +3703,7 @@ export function AJSuperPortal() {
               <div className="px-4 pt-3">
                 
               </div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              <div className="flex-1 overflow-y-scroll snap-y snap-mandatory p-4 space-y-3">
                 {wechatContacts.length === 0 && (
                   <div className="flex flex-col items-center justify-center h-full gap-4 pt-20">
                     <span className="text-5xl">💬</span>
@@ -3760,7 +3760,7 @@ export function AJSuperPortal() {
               <div className="px-4 pt-3">
                 
               </div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              <div className="flex-1 overflow-y-scroll snap-y snap-mandatory p-4 space-y-3">
                 {dmMessages.map((m:any) => (
                   <div key={m.id} className={`flex ${m.uid===user?.uid ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[75%] rounded-2xl px-4 py-2.5 ${m.uid===user?.uid ? 'bg-pink-600 text-white' : 'bg-white/10 text-white'}`}>
@@ -3793,7 +3793,7 @@ export function AJSuperPortal() {
                   <div className="w-8 h-8 border-2 border-pink-500 border-t-transparent rounded-full animate-spin"/>
                 </div>
               ) : (
-                <div className="flex-1 overflow-y-auto">
+                <div className="flex-1 overflow-y-scroll snap-y snap-mandatory">
                   {/* Cover */}
                   <div className="h-32 bg-gradient-to-br from-pink-900/50 to-cyan-900/50 relative">
                     <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-[#050505] to-transparent"/>
@@ -3887,7 +3887,7 @@ export function AJSuperPortal() {
                       <p className="text-sm font-black text-white">💬 Comments</p>
                       <button onClick={() => { setCommentPostId(null); setPostComments([]); }}><X size={18} className="text-gray-400"/></button>
                     </div>
-                    <div className="flex-1 overflow-y-auto space-y-3 mb-4">
+                    <div className="flex-1 overflow-y-scroll snap-y snap-mandatory space-y-3 mb-4">
                       {postComments.length === 0 && <p className="text-gray-500 text-xs text-center mt-4">No comments yet. Be the first to comment!</p>}
                       {postComments.map((c:any) => (
                         <div key={c.id} className="flex items-start gap-2">
@@ -4080,7 +4080,7 @@ export function AJSuperPortal() {
               </button>
               {botOpen && (
                 <div className="border-t border-white/5">
-                  <div className="h-64 overflow-y-auto p-4 space-y-3">
+                  <div className="h-64 overflow-y-scroll snap-y snap-mandatory p-4 space-y-3">
                     {botMessages.map((m, i) => (
                       <div key={i} className={`flex ${m.from==='user' ? 'justify-end' : 'justify-start'}`}>
                         <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-xs ${m.from==='user' ? 'bg-pink-600 text-white' : 'bg-white/10 text-white'}`}>
@@ -4126,7 +4126,7 @@ export function AJSuperPortal() {
             ))}
           </div>
 
-          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+          <div className="flex-1 overflow-y-scroll snap-y snap-mandatory px-4 py-4 space-y-4">
 
             {/* ── MAIN ── */}
             {walletTab === 'main' && (
