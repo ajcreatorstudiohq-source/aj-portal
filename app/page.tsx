@@ -432,7 +432,7 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
               setTimeout(function() {
                 var el = document.getElementById('ad-slot');
                 if (el && el.children.length === 0) {
-                  el.innerHTML = '<div style="color:#888;font-family:sans-serif;text-align:center;padding:20px;"><p style="font-size:14px;">Sponsored Content</p><p style="font-size:11px;color:#555;">Ad is being prepared...</p></div>';
+                  el.innerHTML = '<div style="width:100%;height:100%;background:#000;display:flex;flex-direction:column;justify-content:center;align-items:center;"><div style="width:50px;height:50px;border:3px solid #ec4899;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;"></div><style>@keyframes spin{to{transform:rotate(360deg)}}</style></div>';
                   try { window.parent.postMessage({type:'aj-ad-loaded',key:'${adKey.current}'}, '*'); } catch(e){}
                 }
               }, 5000);
@@ -475,7 +475,7 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
       {!adReady && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-10">
           <div className="w-12 h-12 rounded-full border-2 border-pink-500 border-t-transparent animate-spin"/>
-          <span className="text-gray-400 text-xs font-black uppercase tracking-widest mt-3">Loading Ad...</span>
+          
         </div>
       )}
       {adReady && loadFailed && (
@@ -483,15 +483,11 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
           <div className="w-16 h-16 rounded-full bg-gradient-to-br from-pink-500/20 to-cyan-500/20 flex items-center justify-center">
             <span className="text-3xl">📢</span>
           </div>
-          <p className="text-gray-300 text-xs font-black uppercase tracking-widest">Sponsored Content</p>
+          
           <p className="text-gray-500 text-[10px]">Ad will appear when available</p>
         </div>
       )}
-      <div className="absolute top-4 left-4 z-20 pointer-events-none">
-        <span className="bg-pink-600/90 backdrop-blur-sm text-white text-[9px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest shadow-[0_0_14px_rgba(236,72,153,0.7)]">
-          📢 Sponsored
-        </span>
-      </div>
+
     </div>
   );
 }
@@ -2775,8 +2771,8 @@ export function AJSuperPortal() {
                   </div>
                 )}
                 <div className="mt-4 flex gap-2">
-                  <button onClick={() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('wallet'); const t = setTimeout(() => { setInterstitialAdOpen(false); setScreen('wallet'); setWalletTab('purchase'); }, 8000); setAdAutoCloseTimer(t); }} className="flex-1 py-2.5 rounded-2xl text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all shadow-[0_0_18px_rgba(236,72,153,0.3)]" style={{background:'linear-gradient(135deg,#ec4899,#8b5cf6)'}}>+ Buy Coins</button>
-                  <button onClick={() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('wallet'); const t = setTimeout(() => { setInterstitialAdOpen(false); setScreen('wallet'); setWalletTab('withdraw'); }, 8000); setAdAutoCloseTimer(t); }} className="flex-1 py-2.5 rounded-2xl text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all" style={{background:'linear-gradient(135deg,#0891b2,#0e7490)'}}>Withdraw</button>
+                  <button onClick={() => { setScreen('wallet'); setWalletTab('main'); }} className="flex-1 py-2.5 rounded-2xl text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all shadow-[0_0_18px_rgba(236,72,153,0.3)]" style={{background:'linear-gradient(135deg,#ec4899,#8b5cf6)'}}>+ Buy Coins</button>
+                  <button onClick={() => { setScreen('wallet'); setWalletTab('main'); }} className="flex-1 py-2.5 rounded-2xl text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all" style={{background:'linear-gradient(135deg,#0891b2,#0e7490)'}}>Withdraw</button>
                 </div>
               </div>
             </div>
@@ -2815,7 +2811,7 @@ export function AJSuperPortal() {
             </button>
 
             {/* WALLET Card */}
-            <button onClick={() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('wallet'); const t = setTimeout(() => { setInterstitialAdOpen(false); setScreen('wallet'); setWalletTab('main'); }, 8000); setAdAutoCloseTimer(t); }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-yellow-900/40 to-orange-900/40 border border-yellow-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-yellow-500/50 shadow-[0_0_20px_rgba(234,179,8,0.2)]">
+            <button onClick={() => { setScreen('wallet'); setWalletTab('main'); }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-yellow-900/40 to-orange-900/40 border border-yellow-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-yellow-500/50 shadow-[0_0_20px_rgba(234,179,8,0.2)]">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-yellow-500 to-orange-500 flex items-center justify-center shadow-[0_0_16px_rgba(234,179,8,0.5)]">
                 <span className="text-2xl">💰</span>
               </div>
@@ -2830,7 +2826,7 @@ export function AJSuperPortal() {
             </button>
 
             {/* AI TRADING BOT Card */}
-            <button onClick={() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('aibot'); const t = setTimeout(() => { setInterstitialAdOpen(false); setScreen('aibot'); }, 8000); setAdAutoCloseTimer(t); }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.2)]">
+            <button onClick={() => setScreen('aibot')} className="flex flex-col items-start gap-3 bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.2)]">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center shadow-[0_0_16px_rgba(34,197,94,0.5)]">
                 <span className="text-2xl">🤖</span>
               </div>
@@ -3031,8 +3027,8 @@ export function AJSuperPortal() {
               {tiktabMode === 'feed' && (
                 <div
                   ref={videoFeedRef}
-                  className="flex-1 overflow-y-scroll snap-y snap-mandatory scrollbar-hide flex flex-col-reverse"
-                  style={{ scrollSnapType:'y mandatory', display:'flex', flexDirection:'column-reverse' }}
+                  className="flex-1 overflow-y-scroll snap-y snap-mandatory scrollbar-hide flex flex-col"
+                  style={{ scrollSnapType:'y mandatory', display:'flex', flexDirection:'column' }}
                 >
                   {pixaVideos.map((vid:any, idx:number) => {
                     const isActive = activeVideoIdx === idx;
@@ -3323,8 +3319,8 @@ export function AJSuperPortal() {
               {pulseTab === 'feed' && (
                 <div
                   ref={videoFeedRef}
-                  className="flex-1 overflow-y-scroll snap-y snap-mandatory scrollbar-hide flex flex-col-reverse"
-                  style={{ scrollSnapType: 'y mandatory', display:'flex', flexDirection:'column-reverse' }}
+                  className="flex-1 overflow-y-scroll snap-y snap-mandatory scrollbar-hide flex flex-col"
+                  style={{ scrollSnapType: 'y mandatory', display:'flex', flexDirection:'column' }}
                 >
                   {combinedPulseFeed.map((post:any, idx:number) => {
                     if (idx === 0 || (idx > 0 && idx % 4 === 0)) {
@@ -4009,7 +4005,10 @@ export function AJSuperPortal() {
               <img src="/logo.png" alt="AJ" className="w-8 h-8 rounded-xl shadow-[0_0_14px_rgba(236,72,153,0.5)]"/>
             </div>
             <h1 className="text-sm font-black bg-gradient-to-r from-pink-500 to-cyan-400 bg-clip-text text-transparent uppercase tracking-widest">Gaming Zone</h1>
-          </div>
+            <button onClick={() => { triggerInterstitialAd(); setVvipAlert({msg:'🎁 Ad watched! +50 Coins reward coming...', icon:'💰'}); setTimeout(() => updateDoc(doc(db,'users',user.uid), {balance: increment(50)}), 5000); }} className="ml-auto bg-gradient-to-r from-yellow-400 to-orange-500 text-black text-[9px] font-black px-3 py-1.5 rounded-xl active:scale-90 transition-all shadow-[0_0_10px_rgba(234,179,8,0.4)]">
+              🎁 Free 50 Coins
+            </button>
+</div>
 
           {!selectedGame ? (
             <div className="px-4 py-4 space-y-3">
@@ -4027,7 +4026,9 @@ export function AJSuperPortal() {
                   key={game.id}
                   onClick={() => {
                     if (!game.url) return setVvipAlert({msg:`${game.name} coming soon! 🔜`});
-                    setSelectedGame(game.url);
+                    triggerInterstitialAd();
+                    setVvipAlert({msg:'🎮 Loading Reward Ad...', icon:'🎁'});
+                    setTimeout(() => setSelectedGame(game.url), 2000);
                   }}
                   className="w-full flex items-center gap-4 bg-white/5 border border-white/10 rounded-2xl p-4 active:scale-95 transition-all hover:border-pink-500/30"
                 >
@@ -4124,7 +4125,7 @@ export function AJSuperPortal() {
             ].map(plan => (
               <button
                 key={plan.tier}
-                onClick={() => { triggerInterstitialAd(); activateBot(plan.tier, plan.cost); }}
+                onClick={() => activateBot(plan.tier, plan.cost)}
                 disabled={botTier===plan.tier}
                 className={`w-full flex items-center gap-4 rounded-2xl p-4 active:scale-95 transition-all ${botTier===plan.tier ? 'opacity-50 cursor-not-allowed' : ''}`}
                 style={{background:`linear-gradient(135deg,var(--tw-gradient-stops))`,backgroundImage:`linear-gradient(135deg,${plan.color.replace('from-','').replace('to-','').split(' ').map(c=>`var(--${c})`).join(',')})`,border:'1px solid rgba(255,255,255,0.1)'}}
@@ -4192,7 +4193,7 @@ export function AJSuperPortal() {
           {/* Wallet Tab Bar */}
           <div className="flex border-b border-white/5">
             {(['main','purchase','withdraw','transfer','referral'] as const).map(tab => (
-              <button key={tab} onClick={() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('wallet'); const t = setTimeout(() => { setInterstitialAdOpen(false); setWalletTab(tab); }, 8000); setAdAutoCloseTimer(t); }} className={`flex-1 py-2.5 text-[9px] font-black uppercase tracking-widest transition-all ${walletTab===tab ? 'text-pink-400 border-b-2 border-pink-500' : 'text-gray-500'}`}>
+              <button key={tab} onClick={() => { setScreen('wallet'); setWalletTab('main'); }} className={`flex-1 py-2.5 text-[9px] font-black uppercase tracking-widest transition-all ${walletTab===tab ? 'text-pink-400 border-b-2 border-pink-500' : 'text-gray-500'}`}>
                 {tab==='main'?'💰':tab==='purchase'?'🛒':tab==='withdraw'?'💸':tab==='transfer'?'↔️':'👥'}
               </button>
             ))}
@@ -4223,10 +4224,10 @@ export function AJSuperPortal() {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   {[
-                    { icon:'🛒', label:'Buy Coins',   action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('wallet'); const t = setTimeout(() => { setInterstitialAdOpen(false); setWalletTab('purchase'); }, 8000); setAdAutoCloseTimer(t); } },
-                    { icon:'💸', label:'Withdraw',    action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('wallet'); const t = setTimeout(() => { setInterstitialAdOpen(false); setWalletTab('withdraw'); }, 8000); setAdAutoCloseTimer(t); } },
-                    { icon:'↔️', label:'Transfer',    action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('wallet'); const t = setTimeout(() => { setInterstitialAdOpen(false); setWalletTab('transfer'); }, 8000); setAdAutoCloseTimer(t); } },
-                    { icon:'👥', label:'Refer & Earn',action:() => { triggerInterstitialAd(); setInterstitialAdOpen(true); setPendingNav('wallet'); const t = setTimeout(() => { setInterstitialAdOpen(false); setWalletTab('referral'); }, 8000); setAdAutoCloseTimer(t); } },
+                    { icon:'🛒', label:'Buy Coins',   action:() => { wallet } },
+                    { icon:'💸', label:'Withdraw',    action:() => { wallet } },
+                    { icon:'↔️', label:'Transfer',    action:() => { wallet } },
+                    { icon:'👥', label:'Refer & Earn',action:() => { wallet } },
                   ].map(item => (
                     <button key={item.label} onClick={item.action} className="flex flex-col items-center gap-2 bg-white/5 border border-white/10 rounded-2xl py-4 active:scale-95 transition-all hover:border-pink-500/30">
                       <span className="text-2xl">{item.icon}</span>
