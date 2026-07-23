@@ -130,13 +130,31 @@ const PK_DURATION    = 300;
 // ============================================================
 // AD THROTTLE / COOLDOWN SYSTEM (FIX: ads on every click ruining UX)
 // ============================================================
-// FIX (Hinglish): Pehle har click pe ad trigger hota tha jo UX kharab karta tha.
-// Ab hum ek cooldown system lagate hain:
-// - Interstitial ads (navigation popup) sirf har 5 MINUTE mein ek baar (bohot kam)
-// - In-feed MonetagVideoAd (TikReels/Pulse) 4 videos ke baad ek — revenue ke liye
-// - Isse revenue bhi chalti rehti hai (in-feed video ads) aur user ko har click pe popup ad NAHI dikhta.
-const AD_COOLDOWN_MS = 5 * 60 * 1000;     // 5 minutes between navigation interstitials (BOHOT KAM)
-const FREE_COIN_AD_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes between free-coin ads
+// ============================================================
+// AD BALANCE SYSTEM — Poore portal mein ads ko balance karna
+// ============================================================
+// FIX (Hinglish): Pehle ads har click pe aa rahe the jo UX kharab karte the.
+// Ab hum ek CENTRALIZED ad balance system lagate hain:
+//
+// 1. INTERSTITIAL POPUP AD (full-screen Monetag):
+//    - Sirf 4 MINUTE mein ek baar poore app mein (ek hi timestamp share hota hai)
+//    - In-feed MonetagVideoAd + navigation + free-coin — sab same cooldown use karte hain
+//    - Yeh popup ad SIRF major events pe fire hota hai (feed scroll, screen transition)
+//    - Micro-interactions (like, comment, gift, back button) pe KABHI ad nahi
+//
+// 2. IN-FEED VIDEO AD (TikReels/Pulse):
+//    - 4 video posts ke baad ek in-feed ad slot
+//    - Fallback video hamesha chalega (revenue + non-intrusive, TikTok jaisa)
+//    - Real Monetag popup sirf cooldown ke baad fire hoga (4 min mein ek baar)
+//
+// 3. FREE COIN AD:
+//    - 5 MINUTE alag cooldown (user voluntarily watch karta hai)
+//    - Sirf "Free 50 Coins" button se trigger
+//
+// NET RESULT: Revenue chalti rehti hai (in-feed + occasional popup), lekin
+// user ko har click pe ad NAHI dikhta — UX smooth rehti hai.
+const AD_COOLDOWN_MS = 4 * 60 * 1000;      // 4 minutes — interstitial popup ad cooldown (poore app mein)
+const FREE_COIN_AD_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes — free coin ad cooldown (separate)
 let lastInterstitialAdTime = 0;
 let lastFreeCoinAdTime = 0;
 
@@ -176,22 +194,18 @@ const triggerFreeCoinAd = () => {
   return false;
 };
 
-// NEW: Show visible interstitial overlay + navigate after ad
-// FIX (Hinglish): Ab yeh cooldown respect karta hai. Agar cooldown active hai
-// toh ad skip hota hai aur navigation turant ho jaata hai (no 1-second delay).
+// NAVIGATION + AD OVERLAY — balanced approach
+// FIX (Hinglish): Navigation hamesha TURANT hoti hai (no delay).
+// Ad background mein fire hota hai sirf agar cooldown active nahi hai.
+// Isse UX smooth rehti hai — user ko wait nahi karna padta.
 const navigateWithAdOverlay = (navFn: () => void) => {
   const now = Date.now();
   const inCooldown = (now - lastInterstitialAdTime) < AD_COOLDOWN_MS;
-  // Fire the real interstitial ad only if not in cooldown
+  // Navigate TURANT — user ko wait nahi karwana
+  navFn();
+  // Fire the real interstitial ad in BACKGROUND only if not in cooldown
   if (!inCooldown) {
     triggerInterstitialAd();
-    // Navigate after a short delay to let ad attempt to load
-    setTimeout(() => {
-      navFn();
-    }, 1000);
-  } else {
-    // Cooldown active — navigate immediately without ad
-    navFn();
   }
 };
 
