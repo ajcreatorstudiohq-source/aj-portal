@@ -132,6 +132,31 @@ const navigateWithAdOverlay = (navFn: () => void) => {
 // ============================================================
 // ZEGOCLOUD CALL HANDLER
 // ============================================================
+// FIX (Hinglish): Pehle `zp` instance local `const` tha, jise destroy nahi kiya
+// ja sakta tha — isse ZegoCloud ka iframe/media dangling reh jaata tha aur
+// "This page could not load" error aata tha. Ab hum ise module-level variable
+// mein store karte hain taaki stopLive / stopCall mein properly destroy ho sake.
+let zegoMainInstance: any = null;   // for host Go-Live (attached to #video-container)
+let zegoViewerInstance: any = null; // for viewer Join-Live (attached to #zego-viewer-container)
+let zegoCallInstance: any = null;   // for 1-on-1 calls (#zego-call-container)
+
+// Helper: safely destroy any Zego instance and clear its container element
+const destroyZegoInstance = (which: 'main' | 'viewer' | 'call') => {
+  try {
+    let inst: any = null;
+    let containerId = '';
+    if (which === 'main')    { inst = zegoMainInstance;    zegoMainInstance = null;    containerId = 'video-container'; }
+    if (which === 'viewer') { inst = zegoViewerInstance; zegoViewerInstance = null; containerId = 'zego-viewer-container'; }
+    if (which === 'call')   { inst = zegoCallInstance;    zegoCallInstance = null;    containerId = 'zego-call-container'; }
+    if (inst && typeof inst.destroy === 'function') {
+      try { inst.destroy(); } catch {}
+    }
+    // Clear the DOM container so no dangling iframe/media remains (prevents crash)
+    const container = document.querySelector(`#${containerId}`);
+    if (container) container.innerHTML = '';
+  } catch {}
+};
+
 const handleStartZegoCall = (
   roomID: string,
   currentUserId: string,
@@ -148,6 +173,7 @@ const handleStartZegoCall = (
       currentUserName
     );
     const zp = (window as any).ZegoUIKitPrebuilt.create(kitToken);
+    zegoCallInstance = zp; // FIX: store instance so it can be destroyed later
     const container = document.querySelector('#zego-call-container');
     if (!container) return;
     zp.joinRoom({
@@ -185,6 +211,7 @@ const handleStartLiveOrCall = (roomID: string, currentUserId: string, currentUse
       currentUserName
     );
     const zp = (window as any).ZegoUIKitPrebuilt.create(kitToken);
+    zegoMainInstance = zp; // FIX: store instance so stopLive can destroy it (prevents "This page could not load")
     const container = document.querySelector('#video-container');
     if (!container) {
       console.error('video-container not found');
@@ -214,10 +241,13 @@ const handleStartLiveOrCall = (roomID: string, currentUserId: string, currentUse
       showPreJoinView: false,
       layout: "Auto",
       onJoinRoom: () => {
-        // Camera and mic should be active now
+        // Camera and mic are active now — ZegoCloud SDK has acquired them successfully
+        console.log('ZegoCloud room joined — camera & mic active');
       },
       onLeaveRoom: () => {
-        // Clean up when leaving
+        // Clean up when leaving — destroy instance to free camera/mic and remove iframe
+        console.log('ZegoCloud room left — cleaning up');
+        destroyZegoInstance('main');
       },
     });
   } catch (e) {
@@ -577,31 +607,49 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
     return () => clearInterval(interval);
   }, [adFinished]);
 
-  // Trigger the real Monetag interstitial ad when this component mounts (ad slide becomes visible)
-  // This makes the Monetag full-screen ad appear — which is the TikTok-like experience
+  // FIX (Hinglish): Pehle ad video "loading" par atak jaata tha kyunki hum
+  // `onLoadedData` ke fire hone ka wait karte the aur spinner dikhate the.
+  // Agar fallback video slow/block ho to spinner hamesha reh jaata tha.
+  // Ab hum video ko FORAN play karte hain (jaise regular TikReels videos chalti hain)
+  // aur Monetag real ad ko background mein NON-BLOCKING trigger karte hain —
+  // revenue bhi banti hai aur user ko bhi ad video fauran chalu dikhta hai.
+  useEffect(() => {
+    // Force-play the in-feed video immediately (same behaviour as regular feed videos)
+    const v = videoRef.current;
+    if (v) {
+      v.play().catch(() => {}); // muted autoplay is allowed by all browsers
+    }
+  }, []);
+
+  // Trigger the real Monetag interstitial ad (NON-BLOCKING) — runs in background for revenue
   useEffect(() => {
     if (adTriggeredRef.current) return;
     adTriggeredRef.current = true;
     setAdTriggered(true);
 
-    // Fire the REAL Monetag ad using the Promise-based SDK API
-    // This calls: show_XXX({ type: 'preload' }) → show_XXX({ type: 'end' })
-    // The 'end' type shows a full-screen Rewarded Interstitial ad — this generates revenue!
+    // Fire the REAL Monetag ad using the Promise-based SDK API in the background.
+    // This does NOT block the in-feed video — the ad overlay (if available) appears
+    // on top, and the in-feed fallback video keeps playing like a regular post.
     triggerMonetagInterstitialAd(publisherId).then((shown) => {
       if (shown) {
         // Real Monetag ad was shown successfully — revenue generated!
-        // The Monetag SDK handles the full-screen overlay display automatically.
       } else {
-        // No Monetag ad feed available — our fallback in-feed video continues playing.
-        // The fallback video looks exactly like a regular TikReels/Pulse post (with Sponsored label).
+        // No Monetag ad feed available — fallback in-feed video keeps playing.
       }
     });
 
-    // Clean up on unmount
     return () => {
       // Nothing to clean — SDK handles its own ad lifecycle
     };
   }, [publisherId]);
+
+  // Auto-hide the loading shimmer after 1.2s max even if onLoadedData never fires
+  // (so the ad never gets "stuck on loading" like the user reported)
+  useEffect(() => {
+    if (adReady) return;
+    const t = setTimeout(() => setAdReady(true), 1200);
+    return () => clearTimeout(t);
+  }, [adReady]);
 
   const skipAd = () => {
     setAdFinished(true);
@@ -615,7 +663,7 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
       {/* Hidden container for Monetag SDK (the real ad appears as a full-screen overlay via SDK) */}
       <div ref={containerRef} className="absolute inset-0 w-full h-full" style={{ zIndex: 1, pointerEvents: 'none' }} />
 
-      {/* Seamless in-feed video — looks exactly like a regular TikTok/Pulse video */}
+      {/* Seamless in-feed video — looks exactly like a regular TikTok/Pulse video and plays immediately */}
       <div className="absolute inset-0 w-full h-full bg-black" style={{ zIndex: 2 }}>
         <video
           ref={videoRef}
@@ -625,8 +673,11 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
           muted
           loop
           playsInline
+          preload="auto"
           onLoadedData={() => setAdReady(true)}
           onCanPlay={() => setAdReady(true)}
+          onPlaying={() => setAdReady(true)}
+          onError={() => setAdReady(true)}
           onClick={(e) => e.preventDefault()}
         />
 
@@ -653,7 +704,7 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
         <div className="absolute bottom-6 left-4 right-16 z-10">
           <p className="text-white font-black text-xs truncate">@AJ_Super_Portal</p>
           <p className="text-gray-300 text-[10px] mt-0.5 line-clamp-2">
-            🎮 Play games · 📱 Watch reels · 🪙 Earn coins — Join AJ Super Portal today! #AJ #SuperPortal #Gaming
+            🎮 Play games · 📱 Watch reels · 🩹 Earn coins — Join AJ Super Portal today! #AJ #SuperPortal #Gaming
           </p>
           {/* Tiny "Sponsored" tag — minimal, just like TikTok's sponsored content label */}
           <div className="inline-flex items-center gap-1 mt-1.5 bg-white/10 backdrop-blur-sm rounded-full px-2 py-0.5">
@@ -684,10 +735,11 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
           </div>
         </div>
 
-        {/* Loading shimmer while video loads — subtle, blends with the dark theme */}
+        {/* Subtle loading shimmer (only for first ~1.2s, NON-BLOCKING) — fades quickly so ad never gets stuck */}
         {!adReady && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#050505] z-30">
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#050505] z-30 opacity-80 transition-opacity">
             <div className="w-10 h-10 rounded-full border-2 border-white/20 border-t-white/60 animate-spin" />
+            <span className="text-white/60 text-[8px] font-black mt-3 uppercase tracking-widest">Sponsored</span>
           </div>
         )}
       </div>
@@ -1149,6 +1201,10 @@ export function AJSuperPortal() {
   const [tikProfileMyPosts, setTikProfileMyPosts] = useState<any[]>([]);
   const [tikProfileFollowers, setTikProfileFollowers] = useState(0);
 
+  // FIX (Hinglish): Profile video viewer — jab profile grid mein kisi video post par
+  // click karte hain toh full-screen video khulta hai (jaise TikTok app mein hota hai).
+  const [profileVideoViewer, setProfileVideoViewer] = useState<{ url: string; text?: string } | null>(null);
+
   // ── TIKREELS WINDOWING
   const [activeVideoIdx, setActiveVideoIdx] = useState(0);
   const [reelPaused,     setReelPaused]     = useState(false);
@@ -1337,7 +1393,10 @@ export function AJSuperPortal() {
     }
     if (commentPostId && !commentPostId.startsWith('gift_')) {
       try {
-        const col = pulsePosts.find(p => p.id === commentPostId) ? "pulse_posts" : "user_posts";
+        // FIX (Hinglish): Agar yeh YouTube/pixa video hai toh `yt_posts` collection se
+        // comments load karo, warna regular user_posts/pulse_posts se.
+        const isPixaVideo = pixaVideos.some((v:any) => v.id === commentPostId);
+        const col = isPixaVideo ? "yt_posts" : (pulsePosts.find(p => p.id === commentPostId) ? "pulse_posts" : "user_posts");
         const q = query(collection(db, col, commentPostId, "comments"), orderBy("createdAt","asc"));
         const unsub = onSnapshot(q, snap => setPostComments(snap.docs.map(d=>({id:d.id,...d.data()}))));
         return unsub;
@@ -1822,6 +1881,36 @@ export function AJSuperPortal() {
     });
   }, [activeVideoIdx, socialScreen, tiktabMode, pulseTab]);
 
+  // FIX (Hinglish): `reelPaused` state ko actually video ko pause/resume karne ke liye
+  // use karte hain. Pehle sirf state toggle hoti thi lekin video actually pause nahi hoti thi.
+  // Ab jab reelPaused=true ho toh active video pause ho jaayega, aur false ho toh resume.
+  useEffect(() => {
+    if (socialScreen !== 'tikreels' && socialScreen !== 'pulse') return;
+    // For user-uploaded videos (HTML5 <video> element)
+    const activeUserVideo = userVideoRefs.current[activeVideoIdx];
+    if (activeUserVideo) {
+      if (reelPaused) {
+        activeUserVideo.pause();
+      } else {
+        activeUserVideo.play().catch(() => {});
+      }
+    }
+    // For YouTube iframe videos — post a message to the iframe to pause/resume
+    const activeIframe = iframeRefs.current[activeVideoIdx];
+    if (activeIframe && activeIframe.contentWindow) {
+      try {
+        activeIframe.contentWindow.postMessage(
+          JSON.stringify({
+            event: 'command',
+            func: reelPaused ? 'pauseVideo' : 'playVideo',
+            args: []
+          }),
+          '*'
+        );
+      } catch {}
+    }
+  }, [reelPaused, activeVideoIdx, socialScreen]);
+
   // WECHAT CONTACTS listener
   useEffect(() => {
     if (!user) return;
@@ -1878,6 +1967,11 @@ export function AJSuperPortal() {
 
   const startLive = async () => {
     if (!user) return;
+    // FIX (Hinglish): Pehle Social screen aur Go-Live screen ensure karte hain
+    // taaki #video-container mount ho — warna ZegoCloud ko container nahi milta
+    // aur "login room fail" / camera nae chalne ki shikayat aati thi.
+    setScreen('social');
+    setSocialScreen('golive');
     try {
       // FIX: Check if getUserMedia is available (HTTPS required for camera/mic access)
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -1887,15 +1981,29 @@ export function AJSuperPortal() {
       // Pre-request camera & mic permission so ZegoCloud SDK doesn't get blocked.
       // We grab the stream, then immediately stop all tracks — this "wakes up" the browser
       // permission dialog and ensures the devices are accessible. ZegoCloud will re-acquire them.
+      let cameraMicOk = false;
       try {
         const testStream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } },
           audio: true
         });
-        // Stop all tracks immediately — we just wanted the permission prompt to fire
-        testStream.getTracks().forEach(track => track.stop());
+        // FIX (Hinglish): Camera & mic CHECK — agar stream mil gaya to camera & mic
+        // chal rahe hain. Hum test stream ko liveVideoRef par temporarily laga dete
+        // hain taaki user ko turant local preview dikhe (jaise tak ZegoCloud attach ho).
+        cameraMicOk = true;
+        if (liveVideoRef.current) {
+          try { liveVideoRef.current.srcObject = testStream; } catch {}
+        }
+        // Keep the stream ref so stopLive can stop it; ZegoCloud will re-acquire its own
+        liveStreamRef.current = testStream;
+        // Stop the tracks after a short delay so the local preview shows briefly,
+        // then ZegoCloud takes over the camera. We stop to free the device for ZegoCloud.
+        setTimeout(() => {
+          testStream.getTracks().forEach(track => track.stop());
+        }, 300);
       } catch (mediaErr: any) {
         // Permission denied — show error and abort
+        console.error('getUserMedia permission error', mediaErr);
         setVvipAlert({msg:"⚠️ Camera & mic permission denied. Please allow access in your browser settings, then reload the page."});
         return;
       }
@@ -1906,12 +2014,15 @@ export function AJSuperPortal() {
         return;
       }
       setCameraReady(true);
+      if (cameraMicOk) {
+        setVvipAlert({msg:"✅ Camera & mic are working! Going live…"});
+      }
       // Now start ZegoCloud live — the SDK will handle camera & mic acquisition internally
       const roomId = `live_${user.uid}_${Date.now()}`;
       setLiveRoomId(roomId);
       setLiveActive(true);
       // Wait a tick for DOM to update before ZegoCloud attaches to #video-container
-      setTimeout(() => handleStartLiveOrCall(roomId, user.uid, username || 'AJ Member'), 400);
+      setTimeout(() => handleStartLiveOrCall(roomId, user.uid, username || 'AJ Member'), 500);
       await setDoc(doc(db, "live_rooms", roomId), {
         uid: user.uid, username: username || 'AJ_Member',
         photo: tempPhoto || user.photoURL || '',
@@ -1943,16 +2054,13 @@ export function AJSuperPortal() {
       clearInterval((liveStreamRef as any)._heartbeat);
       (liveStreamRef as any)._heartbeat = null;
     }
-    // FIX: Destroy Zego instance if available to prevent "page could not load"
-    try {
-      if (typeof (window as any).zp !== 'undefined' && (window as any).zp) {
-        try { (window as any).zp.destroy(); } catch {}
-        (window as any).zp = null;
-      }
-      // Also try to clear the video container
-      const container = document.querySelector('#video-container');
-      if (container) container.innerHTML = '';
-    } catch {}
+    // FIX (Hinglish): Pehle `window.zp` check hota tha jo KABHI set hi nahi hua
+    // karta tha (zp local const tha) — isliye ZegoCloud ka iframe & media dangling
+    // reh jaata tha aur "This page could not load" error aata tha.
+    // Ab hum `destroyZegoInstance('main')` use karte hain jo instance ko properly
+    // destroy karta hai aur #video-container ko clear karta hai — no more crash.
+    destroyZegoInstance('main');
+
     // FIX: Stop all media tracks (camera + mic)
     if (liveStreamRef.current) {
       liveStreamRef.current.getTracks().forEach(t => {
@@ -1976,10 +2084,18 @@ export function AJSuperPortal() {
     setLiveViewerCount(0);
     setPkActive(false);
     setPkWinner(null);
+    setLiveChatOpen(false);
+    setLiveGiftPanelOpen(false);
     if (liveRoomId) {
       try { await deleteDoc(doc(db,"live_rooms",liveRoomId)); } catch {}
       setLiveRoomId('');
     }
+    // FIX (Hinglish): Jab live end hota tha toh "This page couldn't load" error
+    // aata tha kyunki screen golive par hi reh jaata tha aur dangling Zego iframe
+    // crash ho jaata tha. Ab hum explicitly Social Hub par navigate karte hain
+    // taaki user cleanly wapas aa jaaye.
+    setSocialScreen('hub');
+    setVvipAlert({msg:'Live ended. You are back to Social Hub.'});
   };
 
   // ==========================================================
@@ -2021,6 +2137,7 @@ export function AJSuperPortal() {
               ZEGO_APP_ID, ZEGO_APP_SIGN, roomSnap.id, user.uid, username || 'Viewer'
             );
             const zp = (window as any).ZegoUIKitPrebuilt.create(kitToken);
+            zegoViewerInstance = zp; // FIX: store viewer instance so leaveViewerRoom can destroy it
             const container = document.querySelector('#zego-viewer-container');
             if (container) {
               zp.joinRoom({
@@ -2034,6 +2151,10 @@ export function AJSuperPortal() {
                 showPreJoinView: false,
                 turnOnCameraWhenJoining: false,
                 turnOnMicrophoneWhenJoining: false,
+                onLeaveRoom: () => {
+                  // Clean up viewer Zego instance + container when leaving
+                  destroyZegoInstance('viewer');
+                },
               });
             }
           } catch(e) { console.error('viewer zego attach', e); }
@@ -2048,8 +2169,14 @@ export function AJSuperPortal() {
     if (viewerRoomId) {
       try { updateDoc(doc(db, 'live_rooms', viewerRoomId), { liveViewers: increment(-1) }); } catch {}
     }
+    // FIX (Hinglish): Viewer Zego instance ko properly destroy karte hain taaki
+    // dangling iframe/media na rahe — prevents "This page could not load".
+    destroyZegoInstance('viewer');
     setViewerRoom(null); setViewerRoomId('');
     setViewerChatMessages([]); setViewerChatInput('');
+    setLiveGiftPanelOpen(false);
+    // Navigate back to Social Hub so the user isn't stuck on a crashed viewer screen
+    setSocialScreen('hub');
   };
 
   const sendViewerChatMessage = async () => {
@@ -2593,23 +2720,46 @@ export function AJSuperPortal() {
     } catch(e) { console.error('handleCreatePost', e); setVvipAlert({msg:'Post failed. Please try again.'}); }
   };
 
+  // FIX (Hinglish): `commentPostId` mein ab YouTube video IDs (from pixaVideos)
+  // bhi aa sakte hain. Unke liye hum `yt_comments` collection use karte hain
+  // (alag collection) taaki regular user_posts se conflict na ho.
+  // Aur `pixaVideoComments` local state se comments turant dikh bhi jaate hain.
   const submitComment = async () => {
     if (!newComment.trim() || !commentPostId) return;
-    // Comments are stored in user_posts/{postId}/comments for both TikReels and Pulse
     try {
       const commentData = {
         text: newComment,
         username: username || "AJ_Member",
         photo: user?.photoURL || '',
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
+        createdAtMs: Date.now(),
       };
-      const col = pulsePosts.find(p => p.id === commentPostId) ? "pulse_posts" : "user_posts";
-      await addDoc(collection(db, col, commentPostId, "comments"), commentData);
-      // Also increment commentCount on the post
-      try {
-        const col2 = pulsePosts.find(p => p.id === commentPostId) ? "pulse_posts" : "user_posts";
-        await updateDoc(doc(db, col2, commentPostId), { commentCount: increment(1) });
-      } catch {}
+      // FIX: Check if this is a YouTube/pixa video comment
+      const isPixaVideo = pixaVideos.some((v:any) => v.id === commentPostId);
+      if (isPixaVideo) {
+        // YouTube video comment — use a separate 'yt_comments' collection
+        // so it doesn't conflict with user_posts. Also auto-create the doc.
+        try {
+          await setDoc(doc(db, 'yt_posts', commentPostId), {
+            id: commentPostId,
+            type: 'youtube',
+            createdAt: serverTimestamp(),
+          }, { merge: true });
+          await addDoc(collection(db, 'yt_posts', commentPostId, 'comments'), commentData);
+        } catch(e2) {
+          console.error('yt comment error', e2);
+        }
+      } else {
+        const col = pulsePosts.find(p => p.id === commentPostId) ? "pulse_posts" : "user_posts";
+        await addDoc(collection(db, col, commentPostId, "comments"), commentData);
+        // Also increment commentCount on the post
+        try {
+          const col2 = pulsePosts.find(p => p.id === commentPostId) ? "pulse_posts" : "user_posts";
+          await updateDoc(doc(db, col2, commentPostId), { commentCount: increment(1) });
+        } catch {}
+      }
+      // FIX: Add comment to local state immediately (instant feedback)
+      setPostComments(prev => [...prev, { id: `local_${Date.now()}`, ...commentData, createdAt: null }]);
       setNewComment('');
       setVvipAlert({msg:`💬 Comment posted!`,icon:'💬'});
     } catch(e) { console.error('submitComment', e); setVvipAlert({msg:'Failed to post comment. Try again.',icon:'⚠️'}); }
@@ -2636,15 +2786,30 @@ export function AJSuperPortal() {
   // ONE LIKE PER PERSON — Firestore based (each user can like a post only once)
   // Uses {postId}/likes/{uid} subcollection to track who liked
   // ============================================================
-  const handleLike = async (id:string, isVideo:boolean = false) => {
+  // FIX (Hinglish): handleLike mein ab `isYoutube` parameter add kiya gaya hai.
+  // YouTube/pixa videos Firestore mein nahi hoti (woh external YouTube API se aati hain),
+  // isliye unka like Firestore mein save nahi ho sakta. Pehle `handleLike(vid.id, true)`
+  // call hota tha jo `user_posts/{vid.id}` document dhoondhta tha — jo exist nahi karta —
+  // aur `if (!postSnap.exists()) return;` se like silently fail ho jaata tha.
+  // Ab agar isYoutube=true hai toh hum sirf local state toggle karte hain (client-side).
+  const handleLike = async (id:string, isVideo:boolean = false, isYoutube:boolean = false) => {
     if (!user) return;
+    // YouTube/pixa videos — local-only like toggle (no Firestore, these aren't real posts)
+    if (isYoutube) {
+      setLikedPosts((p:any) => ({...p,[id]: !p[id]}));
+      return;
+    }
     const col = isVideo ? 'user_posts' : 'pulse_posts';
     const likeRef = doc(db, col, id, 'likes', user.uid);
     try {
       const likeSnap = await getDoc(likeRef);
       const postRef = doc(db, col, id);
       const postSnap = await getDoc(postRef);
-      if (!postSnap.exists()) return;
+      if (!postSnap.exists()) {
+        // FIX: Agar Firestore mein post nahi hai toh local toggle kar do (crash na ho)
+        setLikedPosts((p:any) => ({...p,[id]: !p[id]}));
+        return;
+      }
       const currentLikes = postSnap.data()?.likes || 0;
       if (likeSnap.exists()) {
         // User already liked — REMOVE the like (toggle off)
@@ -2657,7 +2822,11 @@ export function AJSuperPortal() {
         await updateDoc(postRef, { likes: currentLikes + 1 });
         setLikedPosts((p:any) => ({...p,[id]:true}));
       }
-    } catch(e) { console.error('handleLike firestore', e); }
+    } catch(e) {
+      console.error('handleLike firestore', e);
+      // FIX: Error aane par bhi local toggle kar do taaki UI respond kare
+      setLikedPosts((p:any) => ({...p,[id]: !p[id]}));
+    }
   };
 
   // Load like status for the current user on mount and when posts change
@@ -3260,6 +3429,41 @@ Tip: Social Hub se copy karo 📤`,
         />
       )}
 
+      {/* FIX (Hinglish): Profile Video Viewer — TikReels/Pulse profile grid mein
+          kisi video post par click karne se yeh full-screen video player khulta
+          hai (bilkul TikTok ki tarah). Ismein video play hoti hai, sound on/off
+          hota hai, aur close button se wapas aa jaate hain. */}
+      {profileVideoViewer && (
+        <div className="fixed inset-0 z-[9998] bg-black flex flex-col">
+          {/* Close button */}
+          <button
+            onClick={() => setProfileVideoViewer(null)}
+            className="absolute top-4 right-4 z-50 w-10 h-10 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center active:scale-90 transition-all"
+          >
+            <X size={20} className="text-white"/>
+          </button>
+          {/* Video player — fills the screen, plays with sound */}
+          <div className="flex-1 flex items-center justify-center relative">
+            <video
+              src={profileVideoViewer.url}
+              className="max-w-full max-h-full object-contain"
+              autoPlay
+              controls
+              playsInline
+              loop
+            />
+          </div>
+          {/* Caption if available */}
+          {profileVideoViewer.text && (
+            <div className="absolute bottom-8 left-4 right-16 z-20">
+              <p className="text-white font-black text-sm">@{username||'AJ_Member'}</p>
+              <p className="text-gray-300 text-xs mt-1">{profileVideoViewer.text}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+
       {/* ══════════════════════════════════════════════════════
           INTERSTITIAL AD OVERLAY — Visible video ad on card clicks
       ══════════════════════════════════════════════════════ */}
@@ -3651,7 +3855,9 @@ Tip: Social Hub se copy karo 📤`,
                   {pixaVideos.map((vid:any, idx:number) => {
                     const isActive = activeVideoIdx === idx;
                     // FIX #6: mute=0 when globalSoundOn, else mute=1; audio kill on scroll
-                    const embedSrc = `https://www.youtube.com/embed/${vid.id}?autoplay=${isActive?1:0}&mute=${(isActive && globalSoundOn)?0:1}&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3`;
+                    // FIX (Hinglish): enablejsapi=1 add kiya gaya hai taaki hum YouTube
+                    // iframe ko postMessage se pause/resume kar sakein (tap-to-pause ke liye).
+                    const embedSrc = `https://www.youtube.com/embed/${vid.id}?autoplay=${isActive?1:0}&mute=${(isActive && globalSoundOn)?0:1}&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3&enablejsapi=1`;
                     // AD INSERTION: Show video ad every 4th item (idx 0, 4, 8, 12...)
                     if (idx === 0 || (idx > 0 && idx % 4 === 0)) {
                       return (
@@ -3682,10 +3888,27 @@ Tip: Social Hub se copy karo 📤`,
                             </div>
                           </div>
                         )}
+                        {/* FIX (Hinglish): Tap-to-pause/resume overlay — YouTube iframe pe
+                            pointerEvents:'none' hai isliye hum ek invisible click overlay lagate
+                            hain jo tap pe video ko pause/resume karta hai. Right-side buttons
+                            (like/comment/share) z-20 mein hain aur e.stopPropagation karte hain
+                            isliye woh click yahan nahi aata. */}
+                        <div
+                          className="absolute inset-0 z-10"
+                          onClick={() => setReelPaused(p => !p)}
+                        />
+                        {/* Pause icon indicator — dikhata hai ki video paused hai */}
+                        {reelPaused && isActive && (
+                          <div className="absolute inset-0 z-15 flex items-center justify-center pointer-events-none">
+                            <div className="w-20 h-20 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center">
+                              <span className="text-white text-3xl">⏸</span>
+                            </div>
+                          </div>
+                        )}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none"/>
                         {/* Right actions */}
                         <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-20">
-                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); handleLike(vid.id, true); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); handleLike(vid.id, true, true); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center ${likedPosts[vid.id] ? 'bg-red-500/30' : 'bg-black/40 backdrop-blur-sm'}`}>
                               <Heart size={18} className={likedPosts[vid.id] ? 'text-red-400 fill-red-400' : 'text-white'}/>
                             </div>
@@ -3739,6 +3962,18 @@ Tip: Social Hub se copy karo 📤`,
                         {post.textOverlay && (
                           <div className="absolute top-1/3 left-0 right-0 flex justify-center z-20 pointer-events-none">
                             <span className="bg-black/60 backdrop-blur-sm text-white font-black text-lg px-4 py-2 rounded-2xl text-center">{post.textOverlay}</span>
+                          </div>
+                        )}
+                        {/* FIX (Hinglish): Tap-to-pause/resume overlay for user-uploaded videos */}
+                        <div
+                          className="absolute inset-0 z-10"
+                          onClick={() => setReelPaused(p => !p)}
+                        />
+                        {reelPaused && isActive && (
+                          <div className="absolute inset-0 z-15 flex items-center justify-center pointer-events-none">
+                            <div className="w-20 h-20 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center">
+                              <span className="text-white text-3xl">⏸</span>
+                            </div>
                           </div>
                         )}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none"/>
@@ -3890,12 +4125,48 @@ Tip: Social Hub se copy karo 📤`,
                         </div>
                       )}
                       {tikProfileMyPosts.map((post:any) => (
-                        <div key={post.id} className="relative aspect-square bg-white/5 overflow-hidden">
-                          {/* FIX: thumbnail fallback — post.image for videos, post.thumbnail if available */}
-                          {(post.thumbnail || post.image || post.videoUrl)
-                            ? <img src={post.thumbnail || post.image || (post.isVideo ? post.videoUrl + "#t=0.1" : post.videoUrl)} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}/>
-                            : <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">🎬</span></div>
-                          }
+                        <div
+                          key={post.id}
+                          className="relative aspect-square bg-white/5 overflow-hidden cursor-pointer active:scale-95 transition-all"
+                          onClick={() => {
+                            // FIX (Hinglish): Profile post par click karne se video open ho.
+                            // Agar video post hai toh full-screen video viewer khulta hai.
+                            const url = post.videoUrl || post.image;
+                            if (post.isVideo && url) {
+                              setProfileVideoViewer({ url, text: post.text || post.textOverlay });
+                            }
+                          }}
+                        >
+                          {/* FIX (Hinglish): Pehle thumbnail ke liye <img> use hota tha jismein
+                              video URL di jaati thi — <img> video frame render nahi kar sakta,
+                              isliye thumbnail blank / dikhta hi nahi tha. Ab video posts ke
+                              liye hum <video> element use karte hain jisse pehla frame as
+                              poster bilkul TikTok ki tarah dikhta hai. */}
+                          {post.isVideo ? (
+                            (post.thumbnail || post.videoUrl || post.image) ? (
+                              <video
+                                src={post.thumbnail || post.videoUrl || post.image}
+                                className="w-full h-full object-cover pointer-events-none"
+                                muted
+                                playsInline
+                                preload="metadata"
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">🎬</span></div>
+                            )
+                          ) : (
+                            (post.thumbnail || post.image || post.videoUrl)
+                              ? <img src={post.thumbnail || post.image || post.videoUrl} className="w-full h-full object-cover pointer-events-none" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}/>
+                              : <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">🎬</span></div>
+                          )}
+                          {/* Play icon overlay for video posts — makes it obvious it's a tap-to-open video */}
+                          {post.isVideo && (
+                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                              <div className="w-9 h-9 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center">
+                                <span className="text-white text-sm ml-0.5">▶</span>
+                              </div>
+                            </div>
+                          )}
                           {post.isVideo && <div className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5"><Film size={10} className="text-white"/></div>}
                           {/* Views count overlay — bottom left like TikTok */}
                           <div className="absolute bottom-1 left-1 bg-black/60 rounded-full px-1.5 py-0.5 flex items-center gap-0.5">
@@ -3984,6 +4255,14 @@ Tip: Social Hub se copy karo 📤`,
                           <div className="absolute inset-0 bg-gradient-to-br from-purple-900/50 to-pink-900/50"/>
                         )}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent pointer-events-none"/>
+                        {/* FIX (Hinglish): Pause indicator overlay for Pulse videos */}
+                        {reelPaused && isActive && (
+                          <div className="absolute inset-0 z-15 flex items-center justify-center pointer-events-none">
+                            <div className="w-20 h-20 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center">
+                              <span className="text-white text-3xl">⏸</span>
+                            </div>
+                          </div>
+                        )}
                         {/* Right actions — hide for Unsplash items */}
                         {!post.isUnsplash && (
                           <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-20">
@@ -4088,14 +4367,45 @@ Tip: Social Hub se copy karo 📤`,
                   </div>
                   <div className="grid grid-cols-3 gap-0.5 p-0.5">
                     {pulsePosts.filter((p:any) => p.uid===user?.uid).map((post:any) => (
-                      <div key={post.id} className="relative aspect-square bg-white/5 overflow-hidden">
-                        {(post.thumbnail || post.image || post.videoUrl)
-                          ? <>
-                              <img src={post.thumbnail || post.image || (post.isVideo ? post.videoUrl + "#t=0.1" : post.videoUrl)} className="w-full h-full object-cover"/>
-                              {post.isVideo && <div className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5"><Film size={8} className="text-white"/></div>}
-                            </>
-                          : <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">📝</span></div>
-                        }
+                      <div
+                        key={post.id}
+                        className="relative aspect-square bg-white/5 overflow-hidden cursor-pointer active:scale-95 transition-all"
+                        onClick={() => {
+                          const url = post.videoUrl || post.image;
+                          if (post.isVideo && url) {
+                            setProfileVideoViewer({ url, text: post.text || post.textOverlay });
+                          }
+                        }}
+                      >
+                        {post.isVideo ? (
+                          (post.thumbnail || post.videoUrl || post.image) ? (
+                            <video
+                              src={post.thumbnail || post.videoUrl || post.image}
+                              className="w-full h-full object-cover pointer-events-none"
+                              muted
+                              playsInline
+                              preload="metadata"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">📝</span></div>
+                          )
+                        ) : (
+                          (post.thumbnail || post.image || post.videoUrl)
+                            ? <img src={post.thumbnail || post.image || post.videoUrl} className="w-full h-full object-cover pointer-events-none" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}/>
+                            : <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">📝</span></div>
+                        )}
+                        {post.isVideo && (
+                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                            <div className="w-9 h-9 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center">
+                              <span className="text-white text-sm ml-0.5">▶</span>
+                            </div>
+                          </div>
+                        )}
+                        {post.isVideo && <div className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5"><Film size={10} className="text-white"/></div>}
+                        <div className="absolute bottom-1 left-1 bg-black/60 rounded-full px-1.5 py-0.5 flex items-center gap-0.5">
+                          <Eye size={8} className="text-white"/>
+                          <span className="text-white text-[8px] font-black">{formatViews(post.views||0)}</span>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -4566,22 +4876,82 @@ Tip: Social Hub se copy karo 📤`,
                   {/* Posts Grid */}
                   <div className="mt-4 grid grid-cols-3 gap-0.5 p-0.5">
                     {profilePosts.map((post:any) => (
-                      <div key={post.id} className="relative aspect-square bg-white/5 overflow-hidden">
-                        {(post.thumbnail || post.image || post.videoUrl)
-                          ? <img src={post.thumbnail || post.image || (post.isVideo ? post.videoUrl + "#t=0.1" : post.videoUrl)} className="w-full h-full object-cover"/>
-                          : <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">📝</span></div>
-                        }
+                      <div
+                        key={post.id}
+                        className="relative aspect-square bg-white/5 overflow-hidden cursor-pointer active:scale-95 transition-all"
+                        onClick={() => {
+                          const url = post.videoUrl || post.image;
+                          if (post.isVideo && url) {
+                            setProfileVideoViewer({ url, text: post.text || post.textOverlay });
+                          }
+                        }}
+                      >
+                        {post.isVideo ? (
+                          (post.thumbnail || post.videoUrl || post.image) ? (
+                            <video
+                              src={post.thumbnail || post.videoUrl || post.image}
+                              className="w-full h-full object-cover pointer-events-none"
+                              muted
+                              playsInline
+                              preload="metadata"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">📝</span></div>
+                          )
+                        ) : (
+                          (post.thumbnail || post.image || post.videoUrl)
+                            ? <img src={post.thumbnail || post.image || post.videoUrl} className="w-full h-full object-cover pointer-events-none" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}/>
+                            : <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">📝</span></div>
+                        )}
+                        {post.isVideo && (
+                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                            <div className="w-9 h-9 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center">
+                              <span className="text-white text-sm ml-0.5">▶</span>
+                            </div>
+                          </div>
+                        )}
+                        {post.isVideo && <div className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5"><Film size={10} className="text-white"/></div>}
+                        <div className="absolute bottom-1 left-1 bg-black/60 rounded-full px-1.5 py-0.5 flex items-center gap-0.5">
+                          <Eye size={8} className="text-white"/>
+                          <span className="text-white text-[8px] font-black">{formatViews(post.views||0)}</span>
+                        </div>
                       </div>
                     ))}
                     {profileVideos.map((vid:any) => (
-                      <div key={vid.id} className="relative aspect-square bg-white/5 overflow-hidden">
+                      <div
+                        key={vid.id}
+                        className="relative aspect-square bg-white/5 overflow-hidden cursor-pointer active:scale-95 transition-all"
+                        onClick={() => {
+                          const url = vid.videoUrl || vid.image;
+                          if (vid.isVideo && url) {
+                            setProfileVideoViewer({ url, text: vid.text || vid.textOverlay });
+                          }
+                        }}
+                      >
                         {(vid.thumbnail || vid.videoUrl || vid.image)
                           ? <>
-                              <img src={vid.thumbnail || (vid.isVideo ? vid.videoUrl + "#t=0.1" : vid.videoUrl) || vid.image} className="w-full h-full object-cover"/>
-                              <div className="absolute inset-0 flex items-center justify-center bg-black/20"><div className="w-6 h-6 rounded-full bg-white/30 flex items-center justify-center"><span className="text-white text-[10px]">▶</span></div></div>
+                              {vid.isVideo ? (
+                                <video
+                                  src={vid.thumbnail || vid.videoUrl || vid.image}
+                                  className="w-full h-full object-cover pointer-events-none"
+                                  muted
+                                  playsInline
+                                  preload="metadata"
+                                />
+                              ) : (
+                                <img src={vid.thumbnail || vid.image || vid.videoUrl} className="w-full h-full object-cover pointer-events-none" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}/>
+                              )}
+                              {vid.isVideo && (
+                                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                  <div className="w-9 h-9 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center">
+                                    <span className="text-white text-sm ml-0.5">▶</span>
+                                  </div>
+                                </div>
+                              )}
                             </>
                           : <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">🎬</span></div>
                         }
+                        {vid.isVideo && <div className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5"><Film size={10} className="text-white"/></div>}
                         {vid.views >= 0 && (
                           <div className="absolute bottom-1 left-1 bg-black/60 rounded-full px-1.5 py-0.5 flex items-center gap-0.5">
                             <Eye size={8} className="text-white"/>
