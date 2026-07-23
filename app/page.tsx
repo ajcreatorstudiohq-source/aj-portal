@@ -85,15 +85,26 @@ const AGORA_APP_ID             = "7863c5369b3648bf931893a52ebaa6db";
 const AGORA_APP_CERTIFICATE    = "dc66528c5a5646da8e3ce5d2426759af";
 const VAPID_KEY                = "BMaPMtGtA2VtDsj_JH_yv5dOv66Mpguf9v4TkqY96dcS-gwqgs-r5OlqRJQmZbNkaj-7_iMFbGGN0Qc4xH0qvKg";
 // ============================================================
-// 🔑 MONETAG ZONE IDs — KAL YAHAN NAYE ZONE IDs REPLACE KARNE HAIN!
-// Monetag dashboard → Sites → Ad Zones → har ad type ka Zone ID copy karke
-// yahan paste kar do. Tag script (tag.min.js) pehle se set hai.
+// 🔑 MONETAG REAL AD ZONE IDs — User ke real tags se set kiye gaye!
+// Monetag dashboard se mila: har ad type ka apna zone ID + tag URL
 // ============================================================
-// MONETAG SDK TAG URL (Monetag dashboard → Integration tab mein milega)
-const MONETAG_TAG_URL = 'https://nap5k.com/tag.min.js';  // ← KAL change kar sakte ho
-// Monetag Zone IDs (KAL naye IDs se replace kar dena):
-const MONETAG_PULSE_BANNER     = 11337197;   // ← Pulse feed banner ad zone
-const MONETAG_INTERSTITIAL     = 11349676;   // ← TikReels full-screen interstitial ad zone
+// Interstitial Ad (full-screen, TikReels feed mein har 4th video par)
+const MONETAG_INTERSTITIAL     = 11377822;   // Real zone ID — https://nap5k.com/tag.min.js
+// Banner Ad (Pulse feed mein)
+const MONETAG_PULSE_BANNER     = 11377812;   // Real zone ID — https://al5sm.com/tag.min.js
+// Vignette Ad (overlay style)
+const MONETAG_VIGNETTE        = 11377830;   // Real zone ID — https://n6wxm.com/vignette.min.js
+// Additional zone (quge5)
+const MONETAG_QUGE5           = 262912;     // Real zone ID — https://quge5.com/88/tag.min.js
+// Tag URLs per zone (Monetag SDK loads from these)
+const MONETAG_TAG_URLS: Record<number, string> = {
+  11377822: 'https://nap5k.com/tag.min.js',    // Interstitial
+  11377812: 'https://al5sm.com/tag.min.js',     // Banner
+  11377830: 'https://n6wxm.com/vignette.min.js', // Vignette
+  262912:   'https://quge5.com/88/tag.min.js',  // Quge5
+};
+// Default tag URL (fallback)
+const MONETAG_TAG_URL = 'https://nap5k.com/tag.min.js';
 const PULSE_AD_VIDEO_ID        = 'aqz-KE-bpKQ';
 const NOWPAYMENTS_IPN_SECRET   = '9eeeBo6K1ljJSQtUCb1Up88Gv6n1AreU';
 const MONETAG_WECHAT_SPONSOR   = 11337185;
@@ -225,6 +236,14 @@ const handleStartLiveOrCall = (roomID: string, currentUserId: string, currentUse
       console.error('video-container not found');
       return;
     }
+    // FIX ROUND 5: ZegoCloud container mein explicit dimensions set karte hain
+    // taaki SDK ko properly render mile — "This page could not load" error
+    // isliye aata tha kyunki container kabhi 0x0 size ka tha jab SDK attach hota tha.
+    if (container) {
+      (container as HTMLElement).style.width = '100%';
+      (container as HTMLElement).style.height = '100%';
+      (container as HTMLElement).style.minHeight = '220px';
+    }
     zp.joinRoom({
       container,
       // LiveStreaming mode with Host role — ZegoCloud handles camera/mic permissions itself
@@ -235,8 +254,6 @@ const handleStartLiveOrCall = (roomID: string, currentUserId: string, currentUse
         },
       },
       // FIX: Use the correct parameter names from ZegoCloud SDK docs
-      // turnOnCameraWhenJoining / turnOnMicrophoneWhenJoining are the correct keys
-      // (NOT turnOnCamera / turnOnMicrophone which are invalid and get ignored)
       turnOnCameraWhenJoining: true,
       turnOnMicrophoneWhenJoining: true,
       useFrontFacingCamera: true,
@@ -251,8 +268,6 @@ const handleStartLiveOrCall = (roomID: string, currentUserId: string, currentUse
       onJoinRoom: () => {
         // Camera and mic are active now — ZegoCloud SDK has acquired them successfully
         console.log('ZegoCloud room joined — camera & mic active');
-        // FIX ROUND 4: ZegoCloud attach ho gaya — local preview hide kar do
-        // aur ZegoCloud ka UI dikhne do. Ab black screen nahi aayega.
         if (onAttached) onAttached();
       },
       onLeaveRoom: () => {
@@ -484,7 +499,8 @@ function ensureMonetagSdkLoaded(zoneId: number): void {
     sdkScript.async = true;
     sdkScript.setAttribute('data-zone', String(zoneId));
     sdkScript.setAttribute('data-sdk', `show_${zoneId}`);
-    sdkScript.src = MONETAG_TAG_URL;
+    // FIX ROUND 5: Per-zone tag URL use karo (har zone ka apna URL hai)
+    sdkScript.src = MONETAG_TAG_URLS[zoneId] || MONETAG_TAG_URL;
     document.head.appendChild(sdkScript);
     monetagSdkLoadedZones.add(zoneId);
   } catch {}
@@ -898,9 +914,49 @@ function IncomingCallOverlay({
 }
 
 // ============================================================
-// GLASSMORPHISM FOOTER — AJ CREATOR STUDIO
+// GLASSMORPHISM FOOTER — AJ CREATOR STUDIO (with Install / Web to APK button)
 // ============================================================
+// FIX ROUND 5: Pehle footer mein "Install" button nahi tha. Ab `beforeinstallprompt`
+// event capture kar ke install button dikhate hain (Web to APK / Add to Home Screen).
+// Android Chrome: beforeinstallprompt event fire hota hai → Install button dikhata hai
+// iOS Safari: beforeinstallprompt support nahi karta → "Add to Home Screen" instructions
 function AJFooter() {
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showInstallBtn, setShowInstallBtn] = useState(false);
+  const [showIosInstructions, setShowIosInstructions] = useState(false);
+
+  // FIX ROUND 5: beforeinstallprompt event listener — install button show karne ke liye
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handler = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setShowInstallBtn(true);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    // iOS Safari check — beforeinstallprompt nahi support karta
+    const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true;
+    if (isIos && !isStandalone) {
+      setShowIosInstructions(true);
+    }
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      try {
+        await deferredPrompt.userChoice;
+      } catch {}
+      setDeferredPrompt(null);
+      setShowInstallBtn(false);
+    } else {
+      // Fallback — iOS instructions dikhao
+      setShowIosInstructions(true);
+    }
+  };
+
   return (
     <footer
       className="w-full mt-8 px-4 pb-8"
@@ -922,6 +978,34 @@ function AJFooter() {
         <div className="h-[1.5px] w-full bg-gradient-to-r from-pink-500/60 via-cyan-400/60 to-purple-500/60"/>
 
         <div className="p-6 space-y-6">
+
+          {/* FIX ROUND 5: Install / Web to APK Button */}
+          {(showInstallBtn || showIosInstructions) && (
+            <div className="flex flex-col items-center gap-3">
+              <button
+                onClick={handleInstallClick}
+                className="w-full max-w-sm py-4 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all shadow-[0_0_24px_rgba(236,72,153,0.4)] flex items-center justify-center gap-2"
+                style={{ background: 'linear-gradient(135deg,#ec4899,#8b5cf6)' }}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                {showInstallBtn ? 'Install App' : 'Add to Home Screen'}
+              </button>
+              {showIosInstructions && (
+                <div className="w-full max-w-sm bg-white/5 border border-white/10 rounded-2xl p-4 text-center">
+                  <p className="text-white text-xs font-black mb-2">📱 iOS Install Instructions:</p>
+                  <p className="text-gray-400 text-[10px] leading-relaxed">
+                    1. Tap the <span className="text-pink-400 font-bold">Share</span> button (⬆️) in Safari<br/>
+                    2. Select <span className="text-pink-400 font-bold">"Add to Home Screen"</span><br/>
+                    3. Tap <span className="text-pink-400 font-bold">"Add"</span> — App icon will appear on your home screen!
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Founder Section — ENLARGED */}
           <div className="flex flex-col items-center gap-4">
@@ -1439,19 +1523,35 @@ export function AJSuperPortal() {
     return () => {};
   }, [socialScreen, activeContact, commentPostId]);
 
-  // FIX ROUND 3: Jab comment sheet khulta hai (commentPostId set hota hai),
-  // toh input ko focus karo taaki mobile pe keyboard khul jaaye.
-  // Pehle autoFocus hata diya tha + ref callback mein setTimeout use karte the
-  // jo mobile pe reliable nahi tha. Ab dedicated useEffect + ref se focus kar rahe hain.
+  // FIX ROUND 5: Comment keyboard open nahi ho raha tha — ab proper fix.
+  // Mobile pe input focus karne ke liye multiple strategies use karte hain:
+  // 1. Delay focus until DOM is ready (200ms)
+  // 2. Use both focus() and click() — some mobile browsers need click() to open keyboard
+  // 3. Set readonly=false after focus (iOS trick to force keyboard)
+  // 4. Also handle touchend event to focus on tap
   useEffect(() => {
-    if (commentPostId && commentInputRef.current) {
-      const t = setTimeout(() => {
-        commentInputRef.current?.focus();
-        commentInputRef.current?.click();
-        try { commentInputRef.current?.setAttribute('autofocus', 'true'); } catch {}
-      }, 150);
-      return () => clearTimeout(t);
-    }
+    if (!commentPostId) return;
+    // Wait for the comment sheet to render
+    const t = setTimeout(() => {
+      const input = commentInputRef.current;
+      if (!input) return;
+      // iOS: Set readonly, focus, then remove readonly
+      try {
+        input.setAttribute('readonly', 'true');
+        input.focus();
+        input.click();
+        // Remove readonly after a tiny delay
+        setTimeout(() => {
+          input.removeAttribute('readonly');
+          input.focus();
+          input.click();
+        }, 50);
+      } catch {
+        input.focus();
+        input.click();
+      }
+    }, 200);
+    return () => clearTimeout(t);
   }, [commentPostId]);
 
   useEffect(() => {
@@ -2063,6 +2163,11 @@ export function AJSuperPortal() {
       await loadZegoScript();
       if (typeof (window as any).ZegoUIKitPrebuilt === 'undefined') {
         setVvipAlert({msg:"⚠️ Live streaming SDK failed to load. Check your internet connection and try again."});
+        return;
+      }
+      // FIX ROUND 5: ZegoCloud SDK loaded check — generateKitTokenForTest verify
+      if (typeof (window as any).ZegoUIKitPrebuilt.generateKitTokenForTest !== 'function') {
+        setVvipAlert({msg:"⚠️ Live SDK not ready. Please reload the page and try again."});
         return;
       }
       setCameraReady(true);
@@ -2729,32 +2834,71 @@ export function AJSuperPortal() {
     } catch(e) { console.error('sendChatMessage', e); }
   };
 
-  // FIX #8: handlePhotoUpdate — uploads to Firebase Storage AND updates Firestore photoURL
+  // FIX ROUND 5: handlePhotoUpdate — same 3-layer fallback as handleDpUpdate
   const handlePhotoUpdate = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || !e.target.files[0] || !user) return;
     setLoading(10);
     const file = e.target.files[0];
-    // Try Firebase Storage first, fallback to Cloudinary
-    let url = await uploadToFirebaseStorage(file, user.uid);
-    if (!url) url = await uploadToCloudinary(file);
+    let url = '';
+    try { url = await uploadToFirebaseStorage(file, user.uid); } catch {}
+    if (!url) { try { url = await uploadToCloudinary(file); } catch {} }
+    if (!url) {
+      // Base64 fallback
+      url = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => resolve('');
+        reader.readAsDataURL(file);
+      });
+    }
     if (url) {
-      await updateDoc(doc(db, "users", user.uid), { photo: url, photoURL: url });
       setTempPhoto(url);
+      try { await updateDoc(doc(db, "users", user.uid), { photo: url, photoURL: url }); } catch {}
     }
     setLoading(0);
   };
 
-  // FIX #8: handleDpUpdate — dedicated neon pink + button handler
+  // FIX ROUND 5: handleDpUpdate — DP upload nahi ho raha tha.
+  // 3-layer fallback: Firebase Storage → Cloudinary → base64 data URL
   const handleDpUpdate = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || !e.target.files[0] || !user) return;
     setLoading(20);
     const file = e.target.files[0];
-    let url = await uploadToFirebaseStorage(file, user.uid);
-    if (!url) url = await uploadToCloudinary(file);
+    console.log('handleDpUpdate: file selected', file.name, file.type, file.size);
+    let url = '';
+    // Layer 1: Firebase Storage
+    try {
+      url = await uploadToFirebaseStorage(file, user.uid);
+      if (url) console.log('handleDpUpdate: Firebase Storage upload success');
+    } catch (err) { console.error('handleDpUpdate: Firebase Storage failed', err); }
+    // Layer 2: Cloudinary
+    if (!url) {
+      try {
+        url = await uploadToCloudinary(file);
+        if (url) console.log('handleDpUpdate: Cloudinary upload success');
+      } catch (err) { console.error('handleDpUpdate: Cloudinary failed', err); }
+    }
+    // Layer 3: Base64 data URL (last resort — at least local DP change ho jaayega)
+    if (!url) {
+      console.log('handleDpUpdate: Both uploads failed, using base64 fallback');
+      url = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => resolve('');
+        reader.readAsDataURL(file);
+      });
+    }
     if (url) {
-      await updateDoc(doc(db, "users", user.uid), { photo: url, photoURL: url });
       setTempPhoto(url);
+      try {
+        await updateDoc(doc(db, "users", user.uid), { photo: url, photoURL: url });
+        console.log('handleDpUpdate: Firestore updated');
+      } catch (err) {
+        console.error('handleDpUpdate: Firestore update failed (non-fatal)', err);
+      }
       setVvipAlert({msg:"✅ Profile picture updated!",icon:"📸"});
+    } else {
+      setVvipAlert({msg:"⚠️ Could not upload photo. Please try again."});
     }
     setLoading(0);
   };
@@ -5044,7 +5188,7 @@ Tip: Social Hub se copy karo 📤`,
 
               {/* Shared Comment Sheet — works for TikReels AND Pulse */}
               {commentPostId && (
-                <div className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end" onClick={(e) => { if (e.target === e.currentTarget) { setCommentPostId(null); setPostComments([]); } }}>
+                <div className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end">
                   <div className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl p-6 max-h-[70vh] flex flex-col">
                     <div className="flex items-center justify-between mb-4">
                       <p className="text-sm font-black text-white">💬 Comments</p>
@@ -5073,10 +5217,14 @@ Tip: Social Hub se copy karo 📤`,
                         placeholder="Add a comment…"
                         inputMode="text"
                         autoCapitalize="sentences"
-                        className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-3 py-2 text-white text-xs focus:outline-none focus:border-pink-500/50"
-                        style={{ touchAction: 'manipulation', fontSize: '16px', WebkitAppearance: 'none', appearance: 'none' }}
+                        autoComplete="off"
+                        spellCheck={false}
+                        className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-3 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"
+                        style={{ touchAction: 'manipulation', fontSize: '16px', WebkitAppearance: 'none', appearance: 'none', minHeight: '44px' }}
                         onKeyDown={e => e.key==='Enter' && submitComment()}
                         ref={commentInputRef}
+                        onClick={(e) => { e.stopPropagation(); e.currentTarget.focus(); }}
+                        onTouchStart={(e) => { e.stopPropagation(); }}
                       />
                       <button onClick={submitComment} className="w-10 h-10 bg-pink-600 rounded-2xl flex items-center justify-center active:scale-90 transition-all shadow-[0_0_12px_rgba(236,72,153,0.4)]">
                         <Send size={14} className="text-white"/>
