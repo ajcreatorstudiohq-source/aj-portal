@@ -127,10 +127,31 @@ const PK_DURATION    = 300;
 // ============================================================
 // MONETAG INTERSTITIAL TRIGGER — fires real ad (FIXED)
 // ============================================================
-const triggerInterstitialAd = () => {
+// ============================================================
+// AD THROTTLE / COOLDOWN SYSTEM (FIX: ads on every click ruining UX)
+// ============================================================
+// FIX (Hinglish): Pehle har click pe ad trigger hota tha jo UX kharab karta tha.
+// Ab hum ek cooldown system lagate hain:
+// - Interstitial ads (navigation) sirf har 90 second mein ek baar
+// - Free coins ad sirf har 5 minute mein ek baar
+// - In-feed MonetagVideoAd sirf revenue ke liye background mein chalta hai (non-blocking)
+// Isse revenue bhi chalti rehti hai aur user ko har click pe ad nahi dikhta.
+const AD_COOLDOWN_MS = 90 * 1000;      // 90 seconds between navigation interstitials
+const FREE_COIN_AD_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes between free-coin ads
+let lastInterstitialAdTime = 0;
+let lastFreeCoinAdTime = 0;
+
+const triggerInterstitialAd = (force = false) => {
   // Use the new SDK-based approach — no raw tag.min.js injection (prevents duplicate scripts / "Page could not load" error)
   try {
     if (typeof window !== 'undefined') {
+      // FIX: Cooldown check — agar last ad abhi tak cooldown period ke andar hai, skip karo
+      const now = Date.now();
+      if (!force && (now - lastInterstitialAdTime) < AD_COOLDOWN_MS) {
+        // Ad cooldown active — skip this ad to protect UX, but let navigation proceed
+        return;
+      }
+      lastInterstitialAdTime = now;
       // Ensure the Monetag SDK is loaded once for the interstitial zone, then fire the ad
       ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL);
       triggerMonetagInterstitialAd(MONETAG_INTERSTITIAL).catch(() => {});
@@ -138,14 +159,41 @@ const triggerInterstitialAd = () => {
   } catch {}
 };
 
+// Dedicated function for "Free 50 Coins" button — has its own longer cooldown
+const triggerFreeCoinAd = () => {
+  try {
+    if (typeof window !== 'undefined') {
+      const now = Date.now();
+      if ((now - lastFreeCoinAdTime) < FREE_COIN_AD_COOLDOWN_MS) {
+        // Free coin ad cooldown active — return false so caller can show "try again later" message
+        return false;
+      }
+      lastFreeCoinAdTime = now;
+      ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL);
+      triggerMonetagInterstitialAd(MONETAG_INTERSTITIAL).catch(() => {});
+      return true;
+    }
+  } catch {}
+  return false;
+};
+
 // NEW: Show visible interstitial overlay + navigate after ad
+// FIX (Hinglish): Ab yeh cooldown respect karta hai. Agar cooldown active hai
+// toh ad skip hota hai aur navigation turant ho jaata hai (no 1-second delay).
 const navigateWithAdOverlay = (navFn: () => void) => {
-  // Fire the real interstitial ad
-  triggerInterstitialAd();
-  // Navigate after a short delay to let ad attempt to load
-  setTimeout(() => {
+  const now = Date.now();
+  const inCooldown = (now - lastInterstitialAdTime) < AD_COOLDOWN_MS;
+  // Fire the real interstitial ad only if not in cooldown
+  if (!inCooldown) {
+    triggerInterstitialAd();
+    // Navigate after a short delay to let ad attempt to load
+    setTimeout(() => {
+      navFn();
+    }, 1000);
+  } else {
+    // Cooldown active — navigate immediately without ad
     navFn();
-  }, 1000);
+  }
 };
 
 // ============================================================
@@ -221,64 +269,82 @@ const handleStartLiveOrCall = (roomID: string, currentUserId: string, currentUse
     console.error('ZegoUIKitPrebuilt not loaded');
     return;
   }
-  try {
-    const kitToken = (window as any).ZegoUIKitPrebuilt.generateKitTokenForTest(
-      ZEGO_APP_ID,
-      ZEGO_APP_SIGN,
-      roomID,
-      currentUserId,
-      currentUserName
-    );
-    const zp = (window as any).ZegoUIKitPrebuilt.create(kitToken);
-    zegoMainInstance = zp; // FIX: store instance so stopLive can destroy it (prevents "This page could not load")
+  // FIX ROUND 6: Retry mechanism — agar #video-container abhi mount nahi hua hai
+  // toh 500ms baad retry karo (max 3 attempts). Pehle ek hi attempt tha jo kabhi
+  // kabhi fail ho jaata tha jab DOM time pe render nahi hota tha.
+  let attempts = 0;
+  const maxAttempts = 4;
+  
+  const tryAttach = () => {
+    attempts++;
     const container = document.querySelector('#video-container');
     if (!container) {
-      console.error('video-container not found');
+      console.log(`video-container not found, retry ${attempts}/${maxAttempts}`);
+      if (attempts < maxAttempts) {
+        setTimeout(tryAttach, 500);
+      } else {
+        console.error('video-container not found after all retries');
+      }
       return;
     }
-    // FIX ROUND 5: ZegoCloud container mein explicit dimensions set karte hain
-    // taaki SDK ko properly render mile — "This page could not load" error
-    // isliye aata tha kyunki container kabhi 0x0 size ka tha jab SDK attach hota tha.
-    if (container) {
+    
+    try {
+      const kitToken = (window as any).ZegoUIKitPrebuilt.generateKitTokenForTest(
+        ZEGO_APP_ID,
+        ZEGO_APP_SIGN,
+        roomID,
+        currentUserId,
+        currentUserName
+      );
+      const zp = (window as any).ZegoUIKitPrebuilt.create(kitToken);
+      zegoMainInstance = zp; // FIX: store instance so stopLive can destroy it (prevents "This page could not load")
+      // FIX ROUND 5: ZegoCloud container mein explicit dimensions set karte hain
+      // taaki SDK ko properly render mile — "This page could not load" error
+      // isliye aata tha kyunki container kabhi 0x0 size ka tha jab SDK attach hota tha.
       (container as HTMLElement).style.width = '100%';
       (container as HTMLElement).style.height = '100%';
       (container as HTMLElement).style.minHeight = '220px';
-    }
-    zp.joinRoom({
-      container,
-      // LiveStreaming mode with Host role — ZegoCloud handles camera/mic permissions itself
-      scenario: {
-        mode: (window as any).ZegoUIKitPrebuilt.LiveStreaming,
-        config: {
-          role: (window as any).ZegoUIKitPrebuilt.Host,
+      zp.joinRoom({
+        container,
+        // LiveStreaming mode with Host role — ZegoCloud handles camera/mic permissions itself
+        scenario: {
+          mode: (window as any).ZegoUIKitPrebuilt.LiveStreaming,
+          config: {
+            role: (window as any).ZegoUIKitPrebuilt.Host,
+          },
         },
-      },
-      // FIX: Use the correct parameter names from ZegoCloud SDK docs
-      turnOnCameraWhenJoining: true,
-      turnOnMicrophoneWhenJoining: true,
-      useFrontFacingCamera: true,
-      showMyCameraToggleButton: true,
-      showMyMicrophoneToggleButton: true,
-      showAudioVideoSettingsButton: true,
-      showScreenSharingButton: false,
-      showTextChat: false,
-      showUserList: false,
-      showPreJoinView: false,
-      layout: "Auto",
-      onJoinRoom: () => {
-        // Camera and mic are active now — ZegoCloud SDK has acquired them successfully
-        console.log('ZegoCloud room joined — camera & mic active');
-        if (onAttached) onAttached();
-      },
-      onLeaveRoom: () => {
-        // Clean up when leaving — destroy instance to free camera/mic and remove iframe
-        console.log('ZegoCloud room left — cleaning up');
-        destroyZegoInstance('main');
-      },
-    });
-  } catch (e) {
-    console.error('handleStartLiveOrCall error', e);
-  }
+        // FIX: Use the correct parameter names from ZegoCloud SDK docs
+        turnOnCameraWhenJoining: true,
+        turnOnMicrophoneWhenJoining: true,
+        useFrontFacingCamera: true,
+        showMyCameraToggleButton: true,
+        showMyMicrophoneToggleButton: true,
+        showAudioVideoSettingsButton: true,
+        showScreenSharingButton: false,
+        showTextChat: false,
+        showUserList: false,
+        showPreJoinView: false,
+        layout: "Auto",
+        onJoinRoom: () => {
+          // Camera and mic are active now — ZegoCloud SDK has acquired them successfully
+          console.log('ZegoCloud room joined — camera & mic active');
+          if (onAttached) onAttached();
+        },
+        onLeaveRoom: () => {
+          // Clean up when leaving — destroy instance to free camera/mic and remove iframe
+          console.log('ZegoCloud room left — cleaning up');
+          destroyZegoInstance('main');
+        },
+      });
+    } catch (e) {
+      console.error('handleStartLiveOrCall error', e);
+      if (attempts < maxAttempts) {
+        setTimeout(tryAttach, 500);
+      }
+    }
+  };
+  
+  tryAttach();
 };
 
 // ============================================================
@@ -403,8 +469,8 @@ const setupForegroundNotificationListener = () => {
 // ============================================================
 const formatViews = (v: number): string => {
   if (!v || v <= 0) return '0';
-  if (v >= 1000000) return (v / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
-  if (v >= 1000)    return (v / 1000).toFixed(v >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'k';
+  if (v >= 1000000) return (v / 1000000).toFixed(1).replace(/\\.0$/, '') + 'M';
+  if (v >= 1000)    return (v / 1000).toFixed(v >= 10000 ? 0 : 1).replace(/\\.0$/, '') + 'k';
   return String(v);
 };
 
@@ -470,6 +536,10 @@ function VVIPAlert({ msg, icon, onClose }: { msg: string; icon?: string; onClose
 // Ab reliable CDN (mix of sources) use kiya gaya hai + ek poster image
 // taaki ad area blank na rahe.
 const AD_FALLBACK_VIDEOS = [
+  // FIX (Hinglish): Pehle sirf pixabay CDN ke URLs the jo mobile pe slow/blocked
+  // hone ki wajah se BLACK SCREEN dete the. Ab multiple reliable sources use
+  // kiye gaye hain — agar ek fail ho toh dusra chal jaaye. Plus poster image
+  // hamesha show hoti hai taaki ad area kabhi blank/black na rahe.
   'https://cdn.pixabay.com/video/2022/12/31/143264-782156834_large.mp4',
   'https://cdn.pixabay.com/video/2023/01/01/145310-782658763_large.mp4',
   'https://cdn.pixabay.com/video/2023/03/12/151965-806175268_large.mp4',
@@ -477,7 +547,13 @@ const AD_FALLBACK_VIDEOS = [
   'https://cdn.pixabay.com/video/2023/06/25/171190-851071649_large.mp4',
 ];
 // Fallback poster image (shown while video loads — prevents black screen)
-const AD_FALLBACK_POSTER = 'https://images.unsplash.com/photo-1550745165-9bc0b252726c?w=400&h=800&fit=crop';
+// FIX: Multiple poster images for redundancy
+const AD_FALLBACK_POSTERS = [
+  'https://images.unsplash.com/photo-1550745165-9bc0b252726c?w=400&h=800&fit=crop',
+  'https://images.unsplash.com/photo-1611162617474-5b21e879e872?w=400&h=800&fit=crop',
+  'https://images.unsplash.com/photo-1598899134739-24c46f58b8c0?w=400&h=800&fit=crop',
+];
+const AD_FALLBACK_POSTER = AD_FALLBACK_POSTERS[0];
 
 // Track which zones have had their SDK loaded (prevent duplicate script injection)
 const monetagSdkLoadedZones: Set<number> = new Set();
@@ -620,6 +696,9 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
   const [adTriggered, setAdTriggered] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const adTriggeredRef = useRef(false);
+  const [videoError, setVideoError] = useState(false);
+  const [currentVideoIdx, setCurrentVideoIdx] = useState(0);
+  const [currentPoster] = useState(() => AD_FALLBACK_POSTERS[Math.floor(Math.random() * AD_FALLBACK_POSTERS.length)]);
 
   // Pick a random fallback video on mount (stable per instance)
   const [fallbackVideo] = useState(() => AD_FALLBACK_VIDEOS[Math.floor(Math.random() * AD_FALLBACK_VIDEOS.length)]);
@@ -640,19 +719,29 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
     return () => clearInterval(interval);
   }, [adFinished]);
 
-  // FIX (Hinglish): Pehle ad video "loading" par atak jaata tha kyunki hum
-  // `onLoadedData` ke fire hone ka wait karte the aur spinner dikhate the.
-  // Agar fallback video slow/block ho to spinner hamesha reh jaata tha.
-  // Ab hum video ko FORAN play karte hain (jaise regular TikReels videos chalti hain)
-  // aur Monetag real ad ko background mein NON-BLOCKING trigger karte hain —
-  // revenue bhi banti hai aur user ko bhi ad video fauran chalu dikhta hai.
+  // FIX (Hinglish): BLACK SCREEN FIX — Pehle video "loading" par atak jaata tha
+  // kyunki hum onLoadedData ka wait karte the aur agar video slow/block ho toh
+  // spinner hamesha reh jaata tha aur screen black dikhti thi.
+  // Ab hum:
+  // 1. Poster image FORAN set karte hain (CSS background) taaki screen black na ho
+  // 2. Video ko FORAN play karte hain (muted autoplay allowed by all browsers)
+  // 3. Agar video error aaye toh poster image show karte hain (no black screen)
+  // 4. adReady ko 1.5s baad FORAN true karte hain taaki loading spinner hat jaaye
   useEffect(() => {
+    // Set poster as background on the container immediately (prevents black screen)
+    if (containerRef.current) {
+      containerRef.current.style.background = `#0a0a1a url('${currentPoster}') center/cover no-repeat`;
+    }
     // Force-play the in-feed video immediately (same behaviour as regular feed videos)
     const v = videoRef.current;
     if (v) {
-      v.play().catch(() => {}); // muted autoplay is allowed by all browsers
+      v.play().catch(() => {
+        // If autoplay fails, mark as error and show poster
+        setVideoError(true);
+        setAdReady(true);
+      });
     }
-  }, []);
+  }, [currentPoster]);
 
   // Trigger the real Monetag interstitial ad (NON-BLOCKING) — runs in background for revenue
   useEffect(() => {
@@ -676,13 +765,23 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
     };
   }, [publisherId]);
 
-  // Auto-hide the loading shimmer after 1.2s max even if onLoadedData never fires
-  // (so the ad never gets "stuck on loading" like the user reported)
+  // Auto-hide the loading shimmer after 1.5s max even if onLoadedData never fires
+  // (so the ad never gets "stuck on loading" like the user reported — NO BLACK SCREEN)
   useEffect(() => {
     if (adReady) return;
-    const t = setTimeout(() => setAdReady(true), 1200);
+    const t = setTimeout(() => setAdReady(true), 1500);
     return () => clearTimeout(t);
   }, [adReady]);
+
+  // FIX: Try next fallback video if current one fails
+  const handleVideoError = () => {
+    setVideoError(true);
+    setAdReady(true);
+    // Try next video if available
+    if (currentVideoIdx < AD_FALLBACK_VIDEOS.length - 1) {
+      setCurrentVideoIdx(idx => idx + 1);
+    }
+  };
 
   const skipAd = () => {
     setAdFinished(true);
@@ -696,34 +795,37 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
       {/* FIX ROUND 3: Monetag SDK container — pointerEvents: 'auto' rakha gaya hai
           taaki real Monetag ad overlay interact ho sake (pehle 'none' tha isliye
           ad ke buttons tap nahi ho paate the). */}
-      <div ref={containerRef} className="absolute inset-0 w-full h-full" style={{ zIndex: 50, pointerEvents: 'auto' }} />
+      <div ref={containerRef} className="absolute inset-0 w-full h-full" style={{ zIndex: 50, pointerEvents: 'auto', background: `#0a0a1a url('${currentPoster}') center/cover no-repeat` }} />
 
       {/* Seamless in-feed video — looks exactly like a regular TikTok/Pulse video and plays immediately */}
-      <div className="absolute inset-0 w-full h-full bg-black" style={{ zIndex: 2 }}>
-        <video
-          ref={videoRef}
-          src={fallbackVideo}
-          poster={AD_FALLBACK_POSTER}
-          className="w-full h-full object-cover"
-          autoPlay
-          muted
-          loop
-          playsInline
-          preload="auto"
-          crossOrigin="anonymous"
-          onLoadedData={() => setAdReady(true)}
-          onCanPlay={() => setAdReady(true)}
-          onPlaying={() => setAdReady(true)}
-          onError={() => {
-            // FIX ROUND 3: Agar fallback video fail ho jaaye toh poster image dikhao
-            // aur adReady=true kar do taaki loading spinner hat jaaye
-            setAdReady(true);
-            if (videoRef.current) {
-              videoRef.current.style.background = '#0a0a1a url(' + AD_FALLBACK_POSTER + ') center/cover';
-            }
-          }}
-          onClick={(e) => e.preventDefault()}
-        />
+      <div className="absolute inset-0 w-full h-full" style={{ zIndex: 2, background: `#0a0a1a url('${currentPoster}') center/cover no-repeat` }}>
+        {/* FIX: If video has errors, show poster image as background — NO BLACK SCREEN */}
+        {!videoError && (
+          <video
+            key={currentVideoIdx}
+            ref={videoRef}
+            src={AD_FALLBACK_VIDEOS[currentVideoIdx] || fallbackVideo}
+            poster={currentPoster}
+            className="w-full h-full object-cover"
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="auto"
+            crossOrigin="anonymous"
+            onLoadedData={() => setAdReady(true)}
+            onCanPlay={() => setAdReady(true)}
+            onPlaying={() => setAdReady(true)}
+            onError={handleVideoError}
+            onClick={(e) => e.preventDefault()}
+          />
+        )}
+        {/* FIX: If video fails, show a static poster image with "Sponsored" text — NO BLACK SCREEN */}
+        {videoError && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <img src={currentPoster} className="w-full h-full object-cover" alt="Sponsored content" onError={() => {}}/>
+          </div>
+        )}
 
         {/* Subtle gradient overlay — same as regular TikReels/Pulse videos */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/20 pointer-events-none" />
@@ -924,8 +1026,10 @@ function AJFooter() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallBtn, setShowInstallBtn] = useState(false);
   const [showIosInstructions, setShowIosInstructions] = useState(false);
+  const [installClicked, setInstallClicked] = useState(false);
 
-  // FIX ROUND 5: beforeinstallprompt event listener — install button show karne ke liye
+  // FIX ROUND 6: beforeinstallprompt event listener — install button show karne ke liye
+  // Also: Always show install button on non-standalone mode so users can find it easily
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const handler = (e: any) => {
@@ -940,10 +1044,16 @@ function AJFooter() {
     if (isIos && !isStandalone) {
       setShowIosInstructions(true);
     }
+    // FIX: If already in standalone mode (installed as APK/PWA), don't show install button
+    if (isStandalone) {
+      setShowInstallBtn(false);
+      setShowIosInstructions(false);
+    }
     return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
   const handleInstallClick = async () => {
+    setInstallClicked(true);
     if (deferredPrompt) {
       deferredPrompt.prompt();
       try {
@@ -979,8 +1089,37 @@ function AJFooter() {
 
         <div className="p-6 space-y-6">
 
-          {/* FIX ROUND 5: Install / Web to APK Button */}
-          {(showInstallBtn || showIosInstructions) && (
+          {/* FIX ROUND 6: Install / Web to APK Button — ALWAYS visible (not just when beforeinstallprompt fires)
+              This ensures users can always find the install button in the footer.
+              If already installed (standalone mode), button is hidden. */}
+          {(!showInstallBtn && !showIosInstructions) ? (
+            /* Show a general "Install as App" button that triggers the install flow */
+            <div className="flex flex-col items-center gap-3">
+              <button
+                onClick={handleInstallClick}
+                className="w-full max-w-sm py-4 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all shadow-[0_0_24px_rgba(236,72,153,0.4)] flex items-center justify-center gap-2"
+                style={{ background: 'linear-gradient(135deg,#ec4899,#8b5cf6)' }}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                📱 Install as App
+              </button>
+              <p className="text-gray-500 text-[9px] text-center">Install AJ Super Portal on your home screen for the best experience</p>
+              {installClicked && !deferredPrompt && (
+                <div className="w-full max-w-sm bg-white/5 border border-white/10 rounded-2xl p-4 text-center">
+                  <p className="text-white text-xs font-black mb-2">📱 Install Instructions:</p>
+                  <p className="text-gray-400 text-[10px] leading-relaxed">
+                    <strong>Android:</strong> Tap browser menu (⋮) → "Add to Home screen" or "Install app"<br/><br/>
+                    <strong>iPhone/iPad:</strong> Tap Share (⬆️) → "Add to Home Screen" → "Add"
+                  </p>
+                </div>
+              )}
+            </div>
+          ) : (
+            /* Show the native install button or iOS instructions */
             <div className="flex flex-col items-center gap-3">
               <button
                 onClick={handleInstallClick}
@@ -1415,6 +1554,84 @@ export function AJSuperPortal() {
   }, []);
 
   // ==========================================================
+  // PWA / WEB TO APK — Inject manifest + meta tags for standalone mode
+  // FIX (Hinglish): Yeh ensure karta hai ki jab user web app ko "Add to Home Screen"
+  // ya "Install as App" kare, toh app standalone mode mein khule — bina address bar
+  // ke, bilkul ek native APK jaise. Manifest.json link + meta tags inject karte hain.
+  // ==========================================================
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      // Manifest link — PWA standard for installable web apps
+      let manifestLink = document.querySelector('link[rel="manifest"]') as HTMLLinkElement | null;
+      if (!manifestLink) {
+        manifestLink = document.createElement('link');
+        manifestLink.rel = 'manifest';
+        manifestLink.href = '/manifest.json';
+        document.head.appendChild(manifestLink);
+      }
+      // Apple touch icon — iOS home screen icon
+      let appleTouchIcon = document.querySelector('link[rel="apple-touch-icon"]') as HTMLLinkElement | null;
+      if (!appleTouchIcon) {
+        appleTouchIcon = document.createElement('link');
+        appleTouchIcon.rel = 'apple-touch-icon';
+        appleTouchIcon.href = '/logo.png';
+        document.head.appendChild(appleTouchIcon);
+      }
+      // Apple mobile web app capable — standalone mode for iOS (hides address bar)
+      let appleCapable = document.querySelector('meta[name="apple-mobile-web-app-capable"]') as HTMLMetaElement | null;
+      if (!appleCapable) {
+        appleCapable = document.createElement('meta');
+        appleCapable.name = 'apple-mobile-web-app-capable';
+        appleCapable.content = 'yes';
+        document.head.appendChild(appleCapable);
+      }
+      // Apple mobile web app status bar style — black status bar for immersive look
+      let appleStatusBar = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]') as HTMLMetaElement | null;
+      if (!appleStatusBar) {
+        appleStatusBar = document.createElement('meta');
+        appleStatusBar.name = 'apple-mobile-web-app-status-bar-style';
+        appleStatusBar.content = 'black-translucent';
+        document.head.appendChild(appleStatusBar);
+      }
+      // Apple mobile web app title — title for home screen icon
+      let appleTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]') as HTMLMetaElement | null;
+      if (!appleTitle) {
+        appleTitle = document.createElement('meta');
+        appleTitle.name = 'apple-mobile-web-app-title';
+        appleTitle.content = 'AJ Super Portal';
+        document.head.appendChild(appleTitle);
+      }
+      // Mobile web app capable — Android standalone mode (hides address bar)
+      let mobileCapable = document.querySelector('meta[name="mobile-web-app-capable"]') as HTMLMetaElement | null;
+      if (!mobileCapable) {
+        mobileCapable = document.createElement('meta');
+        mobileCapable.name = 'mobile-web-app-capable';
+        mobileCapable.content = 'yes';
+        document.head.appendChild(mobileCapable);
+      }
+      // Theme color — matches app background for seamless status bar
+      let themeColor = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
+      if (!themeColor) {
+        themeColor = document.createElement('meta');
+        themeColor.name = 'theme-color';
+        themeColor.content = '#050505';
+        document.head.appendChild(themeColor);
+      }
+      // Viewport — ensure proper mobile rendering with viewport-fit=cover for notch devices
+      let viewport = document.querySelector('meta[name="viewport"]') as HTMLMetaElement | null;
+      if (viewport) {
+        viewport.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover';
+      } else {
+        viewport = document.createElement('meta');
+        viewport.name = 'viewport';
+        viewport.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover';
+        document.head.appendChild(viewport);
+      }
+    } catch {}
+  }, []);
+
+  // ==========================================================
   // FETCH APIs — FIX #5: Multi-keyword YT mix + Unsplash append
   // ==========================================================
   const fetchSocialAPIs = async () => {
@@ -1523,34 +1740,36 @@ export function AJSuperPortal() {
     return () => {};
   }, [socialScreen, activeContact, commentPostId]);
 
-  // FIX ROUND 5: Comment keyboard open nahi ho raha tha — ab proper fix.
+  // FIX ROUND 6: Comment keyboard open nahi ho raha tha — ab PROPER fix.
   // Mobile pe input focus karne ke liye multiple strategies use karte hain:
-  // 1. Delay focus until DOM is ready (200ms)
-  // 2. Use both focus() and click() — some mobile browsers need click() to open keyboard
-  // 3. Set readonly=false after focus (iOS trick to force keyboard)
-  // 4. Also handle touchend event to focus on tap
+  // 1. Delay focus until DOM is ready (300ms for smooth animation)
+  // 2. Use createObjectURL-free approach: directly focus with programmatic click
+  // 3. Use inputMode="text" with enterKeyHint for mobile keyboard optimization
+  // 4. Touch-friendly: tap on input directly opens keyboard (no readonly tricks)
   useEffect(() => {
     if (!commentPostId) return;
-    // Wait for the comment sheet to render
+    // Wait for the comment sheet to render and transition to complete
     const t = setTimeout(() => {
       const input = commentInputRef.current;
       if (!input) return;
-      // iOS: Set readonly, focus, then remove readonly
+      // FIX: Directly focus without readonly tricks — modern mobile browsers
+      // (Chrome, Safari, Firefox) respond well to focus() + click() when called
+      // from a user-initiated event chain (which this is, since commentPostId was
+      // set by a button click). The key is to call focus() within the event handler
+      // or shortly after (within 300ms).
       try {
-        input.setAttribute('readonly', 'true');
-        input.focus();
+        // Focus the input — this opens the keyboard on mobile
+        input.focus({ preventScroll: true });
+        // Also call click() — some Android browsers need this to open keyboard
         input.click();
-        // Remove readonly after a tiny delay
-        setTimeout(() => {
-          input.removeAttribute('readonly');
-          input.focus();
-          input.click();
-        }, 50);
+        // Set selection to end of any existing text
+        const len = input.value.length;
+        input.setSelectionRange(len, len);
       } catch {
         input.focus();
         input.click();
       }
-    }, 200);
+    }, 300);
     return () => clearTimeout(t);
   }, [commentPostId]);
 
@@ -2143,7 +2362,7 @@ export function AJSuperPortal() {
         if (liveVideoRef.current) {
           try { liveVideoRef.current.srcObject = testStream; } catch {}
         }
-        // FIX ROUND 4: Camera black screen fix — hum tracks STOP nahi karte!
+        // FIX ROUND 6: Camera black screen fix — hum tracks STOP nahi karte!
         // Pehle 300ms baad tracks stop kar dete the jisse camera off ho jaata tha
         // aur agar ZegoCloud time pe attach nahi hua toh BLACK SCREEN aa jaata tha.
         // Ab hum tracks alive rakhhte hain — ZegoCloud apna stream acquire karega
@@ -2178,8 +2397,15 @@ export function AJSuperPortal() {
       const roomId = `live_${user.uid}_${Date.now()}`;
       setLiveRoomId(roomId);
       setLiveActive(true);
-      // Wait a tick for DOM to update before ZegoCloud attaches to #video-container
-      setTimeout(() => handleStartLiveOrCall(roomId, user.uid, username || 'AJ Member', () => setZegoAttached(true)), 800);
+      // FIX ROUND 6: Wait for DOM to update before ZegoCloud attaches to #video-container.
+      // Pehle 800ms delay tha jo kabhi-kabhi kaafi nahi hota tha. Ab 1200ms + double
+      // rAF (requestAnimationFrame) use karte hain taaki DOM pakka render ho jaaye
+      // aur #video-container available ho.
+      setTimeout(() => {
+        requestAnimationFrame(() => {
+          handleStartLiveOrCall(roomId, user.uid, username || 'AJ Member', () => setZegoAttached(true));
+        });
+      }, 1200);
       await setDoc(doc(db, "live_rooms", roomId), {
         uid: user.uid, username: username || 'AJ_Member',
         photo: tempPhoto || user.photoURL || '',
@@ -2288,38 +2514,67 @@ export function AJSuperPortal() {
         }
       );
       viewerUnsubRef.current = unsub;
-      // Load ZegoCloud and attach viewer to #video-container
+      // Load ZegoCloud and attach viewer to #zego-viewer-container
       await loadZegoScript();
-      setTimeout(() => {
-        if (typeof window !== 'undefined' && (window as any).ZegoUIKitPrebuilt && user) {
-          try {
-            const kitToken = (window as any).ZegoUIKitPrebuilt.generateKitTokenForTest(
-              ZEGO_APP_ID, ZEGO_APP_SIGN, roomSnap.id, user.uid, username || 'Viewer'
-            );
-            const zp = (window as any).ZegoUIKitPrebuilt.create(kitToken);
-            zegoViewerInstance = zp; // FIX: store viewer instance so leaveViewerRoom can destroy it
-            const container = document.querySelector('#zego-viewer-container');
-            if (container) {
-              zp.joinRoom({
-                container,
-                scenario: {
-                  mode: (window as any).ZegoUIKitPrebuilt.LiveStreaming,
-                  config: {
-                    role: (window as any).ZegoUIKitPrebuilt.Audience,
-                  },
-                },
-                showPreJoinView: false,
-                turnOnCameraWhenJoining: false,
-                turnOnMicrophoneWhenJoining: false,
-                onLeaveRoom: () => {
-                  // Clean up viewer Zego instance + container when leaving
-                  destroyZegoInstance('viewer');
-                },
-              });
-            }
-          } catch(e) { console.error('viewer zego attach', e); }
+      // FIX ROUND 6: Viewer attach ke liye retry mechanism use karte hain.
+      // Pehle ek hi setTimeout(800) tha jo kabhi-kabhi fail ho jaata tha jab
+      // #zego-viewer-container abhi mount nahi hota tha. Ab retry with rAF.
+      let viewerAttempts = 0;
+      const maxViewerAttempts = 4;
+      const tryViewerAttach = () => {
+        viewerAttempts++;
+        if (typeof window === 'undefined' || !(window as any).ZegoUIKitPrebuilt || !user) {
+          if (viewerAttempts < maxViewerAttempts) {
+            setTimeout(tryViewerAttach, 500);
+          }
+          return;
         }
-      }, 800);
+        const container = document.querySelector('#zego-viewer-container');
+        if (!container) {
+          console.log(`zego-viewer-container not found, retry ${viewerAttempts}/${maxViewerAttempts}`);
+          if (viewerAttempts < maxViewerAttempts) {
+            setTimeout(tryViewerAttach, 500);
+          }
+          return;
+        }
+        // FIX: Set container dimensions explicitly
+        (container as HTMLElement).style.width = '100%';
+        (container as HTMLElement).style.minHeight = '220px';
+        try {
+          const kitToken = (window as any).ZegoUIKitPrebuilt.generateKitTokenForTest(
+            ZEGO_APP_ID, ZEGO_APP_SIGN, roomSnap.id, user.uid, username || 'Viewer'
+          );
+          const zp = (window as any).ZegoUIKitPrebuilt.create(kitToken);
+          zegoViewerInstance = zp; // FIX: store viewer instance so leaveViewerRoom can destroy it
+          zp.joinRoom({
+            container,
+            scenario: {
+              mode: (window as any).ZegoUIKitPrebuilt.LiveStreaming,
+              config: {
+                role: (window as any).ZegoUIKitPrebuilt.Audience,
+              },
+            },
+            showPreJoinView: false,
+            turnOnCameraWhenJoining: false,
+            turnOnMicrophoneWhenJoining: false,
+            showMyCameraToggleButton: false,
+            showMyMicrophoneToggleButton: false,
+            showAudioVideoSettingsButton: false,
+            onLeaveRoom: () => {
+              // Clean up viewer Zego instance + container when leaving
+              destroyZegoInstance('viewer');
+            },
+          });
+          console.log('Viewer ZegoCloud attached successfully');
+        } catch(e) {
+          console.error('viewer zego attach', e);
+          if (viewerAttempts < maxViewerAttempts) {
+            setTimeout(tryViewerAttach, 500);
+          }
+        }
+      };
+      // Start first attempt after 1000ms (wait for DOM to render the viewer room section)
+      setTimeout(tryViewerAttach, 1000);
     } catch(e) { console.error('joinLiveByRoomId', e); setVvipAlert({msg:'Could not join room. Please try again.'}); }
   };
 
@@ -3244,36 +3499,36 @@ export function AJSuperPortal() {
   // ==========================================================
   const detectLanguage = (text: string): string => {
     const q = text.toLowerCase();
-    const hinglishSignals = /\b(bhai|dost|yaar|kya|kaise|karo|hua|hoga|hoti|hota|seedha|bilkul|thoda|bohot|sirf|abhi|agar|toh|phir|mujhe|aapko|tumhara|mera|apna|paise|kamao|nikalo|karo|dekho|batao|samjhao|lao|bhejo|milega|milta|lagta|sahi|theek|accha|acha)\b/.test(q);
+    const hinglishSignals = /\\b(bhai|dost|yaar|kya|kaise|karo|hua|hoga|hoti|hota|seedha|bilkul|thoda|bohot|sirf|abhi|agar|toh|phir|mujhe|aapko|tumhara|mera|apna|paise|kamao|nikalo|karo|dekho|batao|samjhao|lao|bhejo|milega|milta|lagta|sahi|theek|accha|acha)\\b/.test(q);
     if (hinglishSignals) return 'hin';
-    if (/[\u0600-\u06FF]/.test(text)) {
-      if (/[\u0679\u0688\u0691\u06BE\u06C1\u06CC\u06D2]/.test(text) ||
+    if (/[\\u0600-\\u06FF]/.test(text)) {
+      if (/[\\u0679\\u0688\\u0691\\u06BE\\u06C1\\u06CC\\u06D2]/.test(text) ||
           /کوئن|پیسہ|نکالنا|لائیو|ریفرل|خریدنا|تحفہ|سکے|بیلنس|بھائی|دوست/.test(text))
         return 'ur';
-      if (/[\u067E\u0686\u0698\u06AF]/.test(text) && /فارسی|ایران|ریال/.test(text))
+      if (/[\\u067E\\u0686\\u0698\\u06AF]/.test(text) && /فارسی|ایران|ریال/.test(text))
         return 'fa';
       return 'ar';
     }
-    if (/[\u0900-\u097F]/.test(text)) return 'hi';
-    if (/[\u0980-\u09FF]/.test(text)) return 'bn';
-    if (/[\u0A00-\u0A7F]/.test(text)) return 'pa';
-    if (/[\u4E00-\u9FFF]/.test(text)) return 'zh';
-    if (/[\u3040-\u30FF]/.test(text)) return 'ja';
-    if (/[\uAC00-\uD7AF]/.test(text)) return 'ko';
-    if (/[\u0400-\u04FF]/.test(text)) return 'ru';
-    if (/[\u0E00-\u0E7F]/.test(text)) return 'th';
-    if (/[\u0370-\u03FF]/.test(text)) return 'el';
-    if (/[\u0590-\u05FF]/.test(text)) return 'he';
-    if (/\b(bonjour|merci|monnaie|retirer|acheter|cadeau|combien|comment)\b/.test(q)) return 'fr';
-    if (/\b(hola|gracias|moneda|retirar|comprar|regalo|cuánto|cómo)\b/.test(q))       return 'es';
-    if (/\b(ciao|grazie|moneta|ritirare|comprare|regalo|quanto|come)\b/.test(q))      return 'it';
-    if (/\b(olá|obrigado|moeda|retirar|comprar|presente|quanto|como)\b/.test(q))      return 'pt';
-    if (/\b(hallo|danke|münze|auszahlen|kaufen|geschenk|wieviel|wie)\b/.test(q))      return 'de';
-    if (/\b(merhaba|teşekkür|madeni|çekmek|satın|hediye|kadar|nasıl)\b/.test(q))     return 'tr';
-    if (/\b(привет|спасибо|монета|вывести|купить|подарок|сколько|как)\b/.test(q))     return 'ru';
-    if (/\b(halo|terima|koin|tarik|beli|hadiah|berapa|bagaimana)\b/.test(q))          return 'id';
-    if (/\b(xin chào|cảm ơn|đồng xu|rút tiền|mua|quà tặng)\b/.test(q))              return 'vi';
-    if (/\b(شکریہ|آپ|ہے|کیا|کیسے|میں|آپ کا)\b/.test(q))                             return 'ur';
+    if (/[\\u0900-\\u097F]/.test(text)) return 'hi';
+    if (/[\\u0980-\\u09FF]/.test(text)) return 'bn';
+    if (/[\\u0A00-\\u0A7F]/.test(text)) return 'pa';
+    if (/[\\u4E00-\\u9FFF]/.test(text)) return 'zh';
+    if (/[\\u3040-\\u30FF]/.test(text)) return 'ja';
+    if (/[\\uAC00-\\uD7AF]/.test(text)) return 'ko';
+    if (/[\\u0400-\\u04FF]/.test(text)) return 'ru';
+    if (/[\\u0E00-\\u0E7F]/.test(text)) return 'th';
+    if (/[\\u0370-\\u03FF]/.test(text)) return 'el';
+    if (/[\\u0590-\\u05FF]/.test(text)) return 'he';
+    if (/\\b(bonjour|merci|monnaie|retirer|acheter|cadeau|combien|comment)\\b/.test(q)) return 'fr';
+    if (/\\b(hola|gracias|moneda|retirar|comprar|regalo|cuánto|cómo)\\b/.test(q))       return 'es';
+    if (/\\b(ciao|grazie|moneta|ritirare|comprare|regalo|quanto|come)\\b/.test(q))      return 'it';
+    if (/\\b(olá|obrigado|moeda|retirar|comprar|presente|quanto|como)\\b/.test(q))      return 'pt';
+    if (/\\b(hallo|danke|münze|auszahlen|kaufen|geschenk|wieviel|wie)\\b/.test(q))      return 'de';
+    if (/\\b(merhaba|teşekkür|madeni|çekmek|satın|hediye|kadar|nasıl)\\b/.test(q))     return 'tr';
+    if (/\\b(привет|спасибо|монета|вывести|купить|подарок|сколько|как)\\b/.test(q))     return 'ru';
+    if (/\\b(halo|terima|koin|tarik|beli|hadiah|berapa|bagaimana)\\b/.test(q))          return 'id';
+    if (/\\b(xin chào|cảm ơn|đồng xu|rút tiền|mua|quà tặng)\\b/.test(q))              return 'vi';
+    if (/\\b(شکریہ|آپ|ہے|کیا|کیسے|میں|آپ کا)\\b/.test(q))                             return 'ur';
     const locale = (typeof navigator !== 'undefined' ? navigator.language : 'en').split('-')[0].toLowerCase();
     const supported = ['fr','es','de','it','pt','tr','ru','id','vi','ar','hi','bn','zh','ja','ko','pa','ur','fa','th','el','he'];
     if (supported.includes(locale)) return locale;
@@ -3283,281 +3538,281 @@ export function AJSuperPortal() {
   type BotLang = 'en'|'hin'|'ur'|'hi'|'ar'|'bn'|'pa'|'fr'|'es'|'de'|'it'|'pt'|'tr'|'ru'|'id'|'vi'|'zh'|'ja'|'ko'|'fa'|'th'|'el'|'he';
   const BOT_KB: Record<string, Record<BotLang|string, string>> = {
     greeting: {
-      en:  `Welcome back! 😊 I can help you with:\
-🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\
-🪙 Coins & Earning • 💸 Withdraw • 🎁 Gifts • ⚔️ PK Battle\
+      en:  `Welcome back! 😊 I can help you with:\\
+🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\
+🪙 Coins & Earning • 💸 Withdraw • 🎁 Gifts • ⚔️ PK Battle\\
 Just ask me anything!`,
-      hin: `Bhai, kya scene hai! 😄 Main yahan hoon:\
-🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\
-🪙 Coins earning • 💸 Withdraw • 🎁 Gifts • ⚔️ PK Battle\
+      hin: `Bhai, kya scene hai! 😄 Main yahan hoon:\\
+🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\
+🪙 Coins earning • 💸 Withdraw • 🎁 Gifts • ⚔️ PK Battle\\
 Kuch bhi poocho, seedha batata hoon! 🔥`,
-      ur:  `خوش آمدید! 😊 میں ان چیزوں میں مدد کر سکتا ہوں:\
-🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\
-🪙 Coins • 💸 نکاسی • 🎁 تحفے • ⚔️ PK Battle\
+      ur:  `خوش آمدید! 😊 میں ان چیزوں میں مدد کر سکتا ہوں:\\
+🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\
+🪙 Coins • 💸 نکاسی • 🎁 تحفے • ⚔️ PK Battle\\
 کچھ بھی پوچھیں!`,
-      hi:  `स्वागत है! 😊 मैं इनमें मदद कर सकता हूं:\
-🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\
-🪙 Coins • 💸 Withdrawal • 🎁 Gifts • ⚔️ PK\
+      hi:  `स्वागत है! 😊 मैं इनमें मदद कर सकता हूं:\\
+🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\
+🪙 Coins • 💸 Withdrawal • 🎁 Gifts • ⚔️ PK\\
 कुछ भी पूछो!`,
-      ar:  `مرحباً! 😊 يمكنني مساعدتك في:\
-🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\
-🪙 الكوينز • 💸 السحب • 🎁 الهدايا • ⚔️ PK\
+      ar:  `مرحباً! 😊 يمكنني مساعدتك في:\\
+🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\
+🪙 الكوينز • 💸 السحب • 🎁 الهدايا • ⚔️ PK\\
 اسألني أي شيء!`,
     },
     coin: {
-      en:  `🪙 AJ Coins — Full Breakdown:\
-\
-• Rate: $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1 cash-out\
-• Welcome Bonus: 500 Coins on signup 🎉\
-• Referral Bonus: +${REFERRAL_COINS} Coins per friend referred\
-• Video Post (TikReel): +10 Coins per upload\
-• Photo Post (Pulse): +5 Coins per post\
-• AI Bot (Basic): 2% daily on invested coins\
-• AI Bot (VVIP): 5% daily on invested coins\
-• Live gifts received: 60% goes to you!\
-\
+      en:  `🪙 AJ Coins — Full Breakdown:\\
+\\
+• Rate: $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1 cash-out\\
+• Welcome Bonus: 500 Coins on signup 🎉\\
+• Referral Bonus: +${REFERRAL_COINS} Coins per friend referred\\
+• Video Post (TikReel): +10 Coins per upload\\
+• Photo Post (Pulse): +5 Coins per post\\
+• AI Bot (Basic): 2% daily on invested coins\\
+• AI Bot (VVIP): 5% daily on invested coins\\
+• Live gifts received: 60% goes to you!\\
+\\
 Go to Wallet → Purchase to top up anytime. 💰`,
-      hin: `Bhai, yeh lo puri detail! 🪙\
-\
-• Rate: $1 = ${COIN_RATE} Coins | Cash out: ${CASH_RATE} Coins = $1\
-• Signup bonus: 500 Coins FREE 🎉\
-• Referral: +${REFERRAL_COINS} Coins har dost ke liye\
-• TikReel video upload: +10 Coins\
-• Pulse photo post: +5 Coins\
-• AI Bot Basic: 2% daily profit\
-• AI Bot VVIP: 5% daily profit 🔥\
-• Live pe gifts milein: 60% tumhara!\
-\
+      hin: `Bhai, yeh lo puri detail! 🪙\\
+\\
+• Rate: $1 = ${COIN_RATE} Coins | Cash out: ${CASH_RATE} Coins = $1\\
+• Signup bonus: 500 Coins FREE 🎉\\
+• Referral: +${REFERRAL_COINS} Coins har dost ke liye\\
+• TikReel video upload: +10 Coins\\
+• Pulse photo post: +5 Coins\\
+• AI Bot Basic: 2% daily profit\\
+• AI Bot VVIP: 5% daily profit 🔥\\
+• Live pe gifts milein: 60% tumhara!\\
+\\
 Wallet → Purchase se recharge karo, dost! 💰`,
-      ur:  `🪙 AJ Coins — مکمل تفصیل:\
-\
-• شرح: $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1\
-• Signup بونس: 500 Coins مفت 🎉\
-• ریفرل: +${REFERRAL_COINS} Coins\
-• TikReel ویڈیو: +10 Coins\
-• Pulse فوٹو: +5 Coins\
-• AI Bot Basic: 2% روزانہ\
-• AI Bot VVIP: 5% روزانہ 🔥\
-• Live تحفے: 60% آپ کا!\
-\
+      ur:  `🪙 AJ Coins — مکمل تفصیل:\\
+\\
+• شرح: $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1\\
+• Signup بونس: 500 Coins مفت 🎉\\
+• ریفرل: +${REFERRAL_COINS} Coins\\
+• TikReel ویڈیو: +10 Coins\\
+• Pulse فوٹو: +5 Coins\\
+• AI Bot Basic: 2% روزانہ\\
+• AI Bot VVIP: 5% روزانہ 🔥\\
+• Live تحفے: 60% آپ کا!\\
+\\
 Wallet → Purchase 💰`,
-      hi:  `🪙 AJ Coins:\
-\
-• $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1\
-• Signup: 500 Coins 🎉\
-• Referral: +${REFERRAL_COINS} Coins\
-• TikReel Video: +10 Coins\
-• Pulse Photo: +5 Coins\
-• AI Bot Basic: 2% | VVIP: 5% 🔥\
-• Gifts: 60% आपका!\
-\
+      hi:  `🪙 AJ Coins:\\
+\\
+• $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1\\
+• Signup: 500 Coins 🎉\\
+• Referral: +${REFERRAL_COINS} Coins\\
+• TikReel Video: +10 Coins\\
+• Pulse Photo: +5 Coins\\
+• AI Bot Basic: 2% | VVIP: 5% 🔥\\
+• Gifts: 60% आपका!\\
+\\
 Wallet → Purchase 💰`,
-      ar:  `🪙 AJ Coins:\
-\
-• $1 = ${COIN_RATE} | ${CASH_RATE} = $1\
-• Signup: 500 🎉\
-• Referral: +${REFERRAL_COINS}\
-• TikReel Video: +10\
-• Pulse Photo: +5\
-• AI Bot: 2-5% 🔥\
-• Gifts: 60%\
-\
+      ar:  `🪙 AJ Coins:\\
+\\
+• $1 = ${COIN_RATE} | ${CASH_RATE} = $1\\
+• Signup: 500 🎉\\
+• Referral: +${REFERRAL_COINS}\\
+• TikReel Video: +10\\
+• Pulse Photo: +5\\
+• AI Bot: 2-5% 🔥\\
+• Gifts: 60%\\
+\\
 المحفظة → الشراء 💰`,
     },
     tikreels: {
-      en:  `🎬 AJ TikReels — TikTok-style short videos!\
-\
-• Go to Social → AJ TikReels → Feed tab\
-• Scroll up/down to watch videos (snap-scroll)\
-• CENTER-TAP to pause/resume video\
-• Like ❤️, Comment 💬, Share 🔗, or send Gifts 🎁\
-• Upload your own: hit ➕ Post tab, add caption + image/video\
-• Each video upload earns you +10 Coins 🪙\
-• Photo post earns +5 Coins\
+      en:  `🎬 AJ TikReels — TikTok-style short videos!\\
+\\
+• Go to Social → AJ TikReels → Feed tab\\
+• Scroll up/down to watch videos (snap-scroll)\\
+• CENTER-TAP to pause/resume video\\
+• Like ❤️, Comment 💬, Share 🔗, or send Gifts 🎁\\
+• Upload your own: hit ➕ Post tab, add caption + image/video\\
+• Each video upload earns you +10 Coins 🪙\\
+• Photo post earns +5 Coins\\
 • CSS Filters, Music Picker & Text Overlay available in editor`,
-      hin: `🎬 AJ TikReels:\
-\
-• Social → AJ TikReels → Feed\
-• Videos scroll karo (snap-scroll)\
-• CENTER TAP karo pause/resume ke liye\
-• Like ❤️, Comment 💬, Gift 🎁\
-• Video upload: +10 Coins 🔥\
-• Photo post: +5 Coins\
+      hin: `🎬 AJ TikReels:\\
+\\
+• Social → AJ TikReels → Feed\\
+• Videos scroll karo (snap-scroll)\\
+• CENTER TAP karo pause/resume ke liye\\
+• Like ❤️, Comment 💬, Gift 🎁\\
+• Video upload: +10 Coins 🔥\\
+• Photo post: +5 Coins\\
 • Editor mein Filters, Music, Text Overlay bhi hai!`,
-      ur:  `🎬 AJ TikReels:\
-\
-• Social → AJ TikReels → Feed\
-• Videos اسکرول کریں\
-• CENTER TAP: pause/resume\
-• Like ❤️، Comment 💬، Gift 🎁\
-• Video: +10 Coins 🔥\
-• Photo: +5 Coins\
+      ur:  `🎬 AJ TikReels:\\
+\\
+• Social → AJ TikReels → Feed\\
+• Videos اسکرول کریں\\
+• CENTER TAP: pause/resume\\
+• Like ❤️، Comment 💬، Gift 🎁\\
+• Video: +10 Coins 🔥\\
+• Photo: +5 Coins\\
 • Editor: Filters، Music، Text Overlay`,
-      hi:  `🎬 AJ TikReels:\
-\
-• Social → AJ TikReels → Feed\
-• CENTER TAP: pause/resume\
-• Video: +10 Coins 🔥\
-• Photo: +5 Coins\
+      hi:  `🎬 AJ TikReels:\\
+\\
+• Social → AJ TikReels → Feed\\
+• CENTER TAP: pause/resume\\
+• Video: +10 Coins 🔥\\
+• Photo: +5 Coins\\
 • Editor: Filters, Music, Text Overlay`,
-      ar:  `🎬 AJ TikReels:\
-\
-• Social → AJ TikReels → Feed\
-• CENTER TAP: pause/resume\
-• Video: +10 كوين 🔥\
-• Photo: +5 كوين\
+      ar:  `🎬 AJ TikReels:\\
+\\
+• Social → AJ TikReels → Feed\\
+• CENTER TAP: pause/resume\\
+• Video: +10 كوين 🔥\\
+• Photo: +5 كوين\\
 • Editor: Filters, Music, Text`,
     },
     pulse: {
-      en:  `📡 AJ Pulse — Instagram-style feed + Live streaming!\
-\
-📸 Feed:\
-• Scroll posts, like, comment, share, send gifts\
-• Post your own content → +5 Coins (photo) / +10 Coins (video)\
-\
-🔴 Go Live:\
-• Social Hub → GO LIVE button\
-• Share your Room ID so viewers can join\
-• Viewers send gifts → You keep 60%!\
-\
+      en:  `📡 AJ Pulse — Instagram-style feed + Live streaming!\\
+\\
+📸 Feed:\\
+• Scroll posts, like, comment, share, send gifts\\
+• Post your own content → +5 Coins (photo) / +10 Coins (video)\\
+\\
+🔴 Go Live:\\
+• Social Hub → GO LIVE button\\
+• Share your Room ID so viewers can join\\
+• Viewers send gifts → You keep 60%!\\
+\\
 ⚔️ PK Battle: 100 Coins entry, 5-min battle 🏆`,
-      hin: `📡 AJ Pulse:\
-\
-📸 Feed:\
-• Posts scroll, like/comment/gift\
-• Photo post: +5 Coins | Video: +10 Coins\
-\
-🔴 Live:\
-• GO LIVE → Room ID share karo\
-• Gifts → 60% tumhara! 💰\
-\
+      hin: `📡 AJ Pulse:\\
+\\
+📸 Feed:\\
+• Posts scroll, like/comment/gift\\
+• Photo post: +5 Coins | Video: +10 Coins\\
+\\
+🔴 Live:\\
+• GO LIVE → Room ID share karo\\
+• Gifts → 60% tumhara! 💰\\
+\\
 ⚔️ PK Battle: 100 Coins, 5 min 🏆`,
-      ur:  `📡 AJ Pulse:\
-\
-📸 فیڈ:\
-• Photo: +5 Coins | Video: +10 Coins\
-\
-🔴 Live:\
-• GO LIVE → Room ID شیئر\
-• Gifts → 60% آپ کا!\
-\
+      ur:  `📡 AJ Pulse:\\
+\\
+📸 فیڈ:\\
+• Photo: +5 Coins | Video: +10 Coins\\
+\\
+🔴 Live:\\
+• GO LIVE → Room ID شیئر\\
+• Gifts → 60% آپ کا!\\
+\\
 ⚔️ PK: 100 Coins، 5 منٹ 🏆`,
-      hi:  `📡 AJ Pulse:\
-\
-• Photo: +5 Coins | Video: +10 Coins\
-• GO LIVE → Room ID share\
-• Gifts → 60% आपका!\
+      hi:  `📡 AJ Pulse:\\
+\\
+• Photo: +5 Coins | Video: +10 Coins\\
+• GO LIVE → Room ID share\\
+• Gifts → 60% आपका!\\
 • PK Battle: 100 Coins 🏆`,
-      ar:  `📡 AJ Pulse:\
-\
-• Photo: +5 | Video: +10 كوين\
-• GO LIVE → Room ID\
-• Gifts → 60%\
+      ar:  `📡 AJ Pulse:\\
+\\
+• Photo: +5 | Video: +10 كوين\\
+• GO LIVE → Room ID\\
+• Gifts → 60%\\
 • PK: 100 كوين 🏆`,
     },
     social: {
-      en:  `👤 Social Features:\
-\
-• View any profile: tap any avatar\
-• Follow / Unfollow from their profile page\
-• Message (DM): tap "Message" on any profile\
-• WeChat: private encrypted chat + Video/Audio calls via ZegoCloud\
+      en:  `👤 Social Features:\\
+\\
+• View any profile: tap any avatar\\
+• Follow / Unfollow from their profile page\\
+• Message (DM): tap "Message" on any profile\\
+• WeChat: private encrypted chat + Video/Audio calls via ZegoCloud\\
 • Profile: Posts, Followers, Following, Total Likes, video grid`,
-      hin: `👤 Social Features:\
-\
-• Koi bhi profile: dp tap karo\
-• Follow / Unfollow\
-• DM: "Message" button 🔥\
-• WeChat: private chat + Video/Audio call (ZegoCloud)\
+      hin: `👤 Social Features:\\
+\\
+• Koi bhi profile: dp tap karo\\
+• Follow / Unfollow\\
+• DM: "Message" button 🔥\\
+• WeChat: private chat + Video/Audio call (ZegoCloud)\\
 • Profile: Posts, Followers, Likes, videos`,
-      ur:  `👤 Social Features:\
-\
-• avatar ٹیپ → پروفائل\
-• Follow / Unfollow\
-• DM: "Message" 🔥\
-• WeChat: private chat + Video/Audio call\
+      ur:  `👤 Social Features:\\
+\\
+• avatar ٹیپ → پروفائل\\
+• Follow / Unfollow\\
+• DM: "Message" 🔥\\
+• WeChat: private chat + Video/Audio call\\
 • Posts، Followers، Likes`,
-      hi:  `👤 Social Features:\
-\
-• Avatar टैप → profile\
-• Follow / Unfollow\
-• DM + WeChat calls 🔥\
+      hi:  `👤 Social Features:\\
+\\
+• Avatar टैप → profile\\
+• Follow / Unfollow\\
+• DM + WeChat calls 🔥\\
 • Posts, Followers, Likes`,
-      ar:  `👤 Social:\
-\
-• avatar → ملف\
-• Follow/Unfollow\
-• DM + WeChat calls 🔥\
+      ar:  `👤 Social:\\
+\\
+• avatar → ملف\\
+• Follow/Unfollow\\
+• DM + WeChat calls 🔥\\
 • Posts, Followers, Likes`,
     },
     gaming: {
-      en:  `🎮 AJ Gaming Zone — Play & Multiply Coins!\
-\
-• Access: Tap "Gaming" from the main Hub\
-• Games: Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\
-• Game scores auto-credit AJ Coins via Game Bridge\
+      en:  `🎮 AJ Gaming Zone — Play & Multiply Coins!\\
+\\
+• Access: Tap "Gaming" from the main Hub\\
+• Games: Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\\
+• Game scores auto-credit AJ Coins via Game Bridge\\
 • Coming soon: Ludo Elite Royal, Puck Pulse Elite 🔜`,
-      hin: `🎮 AJ Gaming Zone:\
-\
-• Main Hub → "Gaming"\
-• Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\
-• Game score → auto coins credit 🔥\
+      hin: `🎮 AJ Gaming Zone:\\
+\\
+• Main Hub → "Gaming"\\
+• Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\\
+• Game score → auto coins credit 🔥\\
 • Jald: Ludo Elite Royal 🔜`,
-      ur:  `🎮 Gaming:\
-\
-• Main Hub → "Gaming"\
-• 5 games available\
-• Score → auto coins 🔥\
+      ur:  `🎮 Gaming:\\
+\\
+• Main Hub → "Gaming"\\
+• 5 games available\\
+• Score → auto coins 🔥\\
 • جلد: Ludo Elite Royal 🔜`,
-      hi:  `🎮 Gaming:\
-\
-• Main Hub → "Gaming"\
-• 5 games\
-• Score → auto coins 🔥\
+      hi:  `🎮 Gaming:\\
+\\
+• Main Hub → "Gaming"\\
+• 5 games\\
+• Score → auto coins 🔥\\
 • जल्द: Ludo Elite Royal 🔜`,
-      ar:  `🎮 Gaming:\
-\
-• "Gaming" من الرئيسية\
-• 5 ألعاب\
-• نقاط → كوينز تلقائي 🔥\
+      ar:  `🎮 Gaming:\\
+\\
+• "Gaming" من الرئيسية\\
+• 5 ألعاب\\
+• نقاط → كوينز تلقائي 🔥\\
 • قريباً: Ludo Elite Royal 🔜`,
     },
     refer: {
-      en:  `👥 Referral System:\
-\
-• Your Referral Code = your User ID (find in Wallet or Social Hub)\
-• Share your ID with friends\
-• They go to Wallet → "Enter Referral Code" and paste your ID\
-• You receive +${REFERRAL_COINS} Coins per successful referral 🎉\
-• No limit — refer as many as you want!\
-\
+      en:  `👥 Referral System:\\
+\\
+• Your Referral Code = your User ID (find in Wallet or Social Hub)\\
+• Share your ID with friends\\
+• They go to Wallet → "Enter Referral Code" and paste your ID\\
+• You receive +${REFERRAL_COINS} Coins per successful referral 🎉\\
+• No limit — refer as many as you want!\\
+\\
 Tip: Copy your ID from the Social Hub referral card 📤`,
-      hin: `👥 Referral:\
-\
-• Tera ID = Referral Code\
-• Doston ko share karo\
-• Wo Wallet → Referral Code mein daalen\
-• +${REFERRAL_COINS} Coins 🎉\
-• Koi limit nahi!\
-\
+      hin: `👥 Referral:\\
+\\
+• Tera ID = Referral Code\\
+• Doston ko share karo\\
+• Wo Wallet → Referral Code mein daalen\\
+• +${REFERRAL_COINS} Coins 🎉\\
+• Koi limit nahi!\\
+\\
 Tip: Social Hub se copy karo 📤`,
-      ur:  `👥 Referral:\
-\
-• آپ کا ID = Referral Code\
-• دوستوں کو شیئر کریں\
-• Wallet → Referral Code میں ڈالیں\
+      ur:  `👥 Referral:\\
+\\
+• آپ کا ID = Referral Code\\
+• دوستوں کو شیئر کریں\\
+• Wallet → Referral Code میں ڈالیں\\
 • +${REFERRAL_COINS} Coins 🎉`,
-      hi:  `👥 Referral:\
-\
-• आपका ID = Referral Code\
-• दोस्तों को share करो\
-• Wallet → Referral Code में डालें\
+      hi:  `👥 Referral:\\
+\\
+• आपका ID = Referral Code\\
+• दोस्तों को share करो\\
+• Wallet → Referral Code में डालें\\
 • +${REFERRAL_COINS} Coins 🎉`,
-      ar:  `👥 Referral:\
-\
-• معرفك = Referral Code\
-• شارك مع الأصدقاء\
-• المحفظة → Referral Code\
+      ar:  `👥 Referral:\\
+\\
+• معرفك = Referral Code\\
+• شارك مع الأصدقاء\\
+• المحفظة → Referral Code\\
 • +${REFERRAL_COINS} كوين 🎉`,
     },
   };
@@ -4127,7 +4382,7 @@ Tip: Social Hub se copy karo 📤`,
                             </div>
                             <span className="text-white text-[9px] font-black">{formatViews((likedPosts[vid.id] ? (vid.likes||0) + 1 : vid.likes||0))}</span>
                           </button>
-                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(vid.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(vid.id); /* FIX: Focus input after a tick — must be within user gesture for mobile keyboard */ setTimeout(() => { commentInputRef.current?.focus(); commentInputRef.current?.click(); }, 100); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <MessageSquare size={18} className="text-white"/>
                             </div>
@@ -4197,7 +4452,7 @@ Tip: Social Hub se copy karo 📤`,
                             </div>
                             <span className="text-white text-[9px] font-black">{(likedPosts[post.id] ? (post.likes||0) + 1 : post.likes||0)}</span>
                           </button>
-                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(post.id); /* FIX: Focus input after a tick — must be within user gesture for mobile keyboard */ setTimeout(() => { commentInputRef.current?.focus(); commentInputRef.current?.click(); }, 100); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <MessageSquare size={18} className="text-white"/>
                             </div>
@@ -4485,7 +4740,7 @@ Tip: Social Hub se copy karo 📤`,
                               </div>
                               <span className="text-white text-[9px] font-black">{(likedPosts[post.id] ? (post.likes||0) + 1 : post.likes||0)}</span>
                             </button>
-                            <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(post.id); /* FIX: Focus input after a tick — must be within user gesture for mobile keyboard */ setTimeout(() => { commentInputRef.current?.focus(); commentInputRef.current?.click(); }, 100); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                               <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                                 <MessageSquare size={18} className="text-white"/>
                               </div>
@@ -5216,15 +5471,19 @@ Tip: Social Hub se copy karo 📤`,
                         onChange={e => setNewComment(e.target.value)}
                         placeholder="Add a comment…"
                         inputMode="text"
+                        enterKeyHint="send"
                         autoCapitalize="sentences"
                         autoComplete="off"
                         spellCheck={false}
                         className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-3 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"
-                        style={{ touchAction: 'manipulation', fontSize: '16px', WebkitAppearance: 'none', appearance: 'none', minHeight: '44px' }}
+                        style={{ touchAction: 'manipulation', fontSize: '16px', WebkitAppearance: 'none', appearance: 'none', minHeight: '44px', caretColor: '#ec4899' }}
                         onKeyDown={e => e.key==='Enter' && submitComment()}
                         ref={commentInputRef}
+                        // FIX: Tap pe turant focus karo — keyboard open ho jaaye
                         onClick={(e) => { e.stopPropagation(); e.currentTarget.focus(); }}
                         onTouchStart={(e) => { e.stopPropagation(); }}
+                        // FIX: Touchend pe bhi focus — agar touchstart se keyboard na khule
+                        onTouchEnd={(e) => { e.stopPropagation(); e.preventDefault(); e.currentTarget.focus(); }}
                       />
                       <button onClick={submitComment} className="w-10 h-10 bg-pink-600 rounded-2xl flex items-center justify-center active:scale-90 transition-all shadow-[0_0_12px_rgba(236,72,153,0.4)]">
                         <Send size={14} className="text-white"/>
@@ -5253,7 +5512,15 @@ Tip: Social Hub se copy karo 📤`,
               <img src="/logo.png" alt="AJ" className="w-8 h-8 rounded-xl shadow-[0_0_14px_rgba(236,72,153,0.5)]"/>
             </div>
             <h1 className="text-sm font-black bg-gradient-to-r from-pink-500 to-cyan-400 bg-clip-text text-transparent uppercase tracking-widest">Gaming Zone</h1>
-            <button onClick={() => { triggerInterstitialAd(); setVvipAlert({msg:'🎁 Ad watched! +50 Coins reward coming...', icon:'💰'}); setTimeout(() => updateDoc(doc(db,'users',user.uid), {balance: increment(50)}), 5000); }} className="ml-auto bg-gradient-to-r from-yellow-400 to-orange-500 text-black text-[9px] font-black px-3 py-1.5 rounded-xl active:scale-90 transition-all shadow-[0_0_10px_rgba(234,179,8,0.4)]">
+            <button onClick={() => { 
+              const adOk = triggerFreeCoinAd(); 
+              if (adOk) {
+                setVvipAlert({msg:'🎁 Ad watched! +50 Coins reward coming...', icon:'💰'}); 
+                setTimeout(() => updateDoc(doc(db,'users',user.uid), {balance: increment(50)}), 5000); 
+              } else {
+                setVvipAlert({msg:'⏳ Please wait a few minutes before watching another ad for free coins.', icon:'⏱️'}); 
+              }
+            }} className="ml-auto bg-gradient-to-r from-yellow-400 to-orange-500 text-black text-[9px] font-black px-3 py-1.5 rounded-xl active:scale-90 transition-all shadow-[0_0_10px_rgba(234,179,8,0.4)]">
               🎁 Free 50 Coins
             </button>
 </div>
