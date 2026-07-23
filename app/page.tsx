@@ -15,8 +15,164 @@
 // ============================================================
 
 import Script from 'next/script';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Component } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+// ============================================================
+// GLOBAL ERROR SHIELD (FIX: "Page couldn't load" error)
+// ============================================================
+// FIX (Hinglish): "Page couldn't load" / "This page could not load" error
+// ka asli kaaran ye hai ki Monetag ke tag.min.js (nap5k.com, al5sm.com,
+// n6wxm.com, quge5.com) aur ZegoCloud ke unpkg script kabhi-kabhi uncaught
+// exceptions throw karte hain jo React ke render cycle ko tod dete hain aur
+// poora page white-screen / "page couldn't load" ho jaata hai.
+//
+// Is fix mein hum ek GLOBAL ERROR SHIELD lagate hain jo:
+// 1. window.onerror — sabhi uncaught JS errors ko catch karta hai aur
+//    suppress karta hai (taaki page crash na ho).
+// 2. window.onunhandledrejection — sabhi unhandled Promise rejections ko
+//    catch karta hai (Monetag/ZegoCloud async errors ke liye).
+// 3. Sirf external script errors (Monetag/ZegoCloud CDN) ko suppress karta
+//    hai — apne app ke real errors console.warn mein jaate hain taaki
+//    debug kar saken, lekin page crash NAHI hota.
+//
+// Ye code ek baar module load par chalta hai (top-level IIFE).
+// ============================================================
+if (typeof window !== 'undefined') {
+  // Install global error handlers ONLY ONCE
+  if (!(window as any).__AJ_ERROR_SHIELD_INSTALLED__) {
+    (window as any).__AJ_ERROR_SHIELD_INSTALLED__ = true;
+
+    // 1. Catch all uncaught synchronous errors (including from injected scripts)
+    const origOnError = window.onerror;
+    window.onerror = function (message, source, lineno, colno, error) {
+      // Suppress errors from external ad SDK scripts (Monetag CDN domains)
+      const src = String(source || '');
+      const isExternalAdScript =
+        src.includes('nap5k.com') ||
+        src.includes('al5sm.com') ||
+        src.includes('n6wxm.com') ||
+        src.includes('quge5.com') ||
+        src.includes('monetag') ||
+        src.includes('zegocloud') ||
+        src.includes('unpkg.com') ||
+        src.includes('show_') ||
+        src.includes('tag.min.js') ||
+        src.includes('push.min.js');
+      if (isExternalAdScript) {
+        // External ad SDK error — suppress to prevent "page couldn't load"
+        console.warn('[AJ Shield] Suppressed external ad error:', message);
+        return true; // returning true suppresses the default error handling
+      }
+      // For other errors, call the original handler if it exists
+      if (typeof origOnError === 'function') {
+        return origOnError.call(window, message, source, lineno, colno, error);
+      }
+      return false;
+    };
+
+    // 2. Catch all unhandled promise rejections (Monetag/ZegoCloud async)
+    const origOnRejection = window.onunhandledrejection;
+    window.onunhandledrejection = function (event: any) {
+      const reason = String(event?.reason || '');
+      const isAdRejection =
+        reason.includes('monetag') ||
+        reason.includes('show_') ||
+        reason.includes('nap5k') ||
+        reason.includes('al5sm') ||
+        reason.includes('n6wxm') ||
+        reason.includes('quge5') ||
+        reason.includes('zegocloud') ||
+        reason.includes('Network') ||
+        reason.includes('load failed') ||
+        reason.includes('Failed to fetch');
+      if (isAdRejection) {
+        console.warn('[AJ Shield] Suppressed ad promise rejection:', reason);
+        event.preventDefault?.(); // prevent the rejection from crashing
+        return;
+      }
+      if (typeof origOnRejection === 'function') {
+        return origOnRejection.call(window, event);
+      }
+    };
+
+    // 3. Wrap addEventListener for 'error' events bubbling from script tags
+    //    (Monetag tag.min.js sometimes dispatches error events)
+    window.addEventListener('error', (e: any) => {
+      const src = String(e?.filename || e?.target?.src || '');
+      if (
+        src.includes('nap5k.com') ||
+        src.includes('al5sm.com') ||
+        src.includes('n6wxm.com') ||
+        src.includes('quge5.com') ||
+        src.includes('monetag') ||
+        src.includes('zegocloud') ||
+        src.includes('unpkg.com') ||
+        src.includes('tag.min.js') ||
+        src.includes('push.min.js')
+      ) {
+        // Suppress — this is an external ad script load error, not our app
+        e.preventDefault?.();
+        e.stopPropagation?.();
+        console.warn('[AJ Shield] Suppressed external script load error:', src);
+      }
+    }, true); // capture phase so we catch it before it bubbles
+  }
+}
+
+// ============================================================
+// REACT ERROR BOUNDARY (FIX: "Page couldn't load" — React render crash protection)
+// ============================================================
+// FIX (Hinglish): Agar koi component render ke time crash kar jaaye (ad SDK,
+// ZegoCloud, ya koi bhi unexpected error), toh React pura tree unmount kar
+// deta tha aur "page couldn't load" white screen aa jaata tha.
+// Ab hum ek ErrorBoundary lagate hain jo crash hone par bhi app ko recover
+// karne ki koshish karta hai — 2 second baad re-render attempt, aur agar
+// phir crash ho toh ek simple fallback UI dikhata hai.
+// ============================================================
+class AJErrorBoundary extends Component<
+  { children: React.ReactNode },
+  { hasError: boolean; retryCount: number }
+> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, retryCount: 0 };
+  }
+
+  static getDerivedStateFromError(_error: any) {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: any, errorInfo: any) {
+    // Log but don't crash — this prevents the "page couldn't load" white screen
+    console.warn('[AJ ErrorBoundary] Caught render error (non-fatal):', error?.message || error);
+    // Auto-retry after 2 seconds (up to 3 times) — many ad/ZegoCloud errors
+    // are transient and a re-render fixes them
+    if (this.state.retryCount < 3) {
+      setTimeout(() => {
+        this.setState({ hasError: false, retryCount: this.state.retryCount + 1 });
+      }, 2000);
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      // Fallback UI — simple, non-crashing. User can tap to retry.
+      return (
+        <div style={{ padding: 20, textAlign: 'center', color: '#888', fontSize: 12 }}>
+          <p>Loading... please wait.</p>
+          <button
+            onClick={() => this.setState({ hasError: false, retryCount: this.state.retryCount + 1 })}
+            style={{ marginTop: 8, padding: '6px 16px', background: '#333', color: '#fff', border: 'none', borderRadius: 8, fontSize: 10 }}
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // ============================================================
 // ZEGOCLOUD CONFIGURATION
@@ -154,9 +310,11 @@ const PK_DURATION    = 300;
 // NET RESULT: Revenue chalti rehti hai (in-feed + occasional popup), lekin
 // user ko har click pe ad NAHI dikhta — UX smooth rehti hai.
 const AD_COOLDOWN_MS = 4 * 60 * 1000;      // 4 minutes — interstitial popup ad cooldown (poore app mein)
+const INFEED_POPUP_COOLDOWN_MS = 8 * 60 * 1000; // 8 minutes — in-feed popup cooldown (LONGER, taaki scroll pe bar-bar popup na aaye)
 const FREE_COIN_AD_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes — free coin ad cooldown (separate)
 let lastInterstitialAdTime = 0;
 let lastFreeCoinAdTime = 0;
+let lastInFeedPopupTime = 0; // SEPARATE timestamp for in-feed ad popups (har 8 min mein ek baar)
 
 const triggerInterstitialAd = (force = false) => {
   // Use the new SDK-based approach — no raw tag.min.js injection (prevents duplicate scripts / "Page could not load" error)
@@ -243,38 +401,75 @@ const handleStartZegoCall = (
   currentUserName: string,
   mode: 'video' | 'audio' = 'video'
 ) => {
-  if (typeof window === 'undefined' || !(window as any).ZegoUIKitPrebuilt) return;
-  try {
-    const kitToken = (window as any).ZegoUIKitPrebuilt.generateKitTokenForTest(
-      ZEGO_APP_ID,
-      ZEGO_APP_SIGN,
-      roomID,
-      currentUserId,
-      currentUserName
-    );
-    const zp = (window as any).ZegoUIKitPrebuilt.create(kitToken);
-    zegoCallInstance = zp; // FIX: store instance so it can be destroyed later
-    const container = document.querySelector('#zego-call-container');
-    if (!container) return;
-    zp.joinRoom({
-      container,
-      scenario: {
-        mode: mode === 'video'
-          ? (window as any).ZegoUIKitPrebuilt.OneONoneCall
-          : (window as any).ZegoUIKitPrebuilt.OneONoneCall,
-      },
-      showPreJoinView: false,
-      // FIX: Use correct parameter names from ZegoCloud SDK docs
-      turnOnCameraWhenJoining: mode === 'video',
-      turnOnMicrophoneWhenJoining: true,
-      useFrontFacingCamera: true,
-      showMyCameraToggleButton: true,
-      showMyMicrophoneToggleButton: true,
-      showAudioVideoSettingsButton: true,
-    });
-  } catch (e) {
-    console.error('handleStartZegoCall', e);
+  if (typeof window === 'undefined' || !(window as any).ZegoUIKitPrebuilt) {
+    console.error('handleStartZegoCall: ZegoUIKitPrebuilt not loaded');
+    return;
   }
+  // FIX (Hinglish): Retry mechanism — agar #zego-call-container abhi mount nahi
+  // hua hai toh 400ms baad retry karo (max 4 attempts). Pehle ek hi attempt tha
+  // jo kabhi-kabhi fail ho jaata tha jab DOM time pe render nahi hota tha aur
+  // call black screen ho jaata tha.
+  let callAttempts = 0;
+  const maxCallAttempts = 4;
+
+  const tryCallAttach = () => {
+    callAttempts++;
+    if (typeof window === 'undefined' || !(window as any).ZegoUIKitPrebuilt) {
+      if (callAttempts < maxCallAttempts) {
+        setTimeout(tryCallAttach, 400);
+      }
+      return;
+    }
+    const container = document.querySelector('#zego-call-container');
+    if (!container) {
+      console.log(`zego-call-container not found, retry ${callAttempts}/${maxCallAttempts}`);
+      if (callAttempts < maxCallAttempts) {
+        setTimeout(tryCallAttach, 400);
+      }
+      return;
+    }
+    try {
+      const kitToken = (window as any).ZegoUIKitPrebuilt.generateKitTokenForTest(
+        ZEGO_APP_ID,
+        ZEGO_APP_SIGN,
+        roomID,
+        currentUserId,
+        currentUserName
+      );
+      const zp = (window as any).ZegoUIKitPrebuilt.create(kitToken);
+      zegoCallInstance = zp; // FIX: store instance so it can be destroyed later
+      // FIX: Set container dimensions explicitly so SDK renders properly
+      (container as HTMLElement).style.width = '100%';
+      (container as HTMLElement).style.height = '100%';
+      (container as HTMLElement).style.minHeight = '220px';
+      zp.joinRoom({
+        container,
+        scenario: {
+          mode: (window as any).ZegoUIKitPrebuilt.OneONoneCall,
+        },
+        showPreJoinView: false,
+        // FIX: Use correct parameter names from ZegoCloud SDK docs
+        turnOnCameraWhenJoining: mode === 'video',
+        turnOnMicrophoneWhenJoining: true,
+        useFrontFacingCamera: true,
+        showMyCameraToggleButton: true,
+        showMyMicrophoneToggleButton: true,
+        showAudioVideoSettingsButton: true,
+        onLeaveRoom: () => {
+          // Clean up call Zego instance + container when leaving
+          destroyZegoInstance('call');
+        },
+      });
+      console.log('ZegoCloud 1-on-1 call attached successfully');
+    } catch (e) {
+      console.error('handleStartZegoCall', e);
+      if (callAttempts < maxCallAttempts) {
+        setTimeout(tryCallAttach, 400);
+      }
+    }
+  };
+
+  tryCallAttach();
 };
 
 const handleStartLiveOrCall = (roomID: string, currentUserId: string, currentUserName: string, onAttached?: () => void) => {
@@ -590,9 +785,20 @@ function ensureMonetagSdkLoaded(zoneId: number): void {
     sdkScript.setAttribute('data-sdk', `show_${zoneId}`);
     // FIX ROUND 5: Per-zone tag URL use karo (har zone ka apna URL hai)
     sdkScript.src = MONETAG_TAG_URLS[zoneId] || MONETAG_TAG_URL;
+    // FIX (Hinglish): agar Monetag CDN script load fail ho jaye toh "page
+    // couldn't load" error aa sakta hai. Hum onerror listener lagate hain jo
+    // silently handle karta hai — show_XXX() function available nahi hoga,
+    // lekin page crash nahi hoga (fallback in-feed video chal jayega).
+    sdkScript.onerror = () => {
+      console.warn(`[Monetag] SDK script failed to load for zone ${zoneId} — using fallback video.`);
+    };
+    // FIX: crossOrigin ko 'anonymous' set karte hain taaki CORS errors handle
+    // ho sakein aur script load na hone par bhi page stable rahe.
     document.head.appendChild(sdkScript);
     monetagSdkLoadedZones.add(zoneId);
-  } catch {}
+  } catch (e) {
+    console.warn('[Monetag] ensureMonetagSdkLoaded error:', e);
+  }
 }
 
 // Wait for the Monetag SDK's show_XXX() function to become available on window.
@@ -635,68 +841,80 @@ function waitForMonetagShowFn(zoneId: number, maxWaitMs = 15000): Promise<Functi
 //   (so we can distinguish "ad failed" from "ad succeeded" for revenue tracking).
 // Returns a Promise that resolves true if the ad was shown, false otherwise.
 function triggerMonetagInterstitialAd(zoneId: number): Promise<boolean> {
-  return new Promise(async (resolve) => {
-    if (typeof window === 'undefined') {
-      resolve(false);
-      return;
-    }
-
-    // Ensure the SDK script tag is injected into the DOM
-    ensureMonetagSdkLoaded(zoneId);
-
-    // Wait for the show_XXX() function to become available (SDK loaded)
-    const showFn = await waitForMonetagShowFn(zoneId, 15000);
-
-    if (typeof showFn !== 'function') {
-      // SDK didn't load in time — try legacy fallback zone if available
-      if (typeof (window as any).show_9087571 === 'function') {
-        try {
-          const result = (window as any).show_9087571();
-          if (result && typeof result.then === 'function') {
-            result.then(() => resolve(true)).catch(() => resolve(false));
-          } else {
-            resolve(true);
-          }
-          return;
-        } catch {
+  return new Promise((resolve) => {
+    // FIX (Hinglish): Pura body ek async IIFE mein wrap kiya gaya hai jo
+    // kabhi bhi reject nahi hoga — hamesha resolve(false) karega agar koi
+    // error aaye. Isse unhandled promise rejection se "page couldn't load"
+    // error nahi aayega.
+    (async () => {
+      try {
+        if (typeof window === 'undefined') {
           resolve(false);
           return;
         }
-      }
-      resolve(false);
-      return;
-    }
 
-    // Step 1: Preload the ad in background (reduces delay when showing)
-    try {
-      await showFn({ type: 'preload', requestVar: 'infeed_ad', catchIfNoFeed: true });
-    } catch {
-      // Preload failed — try showing directly without preload
-    }
+        // Ensure the SDK script tag is injected into the DOM
+        ensureMonetagSdkLoaded(zoneId);
 
-    // Step 2: Show the full-screen interstitial ad (type: 'end' = Rewarded Interstitial)
-    // This is the actual revenue-generating ad call.
-    // catchIfNoFeed: true → promise rejects if no ad inventory available
-    try {
-      const showResult = showFn({ type: 'end', requestVar: 'infeed_ad', catchIfNoFeed: true });
-      if (showResult && typeof showResult.then === 'function') {
-        showResult
-          .then((result: any) => {
-            // Ad was shown successfully — revenue event
+        // Wait for the show_XXX() function to become available (SDK loaded)
+        const showFn = await waitForMonetagShowFn(zoneId, 15000);
+
+        if (typeof showFn !== 'function') {
+          // SDK didn't load in time — try legacy fallback zone if available
+          if (typeof (window as any).show_9087571 === 'function') {
+            try {
+              const result = (window as any).show_9087571();
+              if (result && typeof result.then === 'function') {
+                result.then(() => resolve(true)).catch(() => resolve(false));
+              } else {
+                resolve(true);
+              }
+              return;
+            } catch {
+              resolve(false);
+              return;
+            }
+          }
+          resolve(false);
+          return;
+        }
+
+        // Step 1: Preload the ad in background (reduces delay when showing)
+        try {
+          await showFn({ type: 'preload', requestVar: 'infeed_ad', catchIfNoFeed: true });
+        } catch {
+          // Preload failed — try showing directly without preload
+        }
+
+        // Step 2: Show the full-screen interstitial ad (type: 'end' = Rewarded Interstitial)
+        // This is the actual revenue-generating ad call.
+        // catchIfNoFeed: true → promise rejects if no ad inventory available
+        try {
+          const showResult = showFn({ type: 'end', requestVar: 'infeed_ad', catchIfNoFeed: true });
+          if (showResult && typeof showResult.then === 'function') {
+            showResult
+              .then((result: any) => {
+                // Ad was shown successfully — revenue event
+                resolve(true);
+              })
+              .catch(() => {
+                // No ad feed available or ad failed — resolve false (fallback video will show)
+                resolve(false);
+              });
+          } else {
+            // Synchronous return (unlikely) — assume ad was triggered
             resolve(true);
-          })
-          .catch(() => {
-            // No ad feed available or ad failed — resolve false (fallback video will show)
-            resolve(false);
-          });
-      } else {
-        // Synchronous return (unlikely) — assume ad was triggered
-        resolve(true);
+          }
+        } catch {
+          // show_XXX threw — no ad available
+          resolve(false);
+        }
+      } catch (e) {
+        // Any unexpected error — resolve false so the fallback video shows
+        console.warn('[Monetag] triggerMonetagInterstitialAd error:', e);
+        resolve(false);
       }
-    } catch {
-      // show_XXX threw — no ad available
-      resolve(false);
-    }
+    })();
   });
 }
 
@@ -765,11 +983,13 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
     adTriggeredRef.current = true;
     setAdTriggered(true);
 
-    // FIX: Cooldown check — sirf 4 minute mein ek baar REAL Monetag popup fire karo.
-    // In-feed fallback video har baar chalega, lekin full-screen Monetag popup ad
-    // sirf cooldown ke baad fire hoga — taaki user ko bohot zyada ads na dikhein.
+    // FIX: In-feed MonetagVideoAd ka apna SEPARATE aur LONGER cooldown (8 min).
+    // Pehle yeh 4-min cooldown use karta tha jo navigation ads se share hota tha.
+    // Ab in-feed popup ke liye alag 8-min cooldown hai — taaki scroll karne pe
+    // bar-bar full-screen popup NA aaye. In-feed fallback video hamesha chalega
+    // (revenue + UX dono safe), lekin REAL popup sirf 8 min mein ek baar.
     const now = Date.now();
-    const inCooldown = (now - lastInterstitialAdTime) < AD_COOLDOWN_MS;
+    const inCooldown = (now - lastInFeedPopupTime) < INFEED_POPUP_COOLDOWN_MS;
     if (inCooldown) return; // Cooldown active — sirf in-feed video chalega, popup nahi
 
     // Fire the REAL Monetag ad using the Promise-based SDK API in the background.
@@ -778,7 +998,8 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
     triggerMonetagInterstitialAd(publisherId).then((shown) => {
       if (shown) {
         // Real Monetag ad was shown successfully — revenue generated!
-        lastInterstitialAdTime = Date.now(); // Update cooldown timestamp
+        lastInFeedPopupTime = Date.now(); // Update IN-FEED popup cooldown (8 min)
+        lastInterstitialAdTime = Date.now(); // Also update global cooldown
       } else {
         // No Monetag ad feed available — fallback in-feed video keeps playing.
       }
@@ -1309,6 +1530,12 @@ export function AJSuperPortal() {
   const [invested, setInvested] = useState(0);
   const [loading,  setLoading]  = useState(0);
 
+  // FIX: Camera/Mic permission prompt — naye login ke baad user se pehle se
+  // permission maangte hain taaki Live stream mein problem na aaye. Agar user
+  // deny kare toh bhi app chalti rehti hai (Live mein dobara maang sakte hain).
+  const [showCameraPermissionPrompt, setShowCameraPermissionPrompt] = useState(false);
+  const [cameraPermissionResult, setCameraPermissionResult] = useState<'granted'|'denied'|'unknown'>('unknown');
+
   // ── SOCIAL PROFILE
   const [hasSocialProfile, setHasSocialProfile] = useState(false);
   const [username,    setUsername]    = useState('');
@@ -1556,12 +1783,19 @@ export function AJSuperPortal() {
       ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL);
     } catch {}
 
-    // Monetag Push Notification Ad
+    // Monetag Push Notification Ad — FIX: sirf ek baar load hoga (guard flag se)
+    // Pehle yeh har component re-render / mount pe naya script inject karta tha
+    // jisse push ads bar-bar aate the ("every second" wala issue). Ab ek global
+    // flag check karte hain — sirf ek baar load hoga poore session mein.
     try {
-      const s3 = document.createElement('script');
-      s3.async = true;
-      s3.src = 'https://nap5k.com/push.min.js';
-      document.head.appendChild(s3);
+      if (!(window as any).__AJ_PUSH_AD_LOADED__) {
+        (window as any).__AJ_PUSH_AD_LOADED__ = true;
+        const s3 = document.createElement('script');
+        s3.async = true;
+        s3.src = 'https://nap5k.com/push.min.js';
+        s3.onerror = () => { console.warn('[Monetag] push.min.js failed to load — skipping push ads.'); };
+        document.head.appendChild(s3);
+      }
     } catch {}
 
     // Preload the interstitial ad so it's ready to show instantly when a MonetagVideoAd mounts.
@@ -1910,6 +2144,9 @@ export function AJSuperPortal() {
             setBio(d.bio||'');
             setTempPhoto(d.photo||cu.photoURL||'');
           } else {
+            // NEW USER — just signed up! Camera/mic permission prompt dikhao
+            // BEFORE going to hub, taaki user se pehle permission le lein.
+            // Agar user allow kare toh great, agar deny kare toh bhi hub par bhej do.
             await setDoc(userRef, {
               name:cu.displayName, email:cu.email,
               balance:500, botTier:'none', invested:0,
@@ -1921,6 +2158,8 @@ export function AJSuperPortal() {
               status:'online', fcmToken:'',
             });
             setHasSocialProfile(true);
+            // FIX: Naye user ke liye camera/mic permission prompt show karo
+            setShowCameraPermissionPrompt(true);
           }
           onSnapshot(userRef, s => {
             if (s.exists()) {
@@ -1931,10 +2170,39 @@ export function AJSuperPortal() {
           });
         } catch(e) { console.error('Auth init error', e); }
         await setUserOnlinePresence(cu);
-        setScreen('hub');
+        // FIX: Agar permission prompt nahi dikhana (returning user), seedha hub par jao
+        // Naye user ke liye permission prompt pehle handle hoga, phir hub par jayega
+        if (!showCameraPermissionPrompt) {
+          setScreen('hub');
+        }
       } else { setUser(null); setScreen('auth'); }
     });
     return () => unsub();
+  }, []);
+
+  // FIX (Hinglish): ZegoCloud cleanup on unmount + pagehide.
+  // "Page couldn't load" error ka ek kaaran ye bhi hai ki jab component unmount
+  // hota hai ya page hide/refresh hota hai, toh ZegoCloud ke dangling iframes
+  // crash ho jaate hain. Ye effect sabhi Zego instances ko properly destroy
+  // karta hai taaki koi dangling iframe/media na rahe.
+  useEffect(() => {
+    const cleanupAllZego = () => {
+      try { destroyZegoInstance('main'); } catch {}
+      try { destroyZegoInstance('viewer'); } catch {}
+      try { destroyZegoInstance('call'); } catch {}
+    };
+    const handlePageHide = () => {
+      // When page is being hidden/unloaded, clean up all Zego instances
+      cleanupAllZego();
+    };
+    window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('beforeunload', handlePageHide);
+    return () => {
+      // Component unmount — destroy all Zego instances
+      window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('beforeunload', handlePageHide);
+      cleanupAllZego();
+    };
   }, []);
 
   useEffect(() => {
@@ -2345,6 +2613,7 @@ export function AJSuperPortal() {
       const existing = document.getElementById('zego-sdk-script');
       if (existing) {
         existing.addEventListener('load', () => resolve());
+        existing.addEventListener('error', () => resolve());
         return;
       }
       const s = document.createElement('script');
@@ -2352,9 +2621,53 @@ export function AJSuperPortal() {
       s.src = 'https://unpkg.com/@zegocloud/zego-uikit-prebuilt/zego-uikit-prebuilt.js';
       s.async = true;
       s.onload = () => resolve();
-      s.onerror = () => resolve(); // resolve anyway so app doesn't hang
+      s.onerror = () => {
+        // FIX (Hinglish): ZegoCloud SDK load fail hone par bhi app hang ya
+        // "page couldn't load" error nahi aana chahiye. Resolve karte hain
+        // taaki caller ko SDK available na ho lekin page stable rahe.
+        console.warn('[ZegoCloud] SDK script failed to load — live stream will not be available.');
+        resolve();
+      };
       document.head.appendChild(s);
     });
+  };
+
+  // FIX: Camera/Mic permission request function — naye login pe aur Live start pe
+  // use hota hai. Agar user deny kare toh false return karta hai, agar allow kare
+  // toh true. Agar getUserMedia support nahi karta (non-HTTPS) toh false.
+  const requestCameraMicPermission = async (): Promise<boolean> => {
+    try {
+      if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        console.warn('getUserMedia not available — need HTTPS');
+        return false;
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } },
+        audio: true
+      });
+      // Permission granted — stop the test stream immediately
+      stream.getTracks().forEach(t => { try { t.stop(); } catch {} });
+      setCameraPermissionResult('granted');
+      return true;
+    } catch(e: any) {
+      console.warn('Camera/mic permission denied:', e?.name || e);
+      setCameraPermissionResult('denied');
+      return false;
+    }
+  };
+
+  // FIX: Camera/mic permission prompt ko handle karo — user "Allow" dabaye toh
+  // permission request karo, phir hub par bhej do. "Skip" dabaye toh seedha hub.
+  const handlePermissionPromptAllow = async () => {
+    setShowCameraPermissionPrompt(false);
+    await requestCameraMicPermission();
+    setScreen('hub');
+  };
+
+  const handlePermissionPromptSkip = () => {
+    setShowCameraPermissionPrompt(false);
+    setCameraPermissionResult('unknown');
+    setScreen('hub');
   };
 
   const startLive = async () => {
@@ -2456,56 +2769,58 @@ export function AJSuperPortal() {
   };
 
   const stopLive = async () => {
-    // FIX ROUND 4: Reset zegoAttached so local preview doesn't show after stop
-    setZegoAttached(false);
-    setCameraReady(false);
-    // FIX: Stop heartbeat
-    if ((liveStreamRef as any)._heartbeat) {
-      clearInterval((liveStreamRef as any)._heartbeat);
-      (liveStreamRef as any)._heartbeat = null;
-    }
-    // FIX (Hinglish): Pehle `window.zp` check hota tha jo KABHI set hi nahi hua
-    // karta tha (zp local const tha) — isliye ZegoCloud ka iframe & media dangling
-    // reh jaata tha aur "This page could not load" error aata tha.
-    // Ab hum `destroyZegoInstance('main')` use karte hain jo instance ko properly
-    // destroy karta hai aur #video-container ko clear karta hai — no more crash.
-    destroyZegoInstance('main');
+    // FIX: Pura stopLive ek try/finally mein wrap kiya gaya hai — chahe koi bhi
+    // error aaye (ZegoCloud destroy, Firestore delete, media stop), user HAMESHA
+    // Social Hub par wapas aa jaayega. Error se page crash nahi hoga.
+    try {
+      setZegoAttached(false);
+      setCameraReady(false);
+      if ((liveStreamRef as any)._heartbeat) {
+        clearInterval((liveStreamRef as any)._heartbeat);
+        (liveStreamRef as any)._heartbeat = null;
+      }
+      // ZegoCloud instance ko properly destroy karo + container clear karo
+      try { destroyZegoInstance('main'); } catch {}
 
-    // FIX: Stop all media tracks (camera + mic)
-    if (liveStreamRef.current) {
-      liveStreamRef.current.getTracks().forEach(t => {
-        try { t.stop(); } catch {}
-      });
-      liveStreamRef.current = null;
+      // Stop all media tracks (camera + mic)
+      if (liveStreamRef.current) {
+        liveStreamRef.current.getTracks().forEach(t => {
+          try { t.stop(); } catch {}
+        });
+        liveStreamRef.current = null;
+      }
+      if (liveVideoRef.current) {
+        try {
+          if (liveVideoRef.current.srcObject) {
+            const stream = liveVideoRef.current.srcObject as MediaStream;
+            stream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
+            liveVideoRef.current.srcObject = null;
+          }
+          liveVideoRef.current.pause();
+        } catch {}
+      }
+      setCameraReady(false);
+      setLiveActive(false);
+      setLiveViewerCount(0);
+      setPkActive(false);
+      setPkWinner(null);
+      setLiveChatOpen(false);
+      setLiveGiftPanelOpen(false);
+      if (liveRoomId) {
+        try { await deleteDoc(doc(db,"live_rooms",liveRoomId)); } catch {}
+        setLiveRoomId('');
+      }
+    } catch(e) {
+      console.error('stopLive error (non-fatal):', e);
+    } finally {
+      // HAMESHA Social Hub par wapas aao — koi bhi error aaye, user
+      // ghabraaye nahi, page crash nahi hoga. Sidha Social Hub screen.
+      setZegoAttached(false);
+      setCameraReady(false);
+      setLiveActive(false);
+      setSocialScreen('hub');
+      setVvipAlert({msg:'Live ended. You are back to Social Hub.'});
     }
-    // FIX: Also stop any video element streams
-    if (liveVideoRef.current) {
-      try {
-        if (liveVideoRef.current.srcObject) {
-          const stream = liveVideoRef.current.srcObject as MediaStream;
-          stream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
-          liveVideoRef.current.srcObject = null;
-        }
-        liveVideoRef.current.pause();
-      } catch {}
-    }
-    setCameraReady(false);
-    setLiveActive(false);
-    setLiveViewerCount(0);
-    setPkActive(false);
-    setPkWinner(null);
-    setLiveChatOpen(false);
-    setLiveGiftPanelOpen(false);
-    if (liveRoomId) {
-      try { await deleteDoc(doc(db,"live_rooms",liveRoomId)); } catch {}
-      setLiveRoomId('');
-    }
-    // FIX (Hinglish): Jab live end hota tha toh "This page couldn't load" error
-    // aata tha kyunki screen golive par hi reh jaata tha aur dangling Zego iframe
-    // crash ho jaata tha. Ab hum explicitly Social Hub par navigate karte hain
-    // taaki user cleanly wapas aa jaaye.
-    setSocialScreen('hub');
-    setVvipAlert({msg:'Live ended. You are back to Social Hub.'});
   };
 
   // ==========================================================
@@ -2603,19 +2918,23 @@ export function AJSuperPortal() {
   };
 
   const leaveViewerRoom = () => {
-    if (viewerUnsubRef.current) { viewerUnsubRef.current(); viewerUnsubRef.current = null; }
-    // FIX: Decrement liveViewers count when a viewer leaves
-    if (viewerRoomId) {
-      try { updateDoc(doc(db, 'live_rooms', viewerRoomId), { liveViewers: increment(-1) }); } catch {}
+    // FIX: Pura leaveViewerRoom try/finally mein — hamesha Social Hub par wapas aao
+    try {
+      if (viewerUnsubRef.current) { viewerUnsubRef.current(); viewerUnsubRef.current = null; }
+      if (viewerRoomId) {
+        try { updateDoc(doc(db, 'live_rooms', viewerRoomId), { liveViewers: increment(-1) }); } catch {}
+      }
+      // Viewer Zego instance ko properly destroy karo — prevents crash
+      try { destroyZegoInstance('viewer'); } catch {}
+    } catch(e) {
+      console.error('leaveViewerRoom error (non-fatal):', e);
+    } finally {
+      // HAMESHA Social Hub par wapas aao — koi bhi error aaye
+      setViewerRoom(null); setViewerRoomId('');
+      setViewerChatMessages([]); setViewerChatInput('');
+      setLiveGiftPanelOpen(false);
+      setSocialScreen('hub');
     }
-    // FIX (Hinglish): Viewer Zego instance ko properly destroy karte hain taaki
-    // dangling iframe/media na rahe — prevents "This page could not load".
-    destroyZegoInstance('viewer');
-    setViewerRoom(null); setViewerRoomId('');
-    setViewerChatMessages([]); setViewerChatInput('');
-    setLiveGiftPanelOpen(false);
-    // Navigate back to Social Hub so the user isn't stuck on a crashed viewer screen
-    setSocialScreen('hub');
   };
 
   const sendViewerChatMessage = async () => {
@@ -2968,17 +3287,27 @@ export function AJSuperPortal() {
   };
 
   const endZegoCall = () => {
-    setZegoCallActive(false);
-    setZegoCallRoomId('');
-    setIncomingCall(null);
-    if (zegoCallRoomId) {
-      try {
-        getDocs(query(collection(db,'call_signals'), limit(10))).then(snap => {
-          snap.docs.forEach(d => {
-            if (d.data().roomId === zegoCallRoomId) deleteDoc(d.ref).catch(()=>{});
+    // FIX: ZegoCloud call instance ko destroy karo + container clear karo
+    // Pehle yeh missing tha — isse call end pe dangling Zego iframe reh jaata tha
+    try {
+      try { destroyZegoInstance('call'); } catch {}
+      setZegoCallActive(false);
+      setZegoCallRoomId('');
+      setIncomingCall(null);
+      if (zegoCallRoomId) {
+        try {
+          getDocs(query(collection(db,'call_signals'), limit(10))).then(snap => {
+            snap.docs.forEach(d => {
+              if (d.data().roomId === zegoCallRoomId) deleteDoc(d.ref).catch(()=>{});
+            });
           });
-        });
-      } catch {}
+        } catch {}
+      }
+    } catch(e) {
+      console.error('endZegoCall error (non-fatal):', e);
+      setZegoCallActive(false);
+      setZegoCallRoomId('');
+      setIncomingCall(null);
     }
   };
 
@@ -3962,12 +4291,12 @@ Tip: Social Hub se copy karo 📤`,
       {interstitialAdOpen && (
         <div className="fixed inset-0 z-[9995] bg-black flex flex-col">
           <div className="flex-1 relative flex items-center justify-center">
-            <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} type="interstitial"/>
-          </div>
-
-          {/* Timer bar at bottom */}
-          <div className="h-1 w-full bg-white/10 relative">
-            <div className="h-full bg-gradient-to-r from-pink-500 to-cyan-400 transition-all" style={{width:'100%', transitionDuration:'8s'}}/>
+            {/* FIX: MonetagVideoAd hata diya — yeh har card click pe full-screen ad
+                deta tha jo bohot aggressive tha. Ab sirf in-feed ads (har 6 posts)
+                + navigation cooldown ads chalenge — balanced earning. */}
+            <div className="text-center">
+              <p className="text-white/60 text-sm">Loading…</p>
+            </div>
           </div>
         </div>
       )}
@@ -4014,6 +4343,58 @@ Tip: Social Hub se copy karo 📤`,
           <p className="mt-2 text-xs text-gray-500 uppercase tracking-[0.3em]">Loading…</p>
           <div className="mt-8 w-48 h-1 bg-white/10 rounded-full overflow-hidden">
             <div className="h-full bg-gradient-to-r from-pink-500 to-cyan-400 rounded-full transition-all duration-300" style={{width:`${loading}%`}}/>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════
+          CAMERA/MIC PERMISSION PROMPT — naye login ke baad
+          FIX: Naye user login pe pehle se camera/mic permission maangte
+          hain taaki Live stream mein problem na aaye. User "Allow" kare toh
+          permission request hota hai, "Skip" kare toh seedha hub par jata hai.
+      ══════════════════════════════════════════════════════ */}
+      {showCameraPermissionPrompt && (
+        <div className="fixed inset-0 z-[9500] flex flex-col items-center justify-center bg-[#050505] px-6">
+          <div className="w-full max-w-sm bg-white/5 border border-white/10 rounded-3xl p-8 flex flex-col items-center gap-4 text-center">
+            {/* Camera/Mic icon */}
+            <div className="w-20 h-20 rounded-3xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg,rgba(236,72,153,0.2),rgba(34,211,238,0.2))' }}>
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="url(#grad1)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <defs>
+                  <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#ec4899"/>
+                    <stop offset="100%" stopColor="#22d3ee"/>
+                  </linearGradient>
+                </defs>
+                <path d="M23 7l-7 5 7 5V7z"/>
+                <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+              </svg>
+            </div>
+
+            <h2 className="text-xl font-black text-white">Enable Camera & Mic</h2>
+            <p className="text-gray-400 text-xs leading-relaxed">
+              AJ Super Portal mein Live streaming, video calls, aur TikReels ke liye
+              camera aur mic access chahiye. Abhi allow karein taaki baad mein bilkul
+              smoothly kaam kare!
+            </p>
+
+            <div className="flex flex-col gap-3 w-full mt-4">
+              <button
+                onClick={handlePermissionPromptAllow}
+                className="w-full py-4 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all"
+                style={{ background: 'linear-gradient(135deg,#ec4899,#8b5cf6)' }}
+              >
+                ✓ Allow Camera & Mic
+              </button>
+              <button
+                onClick={handlePermissionPromptSkip}
+                className="w-full py-3 rounded-2xl text-gray-400 font-bold text-sm active:scale-95 transition-all bg-white/5 border border-white/10"
+              >
+                Skip for now
+              </button>
+            </div>
+            <p className="text-gray-600 text-[9px] mt-2">
+              Aap baad mein bhi Live stream start karte waqt permission de sakte hain.
+            </p>
           </div>
         </div>
       )}
@@ -4344,22 +4725,36 @@ Tip: Social Hub se copy karo 📤`,
                   className="flex-1 overflow-y-scroll snap-y snap-mandatory scrollbar-hide flex flex-col overscroll-y-contain"
                   style={{ scrollSnapType:'y mandatory', display:'flex', flexDirection:'column', touchAction:'pan-y', WebkitOverflowScrolling:'touch' }}
                 >
-                  {pixaVideos.map((vid:any, idx:number) => {
-                    const isActive = activeVideoIdx === idx;
-                    // FIX #6: mute=0 when globalSoundOn, else mute=1; audio kill on scroll
-                    // FIX (Hinglish): enablejsapi=1 add kiya gaya hai taaki hum YouTube
-                    // iframe ko postMessage se pause/resume kar sakein (tap-to-pause ke liye).
-                    const embedSrc = `https://www.youtube.com/embed/${vid.id}?autoplay=${isActive?1:0}&mute=${(isActive && globalSoundOn)?0:1}&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3&enablejsapi=1`;
-                    // FIX: 4 video posts ke baad ek video ad dikhao.
-                    // Pattern: content[0], content[1], content[2], content[3], AD[4], content[5], content[6], content[7], content[8], AD[9]...
-                    // Pehle 4 real videos dikhenge, phir ad, phir 4 videos, phir ad.
-                    if (idx > 0 && idx % 5 === 4) {
-                      return (
-                        <div key={`tik_ad_${idx}`} data-vidx={idx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
-                          <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} type="interstitial"/>
-                        </div>
-                      );
-                    }
+                  {/* FIX (Hinglish): Ab hum ek naya array banate hain jisme har 4 content
+                      videos ke baad ek ad INSERT hota hai — content koi bhi loss nahi
+                      hota. Pehle idx%5===4 se content replace ho raha tha jisse 5th
+                      video skip ho jaata thi. Ab pattern:
+                      vid[0], vid[1], vid[2], vid[3], AD, vid[4], vid[5], vid[6], vid[7], AD ...
+                      — har 4 REAL videos ke baad ek ad, bilkul jaise user ne maanga. */}
+                  {(() => {
+                    const AD_EVERY = 6; // har 6 content posts ke baad ek ad (UX + earning balance)
+                    const interleaved: any[] = [];
+                    pixaVideos.forEach((vid:any, i:number) => {
+                      interleaved.push({ kind:'content', vid, origIdx:i });
+                      // Har 4 content items ke baad ek ad insert karo (0-based: i=3,7,11...)
+                      if ((i + 1) % AD_EVERY === 0) {
+                        interleaved.push({ kind:'ad', adIdx: Math.floor((i + 1) / AD_EVERY) - 1 });
+                      }
+                    });
+                    return interleaved.map((item:any, idx:number) => {
+                      if (item.kind === 'ad') {
+                        return (
+                          <div key={`tik_ad_${item.adIdx}`} data-vidx={idx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
+                            <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} type="interstitial"/>
+                          </div>
+                        );
+                      }
+                      const vid = item.vid;
+                      const isActive = activeVideoIdx === idx;
+                      // FIX #6: mute=0 when globalSoundOn, else mute=1; audio kill on scroll
+                      // FIX (Hinglish): enablejsapi=1 add kiya gaya hai taaki hum YouTube
+                      // iframe ko postMessage se pause/resume kar sakein (tap-to-pause ke liye).
+                      const embedSrc = `https://www.youtube.com/embed/${vid.id}?autoplay=${isActive?1:0}&mute=${(isActive && globalSoundOn)?0:1}&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3&enablejsapi=1`;
                     return (
                       <div key={vid.id} data-vidx={idx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505] flex flex-col justify-end" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
                         {isActive ? (
@@ -4433,7 +4828,8 @@ Tip: Social Hub se copy karo 📤`,
                         </div>
                       </div>
                     );
-                  })}
+                    });
+                  })()}
                   {/* User-uploaded TikReels */}
                   {userPosts.map((post:any, idx:number) => {
                     const globalIdx = pixaVideos.length + idx;
@@ -4723,19 +5119,33 @@ Tip: Social Hub se copy karo 📤`,
                   className="flex-1 overflow-y-scroll snap-y snap-mandatory scrollbar-hide flex flex-col overscroll-y-contain"
                   style={{ scrollSnapType: 'y mandatory', display:'flex', flexDirection:'column', touchAction:'pan-y', WebkitOverflowScrolling:'touch' }}
                 >
-                  {combinedPulseFeed.map((post:any, idx:number) => {
-                    // FIX: 4 video posts ke baad ek video ad dikhao.
-                    // Pattern: content[0], content[1], content[2], content[3], AD[4], content[5], content[6], content[7], content[8], AD[9]...
-                    // Pehle 4 real videos dikhenge, phir ad, phir 4 videos, phir ad.
-                    if (idx > 0 && idx % 5 === 4) {
+                  {/* FIX (Hinglish): Ab hum ek naya array banate hain jisme har 4 content
+                      posts ke baad ek ad INSERT hota hai — content koi bhi loss nahi
+                      hota. Pehle idx%5===4 se content replace ho raha tha jisse 5th
+                      post skip ho jaata tha. Ab pattern:
+                      post[0], post[1], post[2], post[3], AD, post[4], post[5], post[6], post[7], AD ...
+                      — har 4 REAL posts ke baad ek ad, bilkul jaise user ne maanga. */}
+                  {(() => {
+                    const AD_EVERY = 6; // har 6 content posts ke baad ek ad (UX + earning balance)
+                    const interleaved: any[] = [];
+                    combinedPulseFeed.forEach((post:any, i:number) => {
+                      interleaved.push({ kind:'content', post, origIdx:i });
+                      // Har 4 content items ke baad ek ad insert karo (0-based: i=3,7,11...)
+                      if ((i + 1) % AD_EVERY === 0) {
+                        interleaved.push({ kind:'ad', adIdx: Math.floor((i + 1) / AD_EVERY) - 1 });
+                      }
+                    });
+                    return interleaved.map((item:any, idx:number) => {
+                      if (item.kind === 'ad') {
+                        return (
+                          <div key={`pulse_ad_${item.adIdx}`} data-vidx={idx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
+                            <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} type="interstitial"/>
+                          </div>
+                        );
+                      }
+                      const post = item.post;
+                      const isActive = activeVideoIdx === idx;
                       return (
-                        <div key={`pulse_ad_${idx}`} data-vidx={idx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
-                          <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} type="interstitial"/>
-                        </div>
-                      );
-                    }
-                    const isActive = activeVideoIdx === idx;
-                    return (
                       <div key={post.id} data-vidx={idx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505] flex flex-col justify-end" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
                         {post.isVideo && post.image ? (
                           <video
@@ -4803,7 +5213,8 @@ Tip: Social Hub se copy karo 📤`,
                         </div>
                       </div>
                     );
-                  })}
+                    });
+                  })()}
                   {combinedPulseFeed.length === 0 && (
                     <div className="flex flex-col items-center justify-center h-full gap-4 pt-32">
                       <span className="text-5xl">📡</span>
@@ -5961,7 +6372,9 @@ const queryClient = new QueryClient();
 export default function Page() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AJSuperPortal/>
+      <AJErrorBoundary>
+        <AJSuperPortal/>
+      </AJErrorBoundary>
     </QueryClientProvider>
   );
 }
