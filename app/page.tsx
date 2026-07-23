@@ -439,13 +439,19 @@ function VVIPAlert({ msg, icon, onClose }: { msg: string; icon?: string; onClose
 // ============================================================
 
 // Fallback ad videos — TikTok-style short vertical clips (rotated for full-screen)
+// FIX ROUND 3: Pehle commondatastorage.googleapis.com ke URLs use hote the
+// jo mobile pe slow/blocked hone ki wajah se BLACK SCREEN dete the.
+// Ab reliable CDN (mix of sources) use kiya gaya hai + ek poster image
+// taaki ad area blank na rahe.
 const AD_FALLBACK_VIDEOS = [
-  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
-  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
-  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4',
-  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4',
-  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4',
+  'https://cdn.pixabay.com/video/2022/12/31/143264-782156834_large.mp4',
+  'https://cdn.pixabay.com/video/2023/01/01/145310-782658763_large.mp4',
+  'https://cdn.pixabay.com/video/2023/03/12/151965-806175268_large.mp4',
+  'https://cdn.pixabay.com/video/2022/10/30/136342-766216882_large.mp4',
+  'https://cdn.pixabay.com/video/2023/06/25/171190-851071649_large.mp4',
 ];
+// Fallback poster image (shown while video loads — prevents black screen)
+const AD_FALLBACK_POSTER = 'https://images.unsplash.com/photo-1550745165-9bc0b252726c?w=400&h=800&fit=crop';
 
 // Track which zones have had their SDK loaded (prevent duplicate script injection)
 const monetagSdkLoadedZones: Set<number> = new Set();
@@ -660,24 +666,35 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
 
   return (
     <div className="absolute inset-0 w-full h-full bg-black overflow-hidden z-[100]">
-      {/* Hidden container for Monetag SDK (the real ad appears as a full-screen overlay via SDK) */}
-      <div ref={containerRef} className="absolute inset-0 w-full h-full" style={{ zIndex: 1, pointerEvents: 'none' }} />
+      {/* FIX ROUND 3: Monetag SDK container — pointerEvents: 'auto' rakha gaya hai
+          taaki real Monetag ad overlay interact ho sake (pehle 'none' tha isliye
+          ad ke buttons tap nahi ho paate the). */}
+      <div ref={containerRef} className="absolute inset-0 w-full h-full" style={{ zIndex: 50, pointerEvents: 'auto' }} />
 
       {/* Seamless in-feed video — looks exactly like a regular TikTok/Pulse video and plays immediately */}
       <div className="absolute inset-0 w-full h-full bg-black" style={{ zIndex: 2 }}>
         <video
           ref={videoRef}
           src={fallbackVideo}
+          poster={AD_FALLBACK_POSTER}
           className="w-full h-full object-cover"
           autoPlay
           muted
           loop
           playsInline
           preload="auto"
+          crossOrigin="anonymous"
           onLoadedData={() => setAdReady(true)}
           onCanPlay={() => setAdReady(true)}
           onPlaying={() => setAdReady(true)}
-          onError={() => setAdReady(true)}
+          onError={() => {
+            // FIX ROUND 3: Agar fallback video fail ho jaaye toh poster image dikhao
+            // aur adReady=true kar do taaki loading spinner hat jaaye
+            setAdReady(true);
+            if (videoRef.current) {
+              videoRef.current.style.background = '#0a0a1a url(' + AD_FALLBACK_POSTER + ') center/cover';
+            }
+          }}
           onClick={(e) => e.preventDefault()}
         />
 
@@ -1053,6 +1070,8 @@ export function AJSuperPortal() {
 
   // ── INTERACTIONS
   const [likedPosts,    setLikedPosts]    = useState<any>({});
+  // FIX ROUND 3: Like double-fire prevention — Set tracks posts being liked (debounce guard)
+  const likeInProcess = useRef<Set<string>>(new Set()).current;
   const [activeMenuId,  setActiveMenuId]  = useState<string|null>(null);
   const [vvipAlert,     setVvipAlert]     = useState<{msg:string,icon?:string}|null>(null);
   const [interstitialAdOpen, setInterstitialAdOpen] = useState(false);
@@ -1066,6 +1085,8 @@ export function AJSuperPortal() {
   const [commentPostId, setCommentPostId] = useState<string|null>(null);
   const [postComments,  setPostComments]  = useState<any[]>([]);
   const [newComment,    setNewComment]    = useState('');
+  // FIX ROUND 3: Comment input ke liye dedicated ref — keyboard focus ke liye
+  const commentInputRef = useRef<HTMLInputElement>(null);
   const [selectedSound,     setSelectedSound]     = useState<string|null>(null);
   const [tiktokAudioFile,   setTiktokAudioFile]   = useState<File|null>(null);
   const [tiktokPostIsVideo, setTiktokPostIsVideo] = useState(false);
@@ -1404,6 +1425,21 @@ export function AJSuperPortal() {
     }
     return () => {};
   }, [socialScreen, activeContact, commentPostId]);
+
+  // FIX ROUND 3: Jab comment sheet khulta hai (commentPostId set hota hai),
+  // toh input ko focus karo taaki mobile pe keyboard khul jaaye.
+  // Pehle autoFocus hata diya tha + ref callback mein setTimeout use karte the
+  // jo mobile pe reliable nahi tha. Ab dedicated useEffect + ref se focus kar rahe hain.
+  useEffect(() => {
+    if (commentPostId && commentInputRef.current) {
+      const t = setTimeout(() => {
+        commentInputRef.current?.focus();
+        commentInputRef.current?.click();
+        try { commentInputRef.current?.setAttribute('autofocus', 'true'); } catch {}
+      }, 150);
+      return () => clearTimeout(t);
+    }
+  }, [commentPostId]);
 
   useEffect(() => {
     if (!user) return;
@@ -2792,11 +2828,21 @@ export function AJSuperPortal() {
   // call hota tha jo `user_posts/{vid.id}` document dhoondhta tha — jo exist nahi karta —
   // aur `if (!postSnap.exists()) return;` se like silently fail ho jaata tha.
   // Ab agar isYoutube=true hai toh hum sirf local state toggle karte hain (client-side).
+  //
+  // FIX (Hinglish) ROUND 3: Like button pe "2 likes add ho jaana" issue fix kiya.
+  // Problem: Mobile pe tap kabhi-kabhi do baar fire ho jaata hai, aur kyunki
+  // handleLike async hai, state race condition se count double ho jaata tha.
+  // Ab ek `likeInProgressRef` Set use karke guard lagaya gaya — jab tak ek like
+  // process ho raha hai, dobara tap ignore hota hai (debounce).
   const handleLike = async (id:string, isVideo:boolean = false, isYoutube:boolean = false) => {
     if (!user) return;
+    // GUARD: Agar yeh post already like-in-progress hai toh ignore (double-tap prevention)
+    if (likeInProcess.has(id)) return;
+    likeInProcess.add(id);
     // YouTube/pixa videos — local-only like toggle (no Firestore, these aren't real posts)
     if (isYoutube) {
       setLikedPosts((p:any) => ({...p,[id]: !p[id]}));
+      likeInProcess.delete(id);
       return;
     }
     const col = isVideo ? 'user_posts' : 'pulse_posts';
@@ -2808,6 +2854,7 @@ export function AJSuperPortal() {
       if (!postSnap.exists()) {
         // FIX: Agar Firestore mein post nahi hai toh local toggle kar do (crash na ho)
         setLikedPosts((p:any) => ({...p,[id]: !p[id]}));
+        likeInProcess.delete(id);
         return;
       }
       const currentLikes = postSnap.data()?.likes || 0;
@@ -2826,6 +2873,9 @@ export function AJSuperPortal() {
       console.error('handleLike firestore', e);
       // FIX: Error aane par bhi local toggle kar do taaki UI respond kare
       setLikedPosts((p:any) => ({...p,[id]: !p[id]}));
+    } finally {
+      // FIX ROUND 3: Guard hatao taaki user dobara like kar sake
+      likeInProcess.delete(id);
     }
   };
 
@@ -4991,7 +5041,10 @@ Tip: Social Hub se copy karo 📤`,
                       ))}
                     </div>
                     <div className="flex gap-2">
-                      {/* FIX: Comment input — removed autoFocus (was causing keyboard issues on mobile), added inputMode="text" and proper focus handling */}
+                      {/* FIX ROUND 3: Comment input — keyboard open nahi ho raha tha.
+                          Pehle autoFocus hata diya tha aur ref+setTimeout se focus karte the
+                          jo mobile pe reliable nahi tha. Ab useRef + useEffect se proper
+                          focus kar rahe hain jab comment sheet khulta hai. */}
                       <input
                         value={newComment}
                         onChange={e => setNewComment(e.target.value)}
@@ -4999,9 +5052,9 @@ Tip: Social Hub se copy karo 📤`,
                         inputMode="text"
                         autoCapitalize="sentences"
                         className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-3 py-2 text-white text-xs focus:outline-none focus:border-pink-500/50"
-                        style={{ touchAction: 'manipulation' }}
+                        style={{ touchAction: 'manipulation', fontSize: '16px' }}
                         onKeyDown={e => e.key==='Enter' && submitComment()}
-                        ref={(el) => { if (el) { setTimeout(() => { el.focus(); el.click(); }, 100); } }}
+                        ref={commentInputRef}
                       />
                       <button onClick={submitComment} className="w-10 h-10 bg-pink-600 rounded-2xl flex items-center justify-center active:scale-90 transition-all shadow-[0_0_12px_rgba(236,72,153,0.4)]">
                         <Send size={14} className="text-white"/>
