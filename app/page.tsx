@@ -132,11 +132,10 @@ const PK_DURATION    = 300;
 // ============================================================
 // FIX (Hinglish): Pehle har click pe ad trigger hota tha jo UX kharab karta tha.
 // Ab hum ek cooldown system lagate hain:
-// - Interstitial ads (navigation) sirf har 90 second mein ek baar
-// - Free coins ad sirf har 5 minute mein ek baar
-// - In-feed MonetagVideoAd sirf revenue ke liye background mein chalta hai (non-blocking)
-// Isse revenue bhi chalti rehti hai aur user ko har click pe ad nahi dikhta.
-const AD_COOLDOWN_MS = 90 * 1000;      // 90 seconds between navigation interstitials
+// - Interstitial ads (navigation popup) sirf har 5 MINUTE mein ek baar (bohot kam)
+// - In-feed MonetagVideoAd (TikReels/Pulse) 4 videos ke baad ek — revenue ke liye
+// - Isse revenue bhi chalti rehti hai (in-feed video ads) aur user ko har click pe popup ad NAHI dikhta.
+const AD_COOLDOWN_MS = 5 * 60 * 1000;     // 5 minutes between navigation interstitials (BOHOT KAM)
 const FREE_COIN_AD_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes between free-coin ads
 let lastInterstitialAdTime = 0;
 let lastFreeCoinAdTime = 0;
@@ -744,10 +743,20 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
   }, [currentPoster]);
 
   // Trigger the real Monetag interstitial ad (NON-BLOCKING) — runs in background for revenue
+  // FIX: In-feed MonetagVideoAd ka apna cooldown — taaki feed scroll karne pe har 4th
+  // post pe ad component mount ho, lekin ACTUAL Monetag popup ad sirf thodi der mein ek
+  // baar fire ho. In-feed fallback video hamesha chalega (revenue + UX dono safe).
   useEffect(() => {
     if (adTriggeredRef.current) return;
     adTriggeredRef.current = true;
     setAdTriggered(true);
+
+    // FIX: Cooldown check — sirf 4 minute mein ek baar REAL Monetag popup fire karo.
+    // In-feed fallback video har baar chalega, lekin full-screen Monetag popup ad
+    // sirf cooldown ke baad fire hoga — taaki user ko bohot zyada ads na dikhein.
+    const now = Date.now();
+    const inCooldown = (now - lastInterstitialAdTime) < AD_COOLDOWN_MS;
+    if (inCooldown) return; // Cooldown active — sirf in-feed video chalega, popup nahi
 
     // Fire the REAL Monetag ad using the Promise-based SDK API in the background.
     // This does NOT block the in-feed video — the ad overlay (if available) appears
@@ -755,6 +764,7 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
     triggerMonetagInterstitialAd(publisherId).then((shown) => {
       if (shown) {
         // Real Monetag ad was shown successfully — revenue generated!
+        lastInterstitialAdTime = Date.now(); // Update cooldown timestamp
       } else {
         // No Monetag ad feed available — fallback in-feed video keeps playing.
       }
@@ -4326,8 +4336,10 @@ Tip: Social Hub se copy karo 📤`,
                     // FIX (Hinglish): enablejsapi=1 add kiya gaya hai taaki hum YouTube
                     // iframe ko postMessage se pause/resume kar sakein (tap-to-pause ke liye).
                     const embedSrc = `https://www.youtube.com/embed/${vid.id}?autoplay=${isActive?1:0}&mute=${(isActive && globalSoundOn)?0:1}&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3&enablejsapi=1`;
-                    // AD INSERTION: Show video ad every 4th item (idx 0, 4, 8, 12...)
-                    if (idx === 0 || (idx > 0 && idx % 4 === 0)) {
+                    // FIX: 4 video posts ke baad ek video ad dikhao.
+                    // Pattern: content[0], content[1], content[2], content[3], AD[4], content[5], content[6], content[7], content[8], AD[9]...
+                    // Pehle 4 real videos dikhenge, phir ad, phir 4 videos, phir ad.
+                    if (idx > 0 && idx % 5 === 4) {
                       return (
                         <div key={`tik_ad_${idx}`} data-vidx={idx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
                           <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} type="interstitial"/>
@@ -4698,8 +4710,10 @@ Tip: Social Hub se copy karo 📤`,
                   style={{ scrollSnapType: 'y mandatory', display:'flex', flexDirection:'column', touchAction:'pan-y', WebkitOverflowScrolling:'touch' }}
                 >
                   {combinedPulseFeed.map((post:any, idx:number) => {
-                    // AD INSERTION: Show video ad every 4th item (idx 0, 4, 8, 12...)
-                    if (idx === 0 || (idx > 0 && idx % 4 === 0)) {
+                    // FIX: 4 video posts ke baad ek video ad dikhao.
+                    // Pattern: content[0], content[1], content[2], content[3], AD[4], content[5], content[6], content[7], content[8], AD[9]...
+                    // Pehle 4 real videos dikhenge, phir ad, phir 4 videos, phir ad.
+                    if (idx > 0 && idx % 5 === 4) {
                       return (
                         <div key={`pulse_ad_${idx}`} data-vidx={idx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
                           <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} type="interstitial"/>
