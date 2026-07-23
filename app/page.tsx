@@ -84,8 +84,16 @@ const CEO_WHATSAPP             = "https://wa.me/96878994093";
 const AGORA_APP_ID             = "7863c5369b3648bf931893a52ebaa6db";
 const AGORA_APP_CERTIFICATE    = "dc66528c5a5646da8e3ce5d2426759af";
 const VAPID_KEY                = "BMaPMtGtA2VtDsj_JH_yv5dOv66Mpguf9v4TkqY96dcS-gwqgs-r5OlqRJQmZbNkaj-7_iMFbGGN0Qc4xH0qvKg";
-const MONETAG_PULSE_BANNER     = 11337197;
-const MONETAG_INTERSTITIAL     = 11349676;
+// ============================================================
+// 🔑 MONETAG ZONE IDs — KAL YAHAN NAYE ZONE IDs REPLACE KARNE HAIN!
+// Monetag dashboard → Sites → Ad Zones → har ad type ka Zone ID copy karke
+// yahan paste kar do. Tag script (tag.min.js) pehle se set hai.
+// ============================================================
+// MONETAG SDK TAG URL (Monetag dashboard → Integration tab mein milega)
+const MONETAG_TAG_URL = 'https://nap5k.com/tag.min.js';  // ← KAL change kar sakte ho
+// Monetag Zone IDs (KAL naye IDs se replace kar dena):
+const MONETAG_PULSE_BANNER     = 11337197;   // ← Pulse feed banner ad zone
+const MONETAG_INTERSTITIAL     = 11349676;   // ← TikReels full-screen interstitial ad zone
 const PULSE_AD_VIDEO_ID        = 'aqz-KE-bpKQ';
 const NOWPAYMENTS_IPN_SECRET   = '9eeeBo6K1ljJSQtUCb1Up88Gv6n1AreU';
 const MONETAG_WECHAT_SPONSOR   = 11337185;
@@ -197,7 +205,7 @@ const handleStartZegoCall = (
   }
 };
 
-const handleStartLiveOrCall = (roomID: string, currentUserId: string, currentUserName: string) => {
+const handleStartLiveOrCall = (roomID: string, currentUserId: string, currentUserName: string, onAttached?: () => void) => {
   if (typeof window === 'undefined' || !(window as any).ZegoUIKitPrebuilt) {
     console.error('ZegoUIKitPrebuilt not loaded');
     return;
@@ -243,6 +251,9 @@ const handleStartLiveOrCall = (roomID: string, currentUserId: string, currentUse
       onJoinRoom: () => {
         // Camera and mic are active now — ZegoCloud SDK has acquired them successfully
         console.log('ZegoCloud room joined — camera & mic active');
+        // FIX ROUND 4: ZegoCloud attach ho gaya — local preview hide kar do
+        // aur ZegoCloud ka UI dikhne do. Ab black screen nahi aayega.
+        if (onAttached) onAttached();
       },
       onLeaveRoom: () => {
         // Clean up when leaving — destroy instance to free camera/mic and remove iframe
@@ -473,7 +484,7 @@ function ensureMonetagSdkLoaded(zoneId: number): void {
     sdkScript.async = true;
     sdkScript.setAttribute('data-zone', String(zoneId));
     sdkScript.setAttribute('data-sdk', `show_${zoneId}`);
-    sdkScript.src = 'https://nap5k.com/tag.min.js';
+    sdkScript.src = MONETAG_TAG_URL;
     document.head.appendChild(sdkScript);
     monetagSdkLoadedZones.add(zoneId);
   } catch {}
@@ -1153,6 +1164,8 @@ export function AJSuperPortal() {
   const [liveActive,  setLiveActive]  = useState(false);
   const [liveRoomId,  setLiveRoomId]  = useState('');
   const [cameraReady, setCameraReady] = useState(false);
+  // FIX ROUND 4: ZegoCloud attached state — jab tak false, local preview dikhao
+  const [zegoAttached, setZegoAttached] = useState(false);
   // FIX: Real-time viewer count (host sees this — increments when viewer joins, decrements when leaves)
   const [liveViewerCount, setLiveViewerCount] = useState(0);
   const liveViewerUnsubRef = useRef<any>(null);
@@ -2030,13 +2043,16 @@ export function AJSuperPortal() {
         if (liveVideoRef.current) {
           try { liveVideoRef.current.srcObject = testStream; } catch {}
         }
-        // Keep the stream ref so stopLive can stop it; ZegoCloud will re-acquire its own
+        // FIX ROUND 4: Camera black screen fix — hum tracks STOP nahi karte!
+        // Pehle 300ms baad tracks stop kar dete the jisse camera off ho jaata tha
+        // aur agar ZegoCloud time pe attach nahi hua toh BLACK SCREEN aa jaata tha.
+        // Ab hum tracks alive rakhhte hain — ZegoCloud apna stream acquire karega
+        // aur humara local preview tab tak chalta rahega jab tak ZegoCloud join na ho.
         liveStreamRef.current = testStream;
-        // Stop the tracks after a short delay so the local preview shows briefly,
-        // then ZegoCloud takes over the camera. We stop to free the device for ZegoCloud.
-        setTimeout(() => {
-          testStream.getTracks().forEach(track => track.stop());
-        }, 300);
+        // Local preview video pe stream laga do (agar pehle se nahi laga)
+        if (liveVideoRef.current && !liveVideoRef.current.srcObject) {
+          try { liveVideoRef.current.srcObject = testStream; } catch {}
+        }
       } catch (mediaErr: any) {
         // Permission denied — show error and abort
         console.error('getUserMedia permission error', mediaErr);
@@ -2058,7 +2074,7 @@ export function AJSuperPortal() {
       setLiveRoomId(roomId);
       setLiveActive(true);
       // Wait a tick for DOM to update before ZegoCloud attaches to #video-container
-      setTimeout(() => handleStartLiveOrCall(roomId, user.uid, username || 'AJ Member'), 500);
+      setTimeout(() => handleStartLiveOrCall(roomId, user.uid, username || 'AJ Member', () => setZegoAttached(true)), 800);
       await setDoc(doc(db, "live_rooms", roomId), {
         uid: user.uid, username: username || 'AJ_Member',
         photo: tempPhoto || user.photoURL || '',
@@ -2085,6 +2101,9 @@ export function AJSuperPortal() {
   };
 
   const stopLive = async () => {
+    // FIX ROUND 4: Reset zegoAttached so local preview doesn't show after stop
+    setZegoAttached(false);
+    setCameraReady(false);
     // FIX: Stop heartbeat
     if ((liveStreamRef as any)._heartbeat) {
       clearInterval((liveStreamRef as any)._heartbeat);
@@ -4504,9 +4523,12 @@ Tip: Social Hub se copy karo 📤`,
                   className="w-full max-w-sm aspect-video bg-black rounded-3xl overflow-hidden border border-white/10 relative"
                   style={{ minHeight: 220 }}
                 >
-                  {/* Local camera preview (before ZegoCloud takes over) */}
-                  {cameraReady && !liveActive && (
-                    <video ref={liveVideoRef} autoPlay muted playsInline className="absolute inset-0 w-full h-full object-cover"/>
+                  {/* FIX ROUND 4: Local camera preview — tab tak dikhao jab tak ZegoCloud
+                      attach nahi ho jaata. Pehle sirf `cameraReady && !liveActive` pe dikhata tha
+                      isliye liveActive=true hote hi preview gayab ho jaata tha aur agar ZegoCloud
+                      attach nahi hua toh BLACK SCREEN. Ab `!zegoAttached` condition add ki. */}
+                  {cameraReady && !zegoAttached && (
+                    <video ref={liveVideoRef} autoPlay muted playsInline className="absolute inset-0 w-full h-full object-cover" style={{ objectFit: 'cover' }}/>
                   )}
                   {/* ZegoCloud will inject its UI into #video-container when liveActive */}
                   {!cameraReady && !liveActive && (
@@ -5052,7 +5074,7 @@ Tip: Social Hub se copy karo 📤`,
                         inputMode="text"
                         autoCapitalize="sentences"
                         className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-3 py-2 text-white text-xs focus:outline-none focus:border-pink-500/50"
-                        style={{ touchAction: 'manipulation', fontSize: '16px' }}
+                        style={{ touchAction: 'manipulation', fontSize: '16px', WebkitAppearance: 'none', appearance: 'none' }}
                         onKeyDown={e => e.key==='Enter' && submitComment()}
                         ref={commentInputRef}
                       />
