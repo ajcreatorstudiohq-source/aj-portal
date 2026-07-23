@@ -1556,21 +1556,13 @@ export function AJSuperPortal() {
       ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL);
     } catch {}
 
-    // Monetag Push Notification Ad — fire every 15 minutes
-    // FIX (Hinglish): Pehle push ad sirf ek baar mount pe load hota tha.
-    // Ab hum push.min.js ko har 15 minute (900000 ms) mein ek baar reload
-    // karte hain taaki push notification ad baar baar fire ho sakta hai.
-    const firePushAd = () => {
-      try {
-        const s3 = document.createElement('script');
-        s3.async = true;
-        s3.src = 'https://nap5k.com/push.min.js';
-        document.head.appendChild(s3);
-      } catch {}
-    };
-    firePushAd(); // initial fire on mount
-    const pushAdInterval = setInterval(firePushAd, 15 * 60 * 1000); // every 15 minutes
-    (window as any).__pushAdInterval = pushAdInterval;
+    // Monetag Push Notification Ad
+    try {
+      const s3 = document.createElement('script');
+      s3.async = true;
+      s3.src = 'https://nap5k.com/push.min.js';
+      document.head.appendChild(s3);
+    } catch {}
 
     // Preload the interstitial ad so it's ready to show instantly when a MonetagVideoAd mounts.
     // This waits for the SDK to load, then calls show_XXX({ type: 'preload' }).
@@ -1582,14 +1574,6 @@ export function AJSuperPortal() {
         } catch {}
       }
     });
-
-    return () => {
-      // Cleanup push ad interval on unmount
-      if ((window as any).__pushAdInterval) {
-        clearInterval((window as any).__pushAdInterval);
-        (window as any).__pushAdInterval = null;
-      }
-    };
 
   }, []);
 
@@ -1788,36 +1772,29 @@ export function AJSuperPortal() {
   // 4. Touch-friendly: tap on input directly opens keyboard (no readonly tricks)
   useEffect(() => {
     if (!commentPostId) return;
-    // FIX (Hinglish): Mobile keyboard open karne ka reliable fix.
-    // PROBLEM: Pehle 300ms ka setTimeout use hota tha jo user gesture ke
-    // baad fire hota tha — isse mobile browser keyboard open nahi karta tha
-    // kyunki focus() ko user gesture ke andar call karna padta hai.
-    // FIX: Ab hum requestAnimationFrame use karte hain (DOM render hone ka
-    // wait karta hai) phir turant focus karte hain. Agar input abhi bhi null hai
-    // toh short retries karte hain (50ms, 100ms, 200ms).
-    const focusInput = (attempt = 0) => {
+    // Wait for the comment sheet to render and transition to complete
+    const t = setTimeout(() => {
       const input = commentInputRef.current;
-      if (input) {
-        try {
-          // Focus the input — this opens the keyboard on mobile
-          input.focus({ preventScroll: true });
-          // Also call click() — some Android browsers need this to open keyboard
-          input.click();
-          // Set selection to end of any existing text
-          const len = input.value.length;
-          input.setSelectionRange(len, len);
-        } catch {
-          input.focus();
-          input.click();
-        }
-      } else if (attempt < 5) {
-        // Input not yet rendered — retry with increasing delays
-        setTimeout(() => focusInput(attempt + 1), 50 * (attempt + 1));
+      if (!input) return;
+      // FIX: Directly focus without readonly tricks — modern mobile browsers
+      // (Chrome, Safari, Firefox) respond well to focus() + click() when called
+      // from a user-initiated event chain (which this is, since commentPostId was
+      // set by a button click). The key is to call focus() within the event handler
+      // or shortly after (within 300ms).
+      try {
+        // Focus the input — this opens the keyboard on mobile
+        input.focus({ preventScroll: true });
+        // Also call click() — some Android browsers need this to open keyboard
+        input.click();
+        // Set selection to end of any existing text
+        const len = input.value.length;
+        input.setSelectionRange(len, len);
+      } catch {
+        input.focus();
+        input.click();
       }
-    };
-    // Use requestAnimationFrame to wait for the DOM to update, then focus
-    requestAnimationFrame(() => focusInput(0));
-    return () => {};
+    }, 300);
+    return () => clearTimeout(t);
   }, [commentPostId]);
 
   useEffect(() => {
@@ -1947,13 +1924,9 @@ export function AJSuperPortal() {
           }
           onSnapshot(userRef, s => {
             if (s.exists()) {
-              const ud = s.data();
-              setBalance(ud.balance||0);
-              setBotTier(ud.botTier||'none');
-              setInvested(ud.invested||0);
-              // FIX: Jab Firestore mein photo update ho (e.g. DP upload ke baad),
-              // toh tempPhoto ko bhi refresh karo taaki naya DP UI pe turant dikhe.
-              if (ud.photo) setTempPhoto(ud.photo);
+              setBalance(s.data().balance||0);
+              setBotTier(s.data().botTier||'none');
+              setInvested(s.data().invested||0);
             }
           });
         } catch(e) { console.error('Auth init error', e); }
@@ -2386,9 +2359,6 @@ export function AJSuperPortal() {
 
   const startLive = async () => {
     if (!user) return;
-    // FIX (Hinglish): Live stream shuru karne se pehle ek video ad trigger karo
-    // (4-minute cooldown active hai isliye spam nahi hoga).
-    triggerInterstitialAd();
     // FIX (Hinglish): Pehle Social screen aur Go-Live screen ensure karte hain
     // taaki #video-container mount ho — warna ZegoCloud ko container nahi milta
     // aur "login room fail" / camera nae chalne ki shikayat aati thi.
@@ -2544,9 +2514,6 @@ export function AJSuperPortal() {
   const joinLiveByRoomId = async (roomId?: string) => {
     const rid = (roomId || joinRoomInput).trim();
     if (!rid) return setVvipAlert({msg:"Please enter the streamer's Room ID."});
-    // FIX (Hinglish): Live stream join karne se pehle ek video ad trigger karo
-    // (4-minute cooldown active hai isliye spam nahi hoga).
-    triggerInterstitialAd();
     try {
       let roomSnap:any = await getDoc(doc(db, 'live_rooms', rid));
       if (!roomSnap.exists()) {
@@ -3078,56 +3045,6 @@ export function AJSuperPortal() {
     navigateWithAdOverlay(navFn);
   };
 
-  // FIX (Hinglish): Hub card click — main hub mein 4 cards hain (Gaming, Social,
-  // Wallet, AI Bot). User chahta hai ki EK card pe click karne se EK video ad aaye.
-  // Ab har card click pe interstitial ad overlay khulta hai (jo MonetagVideoAd
-  // dikhata hai). 4-minute cooldown already active hai isliye agar user jaldi-jaldi
-  // click kare toh ads spam nahi honge — lekin har card click EK ad trigger karta hai.
-  // Ad close hone ke baad (Skip button) target screen pe navigate ho jaata hai.
-  const hubCardAdClose = () => {
-    setInterstitialAdOpen(false);
-    // Navigate to the pending screen after the ad is closed
-    if (pendingNav) {
-      const to = pendingNav;
-      setPendingNav(null);
-      if (to==='social')      { fetchSocialAPIs(); setScreen('social'); setSocialScreen('hub'); }
-      else if (to==='wallet') { setScreen('wallet'); setWalletTab('main'); }
-      else                    setScreen(to);
-    }
-  };
-
-  const handleHubCardClick = (to:string) => {
-    // Set the pending navigation target
-    setPendingNav(to);
-    // Trigger the interstitial ad overlay (1 video ad per card click)
-    // The 4-minute AD_COOLDOWN_MS prevents spam if user clicks rapidly
-    const now = Date.now();
-    const inCooldown = (now - lastInterstitialAdTime) < AD_COOLDOWN_MS;
-    if (inCooldown) {
-      // Cooldown active — skip the ad overlay, navigate directly
-      setPendingNav(null);
-      if (to==='social')      { fetchSocialAPIs(); setScreen('social'); setSocialScreen('hub'); }
-      else if (to==='wallet') { setScreen('wallet'); setWalletTab('main'); }
-      else                    setScreen(to);
-    } else {
-      // Show the interstitial ad overlay — 1 video ad per card click
-      lastInterstitialAdTime = now;
-      setInterstitialAdOpen(true);
-      // Auto-close the ad overlay after 8 seconds if user doesn't skip
-      if (adAutoCloseTimer) clearTimeout(adAutoCloseTimer);
-      setAdAutoCloseTimer(setTimeout(() => {
-        setInterstitialAdOpen(false);
-        if (pendingNav) {
-          const to2 = pendingNav;
-          setPendingNav(null);
-          if (to2==='social')      { fetchSocialAPIs(); setScreen('social'); setSocialScreen('hub'); }
-          else if (to2==='wallet') { setScreen('wallet'); setWalletTab('main'); }
-          else                    setScreen(to2);
-        }
-      }, 8000));
-    }
-  };
-
   const enterSocialMode = (mode:string) => {
     setPendingMode(mode);
     if (!user || !hasSocialProfile) setSocialScreen('setup');
@@ -3220,79 +3137,25 @@ export function AJSuperPortal() {
     setLoading(0);
   };
 
-  // FIX ROUND 7: handleDpUpdate — DP upload ka asli fix.
-  // PROBLEM (Hinglish): Pehle Firebase Storage pehle try hota tha lekin Firebase
-  // Storage rules usually unauthenticated ya restricted hote hain isliye upload
-  // fail ho jaata tha aur user ko lagta ki DP upload "nae ho raha".
-  // FIX: Ab hum Cloudinary ko pehle try karte hain (public upload preset, CORS
-  // friendly), image ko compress/resize karte hain (400px max — chhoti file, fast
-  // upload), aur Auth profile photo bhi update karte hain.
-  // 3-layer fallback: Cloudinary → Firebase Storage → base64 data URL
+  // FIX ROUND 5: handleDpUpdate — DP upload nahi ho raha tha.
+  // 3-layer fallback: Firebase Storage → Cloudinary → base64 data URL
   const handleDpUpdate = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || !e.target.files[0] || !user) return;
     setLoading(20);
-    const rawFile = e.target.files[0];
-    console.log('handleDpUpdate: file selected', rawFile.name, rawFile.type, rawFile.size);
-    // Reset the input value so the same file can be re-selected if needed
-    e.target.value = '';
-
-    // Compress/resize the image to max 400px using canvas (reduces file size,
-    // avoids Cloudinary upload limits and Firebase Storage rejections).
-    const compressImage = (file: File, maxDim = 400): Promise<File> => {
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const img = new Image();
-          img.onload = () => {
-            let width = img.width;
-            let height = img.height;
-            if (width > maxDim || height > maxDim) {
-              if (width > height) {
-                height = Math.round((height / width) * maxDim);
-                width = maxDim;
-              } else {
-                width = Math.round((width / height) * maxDim);
-                height = maxDim;
-              }
-            }
-            const canvas = document.createElement('canvas');
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-              ctx.drawImage(img, 0, 0, width, height);
-              canvas.toBlob((blob) => {
-                if (blob) {
-                  resolve(new File([blob], file.name, { type: 'image/jpeg', lastModified: Date.now() }));
-                } else {
-                  resolve(file);
-                }
-              }, 'image/jpeg', 0.85);
-            } else {
-              resolve(file);
-            }
-          };
-          img.onerror = () => resolve(file);
-          img.src = reader.result as string;
-        };
-        reader.onerror = () => resolve(file);
-        reader.readAsDataURL(file);
-      });
-    };
-
-    const file = await compressImage(rawFile);
+    const file = e.target.files[0];
+    console.log('handleDpUpdate: file selected', file.name, file.type, file.size);
     let url = '';
-    // Layer 1: Cloudinary (public upload preset — most reliable for DP uploads)
+    // Layer 1: Firebase Storage
     try {
-      url = await uploadToCloudinary(file);
-      if (url) console.log('handleDpUpdate: Cloudinary upload success');
-    } catch (err) { console.error('handleDpUpdate: Cloudinary failed', err); }
-    // Layer 2: Firebase Storage (fallback if Cloudinary fails)
+      url = await uploadToFirebaseStorage(file, user.uid);
+      if (url) console.log('handleDpUpdate: Firebase Storage upload success');
+    } catch (err) { console.error('handleDpUpdate: Firebase Storage failed', err); }
+    // Layer 2: Cloudinary
     if (!url) {
       try {
-        url = await uploadToFirebaseStorage(file, user.uid);
-        if (url) console.log('handleDpUpdate: Firebase Storage upload success');
-      } catch (err) { console.error('handleDpUpdate: Firebase Storage failed', err); }
+        url = await uploadToCloudinary(file);
+        if (url) console.log('handleDpUpdate: Cloudinary upload success');
+      } catch (err) { console.error('handleDpUpdate: Cloudinary failed', err); }
     }
     // Layer 3: Base64 data URL (last resort — at least local DP change ho jaayega)
     if (!url) {
@@ -3305,22 +3168,14 @@ export function AJSuperPortal() {
       });
     }
     if (url) {
-      // FIX: tempPhoto ko TURANT set karo taaki UI pe naya DP foran dikhe
       setTempPhoto(url);
-      // Update Firestore with the new photo URL
       try {
         await updateDoc(doc(db, "users", user.uid), { photo: url, photoURL: url });
         console.log('handleDpUpdate: Firestore updated');
       } catch (err) {
         console.error('handleDpUpdate: Firestore update failed (non-fatal)', err);
       }
-      // FIX: Update Firebase Auth profile photo too (so user.photoURL matches)
-      try {
-        await updateProfile(user, { photoURL: url });
-      } catch (err) {
-        console.error('handleDpUpdate: Auth profile update failed (non-fatal)', err);
-      }
-      setVvipAlert({msg:"✅ Profile picture updated!",icon:"📷"});
+      setVvipAlert({msg:"✅ Profile picture updated!",icon:"📸"});
     } else {
       setVvipAlert({msg:"⚠️ Could not upload photo. Please try again."});
     }
@@ -4110,18 +3965,6 @@ Tip: Social Hub se copy karo 📤`,
             <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} type="interstitial"/>
           </div>
 
-          {/* FIX: Skip / Continue button — user ad ko skip karke target screen pe
-              chala jaaye. Yeh hub card click ke baad dikhne wala single video ad hai. */}
-          <div className="absolute top-4 right-4 z-50 flex flex-col items-end gap-2">
-            <button
-              onClick={hubCardAdClose}
-              className="px-5 py-2.5 rounded-full text-white text-xs font-black uppercase tracking-widest active:scale-90 transition-all shadow-[0_0_20px_rgba(236,72,153,0.6)]"
-              style={{ background: 'linear-gradient(135deg,#ec4899,#8b5cf6)' }}
-            >
-              Skip » Continue
-            </button>
-          </div>
-
           {/* Timer bar at bottom */}
           <div className="h-1 w-full bg-white/10 relative">
             <div className="h-full bg-gradient-to-r from-pink-500 to-cyan-400 transition-all" style={{width:'100%', transitionDuration:'8s'}}/>
@@ -4253,7 +4096,7 @@ Tip: Social Hub se copy karo 📤`,
           {/* Quick Nav Grid — 4 Main Cards with Details */}
           <div className="px-4 pt-4 grid grid-cols-2 gap-4">
             {/* GAMES Card */}
-            <button onClick={() => handleHubCardClick('games')} className="flex flex-col items-start gap-3 bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-purple-500/50 shadow-[0_0_20px_rgba(147,51,234,0.2)]">
+            <button onClick={() => setScreen('games')} className="flex flex-col items-start gap-3 bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-purple-500/50 shadow-[0_0_20px_rgba(147,51,234,0.2)]">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-[0_0_16px_rgba(147,51,234,0.5)]">
                 <span className="text-2xl">🎮</span>
               </div>
@@ -4268,7 +4111,7 @@ Tip: Social Hub se copy karo 📤`,
             </button>
 
             {/* SOCIAL Card */}
-            <button onClick={() => handleHubCardClick('social')} className="flex flex-col items-start gap-3 bg-gradient-to-br from-cyan-900/40 to-blue-900/40 border border-cyan-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-cyan-500/50 shadow-[0_0_20px_rgba(6,182,212,0.2)]">
+            <button onClick={() => { fetchSocialAPIs(); setScreen('social'); setSocialScreen('hub'); }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-cyan-900/40 to-blue-900/40 border border-cyan-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-cyan-500/50 shadow-[0_0_20px_rgba(6,182,212,0.2)]">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center shadow-[0_0_16px_rgba(6,182,212,0.5)]">
                 <span className="text-2xl">📡</span>
               </div>
@@ -4283,7 +4126,7 @@ Tip: Social Hub se copy karo 📤`,
             </button>
 
             {/* WALLET Card */}
-            <button onClick={() => handleHubCardClick('wallet')} className="flex flex-col items-start gap-3 bg-gradient-to-br from-yellow-900/40 to-orange-900/40 border border-yellow-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-yellow-500/50 shadow-[0_0_20px_rgba(234,179,8,0.2)]">
+            <button onClick={() => { setScreen('wallet'); setWalletTab('main'); }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-yellow-900/40 to-orange-900/40 border border-yellow-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-yellow-500/50 shadow-[0_0_20px_rgba(234,179,8,0.2)]">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-yellow-500 to-orange-500 flex items-center justify-center shadow-[0_0_16px_rgba(234,179,8,0.5)]">
                 <span className="text-2xl">💰</span>
               </div>
@@ -4298,7 +4141,7 @@ Tip: Social Hub se copy karo 📤`,
             </button>
 
             {/* AI TRADING BOT Card */}
-            <button onClick={() => handleHubCardClick('aibot')} className="flex flex-col items-start gap-3 bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.2)]">
+            <button onClick={() => setScreen('aibot')} className="flex flex-col items-start gap-3 bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.2)]">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center shadow-[0_0_16px_rgba(34,197,94,0.5)]">
                 <span className="text-2xl">🤖</span>
               </div>
