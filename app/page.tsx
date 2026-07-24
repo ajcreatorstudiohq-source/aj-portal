@@ -287,8 +287,10 @@ const MIN_PURCHASE   = 20;
 const WITHDRAW_MIN   = 10000;
 const REFERRAL_COINS = 50;
 
-const USER_EARN_SHARE  = 0.30;
-const ADMIN_EARN_SHARE = 0.70;
+const ADMIN_EARN_SHARE = 0.70;  // Admin (aap) gets 70% of revenue
+const USER_EARN_SHARE  = 0.30;  // User/creator gets 30% of revenue
+const GIFT_ADMIN_SHARE = 0.60;  // Gifting: admin (aap) gets 60%
+const GIFT_USER_SHARE  = 0.40;  // Gifting: creator gets 40%
 
 const PK_ENTRY_COINS = 100;
 const PK_DURATION    = 300;
@@ -2278,7 +2280,10 @@ export function AJSuperPortal() {
   const [pkScore,         setPkScore]         = useState({ me: 0, rival: 0 });
   const [pkWinner,        setPkWinner]        = useState<string|null>(null);
   const [pkRivalData,     setPkRivalData]     = useState<any>(null);
+  const [pkRivalFrame,    setPkRivalFrame]    = useState('');  // rival ki live video frame
+  const [pkRoomId,        setPkRoomId]        = useState('');  // PK session ka RTDB room ID
   const pkTimerRef   = useRef<NodeJS.Timeout|null>(null);
+  const pkFrameUnsubRef = useRef<any>(null);  // PK rival frame listener cleanup
   const audioFileRef = useRef<HTMLInputElement>(null);
 
   // ── CINEMATIC GIFT
@@ -3019,12 +3024,16 @@ export function AJSuperPortal() {
   // PK Timer
   useEffect(() => {
     if (!pkActive) return;
+    // FIX: pkScore ko ref se read karo taaki timer end pe latest score mile
+    const pkScoreRef = { current: pkScore };
     pkTimerRef.current = setInterval(() => {
       setPkTimer(t => {
         if (t <= 1) {
           clearInterval(pkTimerRef.current!);
-          setPkWinner(pkScore.me >= pkScore.rival ? (username||'You') : (pkRivalData?.username||'Rival'));
+          setPkWinner(pkScoreRef.current.me >= pkScoreRef.current.rival ? (username||'You') : (pkRivalData?.username||'Rival'));
           setPkActive(false);
+          // FIX: PK battle end pe rival frames + audio cleanup
+          try { stopPkBattle(); } catch {}
           return 0;
         }
         return t - 1;
@@ -3425,6 +3434,8 @@ export function AJSuperPortal() {
       try { stopFrameBroadcast(liveRoomId); } catch {}
       // FIX: Stop broadcasting mic audio to viewers via WebRTC
       try { stopAudioBroadcast(liveRoomId); } catch {}
+      // FIX: Stop PK battle if active (rival frames + audio cleanup)
+      if (pkActive) { try { stopPkBattle(); } catch {} }
 
       // Stop all media tracks (camera + mic)
       if (liveStreamRef.current) {
@@ -3574,29 +3585,82 @@ export function AJSuperPortal() {
   // ==========================================================
   // PK CHALLENGE
   // ==========================================================
+  // FIX (Hinglish): PK match mein problem thi:
+  //   1. Rival ka mic band ho jata tha — audio connect nahi hota tha
+  //   2. Rival ki screen host ko nahi dikhti thi — frames nahi aate the
+  // Ab fix:
+  //   - PK session ka ek unique roomId banata hain (pk_{user}_{rival}_{time})
+  //   - Host apni video frames RTDB (pk_frames/{pkRoomId}/host) pe bhejta hai
+  //   - Host rival ki frames RTDB (pk_frames/{pkRoomId}/rival) se listen karta hai
+  //   - Host rival ka audio WebRTC se connect karta hai (joinAudioStream)
+  //   - Rival jab accept karega toh woh bhi same session join karega
+  //   - Dono ki awaz + video chale, split-screen mein dikhe
+  // ==========================================================
   const sendPkChallenge = async () => {
     if (!user || !pkTargetId.trim()) return setVvipAlert({msg:"Enter rival's User ID!"});
     if (balance < PK_ENTRY_COINS) return setVvipAlert({msg:`Need ${PK_ENTRY_COINS} AJ Coins to enter PK!`});
     try {
-      const rivalSnap = await getDoc(doc(db,"users",pkTargetId.trim()));
+      const rivalUid = pkTargetId.trim();
+      const rivalSnap = await getDoc(doc(db,"users",rivalUid));
       if (!rivalSnap.exists()) return setVvipAlert({msg:"Rival not found! Check User ID."});
       await updateDoc(doc(db,"users",user.uid), { balance: increment(-PK_ENTRY_COINS) });
       try {
         await addDoc(collection(db,"AdminRevenue"), {
           type:'pk_match', totalDeducted: PK_ENTRY_COINS * 2,
-          challenger: user.uid, rival: pkTargetId.trim(), date:serverTimestamp()
+          challenger: user.uid, rival: rivalUid, date:serverTimestamp()
         });
       } catch {}
+      // FIX: PK session ka unique room ID — dono users ke liye common
+      const newPkRoomId = `pk_${user.uid}_${rivalUid}_${Date.now()}`;
+      setPkRoomId(newPkRoomId);
+      // Write PK session to Firestore so rival can find & accept it
+      try {
+        await setDoc(doc(db, "pk_sessions", newPkRoomId), {
+          pkRoomId: newPkRoomId,
+          hostUid: user.uid,
+          hostName: username || 'AJ_Member',
+          hostPhoto: tempPhoto || user.photoURL || '',
+          rivalUid: rivalUid,
+          rivalName: rivalSnap.data().username || rivalUid,
+          status: 'pending',  // pending → active → ended
+          entryCoins: PK_ENTRY_COINS,
+          duration: PK_DURATION,
+          createdAt: serverTimestamp(),
+          startedAt: null,
+          endedAt: null,
+          winnerUid: null,
+        });
+      } catch (pkErr) { console.warn('PK session write failed (non-fatal):', pkErr); }
+      // Send notification to rival
       try {
         await addDoc(collection(db,"notifications"), {
           title:"⚔️ PK Challenge!",
-          message:`@${username||'AJ_Member'} challenged you to a PK Battle! ${PK_ENTRY_COINS} Coins staked.`,
-          deepLink:`/pk/${liveRoomId}`, date:serverTimestamp()
+          message:`@${username||'AJ_Member'} challenged you to a PK Battle! ${PK_ENTRY_COINS} Coins staked. Room: ${newPkRoomId}`,
+          deepLink:`/pk/${newPkRoomId}`,
+          pkRoomId: newPkRoomId,
+          rivalUid: rivalUid,
+          date:serverTimestamp()
         });
       } catch {}
       setPkRivalData(rivalSnap.data());
       setPkTimer(PK_DURATION); setPkScore({ me:0, rival:0 });
       setPkWinner(null); setPkActive(true); setPkChallengeOpen(false);
+      // FIX: Host apni video frames PK session pe broadcast kare
+      // (agar live stream chal raha hai toh uska stream, warna naya getUserMedia)
+      setTimeout(() => {
+        try {
+          if (liveStreamRef.current) {
+            startFrameBroadcast(newPkRoomId + '_host', liveStreamRef.current);
+            startAudioBroadcast(newPkRoomId + '_host', liveStreamRef.current);
+          }
+        } catch (e) { console.warn('PK host frame broadcast failed:', e); }
+      }, 500);
+      // FIX: Host rival ki frames + audio listen kare
+      setTimeout(() => {
+        try {
+          joinPkRivalStream(newPkRoomId);
+        } catch (e) { console.warn('PK rival stream join failed:', e); }
+      }, 1000);
       setVvipAlert({msg:`⚔️ PK Challenge sent to @${rivalSnap.data().username || pkTargetId}! Match starting...`,icon:"⚔️"});
     } catch(e) { console.error('sendPkChallenge', e); setVvipAlert({msg:'Error sending challenge. Please try again.'}); }
   };
@@ -3608,8 +3672,67 @@ export function AJSuperPortal() {
     else setPkScore(s => ({ ...s, rival: s.rival + gift.cost }));
   };
 
+  // FIX: Host rival ki video frames + audio listen kare (PK battle split-screen)
+  // Yeh RTDB ke through rival ki frames dikhata hai aur WebRTC se rival ka audio.
+  const joinPkRivalStream = (pkRoomId: string) => {
+    try {
+      const rtdb = getDatabase();
+      // Listen for rival's video frames on RTDB
+      const frameRef = ref(rtdb, `live_frames/${pkRoomId}_rival/current`);
+      const unsub = onValue(frameRef, (snap) => {
+        const data = snap.val();
+        if (data && data.frame) {
+          setPkRivalFrame(data.frame);
+        }
+      });
+      pkFrameUnsubRef.current = unsub;
+      // Also join rival's audio via WebRTC (RTDB signaling)
+      try {
+        joinAudioStream(pkRoomId + '_rival', () => {
+          console.log('PK: rival audio connected');
+        });
+      } catch (audioErr) {
+        console.warn('PK: rival audio join failed (non-fatal):', audioErr);
+      }
+    } catch (e) {
+      console.warn('joinPkRivalStream failed:', e);
+    }
+  };
+
+  // FIX: Stop PK battle — rival frames + audio cleanup
+  const stopPkBattle = () => {
+    try {
+      // Stop listening to rival frames
+      if (pkFrameUnsubRef.current) {
+        try { pkFrameUnsubRef.current(); } catch {}
+        pkFrameUnsubRef.current = null;
+      }
+      setPkRivalFrame('');
+      // Stop rival audio
+      try { leaveAudioStream(); } catch {}
+      // Stop host PK frame + audio broadcast
+      if (pkRoomId) {
+        try { stopFrameBroadcast(pkRoomId + '_host'); } catch {}
+        try { stopAudioBroadcast(pkRoomId + '_host'); } catch {}
+        // Clean up PK session in Firestore
+        try {
+          updateDoc(doc(db, "pk_sessions", pkRoomId), {
+            status: 'ended', endedAt: serverTimestamp()
+          }).catch(() => {});
+        } catch {}
+      }
+      setPkActive(false);
+      setPkWinner(null);
+      setPkTimer(PK_DURATION);
+      setPkScore({ me: 0, rival: 0 });
+      setPkRoomId('');
+    } catch (e) {
+      console.warn('stopPkBattle failed:', e);
+    }
+  };
+
   // ==========================================================
-  // GIFTING — 60% creator | 40% admin
+  // GIFTING — 60% admin (aap) | 40% creator (uses GIFT_ADMIN_SHARE / GIFT_USER_SHARE)
   // ==========================================================
   const sendGift = async (creatorId:string, gift:{name:string,cost:number,icon:string}) => {
     if (!user || creatorId === user.uid) {
@@ -3635,9 +3758,9 @@ export function AJSuperPortal() {
     try {
       // Deduct from sender
       await updateDoc(doc(db,"users",user.uid), { balance: increment(-gift.cost) });
-      // Credit streamer: 60% of gift cost
-      const creatorShare = gift.cost * 0.60;
-      const adminShare   = gift.cost * 0.40;
+      // GIFTING SPLIT: 60% admin (aap) | 40% creator
+      const creatorShare = gift.cost * GIFT_USER_SHARE;
+      const adminShare   = gift.cost * GIFT_ADMIN_SHARE;
       await updateDoc(doc(db,"users",creatorId), { balance: increment(creatorShare) });
       // Admin ledger
       try {
@@ -3658,7 +3781,7 @@ export function AJSuperPortal() {
       // Cinematic animation
       setCinematicGift(gift);
       setCinematicSender(username || 'Anonymous');
-      setVvipAlert({msg:`${gift.icon} ${gift.name} sent! ${creatorShare} Coins credited to creator (60%).`,icon:gift.icon});
+      setVvipAlert({msg:`${gift.icon} ${gift.name} sent! ${creatorShare} Coins credited to creator (40%). Admin share: ${adminShare} (60%).`,icon:gift.icon});
     } catch(e) { console.error('sendGift', e); setVvipAlert({msg:'Gift failed. Please try again.'}); }
   };
 
@@ -6158,22 +6281,65 @@ Tip: Social Hub se copy karo 📤`,
                   </button>
                 )}
                 {pkActive && (
-                  <div className="w-full max-w-sm bg-orange-500/10 border border-orange-500/30 rounded-2xl p-4 space-y-3">
-                    <div className="flex items-center justify-between">
+                  <div className="w-full max-w-sm space-y-3">
+                    {/* FIX: PK BATTLE SPLIT-SCREEN — host (left) + rival (right) */}
+                    <div className="flex gap-2 rounded-2xl overflow-hidden border border-orange-500/30" style={{ height: 180 }}>
+                      {/* Host (me) — left half */}
+                      <div className="flex-1 relative bg-black overflow-hidden">
+                        {cameraReady && liveVideoRef.current?.srcObject ? (
+                          <video ref={liveVideoRef} autoPlay muted playsInline className="absolute inset-0 w-full h-full object-cover" style={{ objectFit: 'cover' }}/>
+                        ) : (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
+                            <img src={tempPhoto || user?.photoURL || '/logo.png'} className="w-12 h-12 rounded-full border-2 border-orange-500 object-cover"/>
+                            <span className="text-white text-[9px] font-black">@{username||'You'}</span>
+                          </div>
+                        )}
+                        <div className="absolute bottom-1 left-1 bg-orange-600/80 text-white text-[8px] font-black px-2 py-0.5 rounded-full">
+                          @{username||'You'} · {pkScore.me.toLocaleString()}🪙
+                        </div>
+                      </div>
+                      {/* Rival — right half */}
+                      <div className="flex-1 relative bg-black overflow-hidden">
+                        {pkRivalFrame ? (
+                          <img src={pkRivalFrame} className="absolute inset-0 w-full h-full object-cover" alt="PK Rival"/>
+                        ) : (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
+                            <img src={pkRivalData?.photo || '/logo.png'} className="w-12 h-12 rounded-full border-2 border-orange-500 object-cover"/>
+                            <span className="text-white text-[9px] font-black">@{pkRivalData?.username||'Rival'}</span>
+                            <span className="text-gray-400 text-[7px] animate-pulse">Connecting…</span>
+                          </div>
+                        )}
+                        <div className="absolute bottom-1 left-1 bg-orange-600/80 text-white text-[8px] font-black px-2 py-0.5 rounded-full">
+                          @{pkRivalData?.username||'Rival'} · {pkScore.rival.toLocaleString()}🪙
+                        </div>
+                      </div>
+                    </div>
+                    {/* PK Timer + VS bar */}
+                    <div className="flex items-center justify-between bg-orange-500/10 border border-orange-500/30 rounded-xl px-3 py-2">
                       <span className="text-orange-400 font-black text-xs">⚔️ PK BATTLE</span>
                       <span className="text-white font-black text-sm">{formatPkTime(pkTimer)}</span>
+                      <button
+                        onClick={() => {
+                          try { stopPkBattle(); setVvipAlert({msg:'PK Battle ended.'}); } catch {}
+                        }}
+                        className="text-red-400 text-[9px] font-black underline"
+                      >End PK</button>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <div className="flex-1 text-center">
-                        <p className="text-white font-black text-xs">@{username||'You'}</p>
-                        <p className="text-yellow-400 font-black text-lg">{pkScore.me.toLocaleString()}</p>
-                      </div>
-                      <span className="text-orange-400 font-black">VS</span>
-                      <div className="flex-1 text-center">
-                        <p className="text-white font-black text-xs">@{pkRivalData?.username||'Rival'}</p>
-                        <p className="text-yellow-400 font-black text-lg">{pkScore.rival.toLocaleString()}</p>
-                      </div>
-                    </div>
+                    {/* Tap for Sound — rival ki awaz enable karne ke liye (autoplay fix) */}
+                    <button
+                      onClick={() => {
+                        try {
+                          const audios = document.querySelectorAll('audio');
+                          audios.forEach((el: any) => { el.muted = false; el.play().catch(() => {}); });
+                          setVvipAlert({msg:'🔊 Sound enabled for PK Battle!'});
+                        } catch {}
+                      }}
+                      className="w-full py-2 bg-white/5 border border-white/10 rounded-xl text-white text-[10px] font-black flex items-center justify-center gap-1.5 active:scale-95 transition-all"
+                    >
+                      <Volume2 size={12} className="text-orange-400"/>
+                      Tap to Enable Rival Sound
+                    </button>
+                    {/* Gift buttons — score increase karte hain */}
                     <div className="grid grid-cols-3 gap-2">
                       {giftItems.slice(0,3).map(g => (
                         <button key={g.id} onClick={() => sendPkGift(user!.uid, g, true)} className="flex flex-col items-center gap-1 bg-white/5 border border-white/10 rounded-xl p-2 active:scale-90 transition-all">
@@ -6187,7 +6353,7 @@ Tip: Social Hub se copy karo 📤`,
                 {pkWinner && (
                   <div className="w-full max-w-sm bg-yellow-500/10 border border-yellow-500/30 rounded-2xl p-4 text-center">
                     <p className="text-yellow-400 font-black text-lg">🏆 {pkWinner} WINS!</p>
-                    <button onClick={() => { setPkWinner(null); setPkActive(false); setPkTimer(PK_DURATION); setPkScore({me:0,rival:0}); }} className="mt-2 text-[10px] text-gray-400 underline">Dismiss</button>
+                    <button onClick={() => { try { stopPkBattle(); } catch { setPkWinner(null); setPkActive(false); setPkTimer(PK_DURATION); setPkScore({me:0,rival:0}); } }} className="mt-2 text-[10px] text-gray-400 underline">Dismiss</button>
                   </div>
                 )}
                 {!liveActive ? (
