@@ -314,7 +314,7 @@ const PK_DURATION    = 300;
 // 2. IN-FEED VIDEO AD (TikReels/Pulse):
 //    - 4 video posts ke baad ek in-feed ad slot
 //    - Fallback video hamesha chalega (revenue + non-intrusive, TikTok jaisa)
-//    - Real Monetag popup sirf cooldown ke baad fire hoga (4 min mein ek baar)
+//    - Real Monetag popup sirf cooldown ke baad fire hoga (3 min mein ek baar)
 //
 // 3. FREE COIN AD:
 //    - 5 MINUTE alag cooldown (user voluntarily watch karta hai)
@@ -322,21 +322,30 @@ const PK_DURATION    = 300;
 //
 // NET RESULT: Revenue chalti rehti hai (in-feed + occasional popup), lekin
 // user ko har click pe ad NAHI dikhta — UX smooth rehti hai.
-const AD_COOLDOWN_MS = 4 * 60 * 1000;      // 4 minutes — interstitial popup ad cooldown (poore app mein)
-const INFEED_POPUP_COOLDOWN_MS = 8 * 60 * 1000; // 8 minutes — in-feed popup cooldown (LONGER, taaki scroll pe bar-bar popup na aaye)
-const FREE_COIN_AD_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes — free coin ad cooldown (separate)
+const AD_COOLDOWN_MS = 3 * 60 * 1000;      // 3 minutes — interstitial popup ad cooldown (poore app mein)
+const INFEED_POPUP_COOLDOWN_MS = 3 * 60 * 1000; // 3 minutes — in-feed popup cooldown
+const FREE_COIN_AD_COOLDOWN_MS = 3 * 60 * 1000; // 3 minutes — free coin ad cooldown
+// FIX: Ek GLOBAL ad gate — chahe koi bhi ad trigger ho (hub card, in-feed, free coin),
+// show_XXX({ type: 'end' }) sirf 3 min mein ek baar call hoga. Isse Monetag SDK
+// bar-bar full-screen reward ad nahi dikhayega. In-feed fallback video hamesha chalega,
+// lekin REAL Monetag popup sirf 3 min mein ek dafa.
+let lastAnyAdShownTime = 0;
 let lastInterstitialAdTime = 0;
 let lastFreeCoinAdTime = 0;
-let lastInFeedPopupTime = 0; // SEPARATE timestamp for in-feed ad popups (har 8 min mein ek baar)
+let lastInFeedPopupTime = 0; // SEPARATE timestamp for in-feed ad popups (har 3 min mein ek baar)
 
 const triggerInterstitialAd = (force = false) => {
   // Use the new SDK-based approach — no raw tag.min.js injection (prevents duplicate scripts / "Page could not load" error)
   try {
     if (typeof window !== 'undefined') {
-      // FIX: Cooldown check — agar last ad abhi tak cooldown period ke andar hai, skip karo
+      // FIX: Cooldown check — agar last ad abhi tak 3 min cooldown ke andar hai, skip karo
       const now = Date.now();
       if (!force && (now - lastInterstitialAdTime) < AD_COOLDOWN_MS) {
         // Ad cooldown active — skip this ad to protect UX, but let navigation proceed
+        return;
+      }
+      // FIX: Global ad gate — agar 3 min ke andar koi bhi ad dikh chuka hai, skip
+      if (!force && (now - lastAnyAdShownTime) < AD_COOLDOWN_MS) {
         return;
       }
       lastInterstitialAdTime = now;
@@ -347,13 +356,17 @@ const triggerInterstitialAd = (force = false) => {
   } catch {}
 };
 
-// Dedicated function for "Free 50 Coins" button — has its own longer cooldown
+// Dedicated function for "Free 50 Coins" button — has its own cooldown
 const triggerFreeCoinAd = () => {
   try {
     if (typeof window !== 'undefined') {
       const now = Date.now();
       if ((now - lastFreeCoinAdTime) < FREE_COIN_AD_COOLDOWN_MS) {
         // Free coin ad cooldown active — return false so caller can show "try again later" message
+        return false;
+      }
+      // FIX: Global ad gate — agar 3 min ke andar koi bhi ad dikh chuka hai, skip
+      if ((now - lastAnyAdShownTime) < AD_COOLDOWN_MS) {
         return false;
       }
       lastFreeCoinAdTime = now;
@@ -375,8 +388,10 @@ let pendingNavAfterAd: (() => void) | null = null;
 const navigateWithAdOverlay = (navFn: () => void) => {
   const now = Date.now();
   const inCooldown = (now - lastInterstitialAdTime) < AD_COOLDOWN_MS;
-  if (inCooldown) {
-    // Cooldown active — no ad, just navigate
+  // FIX: Global ad gate — agar 3 min ke andar koi bhi ad dikh chuka hai, skip
+  const globalGate = (now - lastAnyAdShownTime) < AD_COOLDOWN_MS;
+  if (inCooldown || globalGate) {
+    // Cooldown or global gate active — no ad, just navigate
     navFn();
     return;
   }
@@ -818,6 +833,18 @@ function triggerMonetagInterstitialAd(zoneId: number): Promise<boolean> {
         // Ensure the SDK script tag is injected into the DOM
         ensureMonetagSdkLoaded(zoneId);
 
+        // FIX: GLOBAL AD GATE — show_XXX({ type: 'end' }) sirf 3 min mein ek baar
+        // call hoga. Chahe hub card, in-feed, ya free coin — koi bhi trigger ho,
+        // yeh gate ensure karta hai ki Monetag SDK bar-bar full-screen reward ad
+        // nahi dikhayega. Agar 3 min ke andar already ad dikh chuka hai, toh
+        // yahan se hi return — SDK call hi nahi hoga.
+        const nowGate = Date.now();
+        if ((nowGate - lastAnyAdShownTime) < AD_COOLDOWN_MS) {
+          // Global ad gate active — 3 min mein ek baar hi real ad dikhana
+          resolve(false);
+          return;
+        }
+
         // Wait for the show_XXX() function to become available (SDK loaded)
         const showFn = await waitForMonetagShowFn(zoneId, 15000);
 
@@ -848,27 +875,42 @@ function triggerMonetagInterstitialAd(zoneId: number): Promise<boolean> {
           // Preload failed — try showing directly without preload
         }
 
+        // FIX: Re-check global gate after preload (preload may take time)
+        const nowGate2 = Date.now();
+        if ((nowGate2 - lastAnyAdShownTime) < AD_COOLDOWN_MS) {
+          resolve(false);
+          return;
+        }
+
         // Step 2: Show the full-screen interstitial ad (type: 'end' = Rewarded Interstitial)
         // This is the actual revenue-generating ad call.
         // catchIfNoFeed: true → promise rejects if no ad inventory available
+        // FIX: Update global gate timestamp BEFORE showing — taaki agar yeh ad
+        // successfully show ho, toh 3 min tak koi aur ad trigger na ho.
+        lastAnyAdShownTime = Date.now();
         try {
           const showResult = showFn({ type: 'end', requestVar: 'infeed_ad', catchIfNoFeed: true });
           if (showResult && typeof showResult.then === 'function') {
             showResult
               .then((result: any) => {
                 // Ad was shown successfully — revenue event
+                lastAnyAdShownTime = Date.now(); // Confirm gate — ad actually shown
                 resolve(true);
               })
               .catch(() => {
                 // No ad feed available or ad failed — resolve false (fallback video will show)
+                // Don't update gate — ad wasn't shown, next trigger can try again
+                lastAnyAdShownTime = 0; // Reset gate — ad failed, allow next attempt
                 resolve(false);
               });
           } else {
             // Synchronous return (unlikely) — assume ad was triggered
+            lastAnyAdShownTime = Date.now();
             resolve(true);
           }
         } catch {
           // show_XXX threw — no ad available
+          lastAnyAdShownTime = 0; // Reset gate — ad failed
           resolve(false);
         }
       } catch (e) {
@@ -951,14 +993,15 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
     adTriggeredRef.current = true;
     setAdTriggered(true);
 
-    // FIX: In-feed MonetagVideoAd ka apna SEPARATE aur LONGER cooldown (8 min).
-    // Pehle yeh 4-min cooldown use karta tha jo navigation ads se share hota tha.
-    // Ab in-feed popup ke liye alag 8-min cooldown hai — taaki scroll karne pe
-    // bar-bar full-screen popup NA aaye. In-feed fallback video hamesha chalega
-    // (revenue + UX dono safe), lekin REAL popup sirf 8 min mein ek baar.
+    // FIX: In-feed MonetagVideoAd ka cooldown — 3 min mein ek baar.
+    // In-feed fallback video hamesha chalega (revenue + UX dono safe),
+    // lekin REAL Monetag popup sirf 3 min mein ek baar.
+    // Global ad gate (lastAnyAdShownTime) bhi check karte hain — taaki
+    // chahe koi bhi ad trigger ho, 3 min mein sirf ek real ad dikhay.
     const now = Date.now();
     const inCooldown = (now - lastInFeedPopupTime) < INFEED_POPUP_COOLDOWN_MS;
-    if (inCooldown) return; // Cooldown active — sirf in-feed video chalega, popup nahi
+    const globalGate = (now - lastAnyAdShownTime) < AD_COOLDOWN_MS;
+    if (inCooldown || globalGate) return; // Cooldown/gate active — sirf in-feed video chalega, popup nahi
 
     // Fire the REAL Monetag ad using the Promise-based SDK API in the background.
     // This does NOT block the in-feed video — the ad overlay (if available) appears
@@ -966,8 +1009,9 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
     triggerMonetagInterstitialAd(publisherId).then((shown) => {
       if (shown) {
         // Real Monetag ad was shown successfully — revenue generated!
-        lastInFeedPopupTime = Date.now(); // Update IN-FEED popup cooldown (8 min)
+        lastInFeedPopupTime = Date.now(); // Update IN-FEED popup cooldown (3 min)
         lastInterstitialAdTime = Date.now(); // Also update global cooldown
+        lastAnyAdShownTime = Date.now(); // FIX: Global gate — 3 min mein ek baar
       } else {
         // No Monetag ad feed available — fallback in-feed video keeps playing.
       }
@@ -1216,6 +1260,7 @@ function InterstitialAdOverlay({ onClose }: { onClose: () => void }) {
     triggerMonetagInterstitialAd(MONETAG_INTERSTITIAL).then((shown) => {
       if (shown) {
         lastInterstitialAdTime = Date.now();
+        lastAnyAdShownTime = Date.now(); // FIX: Global gate update — 3 min mein ek baar
       }
     }).catch(() => {});
   }, [closed, adShown]);
