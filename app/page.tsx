@@ -322,9 +322,16 @@ const PK_DURATION    = 300;
 //
 // NET RESULT: Revenue chalti rehti hai (in-feed + occasional popup), lekin
 // user ko har click pe ad NAHI dikhta — UX smooth rehti hai.
-const AD_COOLDOWN_MS = 3 * 60 * 1000;      // 3 minutes — interstitial popup ad cooldown (poore app mein)
-const INFEED_POPUP_COOLDOWN_MS = 3 * 60 * 1000; // 3 minutes — in-feed popup cooldown
-const FREE_COIN_AD_COOLDOWN_MS = 3 * 60 * 1000; // 3 minutes — free coin ad cooldown
+const AD_COOLDOWN_MS = 5 * 60 * 1000;      // 5 minutes — interstitial popup ad cooldown (poore app mein)
+const INFEED_POPUP_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes — in-feed popup cooldown
+const FREE_COIN_AD_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes — free coin ad cooldown
+// FIX (Hinglish): Pehle sab cooldowns 3 minute the. In-feed MonetagVideoAd har 6 post
+// pe mount hota tha, aur failed ad ke baad gate reset (`= 0`) hone ki wajah se ads
+// bar-bar fire ho rahe the ("har millisecond" wala complaint). Ab:
+//   1. Cooldowns badha ke 5 minute kar diye — ads kam dikheinge, UX smooth rahegi.
+//   2. Failed ad pe gate 0 nahi hota, balki 30s short cooldown lagta hai (Fix 1).
+//   3. In-feed REAL Monetag popup ek baar mount pe hi fire hoga, baad mein wahi
+//      component re-mount hua toh dobara nahi fire karega (Fix 3 — session flag).
 // FIX: Ek GLOBAL ad gate — chahe koi bhi ad trigger ho (hub card, in-feed, free coin),
 // show_XXX({ type: 'end' }) sirf 3 min mein ek baar call hoga. Isse Monetag SDK
 // bar-bar full-screen reward ad nahi dikhayega. In-feed fallback video hamesha chalega,
@@ -332,19 +339,19 @@ const FREE_COIN_AD_COOLDOWN_MS = 3 * 60 * 1000; // 3 minutes — free coin ad co
 let lastAnyAdShownTime = 0;
 let lastInterstitialAdTime = 0;
 let lastFreeCoinAdTime = 0;
-let lastInFeedPopupTime = 0; // SEPARATE timestamp for in-feed ad popups (har 3 min mein ek baar)
+let lastInFeedPopupTime = 0; // SEPARATE timestamp for in-feed ad popups (har 5 min mein ek baar)
 
 const triggerInterstitialAd = (force = false) => {
   // Use the new SDK-based approach — no raw tag.min.js injection (prevents duplicate scripts / "Page could not load" error)
   try {
     if (typeof window !== 'undefined') {
-      // FIX: Cooldown check — agar last ad abhi tak 3 min cooldown ke andar hai, skip karo
+      // FIX: Cooldown check — agar last ad abhi tak 5 min cooldown ke andar hai, skip karo
       const now = Date.now();
       if (!force && (now - lastInterstitialAdTime) < AD_COOLDOWN_MS) {
         // Ad cooldown active — skip this ad to protect UX, but let navigation proceed
         return;
       }
-      // FIX: Global ad gate — agar 3 min ke andar koi bhi ad dikh chuka hai, skip
+      // FIX: Global ad gate — agar 5 min ke andar koi bhi ad dikh chuka hai, skip
       if (!force && (now - lastAnyAdShownTime) < AD_COOLDOWN_MS) {
         return;
       }
@@ -365,7 +372,7 @@ const triggerFreeCoinAd = () => {
         // Free coin ad cooldown active — return false so caller can show "try again later" message
         return false;
       }
-      // FIX: Global ad gate — agar 3 min ke andar koi bhi ad dikh chuka hai, skip
+      // FIX: Global ad gate — agar 5 min ke andar koi bhi ad dikh chuka hai, skip
       if ((now - lastAnyAdShownTime) < AD_COOLDOWN_MS) {
         return false;
       }
@@ -388,7 +395,7 @@ let pendingNavAfterAd: (() => void) | null = null;
 const navigateWithAdOverlay = (navFn: () => void) => {
   const now = Date.now();
   const inCooldown = (now - lastInterstitialAdTime) < AD_COOLDOWN_MS;
-  // FIX: Global ad gate — agar 3 min ke andar koi bhi ad dikh chuka hai, skip
+  // FIX: Global ad gate — agar 5 min ke andar koi bhi ad dikh chuka hai, skip
   const globalGate = (now - lastAnyAdShownTime) < AD_COOLDOWN_MS;
   if (inCooldown || globalGate) {
     // Cooldown or global gate active — no ad, just navigate
@@ -449,6 +456,9 @@ const attachLocalStream = (
 };
 
 // handleStartLiveOrCall - Host Go-Live: acquire local camera/mic, attach to liveVideoRef
+// FIX (Hinglish): Agar stream pehle se available hai (startLive ne acquire kar liya)
+// toh sirf re-attach karte hain. getUserMedia not available hone pe bhi crash
+// nahi hota — onAttached call hota hai taaki live chal jaye (placeholder ke saath).
 const handleStartLiveOrCall = (
   roomID: string,
   currentUserId: string,
@@ -463,6 +473,12 @@ const handleStartLiveOrCall = (
     if (onAttached) onAttached();
     return;
   }
+  // FIX: Check if getUserMedia is available (HTTPS required)
+  if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    console.warn('[WebRTC] getUserMedia not available for live host — need HTTPS');
+    if (onAttached) onAttached(); // Don't crash — live continues with placeholder
+    return;
+  }
   // Acquire local camera + mic via getUserMedia (pure WebRTC, no SDK)
   navigator.mediaDevices.getUserMedia({
     video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } },
@@ -474,13 +490,25 @@ const handleStartLiveOrCall = (
     attachLocalStream(container, stream);
     if (onAttached) onAttached();
   }).catch((e) => {
-    console.warn('[WebRTC] getUserMedia failed for live host:', e);
-    // Don't crash - local preview will just show a placeholder
-    if (onAttached) onAttached();
+    console.warn('[WebRTC] getUserMedia failed for live host, trying audio-only:', e?.name || e);
+    // FIX: Agar video+audio fail ho, toh SIRF audio try karo (audio-only live)
+    navigator.mediaDevices.getUserMedia({ audio: true, video: false }).then((audioStream) => {
+      _webrtcLocalStream = audioStream;
+      if (onAttached) onAttached(); // Audio-only live — no video but mic works
+    }).catch((audioErr) => {
+      console.warn('[WebRTC] audio-only also failed for live host:', audioErr?.name || audioErr);
+      // Don't crash - local preview will just show a placeholder
+      if (onAttached) onAttached();
+    });
   });
 };
 
 // handleStartZegoCall - 1-on-1 call: acquire local camera/mic, attach to #zego-call-container
+// FIX (Hinglish): Pehle agar video+audio fail hota tha toh dead-end "Camera/Mic
+// access denied" message dikhata tha. Ab agar video fail ho toh SIRF audio try
+// karte hain (audio-only call). Agar audio bhi fail ho toh ek helpful message
+// dikhate hain jisme user ko bata jaata hai ki browser settings mein permission
+// do. Isse call har phone pe chalega.
 const handleStartZegoCall = (
   roomID: string,
   currentUserId: string,
@@ -488,6 +516,14 @@ const handleStartZegoCall = (
   mode: 'video' | 'audio' = 'video'
 ) => {
   if (typeof window === 'undefined') return;
+  if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    // No getUserMedia support — show a helpful message (HTTPS required)
+    const container = document.querySelector('#zego-call-container');
+    if (container) {
+      (container as HTMLElement).innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-size:12px;text-align:center;padding:20px;">Camera not available. Please open via the installed app icon (HTTPS) for camera/mic access.</div>';
+    }
+    return;
+  }
   // Acquire local camera + mic (or just mic for audio-only)
   const constraints = mode === 'video'
     ? { video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } }, audio: true }
@@ -513,11 +549,28 @@ const handleStartZegoCall = (
     }
     console.log('WebRTC 1-on-1 call attached successfully');
   }).catch((e) => {
-    console.warn('[WebRTC] getUserMedia failed for 1-on-1 call:', e);
-    // Don't crash - show a placeholder
-    const container = document.querySelector('#zego-call-container');
-    if (container) {
-      (container as HTMLElement).innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-size:12px;text-align:center;padding:20px;">Camera/Mic access denied. Please allow access in browser settings.</div>';
+    console.warn('[WebRTC] getUserMedia video+audio failed, trying audio-only:', e?.name || e);
+    // FIX: Agar video+audio fail ho, toh SIRF audio try karo (audio-only call)
+    if (mode === 'video') {
+      navigator.mediaDevices.getUserMedia({ audio: true, video: false }).then((audioStream) => {
+        _webrtcLocalStream = audioStream;
+        const container = document.querySelector('#zego-call-container');
+        if (container) {
+          (container as HTMLElement).innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-size:14px;text-align:center;padding:20px;">📷 Camera blocked, but audio is connected.</div>';
+        }
+      }).catch((audioErr) => {
+        console.warn('[WebRTC] audio-only also failed:', audioErr?.name || audioErr);
+        const container = document.querySelector('#zego-call-container');
+        if (container) {
+          (container as HTMLElement).innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-size:12px;text-align:center;padding:20px;">Camera & mic access denied. Please tap the 🔒 lock icon in your browser address bar → Site settings → Allow Camera & Microphone, then try again.</div>';
+        }
+      });
+    } else {
+      // Audio-only mode also failed
+      const container = document.querySelector('#zego-call-container');
+      if (container) {
+        (container as HTMLElement).innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-size:12px;text-align:center;padding:20px;">Mic access denied. Please tap the 🔒 lock icon in your browser address bar → Site settings → Allow Microphone, then try again.</div>';
+      }
     }
   });
 };
@@ -655,8 +708,8 @@ const setupForegroundNotificationListener = () => {
 // ============================================================
 const formatViews = (v: number): string => {
   if (!v || v <= 0) return '0';
-  if (v >= 1000000) return (v / 1000000).toFixed(1).replace(/\\.0$/, '') + 'M';
-  if (v >= 1000)    return (v / 1000).toFixed(v >= 10000 ? 0 : 1).replace(/\\.0$/, '') + 'k';
+  if (v >= 1000000) return (v / 1000000).toFixed(1).replace(/\\\\.0$/, '') + 'M';
+  if (v >= 1000)    return (v / 1000).toFixed(v >= 10000 ? 0 : 1).replace(/\\\\.0$/, '') + 'k';
   return String(v);
 };
 
@@ -742,6 +795,14 @@ const AD_FALLBACK_POSTERS = [
 
 // Track which zones have had their SDK loaded (prevent duplicate script injection)
 const monetagSdkLoadedZones: Set<number> = new Set();
+
+// FIX (Hinglish): SESSION-LEVEL ad fire flag — real Monetag full-screen popup SIRF
+// ek baar fire hoga jab tak cooldown (5 min) khatam nahi hota. Har MonetagVideoAd
+// mount pe yeh flag check hota hai. Agar pehle hi is session mein ad fire ho chuka
+// hai aur cooldown active hai, toh sirf in-feed fallback video chalegi — koi full-
+// screen popup NAHI aayega. Isse feed scroll karne pe "har millisecond ad" wala
+// issue bilkul khatam ho jaayega. Flag cooldown ke saath reset hota hai.
+let realAdFiredThisCycle = false;
 
 // Load the Monetag SDK once per zone — uses data-sdk attribute so show_XXX() becomes available
 function ensureMonetagSdkLoaded(zoneId: number): void {
@@ -833,17 +894,21 @@ function triggerMonetagInterstitialAd(zoneId: number): Promise<boolean> {
         // Ensure the SDK script tag is injected into the DOM
         ensureMonetagSdkLoaded(zoneId);
 
-        // FIX: GLOBAL AD GATE — show_XXX({ type: 'end' }) sirf 3 min mein ek baar
+        // FIX: GLOBAL AD GATE — show_XXX({ type: 'end' }) sirf 5 min mein ek baar
         // call hoga. Chahe hub card, in-feed, ya free coin — koi bhi trigger ho,
         // yeh gate ensure karta hai ki Monetag SDK bar-bar full-screen reward ad
-        // nahi dikhayega. Agar 3 min ke andar already ad dikh chuka hai, toh
+        // nahi dikhayega. Agar 5 min ke andar already ad dikh chuka hai, toh
         // yahan se hi return — SDK call hi nahi hoga.
         const nowGate = Date.now();
         if ((nowGate - lastAnyAdShownTime) < AD_COOLDOWN_MS) {
-          // Global ad gate active — 3 min mein ek baar hi real ad dikhana
+          // Global ad gate active — 5 min mein ek baar hi real ad dikhana
           resolve(false);
           return;
         }
+        // FIX: Cooldown expire ho gaya — naya ad cycle shuru. Session flag reset
+        // karo taaki MonetagVideoAd components naye cycle mein dobara real ad fire
+        // kar sakein.
+        realAdFiredThisCycle = false;
 
         // Wait for the show_XXX() function to become available (SDK loaded)
         const showFn = await waitForMonetagShowFn(zoneId, 15000);
@@ -886,7 +951,7 @@ function triggerMonetagInterstitialAd(zoneId: number): Promise<boolean> {
         // This is the actual revenue-generating ad call.
         // catchIfNoFeed: true → promise rejects if no ad inventory available
         // FIX: Update global gate timestamp BEFORE showing — taaki agar yeh ad
-        // successfully show ho, toh 3 min tak koi aur ad trigger na ho.
+        // successfully show ho, toh 5 min tak koi aur ad trigger na ho.
         lastAnyAdShownTime = Date.now();
         try {
           const showResult = showFn({ type: 'end', requestVar: 'infeed_ad', catchIfNoFeed: true });
@@ -899,8 +964,13 @@ function triggerMonetagInterstitialAd(zoneId: number): Promise<boolean> {
               })
               .catch(() => {
                 // No ad feed available or ad failed — resolve false (fallback video will show)
-                // Don't update gate — ad wasn't shown, next trigger can try again
-                lastAnyAdShownTime = 0; // Reset gate — ad failed, allow next attempt
+                // FIX (Hinglish): Pehle yahan `lastAnyAdShownTime = 0` set hota tha jisse
+                // gate TURANT khul jaata tha aur agla MonetagVideoAd (har 6 post pe mount
+                // hota hai) FORAN dobara ad fire kar deta tha — yahi "har millisecond ad"
+                // wala bug tha. Ab hum ek SHORT cooldown (30 second) lagate hain taaki
+                // failed ad ke baad bhi 30s tak koi dobara ad na fire ho. Ad genuinely
+                // fail hua toh 30s baad retry ho sakta hai, lekin spam nahi hoga.
+                lastAnyAdShownTime = Date.now() - (AD_COOLDOWN_MS - 30000);
                 resolve(false);
               });
           } else {
@@ -910,7 +980,9 @@ function triggerMonetagInterstitialAd(zoneId: number): Promise<boolean> {
           }
         } catch {
           // show_XXX threw — no ad available
-          lastAnyAdShownTime = 0; // Reset gate — ad failed
+          // FIX: Same as above — pehle `lastAnyAdShownTime = 0` reset karta tha jisse
+          // ad spam ho jaata tha. Ab 30s short cooldown taaki retry ho but spam na ho.
+          lastAnyAdShownTime = Date.now() - (AD_COOLDOWN_MS - 30000);
           resolve(false);
         }
       } catch (e) {
@@ -985,35 +1057,52 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
   }, [currentPoster]);
 
   // Trigger the real Monetag interstitial ad (NON-BLOCKING) — runs in background for revenue
-  // FIX: In-feed MonetagVideoAd ka apna cooldown — taaki feed scroll karne pe har 4th
-  // post pe ad component mount ho, lekin ACTUAL Monetag popup ad sirf thodi der mein ek
-  // baar fire ho. In-feed fallback video hamesha chalega (revenue + UX dono safe).
+  // FIX (Hinglish): YAH MAIN FIX HAI — "har millisecond ad" wala issue.
+  // Pehle HAR MonetagVideoAd mount pe triggerMonetagInterstitialAd() call hota tha.
+  // Feed mein har 6 post pe ek ad aata tha, aur TikReels + Pulse dono feeds mein
+  // ads the, isliye scroll karne pe continuously ads fire ho rahe the. Plus failed
+  // ad pe gate reset (`= 0`) hone ki wajah se gate turant khul jaata tha.
+  //
+  // AB: `realAdFiredThisCycle` session flag check karte hain. Agar is cycle (5 min
+  // cooldown) mein pehle hi REAL Monetag popup fire ho chuka hai, toh BAQI sab
+  // MonetagVideoAd mounts SIRF in-feed fallback video dikhayenge — koi full-screen
+  // popup NAHI fire karenge. Isse:
+  //   - Feed scroll karne pe sirf ek hi baar real ad aayega (5 min mein)
+  //   - Baqi sab ad slots mein seamless in-feed fallback video chalega
+  //   - UX smooth rahega, revenue bhi rahega (in-feed + ek real popup)
   useEffect(() => {
     if (adTriggeredRef.current) return;
     adTriggeredRef.current = true;
     setAdTriggered(true);
 
-    // FIX: In-feed MonetagVideoAd ka cooldown — 3 min mein ek baar.
-    // In-feed fallback video hamesha chalega (revenue + UX dono safe),
-    // lekin REAL Monetag popup sirf 3 min mein ek baar.
-    // Global ad gate (lastAnyAdShownTime) bhi check karte hain — taaki
-    // chahe koi bhi ad trigger ho, 3 min mein sirf ek real ad dikhay.
+    // FIX: Session-level flag — agar is cycle mein real ad already fire ho chuka hai,
+    // toh sirf in-feed fallback video chalegi, koi real popup nahi.
     const now = Date.now();
     const inCooldown = (now - lastInFeedPopupTime) < INFEED_POPUP_COOLDOWN_MS;
     const globalGate = (now - lastAnyAdShownTime) < AD_COOLDOWN_MS;
-    if (inCooldown || globalGate) return; // Cooldown/gate active — sirf in-feed video chalega, popup nahi
+    if (inCooldown || globalGate || realAdFiredThisCycle) {
+      // Cooldown/gate/session-flag active — sirf in-feed fallback video chalega,
+      // REAL Monetag popup NAHI fire hoga. Isse feed smooth rahega.
+      return;
+    }
+
+    // Mark that we're attempting the real ad this cycle — taaki baqi sab MonetagVideoAd
+    // mounts is cycle mein dobara real ad fire na karein.
+    realAdFiredThisCycle = true;
 
     // Fire the REAL Monetag ad using the Promise-based SDK API in the background.
-    // This does NOT block the in-feed video — the ad overlay (if available) appears
-    // on top, and the in-feed fallback video keeps playing like a regular post.
     triggerMonetagInterstitialAd(publisherId).then((shown) => {
       if (shown) {
         // Real Monetag ad was shown successfully — revenue generated!
-        lastInFeedPopupTime = Date.now(); // Update IN-FEED popup cooldown (3 min)
+        lastInFeedPopupTime = Date.now(); // Update IN-FEED popup cooldown (5 min)
         lastInterstitialAdTime = Date.now(); // Also update global cooldown
-        lastAnyAdShownTime = Date.now(); // FIX: Global gate — 3 min mein ek baar
+        lastAnyAdShownTime = Date.now(); // Global gate — 5 min mein ek baar
+        // realAdFiredThisCycle stays true until cooldown resets it (below)
       } else {
         // No Monetag ad feed available — fallback in-feed video keeps playing.
+        // FIX: Ad fail hua toh session flag ko reset kar do taaki thodi der baad
+        // dobara try ho sakta hai (lekin 30s short cooldown ki wajah se spam nahi hoga).
+        realAdFiredThisCycle = false;
       }
     });
 
@@ -1252,17 +1341,18 @@ function InterstitialAdOverlay({ onClose }: { onClose: () => void }) {
     }
   }, [closed]);
 
-  // Also try to trigger the real Monetag interstitial ad on mount
+  // FIX (Hinglish): Pehle yahan DOBARA triggerMonetagInterstitialAd call hota tha,
+  // jabki navigateWithAdOverlay ne pehle hi ad trigger kar diya tha. Isse double-
+  // fire ho sakta tha. Ab sirf tracking karte hain — actual ad navigateWithAdOverlay
+  // ne already fire kar diya hai. Global gate (lastAnyAdShownTime) ensure karta hai
+  // ki 5 min mein ek hi real ad dikhay.
   useEffect(() => {
     if (closed || adShown) return;
     setAdShown(true);
-    // The ad was already triggered by navigateWithAdOverlay — just track it
-    triggerMonetagInterstitialAd(MONETAG_INTERSTITIAL).then((shown) => {
-      if (shown) {
-        lastInterstitialAdTime = Date.now();
-        lastAnyAdShownTime = Date.now(); // FIX: Global gate update — 3 min mein ek baar
-      }
-    }).catch(() => {});
+    // No need to re-trigger — ad was already triggered by navigateWithAdOverlay.
+    // Just mark the gate so the cooldown is respected.
+    lastInterstitialAdTime = Date.now();
+    lastAnyAdShownTime = Date.now(); // Global gate — 5 min mein ek baar
   }, [closed, adShown]);
 
   // Auto-dismiss after 8 seconds even if user doesn't skip
@@ -2761,54 +2851,106 @@ export function AJSuperPortal() {
   const startLive = async () => {
     if (!user) return;
     // FIX (Hinglish): Pehle Social screen aur Go-Live screen ensure karte hain
-    // taaki #video-container mount ho — warna ZegoCloud ko container nahi milta
-    // aur "login room fail" / camera nae chalne ki shikayat aati thi.
+    // taaki #video-container mount ho — warna camera container nahi milta
+    // aur camera nae chalne ki shikayat aati thi.
     setScreen('social');
     setSocialScreen('golive');
-    try {
-      // FIX: Check if getUserMedia is available (HTTPS required for camera/mic access)
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setVvipAlert({msg:"⚠️ Camera not available. Please use HTTPS and allow camera/mic access in browser settings."});
-        return;
+
+    // FIX (Hinglish): START LIVE ROBUST FIX — "Camera & mic permission denied"
+    // wala error dusre mobile pe isliye aata tha kyunki:
+    //   1. Kai mobile browsers pe getUserMedia SIRF HTTPS pe chalta hai (secure
+    //      context). Agar site HTTP pe serve ho rahi ho toh camera/mic nahi milta.
+    //   2. Agar user ne pehle permission deny ki thi toh browser usay cache kar
+    //      leta hai aur dobara prompt nahi dikhata — direct error aa jaata hai.
+    //   3. Pehle code mein permission fail hone par ek dead-end alert dikh jata
+    //      tha jiska sirf "OK" button tha, aur live start nahi hota tha.
+    //
+    // AB fix:
+    //   - HTTPS check karke clear error message dikhate hain agar non-HTTPS ho.
+    //   - Agar video+audio dono fail hon, toh SIRF audio (mic) try karte hain
+    //     (audio-only live — kai phones pe camera block hota hai lekin mic chal
+    //     jaata hai, user audio-only live kar sakta hai).
+    //   - Agar mic bhi fail ho, toh ek RETRY wala alert dikhate hain jisme user
+    //     ko bata jaata hai ki browser settings mein permission do aur dobara
+    //     try kare — dead-end nahi.
+    //   - Live hamesha start hota hai (camera/mic mile toh preview, nahi mile
+    //     toh placeholder) — user ko kabhi "stuck" nahi hone dete.
+
+    // Step 1: Check if getUserMedia is available (HTTPS / secure context required)
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      // FIX: Agar getUserMedia available nahi hai, check karo ki kya site HTTPS
+      // pe hai. Agar nahi hai toh clear message do. Agar HTTPS hai lekin phir bhi
+      // nahi mila (koi purana browser) toh bhi live start kar do (placeholder).
+      const isHTTPS = typeof window !== 'undefined' && (window.location.protocol === 'https:' || window.location.hostname === 'localhost');
+      if (!isHTTPS) {
+        setVvipAlert({msg:"⚠️ Camera needs HTTPS. Please open this app via the installed app icon (HTTPS). For now, starting audio-only live…"});
+      } else {
+        setVvipAlert({msg:"⚠️ Your browser doesn't support camera access. Starting audio-only live…"});
       }
-      // Pre-request camera & mic permission so ZegoCloud SDK doesn't get blocked.
-      // We grab the stream, then immediately stop all tracks — this "wakes up" the browser
-      // permission dialog and ensures the devices are accessible. ZegoCloud will re-acquire them.
+      // Don't abort — continue with live (no camera preview, but live still works)
+    } else {
+      // Step 2: Try to get camera + mic permission
       let cameraMicOk = false;
+      let audioOnlyMode = false;
       try {
         const testStream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } },
           audio: true
         });
-        // FIX (Hinglish): Camera & mic CHECK — agar stream mil gaya to camera & mic
-        // chal rahe hain. Hum test stream ko liveVideoRef par temporarily laga dete
-        // hain taaki user ko turant local preview dikhe (jaise tak ZegoCloud attach ho).
         cameraMicOk = true;
+        setCameraPermissionResult('granted');
         if (liveVideoRef.current) {
           try { liveVideoRef.current.srcObject = testStream; } catch {}
         }
         // FIX ROUND 6: Camera black screen fix — hum tracks STOP nahi karte!
-        // Pehle 300ms baad tracks stop kar dete the jisse camera off ho jaata tha
-        // aur agar ZegoCloud time pe attach nahi hua toh BLACK SCREEN aa jaata tha.
-        // Ab hum tracks alive rakhhte hain — ZegoCloud apna stream acquire karega
-        // aur humara local preview tab tak chalta rahega jab tak ZegoCloud join na ho.
         liveStreamRef.current = testStream;
-        // Local preview video pe stream laga do (agar pehle se nahi laga)
         if (liveVideoRef.current && !liveVideoRef.current.srcObject) {
           try { liveVideoRef.current.srcObject = testStream; } catch {}
         }
       } catch (mediaErr: any) {
-        // Permission denied — show error and abort
-        console.error('getUserMedia permission error', mediaErr);
-        setVvipAlert({msg:"⚠️ Camera & mic permission denied. Please allow access in your browser settings, then reload the page."});
-        return;
+        // FIX: Agar video+audio fail ho, toh SIRF audio try karo (audio-only live)
+        console.warn('getUserMedia video+audio failed, trying audio-only:', mediaErr?.name || mediaErr);
+        try {
+          const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+          audioOnlyMode = true;
+          setCameraPermissionResult('granted');
+          // Audio-only live — no video preview, but mic works
+          if (liveVideoRef.current) {
+            try { liveVideoRef.current.srcObject = audioStream; } catch {}
+          }
+          liveStreamRef.current = audioStream;
+          setVvipAlert({msg:"📷 Camera blocked, but mic works! Starting audio-only live…"});
+        } catch (audioErr: any) {
+          // FIX: Dono fail ho gaye — permission denied for both camera AND mic.
+          // Pehle yahan dead-end alert tha. Ab ek helpful RETRY message dikhate
+          // hain jisme user ko bata jaata hai ki browser settings mein permission
+          // do. Lekin live START nahi hota — bina camera/mic ke live bekar hai.
+          console.error('getUserMedia permission error (camera + mic both denied):', audioErr?.name || audioErr);
+          setCameraPermissionResult('denied');
+          // Check the error type for a more helpful message
+          const errName = audioErr?.name || '';
+          if (errName === 'NotAllowedError' || errName === 'SecurityError') {
+            setVvipAlert({msg:"⚠️ Camera & mic permission denied. Please tap the 🔒 lock icon in your browser address bar → Site settings → Allow Camera & Microphone. Then reload and press START LIVE again."});
+          } else if (errName === 'NotFoundError' || errName === 'DevicesNotFoundError') {
+            setVvipAlert({msg:"⚠️ No camera/mic found on this device. Please connect a camera/mic or try another phone."});
+          } else if (errName === 'NotReadableError') {
+            setVvipAlert({msg:"⚠️ Camera is being used by another app. Please close other apps using the camera and try again."});
+          } else {
+            setVvipAlert({msg:"⚠️ Camera & mic not available. Please allow access in browser settings (🔒 lock icon → Site settings), then press START LIVE again."});
+          }
+          // Reset to hub so the user can retry
+          setSocialScreen('hub');
+          return; // Can't go live without any media
+        }
       }
-      // FIX: ZegoCloud removed — no SDK to load. Pure WebRTC.
       setCameraReady(true);
       if (cameraMicOk) {
         setVvipAlert({msg: "✅ Camera & mic are working! Going live…"});
       }
-      // Start live — WebRTC handles camera/mic (no external SDK)
+    }
+
+    // Start live — WebRTC handles camera/mic (no external SDK)
+    try {
       const roomId = `live_${user.uid}_${Date.now()}`;
       setLiveRoomId(roomId);
       setLiveActive(true);
@@ -2837,9 +2979,10 @@ export function AJSuperPortal() {
       } catch {}
     } catch(e) {
       console.error('startLive error', e);
-      setVvipAlert({msg:"⚠️ Could not start live. Please allow camera & mic access in your browser settings, then reload the page."});
+      setVvipAlert({msg:"⚠️ Could not start live stream. Please check your internet connection and try again."});
       setCameraReady(false);
       setLiveActive(false);
+      setSocialScreen('hub');
     }
   };
 
@@ -3869,36 +4012,36 @@ export function AJSuperPortal() {
   // ==========================================================
   const detectLanguage = (text: string): string => {
     const q = text.toLowerCase();
-    const hinglishSignals = /\\b(bhai|dost|yaar|kya|kaise|karo|hua|hoga|hoti|hota|seedha|bilkul|thoda|bohot|sirf|abhi|agar|toh|phir|mujhe|aapko|tumhara|mera|apna|paise|kamao|nikalo|karo|dekho|batao|samjhao|lao|bhejo|milega|milta|lagta|sahi|theek|accha|acha)\\b/.test(q);
+    const hinglishSignals = /\\\\b(bhai|dost|yaar|kya|kaise|karo|hua|hoga|hoti|hota|seedha|bilkul|thoda|bohot|sirf|abhi|agar|toh|phir|mujhe|aapko|tumhara|mera|apna|paise|kamao|nikalo|karo|dekho|batao|samjhao|lao|bhejo|milega|milta|lagta|sahi|theek|accha|acha)\\\\b/.test(q);
     if (hinglishSignals) return 'hin';
-    if (/[\\u0600-\\u06FF]/.test(text)) {
-      if (/[\\u0679\\u0688\\u0691\\u06BE\\u06C1\\u06CC\\u06D2]/.test(text) ||
+    if (/[\\\\u0600-\\\\u06FF]/.test(text)) {
+      if (/[\\\\u0679\\\\u0688\\\\u0691\\\\u06BE\\\\u06C1\\\\u06CC\\\\u06D2]/.test(text) ||
           /کوئن|پیسہ|نکالنا|لائیو|ریفرل|خریدنا|تحفہ|سکے|بیلنس|بھائی|دوست/.test(text))
         return 'ur';
-      if (/[\\u067E\\u0686\\u0698\\u06AF]/.test(text) && /فارسی|ایران|ریال/.test(text))
+      if (/[\\\\u067E\\\\u0686\\\\u0698\\\\u06AF]/.test(text) && /فارسی|ایران|ریال/.test(text))
         return 'fa';
       return 'ar';
     }
-    if (/[\\u0900-\\u097F]/.test(text)) return 'hi';
-    if (/[\\u0980-\\u09FF]/.test(text)) return 'bn';
-    if (/[\\u0A00-\\u0A7F]/.test(text)) return 'pa';
-    if (/[\\u4E00-\\u9FFF]/.test(text)) return 'zh';
-    if (/[\\u3040-\\u30FF]/.test(text)) return 'ja';
-    if (/[\\uAC00-\\uD7AF]/.test(text)) return 'ko';
-    if (/[\\u0400-\\u04FF]/.test(text)) return 'ru';
-    if (/[\\u0E00-\\u0E7F]/.test(text)) return 'th';
-    if (/[\\u0370-\\u03FF]/.test(text)) return 'el';
-    if (/[\\u0590-\\u05FF]/.test(text)) return 'he';
-    if (/\\b(bonjour|merci|monnaie|retirer|acheter|cadeau|combien|comment)\\b/.test(q)) return 'fr';
-    if (/\\b(hola|gracias|moneda|retirar|comprar|regalo|cuánto|cómo)\\b/.test(q))       return 'es';
-    if (/\\b(ciao|grazie|moneta|ritirare|comprare|regalo|quanto|come)\\b/.test(q))      return 'it';
-    if (/\\b(olá|obrigado|moeda|retirar|comprar|presente|quanto|como)\\b/.test(q))      return 'pt';
-    if (/\\b(hallo|danke|münze|auszahlen|kaufen|geschenk|wieviel|wie)\\b/.test(q))      return 'de';
-    if (/\\b(merhaba|teşekkür|madeni|çekmek|satın|hediye|kadar|nasıl)\\b/.test(q))     return 'tr';
-    if (/\\b(привет|спасибо|монета|вывести|купить|подарок|сколько|как)\\b/.test(q))     return 'ru';
-    if (/\\b(halo|terima|koin|tarik|beli|hadiah|berapa|bagaimana)\\b/.test(q))          return 'id';
-    if (/\\b(xin chào|cảm ơn|đồng xu|rút tiền|mua|quà tặng)\\b/.test(q))              return 'vi';
-    if (/\\b(شکریہ|آپ|ہے|کیا|کیسے|میں|آپ کا)\\b/.test(q))                             return 'ur';
+    if (/[\\\\u0900-\\\\u097F]/.test(text)) return 'hi';
+    if (/[\\\\u0980-\\\\u09FF]/.test(text)) return 'bn';
+    if (/[\\\\u0A00-\\\\u0A7F]/.test(text)) return 'pa';
+    if (/[\\\\u4E00-\\\\u9FFF]/.test(text)) return 'zh';
+    if (/[\\\\u3040-\\\\u30FF]/.test(text)) return 'ja';
+    if (/[\\\\uAC00-\\\\uD7AF]/.test(text)) return 'ko';
+    if (/[\\\\u0400-\\\\u04FF]/.test(text)) return 'ru';
+    if (/[\\\\u0E00-\\\\u0E7F]/.test(text)) return 'th';
+    if (/[\\\\u0370-\\\\u03FF]/.test(text)) return 'el';
+    if (/[\\\\u0590-\\\\u05FF]/.test(text)) return 'he';
+    if (/\\\\b(bonjour|merci|monnaie|retirer|acheter|cadeau|combien|comment)\\\\b/.test(q)) return 'fr';
+    if (/\\\\b(hola|gracias|moneda|retirar|comprar|regalo|cuánto|cómo)\\\\b/.test(q))       return 'es';
+    if (/\\\\b(ciao|grazie|moneta|ritirare|comprare|regalo|quanto|come)\\\\b/.test(q))      return 'it';
+    if (/\\\\b(olá|obrigado|moeda|retirar|comprar|presente|quanto|como)\\\\b/.test(q))      return 'pt';
+    if (/\\\\b(hallo|danke|münze|auszahlen|kaufen|geschenk|wieviel|wie)\\\\b/.test(q))      return 'de';
+    if (/\\\\b(merhaba|teşekkür|madeni|çekmek|satın|hediye|kadar|nasıl)\\\\b/.test(q))     return 'tr';
+    if (/\\\\b(привет|спасибо|монета|вывести|купить|подарок|сколько|как)\\\\b/.test(q))     return 'ru';
+    if (/\\\\b(halo|terima|koin|tarik|beli|hadiah|berapa|bagaimana)\\\\b/.test(q))          return 'id';
+    if (/\\\\b(xin chào|cảm ơn|đồng xu|rút tiền|mua|quà tặng)\\\\b/.test(q))              return 'vi';
+    if (/\\\\b(شکریہ|آپ|ہے|کیا|کیسے|میں|آپ کا)\\\\b/.test(q))                             return 'ur';
     const locale = (typeof navigator !== 'undefined' ? navigator.language : 'en').split('-')[0].toLowerCase();
     const supported = ['fr','es','de','it','pt','tr','ru','id','vi','ar','hi','bn','zh','ja','ko','pa','ur','fa','th','el','he'];
     if (supported.includes(locale)) return locale;
@@ -3908,281 +4051,281 @@ export function AJSuperPortal() {
   type BotLang = 'en'|'hin'|'ur'|'hi'|'ar'|'bn'|'pa'|'fr'|'es'|'de'|'it'|'pt'|'tr'|'ru'|'id'|'vi'|'zh'|'ja'|'ko'|'fa'|'th'|'el'|'he';
   const BOT_KB: Record<string, Record<BotLang|string, string>> = {
     greeting: {
-      en:  `Welcome back! 😊 I can help you with:\\
-🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\
-🪙 Coins & Earning • 💸 Withdraw • 🎁 Gifts • ⚔️ PK Battle\\
+      en:  `Welcome back! 😊 I can help you with:\\\\
+🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\\\
+🪙 Coins & Earning • 💸 Withdraw • 🎁 Gifts • ⚔️ PK Battle\\\\
 Just ask me anything!`,
-      hin: `Bhai, kya scene hai! 😄 Main yahan hoon:\\
-🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\
-🪙 Coins earning • 💸 Withdraw • 🎁 Gifts • ⚔️ PK Battle\\
+      hin: `Bhai, kya scene hai! 😄 Main yahan hoon:\\\\
+🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\\\
+🪙 Coins earning • 💸 Withdraw • 🎁 Gifts • ⚔️ PK Battle\\\\
 Kuch bhi poocho, seedha batata hoon! 🔥`,
-      ur:  `خوش آمدید! 😊 میں ان چیزوں میں مدد کر سکتا ہوں:\\
-🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\
-🪙 Coins • 💸 نکاسی • 🎁 تحفے • ⚔️ PK Battle\\
+      ur:  `خوش آمدید! 😊 میں ان چیزوں میں مدد کر سکتا ہوں:\\\\
+🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\\\
+🪙 Coins • 💸 نکاسی • 🎁 تحفے • ⚔️ PK Battle\\\\
 کچھ بھی پوچھیں!`,
-      hi:  `स्वागत है! 😊 मैं इनमें मदद कर सकता हूं:\\
-🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\
-🪙 Coins • 💸 Withdrawal • 🎁 Gifts • ⚔️ PK\\
+      hi:  `स्वागत है! 😊 मैं इनमें मदद कर सकता हूं:\\\\
+🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\\\
+🪙 Coins • 💸 Withdrawal • 🎁 Gifts • ⚔️ PK\\\\
 कुछ भी पूछो!`,
-      ar:  `مرحباً! 😊 يمكنني مساعدتك في:\\
-🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\
-🪙 الكوينز • 💸 السحب • 🎁 الهدايا • ⚔️ PK\\
+      ar:  `مرحباً! 😊 يمكنني مساعدتك في:\\\\
+🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\\\
+🪙 الكوينز • 💸 السحب • 🎁 الهدايا • ⚔️ PK\\\\
 اسألني أي شيء!`,
     },
     coin: {
-      en:  `🪙 AJ Coins — Full Breakdown:\\
-\\
-• Rate: $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1 cash-out\\
-• Welcome Bonus: 500 Coins on signup 🎉\\
-• Referral Bonus: +${REFERRAL_COINS} Coins per friend referred\\
-• Video Post (TikReel): +10 Coins per upload\\
-• Photo Post (Pulse): +5 Coins per post\\
-• AI Bot (Basic): 2% daily on invested coins\\
-• AI Bot (VVIP): 5% daily on invested coins\\
-• Live gifts received: 60% goes to you!\\
-\\
+      en:  `🪙 AJ Coins — Full Breakdown:\\\\
+\\\\
+• Rate: $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1 cash-out\\\\
+• Welcome Bonus: 500 Coins on signup 🎉\\\\
+• Referral Bonus: +${REFERRAL_COINS} Coins per friend referred\\\\
+• Video Post (TikReel): +10 Coins per upload\\\\
+• Photo Post (Pulse): +5 Coins per post\\\\
+• AI Bot (Basic): 2% daily on invested coins\\\\
+• AI Bot (VVIP): 5% daily on invested coins\\\\
+• Live gifts received: 60% goes to you!\\\\
+\\\\
 Go to Wallet → Purchase to top up anytime. 💰`,
-      hin: `Bhai, yeh lo puri detail! 🪙\\
-\\
-• Rate: $1 = ${COIN_RATE} Coins | Cash out: ${CASH_RATE} Coins = $1\\
-• Signup bonus: 500 Coins FREE 🎉\\
-• Referral: +${REFERRAL_COINS} Coins har dost ke liye\\
-• TikReel video upload: +10 Coins\\
-• Pulse photo post: +5 Coins\\
-• AI Bot Basic: 2% daily profit\\
-• AI Bot VVIP: 5% daily profit 🔥\\
-• Live pe gifts milein: 60% tumhara!\\
-\\
+      hin: `Bhai, yeh lo puri detail! 🪙\\\\
+\\\\
+• Rate: $1 = ${COIN_RATE} Coins | Cash out: ${CASH_RATE} Coins = $1\\\\
+• Signup bonus: 500 Coins FREE 🎉\\\\
+• Referral: +${REFERRAL_COINS} Coins har dost ke liye\\\\
+• TikReel video upload: +10 Coins\\\\
+• Pulse photo post: +5 Coins\\\\
+• AI Bot Basic: 2% daily profit\\\\
+• AI Bot VVIP: 5% daily profit 🔥\\\\
+• Live pe gifts milein: 60% tumhara!\\\\
+\\\\
 Wallet → Purchase se recharge karo, dost! 💰`,
-      ur:  `🪙 AJ Coins — مکمل تفصیل:\\
-\\
-• شرح: $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1\\
-• Signup بونس: 500 Coins مفت 🎉\\
-• ریفرل: +${REFERRAL_COINS} Coins\\
-• TikReel ویڈیو: +10 Coins\\
-• Pulse فوٹو: +5 Coins\\
-• AI Bot Basic: 2% روزانہ\\
-• AI Bot VVIP: 5% روزانہ 🔥\\
-• Live تحفے: 60% آپ کا!\\
-\\
+      ur:  `🪙 AJ Coins — مکمل تفصیل:\\\\
+\\\\
+• شرح: $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1\\\\
+• Signup بونس: 500 Coins مفت 🎉\\\\
+• ریفرل: +${REFERRAL_COINS} Coins\\\\
+• TikReel ویڈیو: +10 Coins\\\\
+• Pulse فوٹو: +5 Coins\\\\
+• AI Bot Basic: 2% روزانہ\\\\
+• AI Bot VVIP: 5% روزانہ 🔥\\\\
+• Live تحفے: 60% آپ کا!\\\\
+\\\\
 Wallet → Purchase 💰`,
-      hi:  `🪙 AJ Coins:\\
-\\
-• $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1\\
-• Signup: 500 Coins 🎉\\
-• Referral: +${REFERRAL_COINS} Coins\\
-• TikReel Video: +10 Coins\\
-• Pulse Photo: +5 Coins\\
-• AI Bot Basic: 2% | VVIP: 5% 🔥\\
-• Gifts: 60% आपका!\\
-\\
+      hi:  `🪙 AJ Coins:\\\\
+\\\\
+• $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1\\\\
+• Signup: 500 Coins 🎉\\\\
+• Referral: +${REFERRAL_COINS} Coins\\\\
+• TikReel Video: +10 Coins\\\\
+• Pulse Photo: +5 Coins\\\\
+• AI Bot Basic: 2% | VVIP: 5% 🔥\\\\
+• Gifts: 60% आपका!\\\\
+\\\\
 Wallet → Purchase 💰`,
-      ar:  `🪙 AJ Coins:\\
-\\
-• $1 = ${COIN_RATE} | ${CASH_RATE} = $1\\
-• Signup: 500 🎉\\
-• Referral: +${REFERRAL_COINS}\\
-• TikReel Video: +10\\
-• Pulse Photo: +5\\
-• AI Bot: 2-5% 🔥\\
-• Gifts: 60%\\
-\\
+      ar:  `🪙 AJ Coins:\\\\
+\\\\
+• $1 = ${COIN_RATE} | ${CASH_RATE} = $1\\\\
+• Signup: 500 🎉\\\\
+• Referral: +${REFERRAL_COINS}\\\\
+• TikReel Video: +10\\\\
+• Pulse Photo: +5\\\\
+• AI Bot: 2-5% 🔥\\\\
+• Gifts: 60%\\\\
+\\\\
 المحفظة → الشراء 💰`,
     },
     tikreels: {
-      en:  `🎬 AJ TikReels — TikTok-style short videos!\\
-\\
-• Go to Social → AJ TikReels → Feed tab\\
-• Scroll up/down to watch videos (snap-scroll)\\
-• CENTER-TAP to pause/resume video\\
-• Like ❤️, Comment 💬, Share 🔗, or send Gifts 🎁\\
-• Upload your own: hit ➕ Post tab, add caption + image/video\\
-• Each video upload earns you +10 Coins 🪙\\
-• Photo post earns +5 Coins\\
+      en:  `🎬 AJ TikReels — TikTok-style short videos!\\\\
+\\\\
+• Go to Social → AJ TikReels → Feed tab\\\\
+• Scroll up/down to watch videos (snap-scroll)\\\\
+• CENTER-TAP to pause/resume video\\\\
+• Like ❤️, Comment 💬, Share 🔗, or send Gifts 🎁\\\\
+• Upload your own: hit ➕ Post tab, add caption + image/video\\\\
+• Each video upload earns you +10 Coins 🪙\\\\
+• Photo post earns +5 Coins\\\\
 • CSS Filters, Music Picker & Text Overlay available in editor`,
-      hin: `🎬 AJ TikReels:\\
-\\
-• Social → AJ TikReels → Feed\\
-• Videos scroll karo (snap-scroll)\\
-• CENTER TAP karo pause/resume ke liye\\
-• Like ❤️, Comment 💬, Gift 🎁\\
-• Video upload: +10 Coins 🔥\\
-• Photo post: +5 Coins\\
+      hin: `🎬 AJ TikReels:\\\\
+\\\\
+• Social → AJ TikReels → Feed\\\\
+• Videos scroll karo (snap-scroll)\\\\
+• CENTER TAP karo pause/resume ke liye\\\\
+• Like ❤️, Comment 💬, Gift 🎁\\\\
+• Video upload: +10 Coins 🔥\\\\
+• Photo post: +5 Coins\\\\
 • Editor mein Filters, Music, Text Overlay bhi hai!`,
-      ur:  `🎬 AJ TikReels:\\
-\\
-• Social → AJ TikReels → Feed\\
-• Videos اسکرول کریں\\
-• CENTER TAP: pause/resume\\
-• Like ❤️، Comment 💬، Gift 🎁\\
-• Video: +10 Coins 🔥\\
-• Photo: +5 Coins\\
+      ur:  `🎬 AJ TikReels:\\\\
+\\\\
+• Social → AJ TikReels → Feed\\\\
+• Videos اسکرول کریں\\\\
+• CENTER TAP: pause/resume\\\\
+• Like ❤️، Comment 💬، Gift 🎁\\\\
+• Video: +10 Coins 🔥\\\\
+• Photo: +5 Coins\\\\
 • Editor: Filters، Music، Text Overlay`,
-      hi:  `🎬 AJ TikReels:\\
-\\
-• Social → AJ TikReels → Feed\\
-• CENTER TAP: pause/resume\\
-• Video: +10 Coins 🔥\\
-• Photo: +5 Coins\\
+      hi:  `🎬 AJ TikReels:\\\\
+\\\\
+• Social → AJ TikReels → Feed\\\\
+• CENTER TAP: pause/resume\\\\
+• Video: +10 Coins 🔥\\\\
+• Photo: +5 Coins\\\\
 • Editor: Filters, Music, Text Overlay`,
-      ar:  `🎬 AJ TikReels:\\
-\\
-• Social → AJ TikReels → Feed\\
-• CENTER TAP: pause/resume\\
-• Video: +10 كوين 🔥\\
-• Photo: +5 كوين\\
+      ar:  `🎬 AJ TikReels:\\\\
+\\\\
+• Social → AJ TikReels → Feed\\\\
+• CENTER TAP: pause/resume\\\\
+• Video: +10 كوين 🔥\\\\
+• Photo: +5 كوين\\\\
 • Editor: Filters, Music, Text`,
     },
     pulse: {
-      en:  `📡 AJ Pulse — Instagram-style feed + Live streaming!\\
-\\
-📸 Feed:\\
-• Scroll posts, like, comment, share, send gifts\\
-• Post your own content → +5 Coins (photo) / +10 Coins (video)\\
-\\
-🔴 Go Live:\\
-• Social Hub → GO LIVE button\\
-• Share your Room ID so viewers can join\\
-• Viewers send gifts → You keep 60%!\\
-\\
+      en:  `📡 AJ Pulse — Instagram-style feed + Live streaming!\\\\
+\\\\
+📸 Feed:\\\\
+• Scroll posts, like, comment, share, send gifts\\\\
+• Post your own content → +5 Coins (photo) / +10 Coins (video)\\\\
+\\\\
+🔴 Go Live:\\\\
+• Social Hub → GO LIVE button\\\\
+• Share your Room ID so viewers can join\\\\
+• Viewers send gifts → You keep 60%!\\\\
+\\\\
 ⚔️ PK Battle: 100 Coins entry, 5-min battle 🏆`,
-      hin: `📡 AJ Pulse:\\
-\\
-📸 Feed:\\
-• Posts scroll, like/comment/gift\\
-• Photo post: +5 Coins | Video: +10 Coins\\
-\\
-🔴 Live:\\
-• GO LIVE → Room ID share karo\\
-• Gifts → 60% tumhara! 💰\\
-\\
+      hin: `📡 AJ Pulse:\\\\
+\\\\
+📸 Feed:\\\\
+• Posts scroll, like/comment/gift\\\\
+• Photo post: +5 Coins | Video: +10 Coins\\\\
+\\\\
+🔴 Live:\\\\
+• GO LIVE → Room ID share karo\\\\
+• Gifts → 60% tumhara! 💰\\\\
+\\\\
 ⚔️ PK Battle: 100 Coins, 5 min 🏆`,
-      ur:  `📡 AJ Pulse:\\
-\\
-📸 فیڈ:\\
-• Photo: +5 Coins | Video: +10 Coins\\
-\\
-🔴 Live:\\
-• GO LIVE → Room ID شیئر\\
-• Gifts → 60% آپ کا!\\
-\\
+      ur:  `📡 AJ Pulse:\\\\
+\\\\
+📸 فیڈ:\\\\
+• Photo: +5 Coins | Video: +10 Coins\\\\
+\\\\
+🔴 Live:\\\\
+• GO LIVE → Room ID شیئر\\\\
+• Gifts → 60% آپ کا!\\\\
+\\\\
 ⚔️ PK: 100 Coins، 5 منٹ 🏆`,
-      hi:  `📡 AJ Pulse:\\
-\\
-• Photo: +5 Coins | Video: +10 Coins\\
-• GO LIVE → Room ID share\\
-• Gifts → 60% आपका!\\
+      hi:  `📡 AJ Pulse:\\\\
+\\\\
+• Photo: +5 Coins | Video: +10 Coins\\\\
+• GO LIVE → Room ID share\\\\
+• Gifts → 60% आपका!\\\\
 • PK Battle: 100 Coins 🏆`,
-      ar:  `📡 AJ Pulse:\\
-\\
-• Photo: +5 | Video: +10 كوين\\
-• GO LIVE → Room ID\\
-• Gifts → 60%\\
+      ar:  `📡 AJ Pulse:\\\\
+\\\\
+• Photo: +5 | Video: +10 كوين\\\\
+• GO LIVE → Room ID\\\\
+• Gifts → 60%\\\\
 • PK: 100 كوين 🏆`,
     },
     social: {
-      en:  `👤 Social Features:\\
-\\
-• View any profile: tap any avatar\\
-• Follow / Unfollow from their profile page\\
-• Message (DM): tap "Message" on any profile\\
-• WeChat: private encrypted chat + Video/Audio calls via ZegoCloud\\
+      en:  `👤 Social Features:\\\\
+\\\\
+• View any profile: tap any avatar\\\\
+• Follow / Unfollow from their profile page\\\\
+• Message (DM): tap "Message" on any profile\\\\
+• WeChat: private encrypted chat + Video/Audio calls via ZegoCloud\\\\
 • Profile: Posts, Followers, Following, Total Likes, video grid`,
-      hin: `👤 Social Features:\\
-\\
-• Koi bhi profile: dp tap karo\\
-• Follow / Unfollow\\
-• DM: "Message" button 🔥\\
-• WeChat: private chat + Video/Audio call (ZegoCloud)\\
+      hin: `👤 Social Features:\\\\
+\\\\
+• Koi bhi profile: dp tap karo\\\\
+• Follow / Unfollow\\\\
+• DM: "Message" button 🔥\\\\
+• WeChat: private chat + Video/Audio call (ZegoCloud)\\\\
 • Profile: Posts, Followers, Likes, videos`,
-      ur:  `👤 Social Features:\\
-\\
-• avatar ٹیپ → پروفائل\\
-• Follow / Unfollow\\
-• DM: "Message" 🔥\\
-• WeChat: private chat + Video/Audio call\\
+      ur:  `👤 Social Features:\\\\
+\\\\
+• avatar ٹیپ → پروفائل\\\\
+• Follow / Unfollow\\\\
+• DM: "Message" 🔥\\\\
+• WeChat: private chat + Video/Audio call\\\\
 • Posts، Followers، Likes`,
-      hi:  `👤 Social Features:\\
-\\
-• Avatar टैप → profile\\
-• Follow / Unfollow\\
-• DM + WeChat calls 🔥\\
+      hi:  `👤 Social Features:\\\\
+\\\\
+• Avatar टैप → profile\\\\
+• Follow / Unfollow\\\\
+• DM + WeChat calls 🔥\\\\
 • Posts, Followers, Likes`,
-      ar:  `👤 Social:\\
-\\
-• avatar → ملف\\
-• Follow/Unfollow\\
-• DM + WeChat calls 🔥\\
+      ar:  `👤 Social:\\\\
+\\\\
+• avatar → ملف\\\\
+• Follow/Unfollow\\\\
+• DM + WeChat calls 🔥\\\\
 • Posts, Followers, Likes`,
     },
     gaming: {
-      en:  `🎮 AJ Gaming Zone — Play & Multiply Coins!\\
-\\
-• Access: Tap "Gaming" from the main Hub\\
-• Games: Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\\
-• Game scores auto-credit AJ Coins via Game Bridge\\
+      en:  `🎮 AJ Gaming Zone — Play & Multiply Coins!\\\\
+\\\\
+• Access: Tap "Gaming" from the main Hub\\\\
+• Games: Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\\\\
+• Game scores auto-credit AJ Coins via Game Bridge\\\\
 • Coming soon: Ludo Elite Royal, Puck Pulse Elite 🔜`,
-      hin: `🎮 AJ Gaming Zone:\\
-\\
-• Main Hub → "Gaming"\\
-• Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\\
-• Game score → auto coins credit 🔥\\
+      hin: `🎮 AJ Gaming Zone:\\\\
+\\\\
+• Main Hub → "Gaming"\\\\
+• Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\\\\
+• Game score → auto coins credit 🔥\\\\
 • Jald: Ludo Elite Royal 🔜`,
-      ur:  `🎮 Gaming:\\
-\\
-• Main Hub → "Gaming"\\
-• 5 games available\\
-• Score → auto coins 🔥\\
+      ur:  `🎮 Gaming:\\\\
+\\\\
+• Main Hub → "Gaming"\\\\
+• 5 games available\\\\
+• Score → auto coins 🔥\\\\
 • جلد: Ludo Elite Royal 🔜`,
-      hi:  `🎮 Gaming:\\
-\\
-• Main Hub → "Gaming"\\
-• 5 games\\
-• Score → auto coins 🔥\\
+      hi:  `🎮 Gaming:\\\\
+\\\\
+• Main Hub → "Gaming"\\\\
+• 5 games\\\\
+• Score → auto coins 🔥\\\\
 • जल्द: Ludo Elite Royal 🔜`,
-      ar:  `🎮 Gaming:\\
-\\
-• "Gaming" من الرئيسية\\
-• 5 ألعاب\\
-• نقاط → كوينز تلقائي 🔥\\
+      ar:  `🎮 Gaming:\\\\
+\\\\
+• "Gaming" من الرئيسية\\\\
+• 5 ألعاب\\\\
+• نقاط → كوينز تلقائي 🔥\\\\
 • قريباً: Ludo Elite Royal 🔜`,
     },
     refer: {
-      en:  `👥 Referral System:\\
-\\
-• Your Referral Code = your User ID (find in Wallet or Social Hub)\\
-• Share your ID with friends\\
-• They go to Wallet → "Enter Referral Code" and paste your ID\\
-• You receive +${REFERRAL_COINS} Coins per successful referral 🎉\\
-• No limit — refer as many as you want!\\
-\\
+      en:  `👥 Referral System:\\\\
+\\\\
+• Your Referral Code = your User ID (find in Wallet or Social Hub)\\\\
+• Share your ID with friends\\\\
+• They go to Wallet → "Enter Referral Code" and paste your ID\\\\
+• You receive +${REFERRAL_COINS} Coins per successful referral 🎉\\\\
+• No limit — refer as many as you want!\\\\
+\\\\
 Tip: Copy your ID from the Social Hub referral card 📤`,
-      hin: `👥 Referral:\\
-\\
-• Tera ID = Referral Code\\
-• Doston ko share karo\\
-• Wo Wallet → Referral Code mein daalen\\
-• +${REFERRAL_COINS} Coins 🎉\\
-• Koi limit nahi!\\
-\\
+      hin: `👥 Referral:\\\\
+\\\\
+• Tera ID = Referral Code\\\\
+• Doston ko share karo\\\\
+• Wo Wallet → Referral Code mein daalen\\\\
+• +${REFERRAL_COINS} Coins 🎉\\\\
+• Koi limit nahi!\\\\
+\\\\
 Tip: Social Hub se copy karo 📤`,
-      ur:  `👥 Referral:\\
-\\
-• آپ کا ID = Referral Code\\
-• دوستوں کو شیئر کریں\\
-• Wallet → Referral Code میں ڈالیں\\
+      ur:  `👥 Referral:\\\\
+\\\\
+• آپ کا ID = Referral Code\\\\
+• دوستوں کو شیئر کریں\\\\
+• Wallet → Referral Code میں ڈالیں\\\\
 • +${REFERRAL_COINS} Coins 🎉`,
-      hi:  `👥 Referral:\\
-\\
-• आपका ID = Referral Code\\
-• दोस्तों को share करो\\
-• Wallet → Referral Code में डालें\\
+      hi:  `👥 Referral:\\\\
+\\\\
+• आपका ID = Referral Code\\\\
+• दोस्तों को share करो\\\\
+• Wallet → Referral Code में डालें\\\\
 • +${REFERRAL_COINS} Coins 🎉`,
-      ar:  `👥 Referral:\\
-\\
-• معرفك = Referral Code\\
-• شارك مع الأصدقاء\\
-• المحفظة → Referral Code\\
+      ar:  `👥 Referral:\\\\
+\\\\
+• معرفك = Referral Code\\\\
+• شارك مع الأصدقاء\\\\
+• المحفظة → Referral Code\\\\
 • +${REFERRAL_COINS} كوين 🎉`,
     },
   };
@@ -4739,7 +4882,7 @@ Tip: Social Hub se copy karo 📤`,
                       vid[0], vid[1], vid[2], vid[3], AD, vid[4], vid[5], vid[6], vid[7], AD ...
                       — har 4 REAL videos ke baad ek ad, bilkul jaise user ne maanga. */}
                   {(() => {
-                    const AD_EVERY = 6; // har 6 content posts ke baad ek ad (UX + earning balance)
+                    const AD_EVERY = 8; // FIX: 6 se 8 kar diya — kam ads, better UX (revenue in-feed fallback video se chalti rehti hai)
                     const interleaved: any[] = [];
                     pixaVideos.forEach((vid:any, i:number) => {
                       interleaved.push({ kind:'content', vid, origIdx:i });
@@ -5169,7 +5312,7 @@ Tip: Social Hub se copy karo 📤`,
                       post[0], post[1], post[2], post[3], AD, post[4], post[5], post[6], post[7], AD ...
                       — har 4 REAL posts ke baad ek ad, bilkul jaise user ne maanga. */}
                   {(() => {
-                    const AD_EVERY = 6; // har 6 content posts ke baad ek ad (UX + earning balance)
+                    const AD_EVERY = 8; // FIX: 6 se 8 kar diya — kam ads, better UX (revenue in-feed fallback video se chalti rehti hai)
                     const interleaved: any[] = [];
                     combinedPulseFeed.forEach((post:any, i:number) => {
                       interleaved.push({ kind:'content', post, origIdx:i });
