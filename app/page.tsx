@@ -206,7 +206,7 @@ import {
   Settings, Edit3, Mail, DollarSign, Share2, Music, PlusSquare,
   MoreVertical, Search, Phone, Video as VideoIcon, ArrowLeft, Trash2,
   Gift, Radio, UserPlus, UserCheck, Grid, Film, Volume2, VolumeX, Swords, Clock,
-  Plus, Eye
+  Plus, Eye, Bookmark
 } from 'lucide-react';
 
 // ── Firebase config ──────────────────────────────────────────
@@ -241,29 +241,20 @@ const AGORA_APP_ID             = "7863c5369b3648bf931893a52ebaa6db";
 const AGORA_APP_CERTIFICATE    = "dc66528c5a5646da8e3ce5d2426759af";
 const VAPID_KEY                = "BMaPMtGtA2VtDsj_JH_yv5dOv66Mpguf9v4TkqY96dcS-gwqgs-r5OlqRJQmZbNkaj-7_iMFbGGN0Qc4xH0qvKg";
 // ============================================================
-// 🔑 MONETAG REAL AD ZONE IDs — User ke real tags se set kiye gaye!
-// Monetag dashboard se mila: har ad type ka apna zone ID + tag URL
+// 🔑 MONETAG REAL AD ZONE IDs — Sirf VIDEO ADS (Interstitial)
+// BANNER, PUSH, VIGNETTE ads HATA diye gaye — UX ke liye.
+// Sirf in-feed video ads TikReel aur Pulse mein chalenge.
 // ============================================================
-// Interstitial Ad (full-screen, TikReels feed mein har 4th video par)
+// Interstitial Ad (full-screen video ad — TikReels & Pulse feed mein har 6th post par)
 const MONETAG_INTERSTITIAL     = 11377822;   // Real zone ID — https://nap5k.com/tag.min.js
-// Banner Ad (Pulse feed mein)
-const MONETAG_PULSE_BANNER     = 11377812;   // Real zone ID — https://al5sm.com/tag.min.js
-// Vignette Ad (overlay style)
-const MONETAG_VIGNETTE        = 11377830;   // Real zone ID — https://n6wxm.com/vignette.min.js
-// Additional zone (quge5)
-const MONETAG_QUGE5           = 262912;     // Real zone ID — https://quge5.com/88/tag.min.js
 // Tag URLs per zone (Monetag SDK loads from these)
 const MONETAG_TAG_URLS: Record<number, string> = {
-  11377822: 'https://nap5k.com/tag.min.js',    // Interstitial
-  11377812: 'https://al5sm.com/tag.min.js',     // Banner
-  11377830: 'https://n6wxm.com/vignette.min.js', // Vignette
-  262912:   'https://quge5.com/88/tag.min.js',  // Quge5
+  11377822: 'https://nap5k.com/tag.min.js',    // Interstitial (Video Ad only)
 };
 // Default tag URL (fallback)
 const MONETAG_TAG_URL = 'https://nap5k.com/tag.min.js';
 const PULSE_AD_VIDEO_ID        = 'aqz-KE-bpKQ';
 const NOWPAYMENTS_IPN_SECRET   = '9eeeBo6K1ljJSQtUCb1Up88Gv6n1AreU';
-const MONETAG_WECHAT_SPONSOR   = 11337185;
 
 // ============================================================
 // ECONOMY RATES
@@ -918,7 +909,7 @@ function triggerMonetagInterstitialAd(zoneId: number): Promise<boolean> {
   });
 }
 
-function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: number; type?: 'interstitial' | 'banner' }) {
+function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: number; type?: 'interstitial' }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [adReady, setAdReady] = useState(false);
   const [countdown, setCountdown] = useState(5);
@@ -1767,35 +1758,15 @@ export function AJSuperPortal() {
   const currentWithdrawMethod = WITHDRAW_METHODS.find(m => m.label === payoutMethod) || WITHDRAW_METHODS[0];
 
   // ==========================================================
-  // INJECT MONETAG ADS ON MOUNT (FIXED — uses SDK pattern, no duplicate scripts)
-  // Loads SDK for both zones, then preloads the interstitial ad for instant display.
+  // INJECT MONETAG VIDEO AD SDK ON MOUNT (FIXED — no banner/push ads)
+  // Loads SDK for interstitial zone only, then preloads for instant video ad display.
   // ==========================================================
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    // Banner Ad — zone 11337197 — load SDK once with data-sdk attribute
-    try {
-      ensureMonetagSdkLoaded(MONETAG_PULSE_BANNER);
-    } catch {}
-
-    // Interstitial Ad — zone 11349676 — load SDK once (MonetagVideoAd components also use this)
+    // Interstitial Video Ad — zone 11377822 — load SDK once (MonetagVideoAd components use this)
     try {
       ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL);
-    } catch {}
-
-    // Monetag Push Notification Ad — FIX: sirf ek baar load hoga (guard flag se)
-    // Pehle yeh har component re-render / mount pe naya script inject karta tha
-    // jisse push ads bar-bar aate the ("every second" wala issue). Ab ek global
-    // flag check karte hain — sirf ek baar load hoga poore session mein.
-    try {
-      if (!(window as any).__AJ_PUSH_AD_LOADED__) {
-        (window as any).__AJ_PUSH_AD_LOADED__ = true;
-        const s3 = document.createElement('script');
-        s3.async = true;
-        s3.src = 'https://nap5k.com/push.min.js';
-        s3.onerror = () => { console.warn('[Monetag] push.min.js failed to load — skipping push ads.'); };
-        document.head.appendChild(s3);
-      }
     } catch {}
 
     // Preload the interstitial ad so it's ready to show instantly when a MonetagVideoAd mounts.
@@ -4449,8 +4420,6 @@ Tip: Social Hub se copy karo 📤`,
             </div>
           </div>
 
-          {/* Sponsor Banner */}
-
           {/* Balance Card */}
           <div className="px-4 pt-4">
             <div className="rounded-3xl overflow-hidden shadow-[0_0_40px_rgba(236,72,153,0.15)]" style={{background:'linear-gradient(135deg,#1a0a2e 0%,#0a0a1a 50%,#0d1a2e 100%)',border:'1px solid rgba(236,72,153,0.2)'}}>
@@ -4676,7 +4645,8 @@ Tip: Social Hub se copy karo 📤`,
                   <button onClick={() => setSocialScreen('hub')} className="p-1.5 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all">
                     <ArrowLeft size={14} className="text-gray-400"/>
                   </button>
-                  <span className="text-sm font-black bg-gradient-to-r from-pink-500 to-cyan-400 bg-clip-text text-transparent uppercase tracking-widest">AJ TikReels</span>
+                  <span className="text-sm font-black bg-gradient-to-r from-pink-500 to-cyan-400 bg-clip-text text-transparent uppercase tracking-widest">AJ TikReel</span>
+                  <span className="ml-1 text-[8px] text-pink-400/70 font-black uppercase animate-pulse">🔥 Trending</span>
                 </div>
                 <div className="flex items-center gap-2">
                   {/* FIX #6: UNMUTE ALL global button */}
@@ -4795,15 +4765,22 @@ Tip: Social Hub se copy karo 📤`,
                           </div>
                         )}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none"/>
-                        {/* Right actions */}
+                        {/* Right actions — TikReel style with gift icon */}
                         <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-20">
+                          {/* Gift button */}
+                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); setPulseGiftPostId(vid.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
+                              <Gift size={18} className="text-yellow-400"/>
+                            </div>
+                            <span className="text-white text-[9px] font-black">Gift</span>
+                          </button>
                           <button onClick={e => { e.stopPropagation(); e.preventDefault(); handleLike(vid.id, true, true); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center ${likedPosts[vid.id] ? 'bg-red-500/30' : 'bg-black/40 backdrop-blur-sm'}`}>
                               <Heart size={18} className={likedPosts[vid.id] ? 'text-red-400 fill-red-400' : 'text-white'}/>
                             </div>
                             <span className="text-white text-[9px] font-black">{formatViews((likedPosts[vid.id] ? (vid.likes||0) + 1 : vid.likes||0))}</span>
                           </button>
-                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(vid.id); /* FIX: Focus input after a tick — must be within user gesture for mobile keyboard */ setTimeout(() => { commentInputRef.current?.focus(); commentInputRef.current?.click(); }, 100); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(vid.id); setTimeout(() => { commentInputRef.current?.focus(); commentInputRef.current?.click(); }, 100); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <MessageSquare size={18} className="text-white"/>
                             </div>
@@ -4816,14 +4793,25 @@ Tip: Social Hub se copy karo 📤`,
                             <span className="text-white text-[9px] font-black">Share</span>
                           </button>
                         </div>
-                        {/* Bottom info */}
+                        {/* Bottom info — TikReel style with TRENDING NOW badge */}
                         <div className="absolute bottom-6 left-4 right-16 z-10">
+                          {/* TRENDING NOW badge */}
+                          <div className="inline-flex items-center gap-1.5 bg-gradient-to-r from-pink-500/80 to-purple-500/80 backdrop-blur-sm rounded-full px-3 py-1 mb-2">
+                            <span className="text-white text-[8px] font-black uppercase tracking-widest animate-pulse">🔥 Trending Now</span>
+                          </div>
                           <p className="text-white font-black text-xs truncate">@{vid.user}</p>
                           <p className="text-gray-300 text-[10px] mt-0.5 line-clamp-2">{vid.title}</p>
-                          {/* Views count — bottom left like TikTok */}
+                          {/* Views count */}
                           <div className="flex items-center gap-1.5 mt-1.5">
                             <Eye size={11} className="text-white/80"/>
                             <span className="text-white/90 text-[9px] font-black">{formatViews(vid.views||0)} views</span>
+                          </div>
+                          {/* Music attribution — spinning disc icon */}
+                          <div className="flex items-center gap-1.5 mt-1.5">
+                            <div className="w-4 h-4 rounded-full bg-gradient-to-r from-cyan-400 to-pink-500 flex items-center justify-center flex-shrink-0" style={{ animation: 'spin 3s linear infinite' }}>
+                              <div className="w-1.5 h-1.5 bg-white rounded-full"/>
+                            </div>
+                            <span className="text-white/80 text-[9px] font-black truncate">🎵 {vid.user} · AJ Original Sound</span>
                           </div>
                         </div>
                       </div>
@@ -4867,14 +4855,21 @@ Tip: Social Hub se copy karo 📤`,
                           </div>
                         )}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none"/>
+                        {/* Right actions — with gift icon */}
                         <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-20">
+                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); setPulseGiftPostId(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
+                              <Gift size={18} className="text-yellow-400"/>
+                            </div>
+                            <span className="text-white text-[9px] font-black">Gift</span>
+                          </button>
                           <button onClick={e => { e.stopPropagation(); e.preventDefault(); handleLike(post.id, post.isVideo); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center ${likedPosts[post.id] ? 'bg-red-500/30' : 'bg-black/40 backdrop-blur-sm'}`}>
                               <Heart size={18} className={likedPosts[post.id] ? 'text-red-400 fill-red-400' : 'text-white'}/>
                             </div>
                             <span className="text-white text-[9px] font-black">{(likedPosts[post.id] ? (post.likes||0) + 1 : post.likes||0)}</span>
                           </button>
-                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(post.id); /* FIX: Focus input after a tick — must be within user gesture for mobile keyboard */ setTimeout(() => { commentInputRef.current?.focus(); commentInputRef.current?.click(); }, 100); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(post.id); setTimeout(() => { commentInputRef.current?.focus(); commentInputRef.current?.click(); }, 100); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <MessageSquare size={18} className="text-white"/>
                             </div>
@@ -4894,7 +4889,11 @@ Tip: Social Hub se copy karo 📤`,
                             </button>
                           )}
                         </div>
+                        {/* Bottom info — with TRENDING NOW + music attribution */}
                         <div className="absolute bottom-6 left-4 right-16 z-10">
+                          <div className="inline-flex items-center gap-1.5 bg-gradient-to-r from-pink-500/80 to-purple-500/80 backdrop-blur-sm rounded-full px-3 py-1 mb-2">
+                            <span className="text-white text-[8px] font-black uppercase tracking-widest animate-pulse">🔥 Trending Now</span>
+                          </div>
                           <button className="flex items-center gap-2 mb-1" onClick={() => openProfile(post.uid)}>
                             <img src={post.photo||'/logo.png'} className="w-7 h-7 rounded-full border border-white/30 object-cover"/>
                             <span className="text-white font-black text-xs">@{post.username}</span>
@@ -4903,6 +4902,13 @@ Tip: Social Hub se copy karo 📤`,
                           <div className="flex items-center gap-1.5 mt-1">
                             <Eye size={11} className="text-white/80"/>
                             <span className="text-white/90 text-[9px] font-black">{formatViews(post.views||0)} views</span>
+                          </div>
+                          {/* Music attribution */}
+                          <div className="flex items-center gap-1.5 mt-1.5">
+                            <div className="w-4 h-4 rounded-full bg-gradient-to-r from-cyan-400 to-pink-500 flex items-center justify-center flex-shrink-0" style={{ animation: 'spin 3s linear infinite' }}>
+                              <div className="w-1.5 h-1.5 bg-white rounded-full"/>
+                            </div>
+                            <span className="text-white/80 text-[9px] font-black truncate">🎵 @{post.username} · AJ Original Sound</span>
                           </div>
                         </div>
                       </div>
@@ -5095,7 +5101,7 @@ Tip: Social Hub se copy karo 📤`,
                   <button onClick={() => setSocialScreen('hub')} className="p-1.5 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all">
                     <ArrowLeft size={14} className="text-gray-400"/>
                   </button>
-                  <span className="text-sm font-black bg-gradient-to-r from-pink-500 to-cyan-400 bg-clip-text text-transparent uppercase tracking-widest">AJ Pulse</span>
+                  <span className="text-sm font-black bg-gradient-to-r from-cyan-400 to-pink-500 bg-clip-text text-transparent uppercase tracking-widest">AJ Pulse</span>
                 </div>
                 {/* FIX #6: UNMUTE ALL for Pulse */}
                 <button onClick={() => setPulseMuted(m => !m)} className="p-2 rounded-full bg-black/40 backdrop-blur-sm active:scale-90 transition-all">
@@ -5160,6 +5166,8 @@ Tip: Social Hub se copy karo 📤`,
                         ) : (
                           <div className="absolute inset-0 bg-gradient-to-br from-purple-900/50 to-pink-900/50"/>
                         )}
+                        {/* Neon glowing border frame — cyan/cyberpunk aesthetic */}
+                        <div className="absolute inset-2 rounded-3xl pointer-events-none z-5" style={{ border: "2px solid rgba(34,211,238,0.3)", boxShadow: "0 0 20px rgba(34,211,238,0.15)", borderRadius: "1.5rem" }}/>
                         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent pointer-events-none"/>
                         {/* FIX (Hinglish): Pause indicator overlay for Pulse videos */}
                         {reelPaused && isActive && (
@@ -5169,16 +5177,16 @@ Tip: Social Hub se copy karo 📤`,
                             </div>
                           </div>
                         )}
-                        {/* Right actions — hide for Unsplash items */}
+                        {/* Right actions — hide for Unsplash items, with gift icon */}
                         {!post.isUnsplash && (
                           <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-20">
                             <button onClick={e => { e.stopPropagation(); e.preventDefault(); handleLike(post.id, post.isVideo); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                               <div className={`w-10 h-10 rounded-full flex items-center justify-center ${likedPosts[post.id] ? 'bg-red-500/30' : 'bg-black/40 backdrop-blur-sm'}`}>
                                 <Heart size={18} className={likedPosts[post.id] ? 'text-red-400 fill-red-400' : 'text-white'}/>
                               </div>
-                              <span className="text-white text-[9px] font-black">{(likedPosts[post.id] ? (post.likes||0) + 1 : post.likes||0)}</span>
+                              <span className="text-white text-[9px] font-black">{formatViews((likedPosts[post.id] ? (post.likes||0) + 1 : post.likes||0))}</span>
                             </button>
-                            <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(post.id); /* FIX: Focus input after a tick — must be within user gesture for mobile keyboard */ setTimeout(() => { commentInputRef.current?.focus(); commentInputRef.current?.click(); }, 100); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(post.id); setTimeout(() => { commentInputRef.current?.focus(); commentInputRef.current?.click(); }, 100); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                               <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                                 <MessageSquare size={18} className="text-white"/>
                               </div>
@@ -5192,24 +5200,52 @@ Tip: Social Hub se copy karo 📤`,
                             </button>
                             <button onClick={e => { e.stopPropagation(); e.preventDefault(); setPulseGiftPostId(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                               <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
-                                <Gift size={18} className="text-white"/>
+                                <Bookmark size={18} className="text-white"/>
                               </div>
-                              <span className="text-white text-[9px] font-black">Gift</span>
+                              <span className="text-white text-[9px] font-black">Save</span>
                             </button>
                           </div>
                         )}
-                        {/* Bottom info */}
+                        {/* Bottom info — Pulse card with neon border, LIKE/COMMENTS counts, Tip AJ Coins, Share to WhatsApp */}
                         <div className="relative z-10 p-4">
-                          <button className="flex items-center gap-2 mb-2" onClick={() => !post.isUnsplash && openProfile(post.uid)}>
-                            <img src={post.photo||'/logo.png'} className="w-8 h-8 rounded-full border border-white/30 object-cover"/>
-                            <span className="text-white font-black text-xs">@{post.username}</span>
-                          </button>
-                          <p className="text-white text-sm font-bold line-clamp-3">{post.text}</p>
-                          {/* Views count — bottom left like TikTok */}
-                          <div className="flex items-center gap-1.5 mt-2">
-                            <Eye size={11} className="text-white/80"/>
-                            <span className="text-white/90 text-[9px] font-black">{formatViews(post.views||0)} views</span>
+                          {/* Username + timestamp */}
+                          <div className="flex items-center gap-2 mb-3">
+                            <img src={post.photo||'/logo.png'} className="w-9 h-9 rounded-full border-2 border-cyan-400/50 object-cover flex-shrink-0" style={{ boxShadow: '0 0 12px rgba(34,211,238,0.3)' }}/>
+                            <div className="flex-1 min-w-0">
+                              <button onClick={() => !post.isUnsplash && openProfile(post.uid)} className="flex items-baseline gap-2">
+                                <span className="text-white font-black text-sm truncate">@{post.username}</span>
+                                <span className="text-gray-500 text-[10px] flex-shrink-0">2h ago</span>
+                              </button>
+                            </div>
                           </div>
+                          {/* Post text */}
+                          <p className="text-white text-sm font-bold line-clamp-3 mb-3">{post.text}</p>
+                          {/* LIKE / COMMENTS count display */}
+                          <div className="flex items-center gap-4 mb-3">
+                            <div className="flex items-center gap-1.5">
+                              <Heart size={14} className={likedPosts[post.id] ? 'text-red-400 fill-red-400' : 'text-pink-400'}/>
+                              <span className="text-pink-400 text-xs font-black">{formatViews((likedPosts[post.id] ? (post.likes||0) + 1 : post.likes||0))}</span>
+                              <span className="text-gray-500 text-[9px] font-black uppercase">Likes</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <MessageSquare size={14} className="text-cyan-400"/>
+                              <span className="text-cyan-400 text-xs font-black">{formatViews(post.views||0)}</span>
+                              <span className="text-gray-500 text-[9px] font-black uppercase">Comments</span>
+                            </div>
+                          </div>
+                          {/* Action buttons — Tip AJ Coins + Share to WhatsApp */}
+                          {!post.isUnsplash && (
+                            <div className="flex items-center gap-2">
+                              <button onClick={e => { e.stopPropagation(); e.preventDefault(); setPulseGiftPostId(post.id); }} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all" style={{ background: 'linear-gradient(135deg,#f59e0b,#d97706)', boxShadow: '0 0 14px rgba(245,158,11,0.3)' }}>
+                                <span className="text-sm">🪙</span>
+                                <span className="text-white">Tip AJ Coins</span>
+                              </button>
+                              <button onClick={e => { e.stopPropagation(); e.preventDefault(); handleShare(post.text||''); }} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all bg-green-600/20 border border-green-500/30" style={{ boxShadow: '0 0 14px rgba(34,197,94,0.2)' }}>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" className="text-green-400"><path d="M17.6 6.3A7.8 7.8 0 0 0 12 4a7.9 7.9 0 0 0-7.9 7.9c0 1.4.4 2.7 1 3.9L4 20l4.3-1.1c1.1.6 2.4.9 3.7.9A7.9 7.9 0 0 0 20 11.9c0-2.1-.8-4.1-2.4-5.6zM12 18.5c-1.2 0-2.3-.3-3.3-.9l-.2-.1-2.6.7.7-2.5-.2-.2a6.5 6.5 0 0 1-1-3.5 6.6 6.6 0 0 1 6.6-6.6 6.6 6.6 0 0 1 6.6 6.6 6.6 6.6 0 0 1-6.6 6.5z"/></svg>
+                                <span className="text-green-400">WhatsApp</span>
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
@@ -5346,13 +5382,19 @@ Tip: Social Hub se copy karo 📤`,
 
           {/* ── GO LIVE ── */}
           {socialScreen === 'golive' && (
-            <div className="flex flex-col h-full">
-              <div className="sticky top-0 z-40 bg-[#050505]/95 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center gap-3">
+            <div className="flex flex-col h-full bg-[#050510]">
+              <div className="sticky top-0 z-40 bg-[#050510]/95 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center gap-3">
                 <button onClick={() => setSocialScreen('hub')} className="p-1.5 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all">
                   <ArrowLeft size={14} className="text-gray-400"/>
                 </button>
-                <span className="text-sm font-black text-white">Go Live</span>
-                {liveActive && <span className="ml-auto text-[9px] text-red-400 font-black animate-pulse">🔴 LIVE</span>}
+                <span className="text-sm font-black bg-gradient-to-r from-pink-500 to-cyan-400 bg-clip-text text-transparent uppercase tracking-widest">AJ Live</span>
+                {liveActive && (
+                  <div className="ml-auto flex items-center gap-2">
+                    <span className="bg-red-600 text-white text-[8px] font-black px-2 py-0.5 rounded-full animate-pulse">🔴 LIVE</span>
+                    <span className="text-cyan-400 text-[9px] font-black flex items-center gap-0.5"><Eye size={10}/> {formatViews(liveViewerCount)}</span>
+                    <span className="text-gray-400 text-[9px] font-black">⏱ 2h 15m</span>
+                  </div>
+                )}
               </div>
               <div className="flex-1 flex flex-col items-center justify-center gap-6 px-4">
                 {/* FIXED: ZegoCloud Live Container - always rendered so ZegoCloud can attach */}
@@ -5388,6 +5430,17 @@ Tip: Social Hub se copy karo 📤`,
                       <div className="flex items-center gap-2">
                         <span className="text-red-500 text-xs animate-pulse">● LIVE</span>
                         <span className="text-white text-[10px] font-black">👁️ {liveViewerCount} watching</span>
+                      </div>
+                    </div>
+                    {/* Stream Title Card */}
+                    <div className="flex items-center gap-2 mb-2 p-2 bg-gradient-to-r from-purple-500/10 to-cyan-500/10 rounded-xl border border-purple-500/20">
+                      <span className="text-lg">💎</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white text-[11px] font-black truncate">Holographic Dream</p>
+                        <p className="text-cyan-400 text-[9px] font-black">7.2K / 10K Gems</p>
+                      </div>
+                      <div className="w-16 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                        <div className="h-full bg-gradient-to-r from-purple-500 to-cyan-400 rounded-full" style={{ width: '72%' }}/>
                       </div>
                     </div>
                     <p className="text-[9px] text-gray-400 font-black uppercase tracking-widest mb-1">Room ID</p>
@@ -5454,18 +5507,35 @@ Tip: Social Hub se copy karo 📤`,
                 {/* Live Gift + Chat Buttons */}
                 {liveActive && (
                   <div className="w-full max-w-sm space-y-2">
-                    <div className="flex gap-2">
-                      <button onClick={() => setLiveChatOpen(o => !o)} className="flex-1 flex items-center gap-2 bg-white/5 border border-white/10 rounded-2xl px-4 py-2.5 active:scale-95 transition-all">
-                        <MessageCircle size={14} className="text-cyan-400"/>
-                        <span className="text-xs text-gray-300 font-black">Chat ({liveChatMessages.length})</span>
+                    {/* Bottom Action Bar: COMMENT / EMOJI / GIFT / SHARE */}
+                    <div className="flex items-center justify-around bg-white/5 border border-white/10 rounded-2xl p-2.5">
+                      <button onClick={() => setLiveChatOpen(o => !o)} className="flex flex-col items-center gap-0.5 active:scale-90 transition-all">
+                        <MessageCircle size={18} className="text-cyan-400"/>
+                        <span className="text-[8px] text-gray-400 font-black">COMMENT</span>
                       </button>
-                      <button onClick={() => setLiveGiftPanelOpen(true)} className="flex-1 flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/30 rounded-2xl px-4 py-2.5 active:scale-95 transition-all">
-                        <Gift size={14} className="text-yellow-400"/>
-                        <span className="text-xs text-yellow-300 font-black">Gifts</span>
+                      <button className="flex flex-col items-center gap-0.5 active:scale-90 transition-all">
+                        <span className="text-lg">😀</span>
+                        <span className="text-[8px] text-gray-400 font-black">EMOJI</span>
+                      </button>
+                      <button onClick={() => setLiveGiftPanelOpen(true)} className="flex flex-col items-center gap-0.5 active:scale-90 transition-all">
+                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-yellow-400 to-orange-500 flex items-center justify-center shadow-[0_0_12px_rgba(250,204,21,0.5)]">
+                          <Gift size={18} className="text-white"/>
+                        </div>
+                        <span className="text-[8px] text-yellow-400 font-black">GIFT</span>
+                      </button>
+                      <button className="flex flex-col items-center gap-0.5 active:scale-90 transition-all">
+                        <Share2 size={18} className="text-purple-400"/>
+                        <span className="text-[8px] text-gray-400 font-black">SHARE</span>
                       </button>
                     </div>
+                    {/* CH@T FEED Panel */}
                     {liveChatOpen && (
-                      <div className="mt-2 bg-[#0a0a1a] border border-white/10 rounded-2xl overflow-hidden">
+                      <div className="bg-[#0a0a1a] border border-white/10 rounded-2xl overflow-hidden">
+                        <div className="flex items-center gap-2 px-3 py-2 border-b border-white/5">
+                          <MessageCircle size={12} className="text-pink-400"/>
+                          <span className="text-[10px] font-black text-white uppercase tracking-widest">CH@T FEED</span>
+                          <span className="ml-auto text-[8px] text-gray-500 font-black">{liveChatMessages.length} msgs</span>
+                        </div>
                         <div className="h-40 overflow-y-auto p-3 space-y-2">
                           {liveChatMessages.map((m:any) => (
                             <div key={m.id} className="flex items-start gap-2">
