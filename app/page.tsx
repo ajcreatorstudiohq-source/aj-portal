@@ -380,6 +380,17 @@ const navigateWithAdOverlay = (navFn: () => void) => {
   }
 };
 
+// FIXED (Hinglish): Hub card click pe REAL Monetag video ad dikhane ka flow.
+// Pehle yeh sirf background mein ad fire karta tha lekin user ko koi visible
+// full-screen ad nahi dikhta tha. Ab hum ek VISIBLE full-screen interstitial
+// overlay dikhate hain (InterstitialAdOverlay component) jisme REAL Monetag
+// ad chalta hai, aur ad close hone ke baad navigation hoti hai. Cooldown
+// (4 min) baad hi ad dikhega warna direct navigate ho jaayega — taaki user
+// ko har click pe ad na mile, lekin jab mile toh REAL Monetag ad mile.
+// pendingNavAfterAd module-level variable hai jo ad close hone ke baad
+// navigation callback ko store karta hai (navigateWithAd mein set hota hai).
+let pendingNavAfterAd: (() => void) | null = null;
+
 // ============================================================
 // ZEGOCLOUD CALL HANDLER
 // ============================================================
@@ -1022,39 +1033,54 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
   }, [currentPoster]);
 
   // Trigger the real Monetag interstitial ad (NON-BLOCKING) — runs in background for revenue
-  // FIX: In-feed MonetagVideoAd ka apna cooldown — taaki feed scroll karne pe har 4th
-  // post pe ad component mount ho, lekin ACTUAL Monetag popup ad sirf thodi der mein ek
-  // baar fire ho. In-feed fallback video hamesha chalega (revenue + UX dono safe).
+  // FIXED (Hinglish): In-feed MonetagVideoAd ab IntersectionObserver use karta
+  // hai taaki real Monetag ad SIRF tab fire ho jab ad slot screen par visible
+  // ho (scroll karke). Pehle yeh mount hote hi fire karta tha — agar ad slot
+  // neeche tha toh ad waste ho jaata tha. Ab sirf visible ad slots pe ad
+  // fire hota hai — zyada reliable + zyada revenue.
   useEffect(() => {
     if (adTriggeredRef.current) return;
-    adTriggeredRef.current = true;
-    setAdTriggered(true);
 
-    // FIX: In-feed MonetagVideoAd ka apna SEPARATE aur LONGER cooldown (8 min).
-    // Pehle yeh 4-min cooldown use karta tha jo navigation ads se share hota tha.
-    // Ab in-feed popup ke liye alag 8-min cooldown hai — taaki scroll karne pe
-    // bar-bar full-screen popup NA aaye. In-feed fallback video hamesha chalega
-    // (revenue + UX dono safe), lekin REAL popup sirf 8 min mein ek baar.
-    const now = Date.now();
-    const inCooldown = (now - lastInFeedPopupTime) < INFEED_POPUP_COOLDOWN_MS;
-    if (inCooldown) return; // Cooldown active — sirf in-feed video chalega, popup nahi
+    const fireAd = () => {
+      if (adTriggeredRef.current) return;
+      adTriggeredRef.current = true;
+      setAdTriggered(true);
 
-    // Fire the REAL Monetag ad using the Promise-based SDK API in the background.
-    // This does NOT block the in-feed video — the ad overlay (if available) appears
-    // on top, and the in-feed fallback video keeps playing like a regular post.
-    triggerMonetagInterstitialAd(publisherId).then((shown) => {
-      if (shown) {
-        // Real Monetag ad was shown successfully — revenue generated!
-        lastInFeedPopupTime = Date.now(); // Update IN-FEED popup cooldown (8 min)
-        lastInterstitialAdTime = Date.now(); // Also update global cooldown
-      } else {
-        // No Monetag ad feed available — fallback in-feed video keeps playing.
-      }
-    });
+      // In-feed MonetagVideoAd ka apna SEPARATE aur LONGER cooldown (8 min).
+      // Taaki scroll karne pe har 6th post pe ad component mount ho, lekin
+      // ACTUAL Monetag full-screen popup sirf 8 min mein ek baar fire ho.
+      // In-feed fallback video hamesha chalega (revenue + UX dono safe).
+      const now = Date.now();
+      const inCooldown = (now - lastInFeedPopupTime) < INFEED_POPUP_COOLDOWN_MS;
+      if (inCooldown) return; // Cooldown active — sirf in-feed video chalega, popup nahi
 
-    return () => {
-      // Nothing to clean — SDK handles its own ad lifecycle
+      // Fire the REAL Monetag ad using the Promise-based SDK API in the background.
+      triggerMonetagInterstitialAd(publisherId).then((shown) => {
+        if (shown) {
+          // Real Monetag ad was shown successfully — revenue generated!
+          lastInFeedPopupTime = Date.now(); // Update IN-FEED popup cooldown (8 min)
+          lastInterstitialAdTime = Date.now(); // Also update global cooldown
+        }
+      });
     };
+
+    // If IntersectionObserver is available, fire the ad only when the slot is visible
+    if (typeof window !== 'undefined' && 'IntersectionObserver' in window && containerRef.current) {
+      const obs = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
+            fireAd();
+            obs.disconnect();
+          }
+        });
+      }, { threshold: [0.5] });
+      obs.observe(containerRef.current);
+      return () => obs.disconnect();
+    } else {
+      // Fallback: fire on mount (no IntersectionObserver)
+      fireAd();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [publisherId]);
 
   // Auto-hide the loading shimmer after 1.5s max even if onLoadedData never fires
@@ -1178,6 +1204,164 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
             <div className="w-10 h-10 rounded-full border-2 border-white/20 border-t-white/60 animate-spin" />
             <span className="text-white/60 text-[8px] font-black mt-3 uppercase tracking-widest">Sponsored</span>
           </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// INTERSTITIAL AD OVERLAY — REAL Monetag video ad for Hub card clicks
+// ============================================================
+// FIXED (Hinglish): Yeh component hub card click pe ek VISIBLE full-screen
+// Monetag interstitial video ad dikhata hai. Pehle hub card click pe sirf
+// background mein ad fire hota tha aur user ko koi visible ad nahi dikhta tha.
+// Ab yeh component:
+// 1. Ek full-screen overlay dikhata hai (black background + poster image).
+// 2. REAL Monetag interstitial ad fire karta hai (SDK se show_XXX() call).
+// 3. Ek fallback video loop mein chalata hai taaki screen blank na rahe.
+// 4. 5 second baad "Skip →" button available hota hai (TikTok jaisa).
+// 5. Ad close (Skip / auto-dismiss) hone pe onClose() callback chalta hai
+//    jo user ko destination screen pe navigate karta hai.
+// 6. Cooldown handle parent (navigateWithAd) mein hota hai.
+// ============================================================
+function InterstitialAdOverlay({ onClose }: { onClose: () => void }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [countdown, setCountdown] = useState(5);
+  const [canSkip, setCanSkip] = useState(false);
+  const [videoError, setVideoError] = useState(false);
+  const [adReady, setAdReady] = useState(false);
+  const [currentVideoIdx, setCurrentVideoIdx] = useState(0);
+  const [currentPoster] = useState(() => AD_FALLBACK_POSTERS[Math.floor(Math.random() * AD_FALLBACK_POSTERS.length)]);
+  const [fallbackVideo] = useState(() => AD_FALLBACK_VIDEOS[Math.floor(Math.random() * AD_FALLBACK_VIDEOS.length)]);
+  const closedRef = useRef(false);
+
+  // 5-second countdown — after this user can skip (TikTok style)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCountdown(c => {
+        if (c <= 1) { setCanSkip(true); clearInterval(interval); return 0; }
+        return c - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Force-play the fallback video immediately (muted autoplay) + set poster
+  useEffect(() => {
+    if (containerRef.current) {
+      containerRef.current.style.background = `#0a0a1a url('${currentPoster}') center/cover no-repeat`;
+    }
+    const v = videoRef.current;
+    if (v) {
+      v.muted = true;
+      v.play().catch(() => {
+        setTimeout(() => { v.play().catch(() => { setVideoError(true); setAdReady(true); }); }, 300);
+      });
+    }
+  }, [currentPoster]);
+
+  // Fire the REAL Monetag interstitial ad in the background (revenue).
+  // The Monetag ad overlay appears on top of this component when inventory is available.
+  useEffect(() => {
+    ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL);
+    triggerMonetagInterstitialAd(MONETAG_INTERSTITIAL).catch(() => {});
+    // Auto-dismiss safety: if the user never taps skip, auto-close after 15s
+    const t = setTimeout(() => { handleClose(); }, 15000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Auto-hide loading shimmer after 1.5s (no stuck loading / no black screen)
+  useEffect(() => {
+    if (adReady) return;
+    const t = setTimeout(() => setAdReady(true), 1500);
+    return () => clearTimeout(t);
+  }, [adReady]);
+
+  const handleClose = () => {
+    if (closedRef.current) return;
+    closedRef.current = true;
+    onClose();
+  };
+
+  const handleVideoError = () => {
+    setVideoError(true);
+    setAdReady(true);
+    if (currentVideoIdx < AD_FALLBACK_VIDEOS.length - 1) {
+      setCurrentVideoIdx(idx => idx + 1);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[9995] bg-black flex flex-col overflow-hidden">
+      <div ref={containerRef} className="absolute inset-0 w-full h-full" style={{ zIndex: 50, pointerEvents: 'auto', background: `#0a0a1a url('${currentPoster}') center/cover no-repeat` }} />
+
+      {/* Real Monetag ad SDK container — Monetag renders its overlay here when available */}
+      <div id="monetag-interstitial-container" className="absolute inset-0 w-full h-full" style={{ zIndex: 60, pointerEvents: 'auto' }} />
+
+      {/* Fallback in-feed video — plays immediately so screen is never blank */}
+      <div className="absolute inset-0 w-full h-full" style={{ zIndex: 2, background: `#0a0a1a url('${currentPoster}') center/cover no-repeat` }}>
+        {!videoError && (
+          <video
+            key={currentVideoIdx}
+            ref={videoRef}
+            src={AD_FALLBACK_VIDEOS[currentVideoIdx] || fallbackVideo}
+            poster={currentPoster}
+            className="w-full h-full object-cover"
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="auto"
+            onLoadedData={() => { setAdReady(true); const v = videoRef.current; if (v) { v.play().catch(() => {}); } }}
+            onCanPlay={() => { setAdReady(true); const v = videoRef.current; if (v) { v.play().catch(() => {}); } }}
+            onPlaying={() => setAdReady(true)}
+            onError={handleVideoError}
+            onClick={(e) => e.preventDefault()}
+          />
+        )}
+        {videoError && (
+          <img src={currentPoster} className="w-full h-full object-cover" alt="Sponsored content" onError={() => {}}/>
+        )}
+
+        {/* Gradient overlay */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 pointer-events-none" />
+
+        {/* Top bar — "Ad" label + countdown */}
+        <div className="absolute top-6 left-4 right-4 flex items-center justify-between z-30">
+          <div className="inline-flex items-center gap-1.5 bg-white/15 backdrop-blur-md rounded-full px-3 py-1.5">
+            <span className="text-white text-[10px] font-black uppercase tracking-widest">Ad</span>
+            <span className="text-white/70 text-[9px] font-bold">·</span>
+            <span className="text-white/80 text-[10px] font-bold">{countdown > 0 ? `Skip in ${countdown}s` : 'Skip available'}</span>
+          </div>
+          {!adReady && (
+            <div className="bg-white/15 backdrop-blur-md rounded-full px-3 py-1.5">
+              <span className="text-white/80 text-[9px] font-black animate-pulse">Loading…</span>
+            </div>
+          )}
+        </div>
+
+        {/* Bottom info — looks like a sponsored post */}
+        <div className="absolute bottom-8 left-5 right-5 z-30">
+          <p className="text-white font-black text-base truncate">AJ Super Portal</p>
+          <p className="text-gray-300 text-xs mt-1 line-clamp-2">
+            Play games, watch reels, earn coins & withdraw cash. Join AJ Super Portal today!
+          </p>
+          <div className="inline-flex items-center gap-1 mt-2 bg-white/10 backdrop-blur-sm rounded-full px-2.5 py-0.5">
+            <span className="text-gray-300 text-[8px] font-bold uppercase tracking-wider">Sponsored</span>
+          </div>
+        </div>
+
+        {/* Skip button — appears after 5 seconds (TikTok style) */}
+        {canSkip && (
+          <button
+            onClick={handleClose}
+            className="absolute bottom-8 right-5 z-40 bg-white/20 backdrop-blur-md text-white text-sm font-black px-6 py-3 rounded-full active:scale-90 transition-all border border-white/30"
+          >
+            Skip →
+          </button>
         )}
       </div>
     </div>
@@ -3400,7 +3584,23 @@ export function AJSuperPortal() {
       else if (to==='wallet') { setScreen('wallet'); setWalletTab('main'); }
       else                    setScreen(to);
     };
-    navigateWithAdOverlay(navFn);
+    // FIXED (Hinglish): Hub card click pe REAL Monetag video ad dikhao.
+    // Cooldown (4 min) active nahi hai toh full-screen interstitial ad overlay
+    // kholo jisme real Monetag ad chalega. Ad close hone ke baad navigate karo.
+    // Cooldown active hai toh direct navigate karo (UX safe).
+    const now = Date.now();
+    const inCooldown = (now - lastInterstitialAdTime) < AD_COOLDOWN_MS;
+    if (inCooldown) {
+      navFn();
+    } else {
+      lastInterstitialAdTime = now;
+      setInterstitialAdOpen(true);
+      ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL);
+      triggerMonetagInterstitialAd(MONETAG_INTERSTITIAL).catch(() => {});
+      // Ad overlay show ho raha hai — navigation ad close hone ke baad hogi.
+      // Aap ad overlay ke "Skip" button se ya ad end hone par close kar sakte ho.
+      pendingNavAfterAd = navFn;
+    }
   };
 
   const enterSocialMode = (mode:string) => {
@@ -4318,16 +4518,16 @@ Tip: Social Hub se copy karo 📤`,
           INTERSTITIAL AD OVERLAY — Visible video ad on card clicks
       ══════════════════════════════════════════════════════ */}
       {interstitialAdOpen && (
-        <div className="fixed inset-0 z-[9995] bg-black flex flex-col">
-          <div className="flex-1 relative flex items-center justify-center">
-            {/* FIX: MonetagVideoAd hata diya — yeh har card click pe full-screen ad
-                deta tha jo bohot aggressive tha. Ab sirf in-feed ads (har 6 posts)
-                + navigation cooldown ads chalenge — balanced earning. */}
-            <div className="text-center">
-              <p className="text-white/60 text-sm">Loading…</p>
-            </div>
-          </div>
-        </div>
+        <InterstitialAdOverlay
+          onClose={() => {
+            setInterstitialAdOpen(false);
+            if (pendingNavAfterAd) {
+              const fn = pendingNavAfterAd;
+              pendingNavAfterAd = null;
+              try { fn(); } catch {}
+            }
+          }}
+        />
       )}
 
       {/* Incoming Call Overlay */}
@@ -6506,3 +6706,4 @@ export default function Page() {
     </QueryClientProvider>
   );
 }
+
