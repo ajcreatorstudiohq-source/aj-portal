@@ -211,7 +211,7 @@ import {
 import {
   getFirestore,
   doc, setDoc, onSnapshot, updateDoc, increment, collection,
-  addDoc, getDoc, serverTimestamp, query, orderBy, limit, deleteDoc, getDocs
+  addDoc, getDoc, serverTimestamp, query, orderBy, limit, deleteDoc, getDocs, where
 } from 'firebase/firestore';
 import {
   getDatabase, ref, onDisconnect, set, onValue, remove, push, onChildAdded, off
@@ -1104,8 +1104,8 @@ const setupForegroundNotificationListener = () => {
 // ============================================================
 const formatViews = (v: number): string => {
   if (!v || v <= 0) return '0';
-  if (v >= 1000000) return (v / 1000000).toFixed(1).replace(/\\\\.0$/, '') + 'M';
-  if (v >= 1000)    return (v / 1000).toFixed(v >= 10000 ? 0 : 1).replace(/\\\\.0$/, '') + 'k';
+  if (v >= 1000000) return (v / 1000000).toFixed(1).replace(/\\\\\\\\.0$/, '') + 'M';
+  if (v >= 1000)    return (v / 1000).toFixed(v >= 10000 ? 0 : 1).replace(/\\\\\\\\.0$/, '') + 'k';
   return String(v);
 };
 
@@ -1399,6 +1399,7 @@ function triggerMonetagInterstitialAd(zoneId: number): Promise<boolean> {
 function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: number; type?: 'interstitial' }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [adReady, setAdReady] = useState(false);
+  const [adFailed, setAdFailed] = useState(false); // FIX: track if ad failed to load (3s timeout)
   const [countdown, setCountdown] = useState(5);
   const [canSkip, setCanSkip] = useState(false);
   const [adFinished, setAdFinished] = useState(false);
@@ -1523,6 +1524,40 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
     return () => clearTimeout(t);
   }, [adReady]);
 
+  // FIX: 3-second timeout — agar ad load nahi hua aur fallback video bhi fail
+  // ho gaya, toh ad container ko hide kar do (no blank/broken black screen).
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (!adReady && videoError) {
+        setAdFailed(true);
+        return;
+      }
+      // Check if container has any ad content (iframe, video, img, canvas)
+      const c = containerRef.current;
+      if (c && !adReady) {
+        const hasContent = c.querySelector('iframe, video, img, canvas');
+        if (!hasContent) {
+          setAdFailed(true);
+        }
+      }
+    }, 3000);
+    return () => clearTimeout(t);
+  }, [adReady, videoError]);
+
+  // FIX: fireAdWhenContainerReady — Monetag ad script tabhi fire karo jab
+  // parent container DOM mein fully mount ho chuka ho. Isse race condition
+  // aur failed script injection prevent hoti hai.
+  const fireAdWhenContainerReady = (attempt: number = 0) => {
+    if (attempt > 20) return; // Max 20 retries (1 second total)
+    if (containerRef.current) {
+      // Container is mounted — fire the real ad
+      try { triggerMonetagInterstitialAd(); } catch {}
+    } else {
+      // Container not ready yet — retry in 50ms
+      setTimeout(() => fireAdWhenContainerReady(attempt + 1), 50);
+    }
+  };
+
   // FIX: Try next fallback video if current one fails — cycle through ALL videos
   const handleVideoError = () => {
     // Try the NEXT video in the array (cycle through all of them before giving up)
@@ -1542,14 +1577,14 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
     setCanSkip(true);
   };
 
-  if (adFinished) return null;
+  if (adFinished || adFailed) return null;
 
   return (
     <div className="absolute inset-0 w-full h-full overflow-hidden z-[100]" style={{ background: `#0a0a1a url('${currentPoster}') center/cover no-repeat` }}>
       {/* FIX ROUND 3: Monetag SDK container — pointerEvents: 'auto' rakha gaya hai
           taaki real Monetag ad overlay interact ho sake (pehle 'none' tha isliye
           ad ke buttons tap nahi ho paate the). */}
-      <div ref={containerRef} className="absolute inset-0 w-full h-full" style={{ zIndex: 50, pointerEvents: 'auto', background: `#0a0a1a url('${currentPoster}') center/cover no-repeat` }} />
+      <div ref={containerRef} className="absolute inset-0 w-full h-full" style={{ zIndex: 50, pointerEvents: 'auto', width: '100%', minHeight: '250px', display: 'flex', justifyContent: 'center', alignItems: 'center', background: `#0a0a1a url('${currentPoster}') center/cover no-repeat` }} />
 
       {/* Seamless in-feed video — looks exactly like a regular TikTok/Pulse video and plays immediately */}
       <div className="absolute inset-0 w-full h-full" style={{ zIndex: 2, background: `#0a0a1a url('${currentPoster}') center/cover no-repeat` }}>
@@ -1650,56 +1685,131 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
 // CINEMATIC GIFT OVERLAY
 // ============================================================
 function CinematicGiftOverlay({ gift, sender, onDone }: { gift: any; sender: string; onDone: () => void }) {
+  const [show, setShow] = useState(false);
   useEffect(() => {
-    const t = setTimeout(onDone, 4000);
-    return () => clearTimeout(t);
-  }, []);
+    const raf = requestAnimationFrame(() => setShow(true));
+    const t = setTimeout(onDone, 4500);
+    return () => { cancelAnimationFrame(raf); clearTimeout(t); };
+  }, [onDone]);
+
+  if (!gift) return null;
+
+  const giftIcon = gift.icon || '🎁';
+  const giftName = gift.name || 'Gift';
+  const giftCost = typeof gift.cost === 'number' ? gift.cost : 0;
+
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center pointer-events-none">
-      {/* Background glow */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm"/>
-      {/* Confetti particles */}
+    <div
+      className="fixed inset-0 z-[10000] flex items-center justify-center pointer-events-none"
+      style={{ animation: 'fadeInOverlay 0.3s ease-out forwards' }}
+    >
+      <div
+        className="absolute inset-0"
+        style={{
+          background: 'radial-gradient(circle at 50% 50%, rgba(234,179,8,0.25) 0%, rgba(0,0,0,0.85) 70%)',
+          backdropFilter: 'blur(8px)',
+          WebkitBackdropFilter: 'blur(8px)',
+        }}
+      />
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        {['✨','🎊','💫','🌟','⭐','🎉','💛','🔥'].map((emoji, i) => (
-          <span key={i} className="absolute text-2xl animate-bounce" style={{
-            left: `${Math.random()*90}%`,
-            top: `${Math.random()*90}%`,
-            animationDelay: `${i*0.2}s`,
-            animationDuration: `${1+Math.random()*2}s`
-          }}>{emoji}</span>
+        {['✨','🎊','💫','🌟','⭐','🎉','💛','🔥','✨','🎊','💫','🌟'].map((emoji, i) => (
+          <span
+            key={i}
+            className="absolute text-2xl"
+            style={{
+              left: `${(i * 8.3) % 100}%`,
+              top: `${Math.random() * 80}%`,
+              animation: `confettiFall ${2 + Math.random() * 2}s ease-in ${i * 0.15}s infinite`,
+            }}
+          >{emoji}</span>
         ))}
       </div>
-      <div className="relative flex flex-col items-center gap-5" style={{animation:'bounceIn 0.6s ease-out'}}>
-        {/* Gift icon with glow */}
-        <div className="relative">
-          <div className="absolute inset-0 bg-yellow-400/30 rounded-full blur-3xl animate-pulse" style={{transform:'scale(3)'}}/>
-          <div className="text-[10rem] leading-none animate-bounce drop-shadow-[0_0_60px_rgba(255,215,0,0.9)]">{gift.icon}</div>
+      <div
+        className="relative flex flex-col items-center gap-4"
+        style={{
+          animation: show ? 'giftBounceIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards' : 'none',
+          opacity: 0,
+        }}
+      >
+        <div className="relative" style={{ animation: 'giftGlow 1.5s ease-in-out infinite' }}>
+          <div
+            className="absolute inset-0 rounded-full"
+            style={{
+              background: 'radial-gradient(circle, rgba(250,204,21,0.4) 0%, transparent 70%)',
+              transform: 'scale(4)',
+              filter: 'blur(20px)',
+              animation: 'giftGlow 1.5s ease-in-out infinite',
+            }}
+          />
+          <div
+            className="relative text-[8rem] leading-none"
+            style={{
+              animation: 'giftBounce 0.8s ease-in-out infinite',
+              filter: 'drop-shadow(0 0 40px rgba(250,204,21,0.9)) drop-shadow(0 0 80px rgba(245,158,11,0.5))',
+            }}
+          >{giftIcon}</div>
         </div>
-        {/* Gift name */}
-        <p className="text-3xl font-black bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-600 bg-clip-text text-transparent uppercase tracking-widest" style={{filter:'drop-shadow(0 0 20px rgba(255,215,0,0.5))'}}>{gift.name}!</p>
-        {/* Cost */}
-        <div className="flex items-center gap-2 bg-yellow-500/20 border border-yellow-500/40 rounded-full px-4 py-1.5">
-          <span className="text-yellow-400 font-black text-lg">{gift.cost.toLocaleString()}</span>
-          <span className="text-yellow-300 text-sm">🪙</span>
+        <p
+          className="text-3xl font-black uppercase tracking-widest text-center"
+          style={{
+            background: 'linear-gradient(to right, #fef9c3, #facc15, #eab308, #ca8a04)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            backgroundClip: 'text',
+            filter: 'drop-shadow(0 0 16px rgba(250,204,21,0.6))',
+          }}
+        >{giftName}!</p>
+        <div
+          className="flex items-center gap-2 rounded-full px-5 py-2"
+          style={{
+            background: 'rgba(250,204,21,0.15)',
+            border: '2px solid rgba(250,204,21,0.4)',
+            boxShadow: '0 0 20px rgba(250,204,21,0.3)',
+          }}
+        >
+          <span className="text-yellow-300 font-black text-xl">{giftCost.toLocaleString()}</span>
+          <span className="text-yellow-400 text-lg">🧹</span>
         </div>
-        {/* From */}
-        <p className="text-white font-bold text-sm opacity-90">from <span className="text-pink-400">@{sender}</span></p>
-        {/* Bottom icons */}
-        <div className="flex gap-5 text-3xl mt-2">
-          <span className="animate-spin" style={{animationDuration:'2s'}}>✨</span>
-          <span className="animate-bounce" style={{animationDelay:'0.2s'}}>🎊</span>
-          <span className="animate-pulse" style={{animationDelay:'0.4s'}}>💫</span>
-          <span className="animate-bounce" style={{animationDelay:'0.6s'}}>🎉</span>
-          <span className="animate-spin" style={{animationDuration:'2s',animationDelay:'0.8s'}}>✨</span>
+        <p className="text-white font-bold text-sm" style={{ opacity: 0.9 }}>
+          from <span className="text-pink-400 font-black">@{sender || 'Someone'}</span>
+        </p>
+        <div className="flex gap-4 text-3xl mt-2">
+          <span style={{ animation: 'giftSpin 2s linear infinite' }}>✨</span>
+          <span style={{ animation: 'giftBounce 0.8s ease-in-out 0.2s infinite' }}>🎊</span>
+          <span style={{ animation: 'giftPulse 1s ease-in-out 0.4s infinite' }}>💫</span>
+          <span style={{ animation: 'giftBounce 0.8s ease-in-out 0.6s infinite' }}>🎉</span>
+          <span style={{ animation: 'giftSpin 2s linear 0.8s infinite' }}>✨</span>
         </div>
       </div>
-      {/* Expanding rings */}
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute inset-0 border-[6px] border-yellow-400/40 rounded-full m-8 animate-ping"/>
-        <div className="absolute inset-0 border-[4px] border-yellow-400/25 rounded-full m-16 animate-ping" style={{animationDelay:'0.5s'}}/>
-        <div className="absolute inset-0 border-[2px] border-yellow-400/15 rounded-full m-24 animate-ping" style={{animationDelay:'1s'}}/>
+      <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+        <div
+          className="absolute rounded-full"
+          style={{ width: 100, height: 100, border: '4px solid rgba(250,204,21,0.5)', animation: 'ringExpand 2s ease-out 0s infinite' }}
+        />
+        <div
+          className="absolute rounded-full"
+          style={{ width: 100, height: 100, border: '3px solid rgba(250,204,21,0.35)', animation: 'ringExpand 2s ease-out 0.6s infinite' }}
+        />
+        <div
+          className="absolute rounded-full"
+          style={{ width: 100, height: 100, border: '2px solid rgba(250,204,21,0.2)', animation: 'ringExpand 2s ease-out 1.2s infinite' }}
+        />
       </div>
-      <style>{`@keyframes bounceIn{0%{transform:scale(0.3);opacity:0}50%{transform:scale(1.1)}70%{transform:scale(0.9)}100%{transform:scale(1);opacity:1}}`}</style>
+      <style>{`
+        @keyframes fadeInOverlay { 0% { opacity: 0; } 100% { opacity: 1; } }
+        @keyframes giftBounceIn {
+          0% { transform: scale(0) rotate(-20deg); opacity: 0; }
+          50% { transform: scale(1.15) rotate(5deg); opacity: 1; }
+          70% { transform: scale(0.95) rotate(-2deg); }
+          100% { transform: scale(1) rotate(0deg); opacity: 1; }
+        }
+        @keyframes giftBounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-15px); } }
+        @keyframes giftGlow { 0%, 100% { opacity: 0.5; transform: scale(1); } 50% { opacity: 1; transform: scale(1.1); } }
+        @keyframes giftPulse { 0%, 100% { transform: scale(1); opacity: 0.8; } 50% { transform: scale(1.3); opacity: 1; } }
+        @keyframes giftSpin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes confettiFall { 0% { transform: translateY(-100px) rotate(0deg); opacity: 1; } 100% { transform: translateY(100vh) rotate(360deg); opacity: 0.3; } }
+        @keyframes ringExpand { 0% { transform: scale(0); opacity: 1; } 100% { transform: scale(8); opacity: 0; } }
+      `}</style>
     </div>
   );
 }
@@ -2194,6 +2304,7 @@ export function AJSuperPortal() {
   const [showNotifs,    setShowNotifs]    = useState(false);
   const [isMutualFriend,setIsMutualFriend]= useState(false);
   const [commentPostId, setCommentPostId] = useState<string|null>(null);
+  const [keyboardHeight, setKeyboardHeight] = useState(0); // FIX: track keyboard height for comment input padding
   const [postComments,  setPostComments]  = useState<any[]>([]);
   const [newComment,    setNewComment]    = useState('');
   // FIX ROUND 3: Comment input ke liye dedicated ref — keyboard focus ke liye
@@ -2284,6 +2395,11 @@ export function AJSuperPortal() {
   const [pkRoomId,        setPkRoomId]        = useState('');  // PK session ka RTDB room ID
   const pkTimerRef   = useRef<NodeJS.Timeout|null>(null);
   const pkFrameUnsubRef = useRef<any>(null);  // PK rival frame listener cleanup
+  // PK ACCEPTANCE (rival side) — jab koi user ko PK challenge bheje
+  const [pkIncomingChallenge, setPkIncomingChallenge] = useState<any>(null);
+  const [pkHostFrame,        setPkHostFrame]        = useState('');  // host ki live video frame (rival ke view mein)
+  const [pkMyBroadcastActive, setPkMyBroadcastActive] = useState(false);
+  const pkHostFrameUnsubRef  = useRef<any>(null);
   const audioFileRef = useRef<HTMLInputElement>(null);
 
   // ── CINEMATIC GIFT
@@ -2618,30 +2734,42 @@ export function AJSuperPortal() {
   // 4. Touch-friendly: tap on input directly opens keyboard (no readonly tricks)
   useEffect(() => {
     if (!commentPostId) return;
-    // Wait for the comment sheet to render and transition to complete
-    const t = setTimeout(() => {
-      const input = commentInputRef.current;
-      if (!input) return;
-      // FIX: Directly focus without readonly tricks — modern mobile browsers
-      // (Chrome, Safari, Firefox) respond well to focus() + click() when called
-      // from a user-initiated event chain (which this is, since commentPostId was
-      // set by a button click). The key is to call focus() within the event handler
-      // or shortly after (within 300ms).
+    const focusInputNow = () => {
       try {
-        // Focus the input — this opens the keyboard on mobile
-        input.focus({ preventScroll: true });
-        // Also call click() — some Android browsers need this to open keyboard
-        input.click();
-        // Set selection to end of any existing text
-        const len = input.value.length;
-        input.setSelectionRange(len, len);
-      } catch {
-        input.focus();
-        input.click();
-      }
-    }, 300);
-    return () => clearTimeout(t);
+        const input = commentInputRef.current;
+        if (input) {
+          input.focus({ preventScroll: true });
+          input.click();
+          try { input.setSelectionRange(input.value.length, input.value.length); } catch {}
+        } else {
+          // Input not rendered yet — retry on next frame
+          requestAnimationFrame(focusInputNow);
+        }
+      } catch(e) { console.warn('Comment focus error', e); }
+    };
+    // FIX: Focus immediately on next animation frame (no 300ms delay)
+    requestAnimationFrame(focusInputNow);
+    // Backup: also try after 50ms in case rAF doesn't fire
+    setTimeout(focusInputNow, 50);
   }, [commentPostId]);
+
+  // FIX: Track keyboard height via visualViewport — when keyboard slides up,
+  // visualViewport.height shrinks. We use this to dynamically pad the comment
+  // input container so the keyboard doesn't hide the input.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.visualViewport) return;
+    const vv = window.visualViewport;
+    const onResize = () => {
+      const kbHeight = window.innerHeight - vv.height;
+      setKeyboardHeight(kbHeight > 0 ? kbHeight : 0);
+    };
+    vv.addEventListener('resize', onResize);
+    vv.addEventListener('scroll', onResize);
+    return () => {
+      vv.removeEventListener('resize', onResize);
+      vv.removeEventListener('scroll', onResize);
+    };
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -2831,6 +2959,44 @@ export function AJSuperPortal() {
       setUserOfflineStatus(user.uid);
     };
   }, [user]);
+
+  // FIX: PK CHALLENGE LISTENER — incoming PK challenges detect karte hain.
+  // Jab koi user current user ko PK challenge bhejta hai, pk_sessions collection
+  // mein ek document banta hai with rivalUid === user.uid and status === 'pending'.
+  // Yeh listener us document ko detect karta hai aur accept/decline UI dikhata hai.
+  useEffect(() => {
+    if (!user) return;
+    let unsub: any = null;
+    try {
+      const q = query(
+        collection(db, 'pk_sessions'),
+        where('rivalUid', '==', user.uid),
+        where('status', '==', 'pending')
+      );
+      unsub = onSnapshot(q, (snap) => {
+        if (!snap.empty) {
+          const docSnap = snap.docs[0];
+          const data = docSnap.data();
+          if (!pkActive) {
+            setPkIncomingChallenge({ id: docSnap.id, ...data });
+          }
+        } else {
+          if (!pkActive) {
+            setPkIncomingChallenge(null);
+          }
+        }
+      }, (err) => {
+        console.warn('PK challenge listener error (non-fatal):', err);
+      });
+    } catch (e) {
+      console.warn('PK challenge listener setup failed (non-fatal):', e);
+    }
+    return () => {
+      if (unsub) {
+        try { unsub(); } catch {}
+      }
+    };
+  }, [user, pkActive]);
 
   // AI profit ticker
   useEffect(() => {
@@ -3699,29 +3865,47 @@ export function AJSuperPortal() {
     }
   };
 
-  // FIX: Stop PK battle — rival frames + audio cleanup
+  // FIX: Stop PK battle — handles BOTH host and rival (challenged user) cleanup
   const stopPkBattle = () => {
     try {
-      // Stop listening to rival frames
+      // Stop listening to opponent frames (host listens to rival, rival listens to host)
       if (pkFrameUnsubRef.current) {
         try { pkFrameUnsubRef.current(); } catch {}
         pkFrameUnsubRef.current = null;
       }
+      if (pkHostFrameUnsubRef.current) {
+        try { pkHostFrameUnsubRef.current(); } catch {}
+        pkHostFrameUnsubRef.current = null;
+      }
       setPkRivalFrame('');
-      // Stop rival audio
+      setPkHostFrame('');
+      // Stop audio
       try { leaveAudioStream(); } catch {}
-      // Stop host PK frame + audio broadcast
+      // Stop both host AND rival frame/audio broadcasts (whichever we started)
       if (pkRoomId) {
         try { stopFrameBroadcast(pkRoomId + '_host'); } catch {}
+        try { stopFrameBroadcast(pkRoomId + '_rival'); } catch {}
         try { stopAudioBroadcast(pkRoomId + '_host'); } catch {}
+        try { stopAudioBroadcast(pkRoomId + '_rival'); } catch {}
         // Clean up PK session in Firestore
         try {
-          updateDoc(doc(db, "pk_sessions", pkRoomId), {
+          updateDoc(doc(db, 'pk_sessions', pkRoomId), {
             status: 'ended', endedAt: serverTimestamp()
           }).catch(() => {});
         } catch {}
       }
+      // Stop local stream
+      try {
+        if (liveStreamRef.current) {
+          liveStreamRef.current.getTracks().forEach((t: MediaStreamTrack) => t.stop());
+          liveStreamRef.current = null;
+        }
+        if (liveVideoRef.current) {
+          try { liveVideoRef.current.srcObject = null; } catch {}
+        }
+      } catch {}
       setPkActive(false);
+      setPkMyBroadcastActive(false);
       setPkWinner(null);
       setPkTimer(PK_DURATION);
       setPkScore({ me: 0, rival: 0 });
@@ -3729,6 +3913,138 @@ export function AJSuperPortal() {
     } catch (e) {
       console.warn('stopPkBattle failed:', e);
     }
+  };
+
+  // ==========================================================
+  // PK ACCEPTANCE — Rival (challenged user) joins the PK battle
+  // FIX (Hinglish): Pehle sirf host ka code tha — rival ko challenge
+  // milta tha but accept karne ka koi tareeqa nahi tha. Rival ka camera
+  // start nahi hota tha, rival ki frames broadcast nahi hoti thi, aur
+  // host ko rival ki video nahi dikhti thi. Ab fix:
+  //   - Rival apna camera/mic acquire karta hai (getUserMedia)
+  //   - Rival apni frames live_frames/{pkRoomId}_rival/current pe broadcast karta hai
+  //   - Rival host ki frames live_frames/{pkRoomId}_host/current se listen karta hai
+  //   - Dono users ek dusre ko live dekh sakte hain (bidirectional)
+  // ==========================================================
+  const acceptPkChallenge = async (challenge: any) => {
+    if (!user || !challenge) return;
+    const pkRoomIdVal = challenge.pkRoomId || challenge.id;
+    if (!pkRoomIdVal) return;
+    try {
+      const pkSnap = await getDoc(doc(db, 'pk_sessions', pkRoomIdVal));
+      if (!pkSnap.exists()) {
+        setVvipAlert({msg: 'PK session not found. It may have expired.', icon: '⚠️'});
+        setPkIncomingChallenge(null);
+        return;
+      }
+      const pkData = pkSnap.data();
+      if (pkData.status === 'ended') {
+        setVvipAlert({msg: 'This PK Battle has already ended.', icon: '⚠️'});
+        setPkIncomingChallenge(null);
+        return;
+      }
+      setPkRoomId(pkRoomIdVal);
+      setPkRivalData({
+        uid: pkData.hostUid,
+        username: pkData.hostName,
+        photo: pkData.hostPhoto || '',
+      });
+      setPkTimer(PK_DURATION);
+      setPkScore({ me: 0, rival: 0 });
+      setPkWinner(null);
+      setPkActive(true);
+      setPkIncomingChallenge(null);
+
+      try {
+        await updateDoc(doc(db, 'pk_sessions', pkRoomIdVal), {
+          status: 'active',
+          startedAt: serverTimestamp(),
+        });
+      } catch (e) { console.warn('PK session status update failed (non-fatal):', e); }
+
+      // Rival acquires own camera + mic via getUserMedia
+      try {
+        if (typeof navigator !== 'undefined' && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } },
+            audio: true,
+          });
+          liveStreamRef.current = stream;
+          if (liveVideoRef.current) {
+            try { liveVideoRef.current.srcObject = stream; } catch {}
+          }
+          // Broadcast rival's frames — host listens on this path
+          startFrameBroadcast(pkRoomIdVal + '_rival', stream);
+          startAudioBroadcast(pkRoomIdVal + '_rival', stream);
+          setPkMyBroadcastActive(true);
+          setCameraReady(true);
+        }
+      } catch (camErr) {
+        console.warn('acceptPkChallenge: getUserMedia failed, trying audio-only:', camErr);
+        try {
+          if (typeof navigator !== 'undefined' && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            liveStreamRef.current = audioStream;
+            if (liveVideoRef.current) {
+              try { liveVideoRef.current.srcObject = audioStream; } catch {}
+            }
+            startFrameBroadcast(pkRoomIdVal + '_rival', audioStream);
+            startAudioBroadcast(pkRoomIdVal + '_rival', audioStream);
+            setPkMyBroadcastActive(true);
+            setCameraReady(true);
+          }
+        } catch (audioErr2) {
+          console.warn('acceptPkChallenge: audio-only also failed:', audioErr2);
+        }
+      }
+
+      // Rival listens to host's frames on live_frames/{pkRoomId}_host/current
+      try {
+        const rtdb = getDatabase();
+        const hostFrameRef = ref(rtdb, `live_frames/${pkRoomIdVal}_host/current`);
+        const hostUnsub = onValue(hostFrameRef, (snap) => {
+          const data = snap.val();
+          if (data && data.frame) {
+            setPkHostFrame(data.frame);
+          }
+        });
+        pkHostFrameUnsubRef.current = hostUnsub;
+      } catch (hostFrameErr) {
+        console.warn('acceptPkChallenge: host frame listener failed (non-fatal):', hostFrameErr);
+      }
+
+      // Join host's audio via WebRTC
+      try {
+        joinAudioStream(pkRoomIdVal + '_host', () => {
+          console.log('acceptPkChallenge: host audio connected');
+        });
+      } catch (audioErr) {
+        console.warn('acceptPkChallenge: host audio join failed (non-fatal):', audioErr);
+      }
+
+      // Navigate to golive screen so PK battle UI shows
+      setScreen('social');
+      setSocialScreen('golive');
+      setLiveActive(true);
+      setVvipAlert({msg: '⚔️ PK Battle started! Good luck!', icon: '⚔️'});
+    } catch (e) {
+      console.error('acceptPkChallenge failed:', e);
+      setVvipAlert({msg: 'Could not join PK Battle. Please try again.'});
+    }
+  };
+
+  const declinePkChallenge = async () => {
+    if (!pkIncomingChallenge) return;
+    const pkRoomIdVal = pkIncomingChallenge.pkRoomId || pkIncomingChallenge.id;
+    try {
+      if (pkRoomIdVal) {
+        await updateDoc(doc(db, 'pk_sessions', pkRoomIdVal), {
+          status: 'declined',
+        }).catch(() => {});
+      }
+    } catch {}
+    setPkIncomingChallenge(null);
+    setVvipAlert({msg: 'PK Challenge declined.'});
   };
 
   // ==========================================================
@@ -4646,36 +4962,36 @@ export function AJSuperPortal() {
   // ==========================================================
   const detectLanguage = (text: string): string => {
     const q = text.toLowerCase();
-    const hinglishSignals = /\\\\b(bhai|dost|yaar|kya|kaise|karo|hua|hoga|hoti|hota|seedha|bilkul|thoda|bohot|sirf|abhi|agar|toh|phir|mujhe|aapko|tumhara|mera|apna|paise|kamao|nikalo|karo|dekho|batao|samjhao|lao|bhejo|milega|milta|lagta|sahi|theek|accha|acha)\\\\b/.test(q);
+    const hinglishSignals = /\\\\\\\\b(bhai|dost|yaar|kya|kaise|karo|hua|hoga|hoti|hota|seedha|bilkul|thoda|bohot|sirf|abhi|agar|toh|phir|mujhe|aapko|tumhara|mera|apna|paise|kamao|nikalo|karo|dekho|batao|samjhao|lao|bhejo|milega|milta|lagta|sahi|theek|accha|acha)\\\\\\\\b/.test(q);
     if (hinglishSignals) return 'hin';
-    if (/[\\\\u0600-\\\\u06FF]/.test(text)) {
-      if (/[\\\\u0679\\\\u0688\\\\u0691\\\\u06BE\\\\u06C1\\\\u06CC\\\\u06D2]/.test(text) ||
+    if (/[\\\\\\\\u0600-\\\\\\\\u06FF]/.test(text)) {
+      if (/[\\\\\\\\u0679\\\\\\\\u0688\\\\\\\\u0691\\\\\\\\u06BE\\\\\\\\u06C1\\\\\\\\u06CC\\\\\\\\u06D2]/.test(text) ||
           /کوئن|پیسہ|نکالنا|لائیو|ریفرل|خریدنا|تحفہ|سکے|بیلنس|بھائی|دوست/.test(text))
         return 'ur';
-      if (/[\\\\u067E\\\\u0686\\\\u0698\\\\u06AF]/.test(text) && /فارسی|ایران|ریال/.test(text))
+      if (/[\\\\\\\\u067E\\\\\\\\u0686\\\\\\\\u0698\\\\\\\\u06AF]/.test(text) && /فارسی|ایران|ریال/.test(text))
         return 'fa';
       return 'ar';
     }
-    if (/[\\\\u0900-\\\\u097F]/.test(text)) return 'hi';
-    if (/[\\\\u0980-\\\\u09FF]/.test(text)) return 'bn';
-    if (/[\\\\u0A00-\\\\u0A7F]/.test(text)) return 'pa';
-    if (/[\\\\u4E00-\\\\u9FFF]/.test(text)) return 'zh';
-    if (/[\\\\u3040-\\\\u30FF]/.test(text)) return 'ja';
-    if (/[\\\\uAC00-\\\\uD7AF]/.test(text)) return 'ko';
-    if (/[\\\\u0400-\\\\u04FF]/.test(text)) return 'ru';
-    if (/[\\\\u0E00-\\\\u0E7F]/.test(text)) return 'th';
-    if (/[\\\\u0370-\\\\u03FF]/.test(text)) return 'el';
-    if (/[\\\\u0590-\\\\u05FF]/.test(text)) return 'he';
-    if (/\\\\b(bonjour|merci|monnaie|retirer|acheter|cadeau|combien|comment)\\\\b/.test(q)) return 'fr';
-    if (/\\\\b(hola|gracias|moneda|retirar|comprar|regalo|cuánto|cómo)\\\\b/.test(q))       return 'es';
-    if (/\\\\b(ciao|grazie|moneta|ritirare|comprare|regalo|quanto|come)\\\\b/.test(q))      return 'it';
-    if (/\\\\b(olá|obrigado|moeda|retirar|comprar|presente|quanto|como)\\\\b/.test(q))      return 'pt';
-    if (/\\\\b(hallo|danke|münze|auszahlen|kaufen|geschenk|wieviel|wie)\\\\b/.test(q))      return 'de';
-    if (/\\\\b(merhaba|teşekkür|madeni|çekmek|satın|hediye|kadar|nasıl)\\\\b/.test(q))     return 'tr';
-    if (/\\\\b(привет|спасибо|монета|вывести|купить|подарок|сколько|как)\\\\b/.test(q))     return 'ru';
-    if (/\\\\b(halo|terima|koin|tarik|beli|hadiah|berapa|bagaimana)\\\\b/.test(q))          return 'id';
-    if (/\\\\b(xin chào|cảm ơn|đồng xu|rút tiền|mua|quà tặng)\\\\b/.test(q))              return 'vi';
-    if (/\\\\b(شکریہ|آپ|ہے|کیا|کیسے|میں|آپ کا)\\\\b/.test(q))                             return 'ur';
+    if (/[\\\\\\\\u0900-\\\\\\\\u097F]/.test(text)) return 'hi';
+    if (/[\\\\\\\\u0980-\\\\\\\\u09FF]/.test(text)) return 'bn';
+    if (/[\\\\\\\\u0A00-\\\\\\\\u0A7F]/.test(text)) return 'pa';
+    if (/[\\\\\\\\u4E00-\\\\\\\\u9FFF]/.test(text)) return 'zh';
+    if (/[\\\\\\\\u3040-\\\\\\\\u30FF]/.test(text)) return 'ja';
+    if (/[\\\\\\\\uAC00-\\\\\\\\uD7AF]/.test(text)) return 'ko';
+    if (/[\\\\\\\\u0400-\\\\\\\\u04FF]/.test(text)) return 'ru';
+    if (/[\\\\\\\\u0E00-\\\\\\\\u0E7F]/.test(text)) return 'th';
+    if (/[\\\\\\\\u0370-\\\\\\\\u03FF]/.test(text)) return 'el';
+    if (/[\\\\\\\\u0590-\\\\\\\\u05FF]/.test(text)) return 'he';
+    if (/\\\\\\\\b(bonjour|merci|monnaie|retirer|acheter|cadeau|combien|comment)\\\\\\\\b/.test(q)) return 'fr';
+    if (/\\\\\\\\b(hola|gracias|moneda|retirar|comprar|regalo|cuánto|cómo)\\\\\\\\b/.test(q))       return 'es';
+    if (/\\\\\\\\b(ciao|grazie|moneta|ritirare|comprare|regalo|quanto|come)\\\\\\\\b/.test(q))      return 'it';
+    if (/\\\\\\\\b(olá|obrigado|moeda|retirar|comprar|presente|quanto|como)\\\\\\\\b/.test(q))      return 'pt';
+    if (/\\\\\\\\b(hallo|danke|münze|auszahlen|kaufen|geschenk|wieviel|wie)\\\\\\\\b/.test(q))      return 'de';
+    if (/\\\\\\\\b(merhaba|teşekkür|madeni|çekmek|satın|hediye|kadar|nasıl)\\\\\\\\b/.test(q))     return 'tr';
+    if (/\\\\\\\\b(привет|спасибо|монета|вывести|купить|подарок|сколько|как)\\\\\\\\b/.test(q))     return 'ru';
+    if (/\\\\\\\\b(halo|terima|koin|tarik|beli|hadiah|berapa|bagaimana)\\\\\\\\b/.test(q))          return 'id';
+    if (/\\\\\\\\b(xin chào|cảm ơn|đồng xu|rút tiền|mua|quà tặng)\\\\\\\\b/.test(q))              return 'vi';
+    if (/\\\\\\\\b(شکریہ|آپ|ہے|کیا|کیسے|میں|آپ کا)\\\\\\\\b/.test(q))                             return 'ur';
     const locale = (typeof navigator !== 'undefined' ? navigator.language : 'en').split('-')[0].toLowerCase();
     const supported = ['fr','es','de','it','pt','tr','ru','id','vi','ar','hi','bn','zh','ja','ko','pa','ur','fa','th','el','he'];
     if (supported.includes(locale)) return locale;
@@ -4685,281 +5001,281 @@ export function AJSuperPortal() {
   type BotLang = 'en'|'hin'|'ur'|'hi'|'ar'|'bn'|'pa'|'fr'|'es'|'de'|'it'|'pt'|'tr'|'ru'|'id'|'vi'|'zh'|'ja'|'ko'|'fa'|'th'|'el'|'he';
   const BOT_KB: Record<string, Record<BotLang|string, string>> = {
     greeting: {
-      en:  `Welcome back! 😊 I can help you with:\\\\
-🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\\\
-🪙 Coins & Earning • 💸 Withdraw • 🎁 Gifts • ⚔️ PK Battle\\\\
+      en:  `Welcome back! 😊 I can help you with:\\\\\\\\
+🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\\\\\\\
+🪙 Coins & Earning • 💸 Withdraw • 🎁 Gifts • ⚔️ PK Battle\\\\\\\\
 Just ask me anything!`,
-      hin: `Bhai, kya scene hai! 😄 Main yahan hoon:\\\\
-🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\\\
-🪙 Coins earning • 💸 Withdraw • 🎁 Gifts • ⚔️ PK Battle\\\\
+      hin: `Bhai, kya scene hai! 😄 Main yahan hoon:\\\\\\\\
+🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\\\\\\\
+🪙 Coins earning • 💸 Withdraw • 🎁 Gifts • ⚔️ PK Battle\\\\\\\\
 Kuch bhi poocho, seedha batata hoon! 🔥`,
-      ur:  `خوش آمدید! 😊 میں ان چیزوں میں مدد کر سکتا ہوں:\\\\
-🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\\\
-🪙 Coins • 💸 نکاسی • 🎁 تحفے • ⚔️ PK Battle\\\\
+      ur:  `خوش آمدید! 😊 میں ان چیزوں میں مدد کر سکتا ہوں:\\\\\\\\
+🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\\\\\\\
+🪙 Coins • 💸 نکاسی • 🎁 تحفے • ⚔️ PK Battle\\\\\\\\
 کچھ بھی پوچھیں!`,
-      hi:  `स्वागत है! 😊 मैं इनमें मदद कर सकता हूं:\\\\
-🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\\\
-🪙 Coins • 💸 Withdrawal • 🎁 Gifts • ⚔️ PK\\\\
+      hi:  `स्वागत है! 😊 मैं इनमें मदद कर सकता हूं:\\\\\\\\
+🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\\\\\\\
+🪙 Coins • 💸 Withdrawal • 🎁 Gifts • ⚔️ PK\\\\\\\\
 कुछ भी पूछो!`,
-      ar:  `مرحباً! 😊 يمكنني مساعدتك في:\\\\
-🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\\\
-🪙 الكوينز • 💸 السحب • 🎁 الهدايا • ⚔️ PK\\\\
+      ar:  `مرحباً! 😊 يمكنني مساعدتك في:\\\\\\\\
+🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\\\\\\\
+🪙 الكوينز • 💸 السحب • 🎁 الهدايا • ⚔️ PK\\\\\\\\
 اسألني أي شيء!`,
     },
     coin: {
-      en:  `🪙 AJ Coins — Full Breakdown:\\\\
-\\\\
-• Rate: $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1 cash-out\\\\
-• Welcome Bonus: 500 Coins on signup 🎉\\\\
-• Referral Bonus: +${REFERRAL_COINS} Coins per friend referred\\\\
-• Video Post (TikReel): +10 Coins per upload\\\\
-• Photo Post (Pulse): +5 Coins per post\\\\
-• AI Bot (Basic): 2% daily on invested coins\\\\
-• AI Bot (VVIP): 5% daily on invested coins\\\\
-• Live gifts received: 60% goes to you!\\\\
-\\\\
+      en:  `🪙 AJ Coins — Full Breakdown:\\\\\\\\
+\\\\\\\\
+• Rate: $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1 cash-out\\\\\\\\
+• Welcome Bonus: 500 Coins on signup 🎉\\\\\\\\
+• Referral Bonus: +${REFERRAL_COINS} Coins per friend referred\\\\\\\\
+• Video Post (TikReel): +10 Coins per upload\\\\\\\\
+• Photo Post (Pulse): +5 Coins per post\\\\\\\\
+• AI Bot (Basic): 2% daily on invested coins\\\\\\\\
+• AI Bot (VVIP): 5% daily on invested coins\\\\\\\\
+• Live gifts received: 60% goes to you!\\\\\\\\
+\\\\\\\\
 Go to Wallet → Purchase to top up anytime. 💰`,
-      hin: `Bhai, yeh lo puri detail! 🪙\\\\
-\\\\
-• Rate: $1 = ${COIN_RATE} Coins | Cash out: ${CASH_RATE} Coins = $1\\\\
-• Signup bonus: 500 Coins FREE 🎉\\\\
-• Referral: +${REFERRAL_COINS} Coins har dost ke liye\\\\
-• TikReel video upload: +10 Coins\\\\
-• Pulse photo post: +5 Coins\\\\
-• AI Bot Basic: 2% daily profit\\\\
-• AI Bot VVIP: 5% daily profit 🔥\\\\
-• Live pe gifts milein: 60% tumhara!\\\\
-\\\\
+      hin: `Bhai, yeh lo puri detail! 🪙\\\\\\\\
+\\\\\\\\
+• Rate: $1 = ${COIN_RATE} Coins | Cash out: ${CASH_RATE} Coins = $1\\\\\\\\
+• Signup bonus: 500 Coins FREE 🎉\\\\\\\\
+• Referral: +${REFERRAL_COINS} Coins har dost ke liye\\\\\\\\
+• TikReel video upload: +10 Coins\\\\\\\\
+• Pulse photo post: +5 Coins\\\\\\\\
+• AI Bot Basic: 2% daily profit\\\\\\\\
+• AI Bot VVIP: 5% daily profit 🔥\\\\\\\\
+• Live pe gifts milein: 60% tumhara!\\\\\\\\
+\\\\\\\\
 Wallet → Purchase se recharge karo, dost! 💰`,
-      ur:  `🪙 AJ Coins — مکمل تفصیل:\\\\
-\\\\
-• شرح: $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1\\\\
-• Signup بونس: 500 Coins مفت 🎉\\\\
-• ریفرل: +${REFERRAL_COINS} Coins\\\\
-• TikReel ویڈیو: +10 Coins\\\\
-• Pulse فوٹو: +5 Coins\\\\
-• AI Bot Basic: 2% روزانہ\\\\
-• AI Bot VVIP: 5% روزانہ 🔥\\\\
-• Live تحفے: 60% آپ کا!\\\\
-\\\\
+      ur:  `🪙 AJ Coins — مکمل تفصیل:\\\\\\\\
+\\\\\\\\
+• شرح: $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1\\\\\\\\
+• Signup بونس: 500 Coins مفت 🎉\\\\\\\\
+• ریفرل: +${REFERRAL_COINS} Coins\\\\\\\\
+• TikReel ویڈیو: +10 Coins\\\\\\\\
+• Pulse فوٹو: +5 Coins\\\\\\\\
+• AI Bot Basic: 2% روزانہ\\\\\\\\
+• AI Bot VVIP: 5% روزانہ 🔥\\\\\\\\
+• Live تحفے: 60% آپ کا!\\\\\\\\
+\\\\\\\\
 Wallet → Purchase 💰`,
-      hi:  `🪙 AJ Coins:\\\\
-\\\\
-• $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1\\\\
-• Signup: 500 Coins 🎉\\\\
-• Referral: +${REFERRAL_COINS} Coins\\\\
-• TikReel Video: +10 Coins\\\\
-• Pulse Photo: +5 Coins\\\\
-• AI Bot Basic: 2% | VVIP: 5% 🔥\\\\
-• Gifts: 60% आपका!\\\\
-\\\\
+      hi:  `🪙 AJ Coins:\\\\\\\\
+\\\\\\\\
+• $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1\\\\\\\\
+• Signup: 500 Coins 🎉\\\\\\\\
+• Referral: +${REFERRAL_COINS} Coins\\\\\\\\
+• TikReel Video: +10 Coins\\\\\\\\
+• Pulse Photo: +5 Coins\\\\\\\\
+• AI Bot Basic: 2% | VVIP: 5% 🔥\\\\\\\\
+• Gifts: 60% आपका!\\\\\\\\
+\\\\\\\\
 Wallet → Purchase 💰`,
-      ar:  `🪙 AJ Coins:\\\\
-\\\\
-• $1 = ${COIN_RATE} | ${CASH_RATE} = $1\\\\
-• Signup: 500 🎉\\\\
-• Referral: +${REFERRAL_COINS}\\\\
-• TikReel Video: +10\\\\
-• Pulse Photo: +5\\\\
-• AI Bot: 2-5% 🔥\\\\
-• Gifts: 60%\\\\
-\\\\
+      ar:  `🪙 AJ Coins:\\\\\\\\
+\\\\\\\\
+• $1 = ${COIN_RATE} | ${CASH_RATE} = $1\\\\\\\\
+• Signup: 500 🎉\\\\\\\\
+• Referral: +${REFERRAL_COINS}\\\\\\\\
+• TikReel Video: +10\\\\\\\\
+• Pulse Photo: +5\\\\\\\\
+• AI Bot: 2-5% 🔥\\\\\\\\
+• Gifts: 60%\\\\\\\\
+\\\\\\\\
 المحفظة → الشراء 💰`,
     },
     tikreels: {
-      en:  `🎬 AJ TikReels — TikTok-style short videos!\\\\
-\\\\
-• Go to Social → AJ TikReels → Feed tab\\\\
-• Scroll up/down to watch videos (snap-scroll)\\\\
-• CENTER-TAP to pause/resume video\\\\
-• Like ❤️, Comment 💬, Share 🔗, or send Gifts 🎁\\\\
-• Upload your own: hit ➕ Post tab, add caption + image/video\\\\
-• Each video upload earns you +10 Coins 🪙\\\\
-• Photo post earns +5 Coins\\\\
+      en:  `🎬 AJ TikReels — TikTok-style short videos!\\\\\\\\
+\\\\\\\\
+• Go to Social → AJ TikReels → Feed tab\\\\\\\\
+• Scroll up/down to watch videos (snap-scroll)\\\\\\\\
+• CENTER-TAP to pause/resume video\\\\\\\\
+• Like ❤️, Comment 💬, Share 🔗, or send Gifts 🎁\\\\\\\\
+• Upload your own: hit ➕ Post tab, add caption + image/video\\\\\\\\
+• Each video upload earns you +10 Coins 🪙\\\\\\\\
+• Photo post earns +5 Coins\\\\\\\\
 • CSS Filters, Music Picker & Text Overlay available in editor`,
-      hin: `🎬 AJ TikReels:\\\\
-\\\\
-• Social → AJ TikReels → Feed\\\\
-• Videos scroll karo (snap-scroll)\\\\
-• CENTER TAP karo pause/resume ke liye\\\\
-• Like ❤️, Comment 💬, Gift 🎁\\\\
-• Video upload: +10 Coins 🔥\\\\
-• Photo post: +5 Coins\\\\
+      hin: `🎬 AJ TikReels:\\\\\\\\
+\\\\\\\\
+• Social → AJ TikReels → Feed\\\\\\\\
+• Videos scroll karo (snap-scroll)\\\\\\\\
+• CENTER TAP karo pause/resume ke liye\\\\\\\\
+• Like ❤️, Comment 💬, Gift 🎁\\\\\\\\
+• Video upload: +10 Coins 🔥\\\\\\\\
+• Photo post: +5 Coins\\\\\\\\
 • Editor mein Filters, Music, Text Overlay bhi hai!`,
-      ur:  `🎬 AJ TikReels:\\\\
-\\\\
-• Social → AJ TikReels → Feed\\\\
-• Videos اسکرول کریں\\\\
-• CENTER TAP: pause/resume\\\\
-• Like ❤️، Comment 💬، Gift 🎁\\\\
-• Video: +10 Coins 🔥\\\\
-• Photo: +5 Coins\\\\
+      ur:  `🎬 AJ TikReels:\\\\\\\\
+\\\\\\\\
+• Social → AJ TikReels → Feed\\\\\\\\
+• Videos اسکرول کریں\\\\\\\\
+• CENTER TAP: pause/resume\\\\\\\\
+• Like ❤️، Comment 💬، Gift 🎁\\\\\\\\
+• Video: +10 Coins 🔥\\\\\\\\
+• Photo: +5 Coins\\\\\\\\
 • Editor: Filters، Music، Text Overlay`,
-      hi:  `🎬 AJ TikReels:\\\\
-\\\\
-• Social → AJ TikReels → Feed\\\\
-• CENTER TAP: pause/resume\\\\
-• Video: +10 Coins 🔥\\\\
-• Photo: +5 Coins\\\\
+      hi:  `🎬 AJ TikReels:\\\\\\\\
+\\\\\\\\
+• Social → AJ TikReels → Feed\\\\\\\\
+• CENTER TAP: pause/resume\\\\\\\\
+• Video: +10 Coins 🔥\\\\\\\\
+• Photo: +5 Coins\\\\\\\\
 • Editor: Filters, Music, Text Overlay`,
-      ar:  `🎬 AJ TikReels:\\\\
-\\\\
-• Social → AJ TikReels → Feed\\\\
-• CENTER TAP: pause/resume\\\\
-• Video: +10 كوين 🔥\\\\
-• Photo: +5 كوين\\\\
+      ar:  `🎬 AJ TikReels:\\\\\\\\
+\\\\\\\\
+• Social → AJ TikReels → Feed\\\\\\\\
+• CENTER TAP: pause/resume\\\\\\\\
+• Video: +10 كوين 🔥\\\\\\\\
+• Photo: +5 كوين\\\\\\\\
 • Editor: Filters, Music, Text`,
     },
     pulse: {
-      en:  `📡 AJ Pulse — Instagram-style feed + Live streaming!\\\\
-\\\\
-📸 Feed:\\\\
-• Scroll posts, like, comment, share, send gifts\\\\
-• Post your own content → +5 Coins (photo) / +10 Coins (video)\\\\
-\\\\
-🔴 Go Live:\\\\
-• Social Hub → GO LIVE button\\\\
-• Share your Room ID so viewers can join\\\\
-• Viewers send gifts → You keep 60%!\\\\
-\\\\
+      en:  `📡 AJ Pulse — Instagram-style feed + Live streaming!\\\\\\\\
+\\\\\\\\
+📸 Feed:\\\\\\\\
+• Scroll posts, like, comment, share, send gifts\\\\\\\\
+• Post your own content → +5 Coins (photo) / +10 Coins (video)\\\\\\\\
+\\\\\\\\
+🔴 Go Live:\\\\\\\\
+• Social Hub → GO LIVE button\\\\\\\\
+• Share your Room ID so viewers can join\\\\\\\\
+• Viewers send gifts → You keep 60%!\\\\\\\\
+\\\\\\\\
 ⚔️ PK Battle: 100 Coins entry, 5-min battle 🏆`,
-      hin: `📡 AJ Pulse:\\\\
-\\\\
-📸 Feed:\\\\
-• Posts scroll, like/comment/gift\\\\
-• Photo post: +5 Coins | Video: +10 Coins\\\\
-\\\\
-🔴 Live:\\\\
-• GO LIVE → Room ID share karo\\\\
-• Gifts → 60% tumhara! 💰\\\\
-\\\\
+      hin: `📡 AJ Pulse:\\\\\\\\
+\\\\\\\\
+📸 Feed:\\\\\\\\
+• Posts scroll, like/comment/gift\\\\\\\\
+• Photo post: +5 Coins | Video: +10 Coins\\\\\\\\
+\\\\\\\\
+🔴 Live:\\\\\\\\
+• GO LIVE → Room ID share karo\\\\\\\\
+• Gifts → 60% tumhara! 💰\\\\\\\\
+\\\\\\\\
 ⚔️ PK Battle: 100 Coins, 5 min 🏆`,
-      ur:  `📡 AJ Pulse:\\\\
-\\\\
-📸 فیڈ:\\\\
-• Photo: +5 Coins | Video: +10 Coins\\\\
-\\\\
-🔴 Live:\\\\
-• GO LIVE → Room ID شیئر\\\\
-• Gifts → 60% آپ کا!\\\\
-\\\\
+      ur:  `📡 AJ Pulse:\\\\\\\\
+\\\\\\\\
+📸 فیڈ:\\\\\\\\
+• Photo: +5 Coins | Video: +10 Coins\\\\\\\\
+\\\\\\\\
+🔴 Live:\\\\\\\\
+• GO LIVE → Room ID شیئر\\\\\\\\
+• Gifts → 60% آپ کا!\\\\\\\\
+\\\\\\\\
 ⚔️ PK: 100 Coins، 5 منٹ 🏆`,
-      hi:  `📡 AJ Pulse:\\\\
-\\\\
-• Photo: +5 Coins | Video: +10 Coins\\\\
-• GO LIVE → Room ID share\\\\
-• Gifts → 60% आपका!\\\\
+      hi:  `📡 AJ Pulse:\\\\\\\\
+\\\\\\\\
+• Photo: +5 Coins | Video: +10 Coins\\\\\\\\
+• GO LIVE → Room ID share\\\\\\\\
+• Gifts → 60% आपका!\\\\\\\\
 • PK Battle: 100 Coins 🏆`,
-      ar:  `📡 AJ Pulse:\\\\
-\\\\
-• Photo: +5 | Video: +10 كوين\\\\
-• GO LIVE → Room ID\\\\
-• Gifts → 60%\\\\
+      ar:  `📡 AJ Pulse:\\\\\\\\
+\\\\\\\\
+• Photo: +5 | Video: +10 كوين\\\\\\\\
+• GO LIVE → Room ID\\\\\\\\
+• Gifts → 60%\\\\\\\\
 • PK: 100 كوين 🏆`,
     },
     social: {
-      en:  `👤 Social Features:\\\\
-\\\\
-• View any profile: tap any avatar\\\\
-• Follow / Unfollow from their profile page\\\\
-• Message (DM): tap "Message" on any profile\\\\
-• WeChat: private encrypted chat + Video/Audio calls via ZegoCloud\\\\
+      en:  `👤 Social Features:\\\\\\\\
+\\\\\\\\
+• View any profile: tap any avatar\\\\\\\\
+• Follow / Unfollow from their profile page\\\\\\\\
+• Message (DM): tap "Message" on any profile\\\\\\\\
+• WeChat: private encrypted chat + Video/Audio calls via ZegoCloud\\\\\\\\
 • Profile: Posts, Followers, Following, Total Likes, video grid`,
-      hin: `👤 Social Features:\\\\
-\\\\
-• Koi bhi profile: dp tap karo\\\\
-• Follow / Unfollow\\\\
-• DM: "Message" button 🔥\\\\
-• WeChat: private chat + Video/Audio call (ZegoCloud)\\\\
+      hin: `👤 Social Features:\\\\\\\\
+\\\\\\\\
+• Koi bhi profile: dp tap karo\\\\\\\\
+• Follow / Unfollow\\\\\\\\
+• DM: "Message" button 🔥\\\\\\\\
+• WeChat: private chat + Video/Audio call (ZegoCloud)\\\\\\\\
 • Profile: Posts, Followers, Likes, videos`,
-      ur:  `👤 Social Features:\\\\
-\\\\
-• avatar ٹیپ → پروفائل\\\\
-• Follow / Unfollow\\\\
-• DM: "Message" 🔥\\\\
-• WeChat: private chat + Video/Audio call\\\\
+      ur:  `👤 Social Features:\\\\\\\\
+\\\\\\\\
+• avatar ٹیپ → پروفائل\\\\\\\\
+• Follow / Unfollow\\\\\\\\
+• DM: "Message" 🔥\\\\\\\\
+• WeChat: private chat + Video/Audio call\\\\\\\\
 • Posts، Followers، Likes`,
-      hi:  `👤 Social Features:\\\\
-\\\\
-• Avatar टैप → profile\\\\
-• Follow / Unfollow\\\\
-• DM + WeChat calls 🔥\\\\
+      hi:  `👤 Social Features:\\\\\\\\
+\\\\\\\\
+• Avatar टैप → profile\\\\\\\\
+• Follow / Unfollow\\\\\\\\
+• DM + WeChat calls 🔥\\\\\\\\
 • Posts, Followers, Likes`,
-      ar:  `👤 Social:\\\\
-\\\\
-• avatar → ملف\\\\
-• Follow/Unfollow\\\\
-• DM + WeChat calls 🔥\\\\
+      ar:  `👤 Social:\\\\\\\\
+\\\\\\\\
+• avatar → ملف\\\\\\\\
+• Follow/Unfollow\\\\\\\\
+• DM + WeChat calls 🔥\\\\\\\\
 • Posts, Followers, Likes`,
     },
     gaming: {
-      en:  `🎮 AJ Gaming Zone — Play & Multiply Coins!\\\\
-\\\\
-• Access: Tap "Gaming" from the main Hub\\\\
-• Games: Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\\\\
-• Game scores auto-credit AJ Coins via Game Bridge\\\\
+      en:  `🎮 AJ Gaming Zone — Play & Multiply Coins!\\\\\\\\
+\\\\\\\\
+• Access: Tap "Gaming" from the main Hub\\\\\\\\
+• Games: Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\\\\\\\\
+• Game scores auto-credit AJ Coins via Game Bridge\\\\\\\\
 • Coming soon: Ludo Elite Royal, Puck Pulse Elite 🔜`,
-      hin: `🎮 AJ Gaming Zone:\\\\
-\\\\
-• Main Hub → "Gaming"\\\\
-• Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\\\\
-• Game score → auto coins credit 🔥\\\\
+      hin: `🎮 AJ Gaming Zone:\\\\\\\\
+\\\\\\\\
+• Main Hub → "Gaming"\\\\\\\\
+• Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\\\\\\\\
+• Game score → auto coins credit 🔥\\\\\\\\
 • Jald: Ludo Elite Royal 🔜`,
-      ur:  `🎮 Gaming:\\\\
-\\\\
-• Main Hub → "Gaming"\\\\
-• 5 games available\\\\
-• Score → auto coins 🔥\\\\
+      ur:  `🎮 Gaming:\\\\\\\\
+\\\\\\\\
+• Main Hub → "Gaming"\\\\\\\\
+• 5 games available\\\\\\\\
+• Score → auto coins 🔥\\\\\\\\
 • جلد: Ludo Elite Royal 🔜`,
-      hi:  `🎮 Gaming:\\\\
-\\\\
-• Main Hub → "Gaming"\\\\
-• 5 games\\\\
-• Score → auto coins 🔥\\\\
+      hi:  `🎮 Gaming:\\\\\\\\
+\\\\\\\\
+• Main Hub → "Gaming"\\\\\\\\
+• 5 games\\\\\\\\
+• Score → auto coins 🔥\\\\\\\\
 • जल्द: Ludo Elite Royal 🔜`,
-      ar:  `🎮 Gaming:\\\\
-\\\\
-• "Gaming" من الرئيسية\\\\
-• 5 ألعاب\\\\
-• نقاط → كوينز تلقائي 🔥\\\\
+      ar:  `🎮 Gaming:\\\\\\\\
+\\\\\\\\
+• "Gaming" من الرئيسية\\\\\\\\
+• 5 ألعاب\\\\\\\\
+• نقاط → كوينز تلقائي 🔥\\\\\\\\
 • قريباً: Ludo Elite Royal 🔜`,
     },
     refer: {
-      en:  `👥 Referral System:\\\\
-\\\\
-• Your Referral Code = your User ID (find in Wallet or Social Hub)\\\\
-• Share your ID with friends\\\\
-• They go to Wallet → "Enter Referral Code" and paste your ID\\\\
-• You receive +${REFERRAL_COINS} Coins per successful referral 🎉\\\\
-• No limit — refer as many as you want!\\\\
-\\\\
+      en:  `👥 Referral System:\\\\\\\\
+\\\\\\\\
+• Your Referral Code = your User ID (find in Wallet or Social Hub)\\\\\\\\
+• Share your ID with friends\\\\\\\\
+• They go to Wallet → "Enter Referral Code" and paste your ID\\\\\\\\
+• You receive +${REFERRAL_COINS} Coins per successful referral 🎉\\\\\\\\
+• No limit — refer as many as you want!\\\\\\\\
+\\\\\\\\
 Tip: Copy your ID from the Social Hub referral card 📤`,
-      hin: `👥 Referral:\\\\
-\\\\
-• Tera ID = Referral Code\\\\
-• Doston ko share karo\\\\
-• Wo Wallet → Referral Code mein daalen\\\\
-• +${REFERRAL_COINS} Coins 🎉\\\\
-• Koi limit nahi!\\\\
-\\\\
+      hin: `👥 Referral:\\\\\\\\
+\\\\\\\\
+• Tera ID = Referral Code\\\\\\\\
+• Doston ko share karo\\\\\\\\
+• Wo Wallet → Referral Code mein daalen\\\\\\\\
+• +${REFERRAL_COINS} Coins 🎉\\\\\\\\
+• Koi limit nahi!\\\\\\\\
+\\\\\\\\
 Tip: Social Hub se copy karo 📤`,
-      ur:  `👥 Referral:\\\\
-\\\\
-• آپ کا ID = Referral Code\\\\
-• دوستوں کو شیئر کریں\\\\
-• Wallet → Referral Code میں ڈالیں\\\\
+      ur:  `👥 Referral:\\\\\\\\
+\\\\\\\\
+• آپ کا ID = Referral Code\\\\\\\\
+• دوستوں کو شیئر کریں\\\\\\\\
+• Wallet → Referral Code میں ڈالیں\\\\\\\\
 • +${REFERRAL_COINS} Coins 🎉`,
-      hi:  `👥 Referral:\\\\
-\\\\
-• आपका ID = Referral Code\\\\
-• दोस्तों को share करो\\\\
-• Wallet → Referral Code में डालें\\\\
+      hi:  `👥 Referral:\\\\\\\\
+\\\\\\\\
+• आपका ID = Referral Code\\\\\\\\
+• दोस्तों को share करो\\\\\\\\
+• Wallet → Referral Code में डालें\\\\\\\\
 • +${REFERRAL_COINS} Coins 🎉`,
-      ar:  `👥 Referral:\\\\
-\\\\
-• معرفك = Referral Code\\\\
-• شارك مع الأصدقاء\\\\
-• المحفظة → Referral Code\\\\
+      ar:  `👥 Referral:\\\\\\\\
+\\\\\\\\
+• معرفك = Referral Code\\\\\\\\
+• شارك مع الأصدقاء\\\\\\\\
+• المحفظة → Referral Code\\\\\\\\
 • +${REFERRAL_COINS} كوين 🎉`,
     },
   };
@@ -5025,6 +5341,41 @@ Tip: Social Hub se copy karo 📤`,
       <input ref={audioFileRef}   type="file" accept="audio/*"         className="hidden" onChange={e => { if (e.target.files?.[0]) setTiktokAudioFile(e.target.files[0]); }}/>
       {/* FIX #8: Dedicated DP file input */}
       <input ref={dpFileRef}      type="file" accept="image/*"         className="hidden" onChange={handleDpUpdate}/>
+
+      {/* FIX: PK INCOMING CHALLENGE MODAL — jab koi user current user ko
+          PK challenge bhejta hai, yeh modal accept/decline ke liye dikhta hai */}
+      {pkIncomingChallenge && !pkActive && (
+        <div className="fixed inset-0 z-[9100] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-6">
+          <div className="bg-gradient-to-br from-orange-900/60 to-red-900/60 border-2 border-orange-500/50 rounded-3xl p-6 max-w-sm w-full" style={{animation:'fadeInOverlay 0.5s ease-out'}}>
+            <div className="text-center mb-4">
+              <div className="text-5xl mb-2">⚔️</div>
+              <p className="text-lg font-black text-orange-400 uppercase tracking-widest">PK Challenge!</p>
+              <p className="text-sm text-gray-300 mt-2">@{pkIncomingChallenge.hostName || 'Someone'} wants to battle you!</p>
+            </div>
+            <div className="flex items-center justify-center gap-3 mb-4">
+              <img src={pkIncomingChallenge.hostPhoto || '/logo.png'} className="w-14 h-14 rounded-full border-2 border-orange-500 object-cover" alt="Challenger"/>
+              <span className="text-2xl font-black text-white">VS</span>
+              <img src={tempPhoto || user?.photoURL || '/logo.png'} className="w-14 h-14 rounded-full border-2 border-orange-500 object-cover" alt="You"/>
+            </div>
+            <p className="text-center text-[10px] text-gray-400 mb-4">Entry: {pkIncomingChallenge.entryCoins || PK_ENTRY_COINS} Coins · 5-min battle</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => acceptPkChallenge(pkIncomingChallenge)}
+                className="flex-1 py-3 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all"
+                style={{background:'linear-gradient(135deg,#f97316,#ea580c)'}}
+              >
+                ⚔️ Accept
+              </button>
+              <button
+                onClick={() => declinePkChallenge()}
+                className="flex-1 py-3 rounded-2xl bg-white/10 border border-white/20 text-gray-300 font-black uppercase tracking-widest active:scale-95 transition-all"
+              >
+                Decline
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Cinematic Gift Overlay */}
       {cinematicGift && (
@@ -5582,7 +5933,7 @@ Tip: Social Hub se copy karo 📤`,
                             </div>
                             <span className="text-white text-[9px] font-black">{formatViews((likedPosts[vid.id] ? (vid.likes||0) + 1 : vid.likes||0))}</span>
                           </button>
-                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(vid.id); setTimeout(() => { commentInputRef.current?.focus(); commentInputRef.current?.click(); }, 100); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(vid.id); requestAnimationFrame(() => { commentInputRef.current?.focus(); commentInputRef.current?.click(); }); }} onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(vid.id); requestAnimationFrame(() => { commentInputRef.current?.focus(); commentInputRef.current?.click(); }); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <MessageSquare size={18} className="text-white"/>
                             </div>
@@ -5684,7 +6035,7 @@ Tip: Social Hub se copy karo 📤`,
                             </div>
                             <span className="text-white text-[9px] font-black">{(likedPosts[post.id] ? (post.likes||0) + 1 : post.likes||0)}</span>
                           </button>
-                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(post.id); setTimeout(() => { commentInputRef.current?.focus(); commentInputRef.current?.click(); }, 100); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(post.id); requestAnimationFrame(() => { commentInputRef.current?.focus(); commentInputRef.current?.click(); }); }} onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(post.id); requestAnimationFrame(() => { commentInputRef.current?.focus(); commentInputRef.current?.click(); }); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <MessageSquare size={18} className="text-white"/>
                             </div>
@@ -5998,7 +6349,7 @@ Tip: Social Hub se copy karo 📤`,
                               </div>
                               <span className="text-white text-[9px] font-black">{formatViews((likedPosts[post.id] ? (post.likes||0) + 1 : post.likes||0))}</span>
                             </button>
-                            <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(post.id); setTimeout(() => { commentInputRef.current?.focus(); commentInputRef.current?.click(); }, 100); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(post.id); requestAnimationFrame(() => { commentInputRef.current?.focus(); commentInputRef.current?.click(); }); }} onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(post.id); requestAnimationFrame(() => { commentInputRef.current?.focus(); commentInputRef.current?.click(); }); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                               <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                                 <MessageSquare size={18} className="text-white"/>
                               </div>
@@ -6301,16 +6652,18 @@ Tip: Social Hub se copy karo 📤`,
                       {/* Rival — right half */}
                       <div className="flex-1 relative bg-black overflow-hidden">
                         {pkRivalFrame ? (
-                          <img src={pkRivalFrame} className="absolute inset-0 w-full h-full object-cover" alt="PK Rival"/>
+                          <img src={pkRivalFrame} className="absolute inset-0 w-full h-full object-cover" alt="PK Opponent"/>
+                        ) : pkHostFrame ? (
+                          <img src={pkHostFrame} className="absolute inset-0 w-full h-full object-cover" alt="PK Opponent"/>
                         ) : (
                           <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
                             <img src={pkRivalData?.photo || '/logo.png'} className="w-12 h-12 rounded-full border-2 border-orange-500 object-cover"/>
-                            <span className="text-white text-[9px] font-black">@{pkRivalData?.username||'Rival'}</span>
+                            <span className="text-white text-[9px] font-black">@{pkRivalData?.username||'Opponent'}</span>
                             <span className="text-gray-400 text-[7px] animate-pulse">Connecting…</span>
                           </div>
                         )}
                         <div className="absolute bottom-1 left-1 bg-orange-600/80 text-white text-[8px] font-black px-2 py-0.5 rounded-full">
-                          @{pkRivalData?.username||'Rival'} · {pkScore.rival.toLocaleString()}🪙
+                          @{pkRivalData?.username||'Opponent'} · {pkScore.rival.toLocaleString()}🪙
                         </div>
                       </div>
                     </div>
@@ -6854,11 +7207,11 @@ Tip: Social Hub se copy karo 📤`,
 
               {/* Shared Comment Sheet — works for TikReels AND Pulse */}
               {commentPostId && (
-                <div className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end">
-                  <div className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl p-6 max-h-[70vh] flex flex-col">
+                <div className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end" onClick={() => { setCommentPostId(null); setPostComments([]); setKeyboardHeight(0); }}>
+                  <div className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl p-6 max-h-[70vh] flex flex-col" style={{ position: 'fixed', bottom: 0, left: 0, right: 0, paddingBottom: keyboardHeight, zIndex: 9001, transition: 'padding-bottom 0.1s ease-out' }} onClick={e => e.stopPropagation()}>
                     <div className="flex items-center justify-between mb-4">
                       <p className="text-sm font-black text-white">💬 Comments</p>
-                      <button onClick={() => { setCommentPostId(null); setPostComments([]); }}><X size={18} className="text-gray-400"/></button>
+                      <button onClick={() => { setCommentPostId(null); setPostComments([]); setKeyboardHeight(0); }}><X size={18} className="text-gray-400"/></button>
                     </div>
                     <div className="flex-1 overflow-y-auto space-y-3 mb-4">
                       {postComments.length === 0 && <p className="text-gray-500 text-xs text-center mt-4">No comments yet. Be the first to comment!</p>}
@@ -6872,7 +7225,7 @@ Tip: Social Hub se copy karo 📤`,
                         </div>
                       ))}
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2" style={{ position: 'sticky', bottom: 0, zIndex: 9002, background: '#0a0a1a', paddingTop: 8 }}>
                       {/* FIX ROUND 3: Comment input — keyboard open nahi ho raha tha.
                           Pehle autoFocus hata diya tha aur ref+setTimeout se focus karte the
                           jo mobile pe reliable nahi tha. Ab useRef + useEffect se proper
