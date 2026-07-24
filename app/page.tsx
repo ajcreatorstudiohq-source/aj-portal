@@ -1633,7 +1633,7 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/20 pointer-events-none" />
 
         {/* Right-side action buttons — mimics the real TikReels UI so it blends in seamlessly */}
-        <div className="absolute right-3 bottom-28 flex flex-col items-center gap-5 z-20">
+        <div className="absolute right-3 bottom-28 flex flex-col items-center gap-5 z-[110]">
           <div className="flex flex-col items-center gap-1">
             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
               <Heart size={18} className="text-white" />
@@ -5956,27 +5956,27 @@ Tip: Social Hub se copy karo 📤`,
                         )}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none"/>
                         {/* Right actions — TikReel style with gift icon */}
-                        <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-20">
+                        <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-[110]">
                           {/* Gift button */}
-                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); setPulseGiftPostId(vid.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); setPulseGiftPostId(vid.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <Gift size={18} className="text-yellow-400"/>
                             </div>
                             <span className="text-white text-[9px] font-black">Gift</span>
                           </button>
-                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); handleLike(vid.id, true, true); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); handleLike(vid.id, true, true); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center ${likedPosts[vid.id] ? 'bg-red-500/30' : 'bg-black/40 backdrop-blur-sm'}`}>
                               <Heart size={18} className={likedPosts[vid.id] ? 'text-red-400 fill-red-400' : 'text-white'}/>
                             </div>
                             <span className="text-white text-[9px] font-black">{formatViews((likedPosts[vid.id] ? (vid.likes||0) + 1 : vid.likes||0))}</span>
                           </button>
-                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(vid.id); let _tmp: any = null; try { _tmp = document.createElement('input'); _tmp.setAttribute('type','text'); _tmp.style.cssText='position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px;border:0;'; document.body.appendChild(_tmp); _tmp.focus(); } catch {} setTimeout(() => { if (commentInputRef.current) commentInputRef.current.focus(); if (_tmp) try { document.body.removeChild(_tmp); } catch {} }, 120); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); setCommentPostId(vid.id); let _tmp: any = null; try { _tmp = document.createElement('input'); _tmp.setAttribute('type','text'); _tmp.style.cssText='position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px;border:0;'; document.body.appendChild(_tmp); _tmp.focus(); } catch {} setTimeout(() => { if (commentInputRef.current) commentInputRef.current.focus(); if (_tmp) try { document.body.removeChild(_tmp); } catch {} }, 120); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <MessageSquare size={18} className="text-white"/>
                             </div>
                             <span className="text-white text-[9px] font-black">{formatViews(vid.views||0)}</span>
                           </button>
-                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); handleShare(vid.title||''); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); handleShare(vid.title||''); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <Share2 size={18} className="text-white"/>
                             </div>
@@ -6059,33 +6059,33 @@ Tip: Social Hub se copy karo 📤`,
                         )}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none"/>
                         {/* Right actions — with gift icon */}
-                        <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-20">
-                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); setPulseGiftPostId(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                        <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-[110]">
+                          <button onClick={e => { e.stopPropagation(); setPulseGiftPostId(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <Gift size={18} className="text-yellow-400"/>
                             </div>
                             <span className="text-white text-[9px] font-black">Gift</span>
                           </button>
-                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); handleLike(post.id, post.isVideo); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); handleLike(post.id, post.isVideo); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center ${likedPosts[post.id] ? 'bg-red-500/30' : 'bg-black/40 backdrop-blur-sm'}`}>
                               <Heart size={18} className={likedPosts[post.id] ? 'text-red-400 fill-red-400' : 'text-white'}/>
                             </div>
                             <span className="text-white text-[9px] font-black">{(likedPosts[post.id] ? (post.likes||0) + 1 : post.likes||0)}</span>
                           </button>
-                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(post.id); let _tmp: any = null; try { _tmp = document.createElement('input'); _tmp.setAttribute('type','text'); _tmp.style.cssText='position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px;border:0;'; document.body.appendChild(_tmp); _tmp.focus(); } catch {} setTimeout(() => { if (commentInputRef.current) commentInputRef.current.focus(); if (_tmp) try { document.body.removeChild(_tmp); } catch {} }, 120); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); setCommentPostId(post.id); let _tmp: any = null; try { _tmp = document.createElement('input'); _tmp.setAttribute('type','text'); _tmp.style.cssText='position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px;border:0;'; document.body.appendChild(_tmp); _tmp.focus(); } catch {} setTimeout(() => { if (commentInputRef.current) commentInputRef.current.focus(); if (_tmp) try { document.body.removeChild(_tmp); } catch {} }, 120); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <MessageSquare size={18} className="text-white"/>
                             </div>
                             <span className="text-white text-[9px] font-black">{formatViews(post.commentCount||0)}</span>
                           </button>
-                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); handleShare(post.text||''); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); handleShare(post.text||''); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <Share2 size={18} className="text-white"/>
                             </div>
                             <span className="text-white text-[9px] font-black">Share</span>
                           </button>
                           {post.uid === user?.uid && (
-                            <button onClick={e => { e.stopPropagation(); e.preventDefault(); handleDeletePost(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <button onClick={e => { e.stopPropagation(); handleDeletePost(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                               <div className="w-10 h-10 rounded-full bg-red-500/30 backdrop-blur-sm flex items-center justify-center">
                                 <Trash2 size={18} className="text-red-400"/>
                               </div>
@@ -6379,26 +6379,26 @@ Tip: Social Hub se copy karo 📤`,
                         )}
                         {/* Right actions — hide for Unsplash items, with gift icon */}
                         {!post.isUnsplash && (
-                          <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-20">
-                            <button onClick={e => { e.stopPropagation(); e.preventDefault(); handleLike(post.id, post.isVideo); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-[110]">
+                            <button onClick={e => { e.stopPropagation(); handleLike(post.id, post.isVideo); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                               <div className={`w-10 h-10 rounded-full flex items-center justify-center ${likedPosts[post.id] ? 'bg-red-500/30' : 'bg-black/40 backdrop-blur-sm'}`}>
                                 <Heart size={18} className={likedPosts[post.id] ? 'text-red-400 fill-red-400' : 'text-white'}/>
                               </div>
                               <span className="text-white text-[9px] font-black">{formatViews((likedPosts[post.id] ? (post.likes||0) + 1 : post.likes||0))}</span>
                             </button>
-                            <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(post.id); let _tmp: any = null; try { _tmp = document.createElement('input'); _tmp.setAttribute('type','text'); _tmp.style.cssText='position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px;border:0;'; document.body.appendChild(_tmp); _tmp.focus(); } catch {} setTimeout(() => { if (commentInputRef.current) commentInputRef.current.focus(); if (_tmp) try { document.body.removeChild(_tmp); } catch {} }, 120); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <button onClick={e => { e.stopPropagation(); setCommentPostId(post.id); let _tmp: any = null; try { _tmp = document.createElement('input'); _tmp.setAttribute('type','text'); _tmp.style.cssText='position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px;border:0;'; document.body.appendChild(_tmp); _tmp.focus(); } catch {} setTimeout(() => { if (commentInputRef.current) commentInputRef.current.focus(); if (_tmp) try { document.body.removeChild(_tmp); } catch {} }, 120); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                               <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                                 <MessageSquare size={18} className="text-white"/>
                               </div>
                               <span className="text-white text-[9px] font-black">{formatViews(post.views||0)}</span>
                             </button>
-                            <button onClick={e => { e.stopPropagation(); e.preventDefault(); handleShare(post.text||''); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <button onClick={e => { e.stopPropagation(); handleShare(post.text||''); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                               <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                                 <Share2 size={18} className="text-white"/>
                               </div>
                               <span className="text-white text-[9px] font-black">Share</span>
                             </button>
-                            <button onClick={e => { e.stopPropagation(); e.preventDefault(); setPulseGiftPostId(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <button onClick={e => { e.stopPropagation(); setPulseGiftPostId(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                               <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                                 <Bookmark size={18} className="text-white"/>
                               </div>
@@ -6436,11 +6436,11 @@ Tip: Social Hub se copy karo 📤`,
                           {/* Action buttons — Tip AJ Coins + Share to WhatsApp */}
                           {!post.isUnsplash && (
                             <div className="flex items-center gap-2">
-                              <button onClick={e => { e.stopPropagation(); e.preventDefault(); setPulseGiftPostId(post.id); }} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all" style={{ background: 'linear-gradient(135deg,#f59e0b,#d97706)', boxShadow: '0 0 14px rgba(245,158,11,0.3)' }}>
+                              <button onClick={e => { e.stopPropagation(); setPulseGiftPostId(post.id); }} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all" style={{ background: 'linear-gradient(135deg,#f59e0b,#d97706)', boxShadow: '0 0 14px rgba(245,158,11,0.3)' }}>
                                 <span className="text-sm">🪙</span>
                                 <span className="text-white">Tip AJ Coins</span>
                               </button>
-                              <button onClick={e => { e.stopPropagation(); e.preventDefault(); handleShare(post.text||''); }} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all bg-green-600/20 border border-green-500/30" style={{ boxShadow: '0 0 14px rgba(34,197,94,0.2)' }}>
+                              <button onClick={e => { e.stopPropagation(); handleShare(post.text||''); }} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all bg-green-600/20 border border-green-500/30" style={{ boxShadow: '0 0 14px rgba(34,197,94,0.2)' }}>
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" className="text-green-400"><path d="M17.6 6.3A7.8 7.8 0 0 0 12 4a7.9 7.9 0 0 0-7.9 7.9c0 1.4.4 2.7 1 3.9L4 20l4.3-1.1c1.1.6 2.4.9 3.7.9A7.9 7.9 0 0 0 20 11.9c0-2.1-.8-4.1-2.4-5.6zM12 18.5c-1.2 0-2.3-.3-3.3-.9l-.2-.1-2.6.7.7-2.5-.2-.2a6.5 6.5 0 0 1-1-3.5 6.6 6.6 0 0 1 6.6-6.6 6.6 6.6 0 0 1 6.6 6.6 6.6 6.6 0 0 1-6.6 6.5z"/></svg>
                                 <span className="text-green-400">WhatsApp</span>
                               </button>
@@ -6566,8 +6566,8 @@ Tip: Social Hub se copy karo 📤`,
 
               {/* Pulse Gift Panel */}
               {pulseGiftPostId && (
-                <div className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end">
-                  <div className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl p-6">
+                <div className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end" onClick={() => setPulseGiftPostId(null)}>
+                  <div className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl p-6" onClick={e => e.stopPropagation()}>
                     <div className="flex items-center justify-between mb-4">
                       <p className="text-sm font-black text-white">Send a Gift 🎁</p>
                       <button onClick={() => setPulseGiftPostId(null)}><X size={18} className="text-gray-400"/></button>
@@ -6812,8 +6812,8 @@ Tip: Social Hub se copy karo 📤`,
               </div>
               {/* Live Gift Panel Modal (Host) */}
               {liveGiftPanelOpen && (
-                <div className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end">
-                  <div className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl p-6">
+                <div className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end" onClick={() => setLiveGiftPanelOpen(false)}>
+                  <div className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl p-6" onClick={e => e.stopPropagation()}>
                     <div className="flex items-center justify-between mb-4">
                       <p className="text-sm font-black text-white">Send a Gift to Yourself 🎁</p>
                       <button onClick={() => setLiveGiftPanelOpen(false)}><X size={18} className="text-gray-400"/></button>
@@ -6971,8 +6971,8 @@ Tip: Social Hub se copy karo 📤`,
                 </div>
                 {/* Viewer Gift Panel */}
                 {liveGiftPanelOpen && viewerRoom && (
-                  <div className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end">
-                    <div className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl p-6">
+                  <div className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end" onClick={() => setLiveGiftPanelOpen(false)}>
+                    <div className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl p-6" onClick={e => e.stopPropagation()}>
                       <div className="flex items-center justify-between mb-4">
                         <p className="text-sm font-black text-white">Send Gift to @{viewerRoom.username} 🎁</p>
                         <button onClick={() => setLiveGiftPanelOpen(false)}><X size={18} className="text-gray-400"/></button>
