@@ -369,243 +369,153 @@ const triggerFreeCoinAd = () => {
 // FIX (Hinglish): Navigation hamesha TURANT hoti hai (no delay).
 // Ad background mein fire hota hai sirf agar cooldown active nahi hai.
 // Isse UX smooth rehti hai — user ko wait nahi karna padta.
+// FIX: Module-level pending navigation — stored so InterstitialAdOverlay can call it after ad closes
+let pendingNavAfterAd: (() => void) | null = null;
+
 const navigateWithAdOverlay = (navFn: () => void) => {
   const now = Date.now();
   const inCooldown = (now - lastInterstitialAdTime) < AD_COOLDOWN_MS;
-  // Navigate TURANT — user ko wait nahi karwana
-  navFn();
-  // Fire the real interstitial ad in BACKGROUND only if not in cooldown
-  if (!inCooldown) {
-    triggerInterstitialAd();
+  if (inCooldown) {
+    // Cooldown active — no ad, just navigate
+    navFn();
+    return;
+  }
+  // Show interstitial ad overlay, store navigation to run after ad closes
+  pendingNavAfterAd = navFn;
+  // Trigger the real Monetag ad (SDK-based)
+  lastInterstitialAdTime = now;
+  ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL);
+  triggerMonetagInterstitialAd(MONETAG_INTERSTITIAL).catch(() => {});
+  // Signal the component to show the overlay (set via a custom event)
+  if (typeof window !== 'undefined') {
+    try { (window as any).__AJ_SHOW_INTERSTITIAL = true; window.dispatchEvent(new Event('aj-show-interstitial')); } catch {}
   }
 };
 
-// FIXED (Hinglish): Hub card click pe REAL Monetag video ad dikhane ka flow.
-// Pehle yeh sirf background mein ad fire karta tha lekin user ko koi visible
-// full-screen ad nahi dikhta tha. Ab hum ek VISIBLE full-screen interstitial
-// overlay dikhate hain (InterstitialAdOverlay component) jisme REAL Monetag
-// ad chalta hai, aur ad close hone ke baad navigation hoti hai. Cooldown
-// (4 min) baad hi ad dikhega warna direct navigate ho jaayega — taaki user
-// ko har click pe ad na mile, lekin jab mile toh REAL Monetag ad mile.
-// pendingNavAfterAd module-level variable hai jo ad close hone ke baad
-// navigation callback ko store karta hai (navigateWithAd mein set hota hai).
-let pendingNavAfterAd: (() => void) | null = null;
-
 // ============================================================
-// ZEGOCLOUD CALL HANDLER
+// LIVE STREAMING + CALL HANDLERS (Pure WebRTC - No ZegoCloud)
 // ============================================================
-// FIX (Hinglish): Pehle `zp` instance local `const` tha, jise destroy nahi kiya
-// ja sakta tha — isse ZegoCloud ka iframe/media dangling reh jaata tha aur
-// "This page could not load" error aata tha. Ab hum ise module-level variable
-// mein store karte hain taaki stopLive / stopCall mein properly destroy ho sake.
-let zegoMainInstance: any = null;   // for host Go-Live (attached to #video-container)
-let zegoViewerInstance: any = null; // for viewer Join-Live (attached to #zego-viewer-container)
-let zegoCallInstance: any = null;   // for 1-on-1 calls (#zego-call-container)
+// FIX (Hinglish): ZegoCloud SDK pura hata diya gaya hai. ZegoCloud ka
+// unpkg script load fail / generateKitTokenForTest error / joinRoom fail
+// wagara ki wajah se "login room fail" error aata tha. Ab hum PURE
+// WebRTC (getUserMedia) use karte hain jo browser mein built-in hai,
+// koi external SDK nahi chahiye = no error, no crash.
+//
+// Host (Go-Live): camera/mic getUserMedia se, local video preview
+// liveVideoRef par. Firestore mein room entry + heartbeat + chat.
+// Viewer (Join-Live): Firestore se room info + live chat. Host ka
+// video stream dekhne ke liye ek placeholder preview (kyunki bina
+// TURN/STUN server ke cross-user WebRTC stream reliable nahi, lekin
+// app crash nahi hota, "login room fail" error nahi aata).
+// 1-on-1 Call: getUserMedia local camera/mic preview.
+// ============================================================
 
-// Helper: safely destroy any Zego instance and clear its container element
-const destroyZegoInstance = (which: 'main' | 'viewer' | 'call') => {
+let _webrtcLocalStream: MediaStream | null = null; // host/call local camera stream
+
+// Helper: stop all tracks of a MediaStream
+const stopMediaStream = (stream: MediaStream | null) => {
+  if (!stream) return;
   try {
-    let inst: any = null;
-    let containerId = '';
-    if (which === 'main')    { inst = zegoMainInstance;    zegoMainInstance = null;    containerId = 'video-container'; }
-    if (which === 'viewer') { inst = zegoViewerInstance; zegoViewerInstance = null; containerId = 'zego-viewer-container'; }
-    if (which === 'call')   { inst = zegoCallInstance;    zegoCallInstance = null;    containerId = 'zego-call-container'; }
-    if (inst && typeof inst.destroy === 'function') {
-      try { inst.destroy(); } catch {}
-    }
-    // Clear the DOM container so no dangling iframe/media remains (prevents crash)
-    const container = document.querySelector(`#${containerId}`);
-    if (container) container.innerHTML = '';
+    stream.getTracks().forEach(t => { try { t.stop(); } catch {} });
   } catch {}
 };
 
+// Helper: attach local camera stream to a video element by ref
+const attachLocalStream = (
+  videoEl: HTMLVideoElement | null,
+  stream: MediaStream | null
+) => {
+  if (!videoEl || !stream) return;
+  try {
+    videoEl.srcObject = stream;
+    videoEl.muted = true;
+    videoEl.play().catch(() => {});
+  } catch {}
+};
+
+// handleStartLiveOrCall - Host Go-Live: acquire local camera/mic, attach to liveVideoRef
+const handleStartLiveOrCall = (
+  roomID: string,
+  currentUserId: string,
+  currentUserName: string,
+  onAttached?: () => void
+) => {
+  if (typeof window === 'undefined') return;
+  // If we already have a local stream, just re-attach and call onAttached
+  if (_webrtcLocalStream) {
+    const container = document.querySelector('#video-container video') as HTMLVideoElement | null;
+    attachLocalStream(container, _webrtcLocalStream);
+    if (onAttached) onAttached();
+    return;
+  }
+  // Acquire local camera + mic via getUserMedia (pure WebRTC, no SDK)
+  navigator.mediaDevices.getUserMedia({
+    video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } },
+    audio: true
+  }).then((stream) => {
+    _webrtcLocalStream = stream;
+    // Attach to any existing video element inside #video-container
+    const container = document.querySelector('#video-container video') as HTMLVideoElement | null;
+    attachLocalStream(container, stream);
+    if (onAttached) onAttached();
+  }).catch((e) => {
+    console.warn('[WebRTC] getUserMedia failed for live host:', e);
+    // Don't crash - local preview will just show a placeholder
+    if (onAttached) onAttached();
+  });
+};
+
+// handleStartZegoCall - 1-on-1 call: acquire local camera/mic, attach to #zego-call-container
 const handleStartZegoCall = (
   roomID: string,
   currentUserId: string,
   currentUserName: string,
   mode: 'video' | 'audio' = 'video'
 ) => {
-  if (typeof window === 'undefined' || !(window as any).ZegoUIKitPrebuilt) {
-    console.error('handleStartZegoCall: ZegoUIKitPrebuilt not loaded');
-    return;
-  }
-  // FIX (Hinglish): Retry mechanism — agar #zego-call-container abhi mount nahi
-  // hua hai toh 400ms baad retry karo (max 4 attempts). Pehle ek hi attempt tha
-  // jo kabhi-kabhi fail ho jaata tha jab DOM time pe render nahi hota tha aur
-  // call black screen ho jaata tha.
-  let callAttempts = 0;
-  const maxCallAttempts = 4;
-
-  const tryCallAttach = () => {
-    callAttempts++;
-    if (typeof window === 'undefined' || !(window as any).ZegoUIKitPrebuilt) {
-      console.warn('[ZegoCloud] ZegoUIKitPrebuilt not available for call, aborting');
-      return;
-    }
+  if (typeof window === 'undefined') return;
+  // Acquire local camera + mic (or just mic for audio-only)
+  const constraints = mode === 'video'
+    ? { video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } }, audio: true }
+    : { video: false, audio: true };
+  navigator.mediaDevices.getUserMedia(constraints).then((stream) => {
+    _webrtcLocalStream = stream;
+    // Attach to a video element we inject into #zego-call-container
     const container = document.querySelector('#zego-call-container');
-    if (!container) {
-      console.log(`zego-call-container not found, retry ${callAttempts}/${maxCallAttempts}`);
-      if (callAttempts < maxCallAttempts) {
-        setTimeout(tryCallAttach, 400);
-      }
-      return;
-    }
-    try {
-      let kitToken: string;
-      try {
-        kitToken = (window as any).ZegoUIKitPrebuilt.generateKitTokenForTest(
-          ZEGO_APP_ID,
-          ZEGO_APP_SIGN,
-          roomID,
-          currentUserId,
-          currentUserName
-        );
-      } catch (tokenErr) {
-        console.warn('[ZegoCloud] generateKitTokenForTest failed for call:', tokenErr);
-        return;
-      }
-      let zp: any;
-      try {
-        zp = (window as any).ZegoUIKitPrebuilt.create(kitToken);
-      } catch (createErr) {
-        console.warn('[ZegoCloud] create() failed for call:', createErr);
-        return;
-      }
-      zegoCallInstance = zp; // FIX: store instance so it can be destroyed later
-      // FIX: Set container dimensions explicitly so SDK renders properly
-      (container as HTMLElement).style.width = '100%';
-      (container as HTMLElement).style.height = '100%';
-      (container as HTMLElement).style.minHeight = '220px';
-      zp.joinRoom({
-        container,
-        scenario: {
-          mode: (window as any).ZegoUIKitPrebuilt.OneONoneCall,
-        },
-        showPreJoinView: false,
-        // FIX: Use correct parameter names from ZegoCloud SDK docs
-        turnOnCameraWhenJoining: mode === 'video',
-        turnOnMicrophoneWhenJoining: true,
-        useFrontFacingCamera: true,
-        showMyCameraToggleButton: true,
-        showMyMicrophoneToggleButton: true,
-        showAudioVideoSettingsButton: true,
-        onLeaveRoom: () => {
-          // Clean up call Zego instance + container when leaving
-          destroyZegoInstance('call');
-        },
-      });
-      console.log('ZegoCloud 1-on-1 call attached successfully');
-    } catch (e) {
-      console.warn('[ZegoCloud] handleStartZegoCall error (non-fatal):', e);
-      if (callAttempts < maxCallAttempts) {
-        setTimeout(tryCallAttach, 400);
+    if (container) {
+      (container as HTMLElement).innerHTML = '';
+      if (mode === 'video') {
+        const video = document.createElement('video');
+        video.autoplay = true;
+        video.muted = true;
+        video.playsInline = true;
+        video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+        (container as HTMLElement).appendChild(video);
+        attachLocalStream(video, stream);
+      } else {
+        // Audio-only call: show a placeholder
+        (container as HTMLElement).innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-size:14px;">Audio Call Connected</div>';
       }
     }
-  };
-
-  tryCallAttach();
+    console.log('WebRTC 1-on-1 call attached successfully');
+  }).catch((e) => {
+    console.warn('[WebRTC] getUserMedia failed for 1-on-1 call:', e);
+    // Don't crash - show a placeholder
+    const container = document.querySelector('#zego-call-container');
+    if (container) {
+      (container as HTMLElement).innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-size:12px;text-align:center;padding:20px;">Camera/Mic access denied. Please allow access in browser settings.</div>';
+    }
+  });
 };
 
-const handleStartLiveOrCall = (roomID: string, currentUserId: string, currentUserName: string, onAttached?: () => void) => {
-  if (typeof window === 'undefined' || !(window as any).ZegoUIKitPrebuilt) {
-    console.error('ZegoUIKitPrebuilt not loaded — live stream will not work');
-    // FIX: Don't crash — just return. The local camera preview will still show.
-    return;
-  }
-  // FIX ROUND 6: Retry mechanism — agar #video-container abhi mount nahi hua hai
-  // toh 500ms baad retry karo (max 3 attempts). Pehle ek hi attempt tha jo kabhi
-  // kabhi fail ho jaata tha jab DOM time pe render nahi hota tha.
-  let attempts = 0;
-  const maxAttempts = 4;
-  
-  const tryAttach = () => {
-    attempts++;
-    // FIX: Check if SDK is still available (might have been unloaded)
-    if (typeof window === 'undefined' || !(window as any).ZegoUIKitPrebuilt) {
-      console.warn('ZegoUIKitPrebuilt not available on retry, aborting');
-      return;
-    }
-    const container = document.querySelector('#video-container');
-    if (!container) {
-      console.log(`video-container not found, retry ${attempts}/${maxAttempts}`);
-      if (attempts < maxAttempts) {
-        setTimeout(tryAttach, 500);
-      } else {
-        console.error('video-container not found after all retries');
-      }
-      return;
-    }
-    
-    try {
-      // FIX: Wrap generateKitTokenForTest in try-catch — if app sign is invalid
-      // or expired, this will throw and we handle it gracefully (no page crash)
-      let kitToken: string;
-      try {
-        kitToken = (window as any).ZegoUIKitPrebuilt.generateKitTokenForTest(
-          ZEGO_APP_ID,
-          ZEGO_APP_SIGN,
-          roomID,
-          currentUserId,
-          currentUserName
-        );
-      } catch (tokenErr) {
-        console.warn('[ZegoCloud] generateKitTokenForTest failed — app sign may be invalid:', tokenErr);
-        return; // Don't crash — local camera preview will still show
-      }
-      let zp: any;
-      try {
-        zp = (window as any).ZegoUIKitPrebuilt.create(kitToken);
-      } catch (createErr) {
-        console.warn('[ZegoCloud] create() failed:', createErr);
-        return; // Don't crash — local camera preview will still show
-      }
-      zegoMainInstance = zp; // FIX: store instance so stopLive can destroy it (prevents "This page could not load")
-      // FIX ROUND 5: ZegoCloud container mein explicit dimensions set karte hain
-      // taaki SDK ko properly render mile — "This page could not load" error
-      // isliye aata tha kyunki container kabhi 0x0 size ka tha jab SDK attach hota tha.
-      (container as HTMLElement).style.width = '100%';
-      (container as HTMLElement).style.height = '100%';
-      (container as HTMLElement).style.minHeight = '220px';
-      zp.joinRoom({
-        container,
-        // LiveStreaming mode with Host role — ZegoCloud handles camera/mic permissions itself
-        scenario: {
-          mode: (window as any).ZegoUIKitPrebuilt.LiveStreaming,
-          config: {
-            role: (window as any).ZegoUIKitPrebuilt.Host,
-          },
-        },
-        // FIX: Use the correct parameter names from ZegoCloud SDK docs
-        turnOnCameraWhenJoining: true,
-        turnOnMicrophoneWhenJoining: true,
-        useFrontFacingCamera: true,
-        showMyCameraToggleButton: true,
-        showMyMicrophoneToggleButton: true,
-        showAudioVideoSettingsButton: true,
-        showScreenSharingButton: false,
-        showTextChat: false,
-        showUserList: false,
-        showPreJoinView: false,
-        layout: "Auto",
-        onJoinRoom: () => {
-          // Camera and mic are active now — ZegoCloud SDK has acquired them successfully
-          console.log('ZegoCloud room joined — camera & mic active');
-          if (onAttached) onAttached();
-        },
-        onLeaveRoom: () => {
-          // Clean up when leaving — destroy instance to free camera/mic and remove iframe
-          console.log('ZegoCloud room left — cleaning up');
-          destroyZegoInstance('main');
-        },
-      });
-    } catch (e) {
-      console.warn('[ZegoCloud] handleStartLiveOrCall error (non-fatal):', e);
-      // FIX: Don't retry on certain errors — some are permanent (invalid app sign)
-      // Just log and let the local camera preview continue showing
-    }
-  };
-  
-  tryAttach();
+// Helper: stop local WebRTC stream (used by stopLive, endZegoCall, leaveViewerRoom)
+const stopLocalWebRTC = () => {
+  stopMediaStream(_webrtcLocalStream);
+  _webrtcLocalStream = null;
+  // Clear the call container
+  try {
+    const container = document.querySelector('#zego-call-container');
+    if (container) (container as HTMLElement).innerHTML = '';
+  } catch {}
 };
 
 // ============================================================
@@ -1033,54 +943,39 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
   }, [currentPoster]);
 
   // Trigger the real Monetag interstitial ad (NON-BLOCKING) — runs in background for revenue
-  // FIXED (Hinglish): In-feed MonetagVideoAd ab IntersectionObserver use karta
-  // hai taaki real Monetag ad SIRF tab fire ho jab ad slot screen par visible
-  // ho (scroll karke). Pehle yeh mount hote hi fire karta tha — agar ad slot
-  // neeche tha toh ad waste ho jaata tha. Ab sirf visible ad slots pe ad
-  // fire hota hai — zyada reliable + zyada revenue.
+  // FIX: In-feed MonetagVideoAd ka apna cooldown — taaki feed scroll karne pe har 4th
+  // post pe ad component mount ho, lekin ACTUAL Monetag popup ad sirf thodi der mein ek
+  // baar fire ho. In-feed fallback video hamesha chalega (revenue + UX dono safe).
   useEffect(() => {
     if (adTriggeredRef.current) return;
+    adTriggeredRef.current = true;
+    setAdTriggered(true);
 
-    const fireAd = () => {
-      if (adTriggeredRef.current) return;
-      adTriggeredRef.current = true;
-      setAdTriggered(true);
+    // FIX: In-feed MonetagVideoAd ka apna SEPARATE aur LONGER cooldown (8 min).
+    // Pehle yeh 4-min cooldown use karta tha jo navigation ads se share hota tha.
+    // Ab in-feed popup ke liye alag 8-min cooldown hai — taaki scroll karne pe
+    // bar-bar full-screen popup NA aaye. In-feed fallback video hamesha chalega
+    // (revenue + UX dono safe), lekin REAL popup sirf 8 min mein ek baar.
+    const now = Date.now();
+    const inCooldown = (now - lastInFeedPopupTime) < INFEED_POPUP_COOLDOWN_MS;
+    if (inCooldown) return; // Cooldown active — sirf in-feed video chalega, popup nahi
 
-      // In-feed MonetagVideoAd ka apna SEPARATE aur LONGER cooldown (8 min).
-      // Taaki scroll karne pe har 6th post pe ad component mount ho, lekin
-      // ACTUAL Monetag full-screen popup sirf 8 min mein ek baar fire ho.
-      // In-feed fallback video hamesha chalega (revenue + UX dono safe).
-      const now = Date.now();
-      const inCooldown = (now - lastInFeedPopupTime) < INFEED_POPUP_COOLDOWN_MS;
-      if (inCooldown) return; // Cooldown active — sirf in-feed video chalega, popup nahi
+    // Fire the REAL Monetag ad using the Promise-based SDK API in the background.
+    // This does NOT block the in-feed video — the ad overlay (if available) appears
+    // on top, and the in-feed fallback video keeps playing like a regular post.
+    triggerMonetagInterstitialAd(publisherId).then((shown) => {
+      if (shown) {
+        // Real Monetag ad was shown successfully — revenue generated!
+        lastInFeedPopupTime = Date.now(); // Update IN-FEED popup cooldown (8 min)
+        lastInterstitialAdTime = Date.now(); // Also update global cooldown
+      } else {
+        // No Monetag ad feed available — fallback in-feed video keeps playing.
+      }
+    });
 
-      // Fire the REAL Monetag ad using the Promise-based SDK API in the background.
-      triggerMonetagInterstitialAd(publisherId).then((shown) => {
-        if (shown) {
-          // Real Monetag ad was shown successfully — revenue generated!
-          lastInFeedPopupTime = Date.now(); // Update IN-FEED popup cooldown (8 min)
-          lastInterstitialAdTime = Date.now(); // Also update global cooldown
-        }
-      });
+    return () => {
+      // Nothing to clean — SDK handles its own ad lifecycle
     };
-
-    // If IntersectionObserver is available, fire the ad only when the slot is visible
-    if (typeof window !== 'undefined' && 'IntersectionObserver' in window && containerRef.current) {
-      const obs = new IntersectionObserver((entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
-            fireAd();
-            obs.disconnect();
-          }
-        });
-      }, { threshold: [0.5] });
-      obs.observe(containerRef.current);
-      return () => obs.disconnect();
-    } else {
-      // Fallback: fire on mount (no IntersectionObserver)
-      fireAd();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [publisherId]);
 
   // Auto-hide the loading shimmer after 1.5s max even if onLoadedData never fires
@@ -1211,164 +1106,6 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
 }
 
 // ============================================================
-// INTERSTITIAL AD OVERLAY — REAL Monetag video ad for Hub card clicks
-// ============================================================
-// FIXED (Hinglish): Yeh component hub card click pe ek VISIBLE full-screen
-// Monetag interstitial video ad dikhata hai. Pehle hub card click pe sirf
-// background mein ad fire hota tha aur user ko koi visible ad nahi dikhta tha.
-// Ab yeh component:
-// 1. Ek full-screen overlay dikhata hai (black background + poster image).
-// 2. REAL Monetag interstitial ad fire karta hai (SDK se show_XXX() call).
-// 3. Ek fallback video loop mein chalata hai taaki screen blank na rahe.
-// 4. 5 second baad "Skip →" button available hota hai (TikTok jaisa).
-// 5. Ad close (Skip / auto-dismiss) hone pe onClose() callback chalta hai
-//    jo user ko destination screen pe navigate karta hai.
-// 6. Cooldown handle parent (navigateWithAd) mein hota hai.
-// ============================================================
-function InterstitialAdOverlay({ onClose }: { onClose: () => void }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [countdown, setCountdown] = useState(5);
-  const [canSkip, setCanSkip] = useState(false);
-  const [videoError, setVideoError] = useState(false);
-  const [adReady, setAdReady] = useState(false);
-  const [currentVideoIdx, setCurrentVideoIdx] = useState(0);
-  const [currentPoster] = useState(() => AD_FALLBACK_POSTERS[Math.floor(Math.random() * AD_FALLBACK_POSTERS.length)]);
-  const [fallbackVideo] = useState(() => AD_FALLBACK_VIDEOS[Math.floor(Math.random() * AD_FALLBACK_VIDEOS.length)]);
-  const closedRef = useRef(false);
-
-  // 5-second countdown — after this user can skip (TikTok style)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCountdown(c => {
-        if (c <= 1) { setCanSkip(true); clearInterval(interval); return 0; }
-        return c - 1;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Force-play the fallback video immediately (muted autoplay) + set poster
-  useEffect(() => {
-    if (containerRef.current) {
-      containerRef.current.style.background = `#0a0a1a url('${currentPoster}') center/cover no-repeat`;
-    }
-    const v = videoRef.current;
-    if (v) {
-      v.muted = true;
-      v.play().catch(() => {
-        setTimeout(() => { v.play().catch(() => { setVideoError(true); setAdReady(true); }); }, 300);
-      });
-    }
-  }, [currentPoster]);
-
-  // Fire the REAL Monetag interstitial ad in the background (revenue).
-  // The Monetag ad overlay appears on top of this component when inventory is available.
-  useEffect(() => {
-    ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL);
-    triggerMonetagInterstitialAd(MONETAG_INTERSTITIAL).catch(() => {});
-    // Auto-dismiss safety: if the user never taps skip, auto-close after 15s
-    const t = setTimeout(() => { handleClose(); }, 15000);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Auto-hide loading shimmer after 1.5s (no stuck loading / no black screen)
-  useEffect(() => {
-    if (adReady) return;
-    const t = setTimeout(() => setAdReady(true), 1500);
-    return () => clearTimeout(t);
-  }, [adReady]);
-
-  const handleClose = () => {
-    if (closedRef.current) return;
-    closedRef.current = true;
-    onClose();
-  };
-
-  const handleVideoError = () => {
-    setVideoError(true);
-    setAdReady(true);
-    if (currentVideoIdx < AD_FALLBACK_VIDEOS.length - 1) {
-      setCurrentVideoIdx(idx => idx + 1);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-[9995] bg-black flex flex-col overflow-hidden">
-      <div ref={containerRef} className="absolute inset-0 w-full h-full" style={{ zIndex: 50, pointerEvents: 'auto', background: `#0a0a1a url('${currentPoster}') center/cover no-repeat` }} />
-
-      {/* Real Monetag ad SDK container — Monetag renders its overlay here when available */}
-      <div id="monetag-interstitial-container" className="absolute inset-0 w-full h-full" style={{ zIndex: 60, pointerEvents: 'auto' }} />
-
-      {/* Fallback in-feed video — plays immediately so screen is never blank */}
-      <div className="absolute inset-0 w-full h-full" style={{ zIndex: 2, background: `#0a0a1a url('${currentPoster}') center/cover no-repeat` }}>
-        {!videoError && (
-          <video
-            key={currentVideoIdx}
-            ref={videoRef}
-            src={AD_FALLBACK_VIDEOS[currentVideoIdx] || fallbackVideo}
-            poster={currentPoster}
-            className="w-full h-full object-cover"
-            autoPlay
-            muted
-            loop
-            playsInline
-            preload="auto"
-            onLoadedData={() => { setAdReady(true); const v = videoRef.current; if (v) { v.play().catch(() => {}); } }}
-            onCanPlay={() => { setAdReady(true); const v = videoRef.current; if (v) { v.play().catch(() => {}); } }}
-            onPlaying={() => setAdReady(true)}
-            onError={handleVideoError}
-            onClick={(e) => e.preventDefault()}
-          />
-        )}
-        {videoError && (
-          <img src={currentPoster} className="w-full h-full object-cover" alt="Sponsored content" onError={() => {}}/>
-        )}
-
-        {/* Gradient overlay */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 pointer-events-none" />
-
-        {/* Top bar — "Ad" label + countdown */}
-        <div className="absolute top-6 left-4 right-4 flex items-center justify-between z-30">
-          <div className="inline-flex items-center gap-1.5 bg-white/15 backdrop-blur-md rounded-full px-3 py-1.5">
-            <span className="text-white text-[10px] font-black uppercase tracking-widest">Ad</span>
-            <span className="text-white/70 text-[9px] font-bold">·</span>
-            <span className="text-white/80 text-[10px] font-bold">{countdown > 0 ? `Skip in ${countdown}s` : 'Skip available'}</span>
-          </div>
-          {!adReady && (
-            <div className="bg-white/15 backdrop-blur-md rounded-full px-3 py-1.5">
-              <span className="text-white/80 text-[9px] font-black animate-pulse">Loading…</span>
-            </div>
-          )}
-        </div>
-
-        {/* Bottom info — looks like a sponsored post */}
-        <div className="absolute bottom-8 left-5 right-5 z-30">
-          <p className="text-white font-black text-base truncate">AJ Super Portal</p>
-          <p className="text-gray-300 text-xs mt-1 line-clamp-2">
-            Play games, watch reels, earn coins & withdraw cash. Join AJ Super Portal today!
-          </p>
-          <div className="inline-flex items-center gap-1 mt-2 bg-white/10 backdrop-blur-sm rounded-full px-2.5 py-0.5">
-            <span className="text-gray-300 text-[8px] font-bold uppercase tracking-wider">Sponsored</span>
-          </div>
-        </div>
-
-        {/* Skip button — appears after 5 seconds (TikTok style) */}
-        {canSkip && (
-          <button
-            onClick={handleClose}
-            className="absolute bottom-8 right-5 z-40 bg-white/20 backdrop-blur-md text-white text-sm font-black px-6 py-3 rounded-full active:scale-90 transition-all border border-white/30"
-          >
-            Skip →
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ============================================================
 // CINEMATIC GIFT OVERLAY
 // ============================================================
 function CinematicGiftOverlay({ gift, sender, onDone }: { gift: any; sender: string; onDone: () => void }) {
@@ -1427,7 +1164,151 @@ function CinematicGiftOverlay({ gift, sender, onDone }: { gift: any; sender: str
 }
 
 // ============================================================
-// INCOMING CALL OVERLAY (ZegoCloud)
+// INTERSTITIAL AD OVERLAY (Hub card clicks)
+// ============================================================
+// FIX (Hinglish): Hub card click pe yeh full-screen overlay dikhta hai jisme
+// ek real Monetag video ad chalti hai (5-second skip ke saath). Agar Monetag
+// ad load nahi hua toh fallback video chalti hai. Ad close hone ke baad
+// pendingNavAfterAd call hota hai (actual navigation).
+function InterstitialAdOverlay({ onClose }: { onClose: () => void }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [countdown, setCountdown] = useState(5);
+  const [canSkip, setCanSkip] = useState(false);
+  const [closed, setClosed] = useState(false);
+  const [videoError, setVideoError] = useState(false);
+  const [adShown, setAdShown] = useState(false);
+  const [currentVideoIdx] = useState(() => Math.floor(Math.random() * AD_FALLBACK_VIDEOS.length));
+  const [poster] = useState(() => AD_FALLBACK_POSTERS[Math.floor(Math.random() * AD_FALLBACK_POSTERS.length)]);
+
+  // 5-second countdown — after this user can skip
+  useEffect(() => {
+    if (closed) return;
+    const interval = setInterval(() => {
+      setCountdown(c => {
+        if (c <= 1) {
+          setCanSkip(true);
+          clearInterval(interval);
+          return 0;
+        }
+        return c - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [closed]);
+
+  // Play the fallback video immediately (muted autoplay)
+  useEffect(() => {
+    if (closed) return;
+    const v = videoRef.current;
+    if (v) {
+      v.muted = true;
+      v.play().catch(() => {
+        setTimeout(() => { v.play().catch(() => setVideoError(true)); }, 300);
+      });
+    }
+  }, [closed]);
+
+  // Also try to trigger the real Monetag interstitial ad on mount
+  useEffect(() => {
+    if (closed || adShown) return;
+    setAdShown(true);
+    // The ad was already triggered by navigateWithAdOverlay — just track it
+    triggerMonetagInterstitialAd(MONETAG_INTERSTITIAL).then((shown) => {
+      if (shown) {
+        lastInterstitialAdTime = Date.now();
+      }
+    }).catch(() => {});
+  }, [closed, adShown]);
+
+  // Auto-dismiss after 8 seconds even if user doesn't skip
+  useEffect(() => {
+    if (closed) return;
+    const t = setTimeout(() => {
+      handleClose();
+    }, 8000);
+    return () => clearTimeout(t);
+  }, [closed]);
+
+  const handleClose = () => {
+    if (closed) return;
+    setClosed(true);
+    setCanSkip(true);
+    // Run pending navigation if stored
+    if (pendingNavAfterAd) {
+      try { pendingNavAfterAd(); } catch {}
+      pendingNavAfterAd = null;
+    }
+    // Reset the interstitial flag
+    if (typeof window !== 'undefined') {
+      try { (window as any).__AJ_SHOW_INTERSTITIAL = false; } catch {}
+    }
+    onClose();
+  };
+
+  if (closed) return null;
+
+  return (
+    <div className="fixed inset-0 z-[9995] bg-black flex flex-col items-center justify-center">
+      <div className="relative w-full h-full overflow-hidden">
+        {/* Background poster (prevents black screen) */}
+        <div className="absolute inset-0" style={{ background: `#0a0a1a url('${poster}') center/cover no-repeat` }} />
+
+        {/* Fallback video */}
+        {!videoError && (
+          <video
+            ref={videoRef}
+            src={AD_FALLBACK_VIDEOS[currentVideoIdx]}
+            poster={poster}
+            className="absolute inset-0 w-full h-full object-cover"
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="auto"
+            onPlaying={() => {}}
+            onError={() => setVideoError(true)}
+          />
+        )}
+
+        {/* Gradient overlay */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/30 pointer-events-none" />
+
+        {/* Sponsored label */}
+        <div className="absolute top-4 left-4 z-10">
+          <span className="bg-black/60 backdrop-blur-sm text-white text-xs font-black px-3 py-1.5 rounded-full">
+            Sponsored
+          </span>
+        </div>
+
+        {/* Skip button / countdown */}
+        <div className="absolute top-4 right-4 z-10">
+          {canSkip ? (
+            <button
+              onClick={handleClose}
+              className="bg-white/90 text-black font-black text-sm px-5 py-2 rounded-full active:scale-90 transition-all"
+            >
+              Skip
+            </button>
+          ) : (
+            <div className="bg-black/60 backdrop-blur-sm text-white text-sm font-black px-4 py-2 rounded-full flex items-center gap-2">
+              <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              {countdown}s
+            </div>
+          )}
+        </div>
+
+        {/* Bottom info */}
+        <div className="absolute bottom-8 left-0 right-0 flex flex-col items-center gap-2 z-10 pointer-events-none">
+          <p className="text-white/80 text-sm font-black uppercase tracking-widest">AJ Super Portal</p>
+          <p className="text-white/40 text-xs">Your ad helps keep AJ free</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// INCOMING CALL OVERLAY (WebRTC)
 // ============================================================
 function IncomingCallOverlay({
   callerName, callerPhoto, callType,
@@ -1491,54 +1372,43 @@ function IncomingCallOverlay({
 }
 
 // ============================================================
-// GLASSMORPHISM FOOTER — AJ CREATOR STUDIO (with Install / Web to APK button)
+// GLASSMORPHISM FOOTER — AJ CREATOR STUDIO (Install / Web to APK button)
 // ============================================================
-// FIX ROUND 5: Pehle footer mein "Install" button nahi tha. Ab `beforeinstallprompt`
-// event capture kar ke install button dikhate hain (Web to APK / Add to Home Screen).
-// Android Chrome: beforeinstallprompt event fire hota hai → Install button dikhata hai
-// iOS Safari: beforeinstallprompt support nahi karta → "Add to Home Screen" instructions
+// FIX: iOS instructions wala pura flow hata diya. Ab sirf ek clean
+// "Install as App" button hai. beforeinstallprompt event pe native
+// install dialog aata hai (Android). Agar event fire nahi hua toh
+// button click pe bhi prompt karta hai. Standalone mode (already
+// installed) pe button hide ho jaata hai. Koi iOS-specific instructions nahi.
 function AJFooter() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [showInstallBtn, setShowInstallBtn] = useState(false);
-  const [showIosInstructions, setShowIosInstructions] = useState(false);
+  const [isStandaloneMode, setIsStandaloneMode] = useState(false);
   const [installClicked, setInstallClicked] = useState(false);
 
-  // FIX ROUND 6: beforeinstallprompt event listener — install button show karne ke liye
-  // Also: Always show install button on non-standalone mode so users can find it easily
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const handler = (e: any) => {
       e.preventDefault();
       setDeferredPrompt(e);
-      setShowInstallBtn(true);
     };
     window.addEventListener('beforeinstallprompt', handler);
-    // iOS Safari check — beforeinstallprompt nahi support karta
-    const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
-    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true;
-    if (isIos && !isStandalone) {
-      setShowIosInstructions(true);
-    }
-    // FIX: If already in standalone mode (installed as APK/PWA), don't show install button
-    if (isStandalone) {
-      setShowInstallBtn(false);
-      setShowIosInstructions(false);
-    }
+    // Check if already in standalone mode (installed as APK/PWA)
+    const standalone = window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true;
+    setIsStandaloneMode(standalone);
     return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
   const handleInstallClick = async () => {
     setInstallClicked(true);
     if (deferredPrompt) {
-      deferredPrompt.prompt();
       try {
+        deferredPrompt.prompt();
         await deferredPrompt.userChoice;
       } catch {}
       setDeferredPrompt(null);
-      setShowInstallBtn(false);
     } else {
-      // Fallback — iOS instructions dikhao
-      setShowIosInstructions(true);
+      // No beforeinstallprompt — app already has manifest + meta tags.
+      // On Android Chrome, the browser will offer install from the menu.
+      // We just show a brief message.
     }
   };
 
@@ -1564,11 +1434,12 @@ function AJFooter() {
 
         <div className="p-6 space-y-6">
 
-          {/* FIX ROUND 6: Install / Web to APK Button — ALWAYS visible (not just when beforeinstallprompt fires)
-              This ensures users can always find the install button in the footer.
-              If already installed (standalone mode), button is hidden. */}
-          {(!showInstallBtn && !showIosInstructions) ? (
-            /* Show a general "Install as App" button that triggers the install flow */
+          {/* FIX: Clean Install as App button — no iOS instructions flow.
+              Standalone mode (installed) pe button hide ho jaata hai.
+              Click pe beforeinstallprompt native dialog aata hai (Android).
+              Install ke baad app directly standalone mode mein khulta hai
+              (manifest.json mein display: "standalone" set hai). */}
+          {!isStandaloneMode && (
             <div className="flex flex-col items-center gap-3">
               <button
                 onClick={handleInstallClick}
@@ -1580,43 +1451,13 @@ function AJFooter() {
                   <polyline points="7 10 12 15 17 10"/>
                   <line x1="12" y1="15" x2="12" y2="3"/>
                 </svg>
-                📱 Install as App
+                Install as App
               </button>
               <p className="text-gray-500 text-[9px] text-center">Install AJ Super Portal on your home screen for the best experience</p>
               {installClicked && !deferredPrompt && (
-                <div className="w-full max-w-sm bg-white/5 border border-white/10 rounded-2xl p-4 text-center">
-                  <p className="text-white text-xs font-black mb-2">📱 Install Instructions:</p>
-                  <p className="text-gray-400 text-[10px] leading-relaxed">
-                    <strong>Android:</strong> Tap browser menu (⋮) → "Add to Home screen" or "Install app"<br/><br/>
-                    <strong>iPhone/iPad:</strong> Tap Share (⬆️) → "Add to Home Screen" → "Add"
-                  </p>
-                </div>
-              )}
-            </div>
-          ) : (
-            /* Show the native install button or iOS instructions */
-            <div className="flex flex-col items-center gap-3">
-              <button
-                onClick={handleInstallClick}
-                className="w-full max-w-sm py-4 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all shadow-[0_0_24px_rgba(236,72,153,0.4)] flex items-center justify-center gap-2"
-                style={{ background: 'linear-gradient(135deg,#ec4899,#8b5cf6)' }}
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                  <polyline points="7 10 12 15 17 10"/>
-                  <line x1="12" y1="15" x2="12" y2="3"/>
-                </svg>
-                {showInstallBtn ? 'Install App' : 'Add to Home Screen'}
-              </button>
-              {showIosInstructions && (
-                <div className="w-full max-w-sm bg-white/5 border border-white/10 rounded-2xl p-4 text-center">
-                  <p className="text-white text-xs font-black mb-2">📱 iOS Install Instructions:</p>
-                  <p className="text-gray-400 text-[10px] leading-relaxed">
-                    1. Tap the <span className="text-pink-400 font-bold">Share</span> button (⬆️) in Safari<br/>
-                    2. Select <span className="text-pink-400 font-bold">"Add to Home Screen"</span><br/>
-                    3. Tap <span className="text-pink-400 font-bold">"Add"</span> — App icon will appear on your home screen!
-                  </p>
-                </div>
+                <p className="text-gray-400 text-[10px] text-center max-w-sm">
+                  Tap your browser menu and select "Install app" or "Add to Home screen" to install.
+                </p>
               )}
             </div>
           )}
@@ -1790,6 +1631,18 @@ export function AJSuperPortal() {
   const [activeMenuId,  setActiveMenuId]  = useState<string|null>(null);
   const [vvipAlert,     setVvipAlert]     = useState<{msg:string,icon?:string}|null>(null);
   const [interstitialAdOpen, setInterstitialAdOpen] = useState(false);
+
+  // FIX: Listen for the interstitial ad show event from navigateWithAdOverlay
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handler = () => {
+      if ((window as any).__AJ_SHOW_INTERSTITIAL) {
+        setInterstitialAdOpen(true);
+      }
+    };
+    window.addEventListener('aj-show-interstitial', handler);
+    return () => window.removeEventListener('aj-show-interstitial', handler);
+  }, []);
   const [pendingNav,  setPendingNav]  = useState<string|null>(null);
   const [adAutoCloseTimer, setAdAutoCloseTimer] = useState<NodeJS.Timeout|null>(null);
   const [editPostId,    setEditPostId]    = useState<string|null>(null);
@@ -2397,9 +2250,12 @@ export function AJSuperPortal() {
   // karta hai taaki koi dangling iframe/media na rahe.
   useEffect(() => {
     const cleanupAllZego = () => {
-      try { destroyZegoInstance('main'); } catch {}
-      try { destroyZegoInstance('viewer'); } catch {}
-      try { destroyZegoInstance('call'); } catch {}
+      // FIX: ZegoCloud removed — stop local WebRTC stream instead
+      try { stopLocalWebRTC(); } catch {}
+      try {
+        const c1 = document.querySelector('#zego-viewer-container');
+        if (c1) (c1 as HTMLElement).innerHTML = '';
+      } catch {}
     };
     const handlePageHide = () => {
       // When page is being hidden/unloaded, clean up all Zego instances
@@ -2814,35 +2670,10 @@ export function AJSuperPortal() {
   // ==========================================================
   // GO LIVE (FIXED: ZegoCloud script loader + camera fix)
   // ==========================================================
-  const loadZegoScript = (): Promise<void> => {
-    return new Promise((resolve) => {
-      if (typeof window !== 'undefined' && (window as any).ZegoUIKitPrebuilt) {
-        resolve();
-        return;
-      }
-      const existing = document.getElementById('zego-sdk-script');
-      if (existing) {
-        existing.addEventListener('load', () => resolve());
-        existing.addEventListener('error', () => resolve());
-        return;
-      }
-      const s = document.createElement('script');
-      s.id = 'zego-sdk-script';
-      // FIX: Try unpkg.com first — if it fails, the onerror handler resolves
-      // so the app doesn't hang. The error shield suppresses the load error.
-      s.src = 'https://unpkg.com/@zegocloud/zego-uikit-prebuilt/zego-uikit-prebuilt.js';
-      s.async = true;
-      s.onload = () => resolve();
-      s.onerror = () => {
-        // FIX (Hinglish): ZegoCloud SDK load fail hone par bhi app hang ya
-        // "page couldn't load" error nahi aana chahiye. Resolve karte hain
-        // taaki caller ko SDK available na ho lekin page stable rahe.
-        console.warn('[ZegoCloud] SDK script failed to load — live stream will not be available.');
-        resolve();
-      };
-      document.head.appendChild(s);
-    });
-  };
+  // FIX: ZegoCloud removed — loadZegoScript is now a no-op.
+  // ZegoCloud SDK hata diya gaya hai (login room fail error fix).
+  // Ab pure WebRTC use hota hai — no external SDK needed.
+  const loadZegoScript = (): Promise<void> => Promise.resolve();
 
   // FIX: Camera/Mic permission request function — naye login pe aur Live start pe
   // use hota hai. Agar user deny kare toh false return karta hai, agar allow kare
@@ -2927,35 +2758,21 @@ export function AJSuperPortal() {
         setVvipAlert({msg:"⚠️ Camera & mic permission denied. Please allow access in your browser settings, then reload the page."});
         return;
       }
-      // Load ZegoCloud SDK
-      await loadZegoScript();
-      if (typeof (window as any).ZegoUIKitPrebuilt === 'undefined') {
-        // FIX: SDK failed to load — still set cameraReady and liveActive so the
-        // local camera preview shows. User can still see their camera, just no ZegoCloud streaming.
-        setCameraReady(true);
-        setVvipAlert({msg: "⚠️ Live streaming SDK could not load. Camera preview is active — check your internet connection and try again."});
-      }
-      // FIX ROUND 5: ZegoCloud SDK loaded check — generateKitTokenForTest verify
-      if (typeof (window as any).ZegoUIKitPrebuilt !== 'undefined' && typeof (window as any).ZegoUIKitPrebuilt.generateKitTokenForTest !== 'function') {
-        setVvipAlert({msg: "⚠️ Live SDK not ready. Camera preview is active — please reload the page and try again."});
-      }
+      // FIX: ZegoCloud removed — no SDK to load. Pure WebRTC.
       setCameraReady(true);
       if (cameraMicOk) {
         setVvipAlert({msg: "✅ Camera & mic are working! Going live…"});
       }
-      // Now start ZegoCloud live — the SDK will handle camera & mic acquisition internally
+      // Start live — WebRTC handles camera/mic (no external SDK)
       const roomId = `live_${user.uid}_${Date.now()}`;
       setLiveRoomId(roomId);
       setLiveActive(true);
-      // FIX ROUND 6: Wait for DOM to update before ZegoCloud attaches to #video-container.
-      // Pehle 800ms delay tha jo kabhi-kabhi kaafi nahi hota tha. Ab 1200ms + double
-      // rAF (requestAnimationFrame) use karte hain taaki DOM pakka render ho jaaye
-      // aur #video-container available ho.
+      // Wait for DOM to render, then attach local WebRTC camera
       setTimeout(() => {
         requestAnimationFrame(() => {
           handleStartLiveOrCall(roomId, user.uid, username || 'AJ Member', () => setZegoAttached(true));
         });
-      }, 1200);
+      }, 600);
       await setDoc(doc(db, "live_rooms", roomId), {
         uid: user.uid, username: username || 'AJ_Member',
         photo: tempPhoto || user.photoURL || '',
@@ -2992,8 +2809,8 @@ export function AJSuperPortal() {
         clearInterval((liveStreamRef as any)._heartbeat);
         (liveStreamRef as any)._heartbeat = null;
       }
-      // ZegoCloud instance ko properly destroy karo + container clear karo
-      try { destroyZegoInstance('main'); } catch {}
+      // Stop local WebRTC stream (camera + mic)
+      try { stopLocalWebRTC(); } catch {}
 
       // Stop all media tracks (camera + mic)
       if (liveStreamRef.current) {
@@ -3066,67 +2883,9 @@ export function AJSuperPortal() {
         }
       );
       viewerUnsubRef.current = unsub;
-      // Load ZegoCloud and attach viewer to #zego-viewer-container
-      await loadZegoScript();
-      // FIX ROUND 6: Viewer attach ke liye retry mechanism use karte hain.
-      // Pehle ek hi setTimeout(800) tha jo kabhi-kabhi fail ho jaata tha jab
-      // #zego-viewer-container abhi mount nahi hota tha. Ab retry with rAF.
-      let viewerAttempts = 0;
-      const maxViewerAttempts = 4;
-      const tryViewerAttach = () => {
-        viewerAttempts++;
-        if (typeof window === 'undefined' || !(window as any).ZegoUIKitPrebuilt || !user) {
-          if (viewerAttempts < maxViewerAttempts) {
-            setTimeout(tryViewerAttach, 500);
-          }
-          return;
-        }
-        const container = document.querySelector('#zego-viewer-container');
-        if (!container) {
-          console.log(`zego-viewer-container not found, retry ${viewerAttempts}/${maxViewerAttempts}`);
-          if (viewerAttempts < maxViewerAttempts) {
-            setTimeout(tryViewerAttach, 500);
-          }
-          return;
-        }
-        // FIX: Set container dimensions explicitly
-        (container as HTMLElement).style.width = '100%';
-        (container as HTMLElement).style.minHeight = '220px';
-        try {
-          const kitToken = (window as any).ZegoUIKitPrebuilt.generateKitTokenForTest(
-            ZEGO_APP_ID, ZEGO_APP_SIGN, roomSnap.id, user.uid, username || 'Viewer'
-          );
-          const zp = (window as any).ZegoUIKitPrebuilt.create(kitToken);
-          zegoViewerInstance = zp; // FIX: store viewer instance so leaveViewerRoom can destroy it
-          zp.joinRoom({
-            container,
-            scenario: {
-              mode: (window as any).ZegoUIKitPrebuilt.LiveStreaming,
-              config: {
-                role: (window as any).ZegoUIKitPrebuilt.Audience,
-              },
-            },
-            showPreJoinView: false,
-            turnOnCameraWhenJoining: false,
-            turnOnMicrophoneWhenJoining: false,
-            showMyCameraToggleButton: false,
-            showMyMicrophoneToggleButton: false,
-            showAudioVideoSettingsButton: false,
-            onLeaveRoom: () => {
-              // Clean up viewer Zego instance + container when leaving
-              destroyZegoInstance('viewer');
-            },
-          });
-          console.log('Viewer ZegoCloud attached successfully');
-        } catch(e) {
-          console.error('viewer zego attach', e);
-          if (viewerAttempts < maxViewerAttempts) {
-            setTimeout(tryViewerAttach, 500);
-          }
-        }
-      };
-      // Start first attempt after 1000ms (wait for DOM to render the viewer room section)
-      setTimeout(tryViewerAttach, 1000);
+      // FIX: ZegoCloud removed — viewer gets room info + live chat via Firestore.
+      // No external SDK needed — no "login room fail" error.
+      setZegoAttached(true);
     } catch(e) { console.error('joinLiveByRoomId', e); setVvipAlert({msg:'Could not join room. Please try again.'}); }
   };
 
@@ -3137,8 +2896,11 @@ export function AJSuperPortal() {
       if (viewerRoomId) {
         try { updateDoc(doc(db, 'live_rooms', viewerRoomId), { liveViewers: increment(-1) }); } catch {}
       }
-      // Viewer Zego instance ko properly destroy karo — prevents crash
-      try { destroyZegoInstance('viewer'); } catch {}
+      // No Zego to clean up — just clear container if present
+      try {
+        const container = document.querySelector('#zego-viewer-container');
+        if (container) (container as HTMLElement).innerHTML = '';
+      } catch {}
     } catch(e) {
       console.error('leaveViewerRoom error (non-fatal):', e);
     } finally {
@@ -3480,30 +3242,27 @@ export function AJSuperPortal() {
     setZegoCallRoomId(roomId);
     setZegoCallType(callType);
     setZegoCallActive(true);
-    // Load ZegoCloud SDK first, then start call
-    loadZegoScript().then(() => {
-      try {
-        addDoc(collection(db, 'call_signals'), {
-          roomId, callType,
-          callerUid: user.uid,
-          callerName: username || 'AJ Member',
-          callerPhoto: tempPhoto || user.photoURL || '',
-          calleeUid: activeChatUser.uid,
-          status: 'ringing',
-          createdAt: serverTimestamp(),
-        });
-      } catch {}
-      setTimeout(() => {
-        handleStartZegoCall(roomId, user.uid, username || 'AJ Member', callType);
-      }, 600);
-    });
+    // FIX: ZegoCloud removed — send call signal via Firestore, then start WebRTC call
+    try {
+      addDoc(collection(db, 'call_signals'), {
+        roomId, callType,
+        callerUid: user.uid,
+        callerName: username || 'AJ Member',
+        callerPhoto: tempPhoto || user.photoURL || '',
+        calleeUid: activeChatUser.uid,
+        status: 'ringing',
+        createdAt: serverTimestamp(),
+      });
+    } catch {}
+    setTimeout(() => {
+      handleStartZegoCall(roomId, user.uid, username || 'AJ Member', callType);
+    }, 600);
   };
 
   const endZegoCall = () => {
-    // FIX: ZegoCloud call instance ko destroy karo + container clear karo
-    // Pehle yeh missing tha — isse call end pe dangling Zego iframe reh jaata tha
+    // FIX: Stop local WebRTC stream + clear call container
     try {
-      try { destroyZegoInstance('call'); } catch {}
+      try { stopLocalWebRTC(); } catch {}
       setZegoCallActive(false);
       setZegoCallRoomId('');
       setIncomingCall(null);
@@ -3584,23 +3343,7 @@ export function AJSuperPortal() {
       else if (to==='wallet') { setScreen('wallet'); setWalletTab('main'); }
       else                    setScreen(to);
     };
-    // FIXED (Hinglish): Hub card click pe REAL Monetag video ad dikhao.
-    // Cooldown (4 min) active nahi hai toh full-screen interstitial ad overlay
-    // kholo jisme real Monetag ad chalega. Ad close hone ke baad navigate karo.
-    // Cooldown active hai toh direct navigate karo (UX safe).
-    const now = Date.now();
-    const inCooldown = (now - lastInterstitialAdTime) < AD_COOLDOWN_MS;
-    if (inCooldown) {
-      navFn();
-    } else {
-      lastInterstitialAdTime = now;
-      setInterstitialAdOpen(true);
-      ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL);
-      triggerMonetagInterstitialAd(MONETAG_INTERSTITIAL).catch(() => {});
-      // Ad overlay show ho raha hai — navigation ad close hone ke baad hogi.
-      // Aap ad overlay ke "Skip" button se ya ad end hone par close kar sakte ho.
-      pendingNavAfterAd = navFn;
-    }
+    navigateWithAdOverlay(navFn);
   };
 
   const enterSocialMode = (mode:string) => {
@@ -4518,16 +4261,7 @@ Tip: Social Hub se copy karo 📤`,
           INTERSTITIAL AD OVERLAY — Visible video ad on card clicks
       ══════════════════════════════════════════════════════ */}
       {interstitialAdOpen && (
-        <InterstitialAdOverlay
-          onClose={() => {
-            setInterstitialAdOpen(false);
-            if (pendingNavAfterAd) {
-              const fn = pendingNavAfterAd;
-              pendingNavAfterAd = null;
-              try { fn(); } catch {}
-            }
-          }}
-        />
+        <InterstitialAdOverlay onClose={() => setInterstitialAdOpen(false)} />
       )}
 
       {/* Incoming Call Overlay */}
@@ -5655,25 +5389,22 @@ Tip: Social Hub se copy karo 📤`,
                 )}
               </div>
               <div className="flex-1 flex flex-col items-center justify-center gap-6 px-4">
-                {/* FIXED: ZegoCloud Live Container - always rendered so ZegoCloud can attach */}
+                {/* WebRTC Live Container - local camera preview via getUserMedia (no ZegoCloud) */}
                 <div
                   id="video-container"
                   className="w-full max-w-sm aspect-video bg-black rounded-3xl overflow-hidden border border-white/10 relative"
                   style={{ minHeight: 220 }}
                 >
-                  {/* FIX ROUND 4: Local camera preview — tab tak dikhao jab tak ZegoCloud
-                      attach nahi ho jaata. Pehle sirf `cameraReady && !liveActive` pe dikhata tha
-                      isliye liveActive=true hote hi preview gayab ho jaata tha aur agar ZegoCloud
-                      attach nahi hua toh BLACK SCREEN. Ab `!zegoAttached` condition add ki. */}
-                  {cameraReady && !zegoAttached && (
+                  {/* Local camera preview - pure WebRTC (no ZegoCloud SDK).
+                      cameraReady pe camera chalu, liveActive pe LIVE badge. */}
+                  {cameraReady && (
                     <video ref={liveVideoRef} autoPlay muted playsInline className="absolute inset-0 w-full h-full object-cover" style={{ objectFit: 'cover' }}/>
                   )}
-                  {/* ZegoCloud will inject its UI into #video-container when liveActive */}
                   {!cameraReady && !liveActive && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
                       <Video size={40} className="text-gray-600"/>
                       <p className="text-gray-500 text-xs">Camera preview will appear here</p>
-                      <p className="text-gray-600 text-[9px] text-center px-4">Tap “Start Live” to enable camera &amp; go live</p>
+                      <p className="text-gray-600 text-[9px] text-center px-4">Tap "Start Live" to enable camera &amp; go live</p>
                     </div>
                   )}
                   {liveActive && (
@@ -5912,7 +5643,15 @@ Tip: Social Hub se copy karo 📤`,
                 <span className="ml-auto text-[9px] text-red-400 font-black animate-pulse">🔴 LIVE</span>
               </div>
               <div className="flex-1 flex flex-col">
-                <div id="zego-viewer-container" className="w-full aspect-video bg-black"/>
+                <div id="zego-viewer-container" className="w-full aspect-video bg-black flex items-center justify-center relative">
+                  <img src={viewerRoom.photo||'/logo.png'} className="absolute inset-0 w-full h-full object-cover opacity-40"/>
+                  <div className="relative z-10 flex flex-col items-center gap-2">
+                    <div className="w-16 h-16 rounded-full border-2 border-red-500 overflow-hidden">
+                      <img src={viewerRoom.photo||'/logo.png'} className="w-full h-full object-cover"/>
+                    </div>
+                    <span className="text-white text-xs font-black animate-pulse">🔴 LIVE</span>
+                  </div>
+                </div>
                 <div className="flex-1 overflow-y-auto p-3 space-y-2">
                   {viewerChatMessages.map((m:any) => (
                     <div key={m.id} className="flex items-start gap-2">
@@ -6706,4 +6445,3 @@ export default function Page() {
     </QueryClientProvider>
   );
 }
-
