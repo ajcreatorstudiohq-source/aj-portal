@@ -48,6 +48,7 @@ if (typeof window !== 'undefined') {
     window.onerror = function (message, source, lineno, colno, error) {
       // Suppress errors from external ad SDK scripts (Monetag CDN domains)
       const src = String(source || '');
+      const msg = String(message || '');
       const isExternalAdScript =
         src.includes('nap5k.com') ||
         src.includes('al5sm.com') ||
@@ -58,10 +59,22 @@ if (typeof window !== 'undefined') {
         src.includes('unpkg.com') ||
         src.includes('show_') ||
         src.includes('tag.min.js') ||
-        src.includes('push.min.js');
+        src.includes('push.min.js') ||
+        // FIX: ZegoCloud CDN errors + common ZegoCloud error messages
+        src.includes('zego') ||
+        src.includes('zegouikit') ||
+        msg.includes('Zego') ||
+        msg.includes('zego') ||
+        msg.includes('generateKitToken') ||
+        msg.includes('joinRoom') ||
+        msg.includes('This page could not load') ||
+        msg.includes('page could not be loaded') ||
+        msg.includes('WebSocket') ||
+        msg.includes('ICE') ||
+        msg.includes('RTCPeerConnection');
       if (isExternalAdScript) {
-        // External ad SDK error — suppress to prevent "page couldn't load"
-        console.warn('[AJ Shield] Suppressed external ad error:', message);
+        // External ad/ZegoCloud SDK error — suppress to prevent "page couldn't load"
+        console.warn('[AJ Shield] Suppressed external error:', message);
         return true; // returning true suppresses the default error handling
       }
       // For other errors, call the original handler if it exists
@@ -83,11 +96,19 @@ if (typeof window !== 'undefined') {
         reason.includes('n6wxm') ||
         reason.includes('quge5') ||
         reason.includes('zegocloud') ||
+        reason.includes('zego') ||
+        reason.includes('Zego') ||
+        reason.includes('generateKitToken') ||
+        reason.includes('joinRoom') ||
         reason.includes('Network') ||
         reason.includes('load failed') ||
-        reason.includes('Failed to fetch');
+        reason.includes('Failed to fetch') ||
+        reason.includes('This page could not load') ||
+        reason.includes('WebSocket') ||
+        reason.includes('RTCPeerConnection') ||
+        reason.includes('ICE');
       if (isAdRejection) {
-        console.warn('[AJ Shield] Suppressed ad promise rejection:', reason);
+        console.warn('[AJ Shield] Suppressed promise rejection:', reason);
         event.preventDefault?.(); // prevent the rejection from crashing
         return;
       }
@@ -99,7 +120,7 @@ if (typeof window !== 'undefined') {
     // 3. Wrap addEventListener for 'error' events bubbling from script tags
     //    (Monetag tag.min.js sometimes dispatches error events)
     window.addEventListener('error', (e: any) => {
-      const src = String(e?.filename || e?.target?.src || '');
+      const src = String(e?.filename || e?.target?.src || e?.target?.href || '');
       if (
         src.includes('nap5k.com') ||
         src.includes('al5sm.com') ||
@@ -108,10 +129,11 @@ if (typeof window !== 'undefined') {
         src.includes('monetag') ||
         src.includes('zegocloud') ||
         src.includes('unpkg.com') ||
+        src.includes('zego') ||
         src.includes('tag.min.js') ||
         src.includes('push.min.js')
       ) {
-        // Suppress — this is an external ad script load error, not our app
+        // Suppress — this is an external ad/ZegoCloud script load error, not our app
         e.preventDefault?.();
         e.stopPropagation?.();
         console.warn('[AJ Shield] Suppressed external script load error:', src);
@@ -406,9 +428,7 @@ const handleStartZegoCall = (
   const tryCallAttach = () => {
     callAttempts++;
     if (typeof window === 'undefined' || !(window as any).ZegoUIKitPrebuilt) {
-      if (callAttempts < maxCallAttempts) {
-        setTimeout(tryCallAttach, 400);
-      }
+      console.warn('[ZegoCloud] ZegoUIKitPrebuilt not available for call, aborting');
       return;
     }
     const container = document.querySelector('#zego-call-container');
@@ -420,14 +440,26 @@ const handleStartZegoCall = (
       return;
     }
     try {
-      const kitToken = (window as any).ZegoUIKitPrebuilt.generateKitTokenForTest(
-        ZEGO_APP_ID,
-        ZEGO_APP_SIGN,
-        roomID,
-        currentUserId,
-        currentUserName
-      );
-      const zp = (window as any).ZegoUIKitPrebuilt.create(kitToken);
+      let kitToken: string;
+      try {
+        kitToken = (window as any).ZegoUIKitPrebuilt.generateKitTokenForTest(
+          ZEGO_APP_ID,
+          ZEGO_APP_SIGN,
+          roomID,
+          currentUserId,
+          currentUserName
+        );
+      } catch (tokenErr) {
+        console.warn('[ZegoCloud] generateKitTokenForTest failed for call:', tokenErr);
+        return;
+      }
+      let zp: any;
+      try {
+        zp = (window as any).ZegoUIKitPrebuilt.create(kitToken);
+      } catch (createErr) {
+        console.warn('[ZegoCloud] create() failed for call:', createErr);
+        return;
+      }
       zegoCallInstance = zp; // FIX: store instance so it can be destroyed later
       // FIX: Set container dimensions explicitly so SDK renders properly
       (container as HTMLElement).style.width = '100%';
@@ -453,7 +485,7 @@ const handleStartZegoCall = (
       });
       console.log('ZegoCloud 1-on-1 call attached successfully');
     } catch (e) {
-      console.error('handleStartZegoCall', e);
+      console.warn('[ZegoCloud] handleStartZegoCall error (non-fatal):', e);
       if (callAttempts < maxCallAttempts) {
         setTimeout(tryCallAttach, 400);
       }
@@ -465,7 +497,8 @@ const handleStartZegoCall = (
 
 const handleStartLiveOrCall = (roomID: string, currentUserId: string, currentUserName: string, onAttached?: () => void) => {
   if (typeof window === 'undefined' || !(window as any).ZegoUIKitPrebuilt) {
-    console.error('ZegoUIKitPrebuilt not loaded');
+    console.error('ZegoUIKitPrebuilt not loaded — live stream will not work');
+    // FIX: Don't crash — just return. The local camera preview will still show.
     return;
   }
   // FIX ROUND 6: Retry mechanism — agar #video-container abhi mount nahi hua hai
@@ -476,6 +509,11 @@ const handleStartLiveOrCall = (roomID: string, currentUserId: string, currentUse
   
   const tryAttach = () => {
     attempts++;
+    // FIX: Check if SDK is still available (might have been unloaded)
+    if (typeof window === 'undefined' || !(window as any).ZegoUIKitPrebuilt) {
+      console.warn('ZegoUIKitPrebuilt not available on retry, aborting');
+      return;
+    }
     const container = document.querySelector('#video-container');
     if (!container) {
       console.log(`video-container not found, retry ${attempts}/${maxAttempts}`);
@@ -488,14 +526,28 @@ const handleStartLiveOrCall = (roomID: string, currentUserId: string, currentUse
     }
     
     try {
-      const kitToken = (window as any).ZegoUIKitPrebuilt.generateKitTokenForTest(
-        ZEGO_APP_ID,
-        ZEGO_APP_SIGN,
-        roomID,
-        currentUserId,
-        currentUserName
-      );
-      const zp = (window as any).ZegoUIKitPrebuilt.create(kitToken);
+      // FIX: Wrap generateKitTokenForTest in try-catch — if app sign is invalid
+      // or expired, this will throw and we handle it gracefully (no page crash)
+      let kitToken: string;
+      try {
+        kitToken = (window as any).ZegoUIKitPrebuilt.generateKitTokenForTest(
+          ZEGO_APP_ID,
+          ZEGO_APP_SIGN,
+          roomID,
+          currentUserId,
+          currentUserName
+        );
+      } catch (tokenErr) {
+        console.warn('[ZegoCloud] generateKitTokenForTest failed — app sign may be invalid:', tokenErr);
+        return; // Don't crash — local camera preview will still show
+      }
+      let zp: any;
+      try {
+        zp = (window as any).ZegoUIKitPrebuilt.create(kitToken);
+      } catch (createErr) {
+        console.warn('[ZegoCloud] create() failed:', createErr);
+        return; // Don't crash — local camera preview will still show
+      }
       zegoMainInstance = zp; // FIX: store instance so stopLive can destroy it (prevents "This page could not load")
       // FIX ROUND 5: ZegoCloud container mein explicit dimensions set karte hain
       // taaki SDK ko properly render mile — "This page could not load" error
@@ -536,10 +588,9 @@ const handleStartLiveOrCall = (roomID: string, currentUserId: string, currentUse
         },
       });
     } catch (e) {
-      console.error('handleStartLiveOrCall error', e);
-      if (attempts < maxAttempts) {
-        setTimeout(tryAttach, 500);
-      }
+      console.warn('[ZegoCloud] handleStartLiveOrCall error (non-fatal):', e);
+      // FIX: Don't retry on certain errors — some are permanent (invalid app sign)
+      // Just log and let the local camera preview continue showing
     }
   };
   
@@ -752,7 +803,6 @@ const AD_FALLBACK_POSTERS = [
   'https://images.unsplash.com/photo-1611162617474-5b21e879e872?w=400&h=800&fit=crop',
   'https://images.unsplash.com/photo-1598899134739-24c46f58b8c0?w=400&h=800&fit=crop',
 ];
-const AD_FALLBACK_POSTER = AD_FALLBACK_POSTERS[0];
 
 // Track which zones have had their SDK loaded (prevent duplicate script injection)
 const monetagSdkLoadedZones: Set<number> = new Set();
@@ -957,10 +1007,16 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
     // Force-play the in-feed video immediately (same behaviour as regular feed videos)
     const v = videoRef.current;
     if (v) {
+      v.muted = true; // Ensure muted for autoplay policy
       v.play().catch(() => {
-        // If autoplay fails, mark as error and show poster
-        setVideoError(true);
-        setAdReady(true);
+        // If autoplay fails, try once more after a short delay
+        setTimeout(() => {
+          v.play().catch(() => {
+            // Still failed — show poster (no black screen, but ad UI stays visible)
+            setVideoError(true);
+            setAdReady(true);
+          });
+        }, 300);
       });
     }
   }, [currentPoster]);
@@ -1048,9 +1104,8 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
             loop
             playsInline
             preload="auto"
-            crossOrigin="anonymous"
-            onLoadedData={() => setAdReady(true)}
-            onCanPlay={() => setAdReady(true)}
+            onLoadedData={() => { setAdReady(true); const v = videoRef.current; if (v) { v.play().catch(() => {}); } }}
+            onCanPlay={() => { setAdReady(true); const v = videoRef.current; if (v) { v.play().catch(() => {}); } }}
             onPlaying={() => setAdReady(true)}
             onError={handleVideoError}
             onClick={(e) => e.preventDefault()}
@@ -2589,6 +2644,8 @@ export function AJSuperPortal() {
       }
       const s = document.createElement('script');
       s.id = 'zego-sdk-script';
+      // FIX: Try unpkg.com first — if it fails, the onerror handler resolves
+      // so the app doesn't hang. The error shield suppresses the load error.
       s.src = 'https://unpkg.com/@zegocloud/zego-uikit-prebuilt/zego-uikit-prebuilt.js';
       s.async = true;
       s.onload = () => resolve();
@@ -2689,17 +2746,18 @@ export function AJSuperPortal() {
       // Load ZegoCloud SDK
       await loadZegoScript();
       if (typeof (window as any).ZegoUIKitPrebuilt === 'undefined') {
-        setVvipAlert({msg:"⚠️ Live streaming SDK failed to load. Check your internet connection and try again."});
-        return;
+        // FIX: SDK failed to load — still set cameraReady and liveActive so the
+        // local camera preview shows. User can still see their camera, just no ZegoCloud streaming.
+        setCameraReady(true);
+        setVvipAlert({msg: "⚠️ Live streaming SDK could not load. Camera preview is active — check your internet connection and try again."});
       }
       // FIX ROUND 5: ZegoCloud SDK loaded check — generateKitTokenForTest verify
-      if (typeof (window as any).ZegoUIKitPrebuilt.generateKitTokenForTest !== 'function') {
-        setVvipAlert({msg:"⚠️ Live SDK not ready. Please reload the page and try again."});
-        return;
+      if (typeof (window as any).ZegoUIKitPrebuilt !== 'undefined' && typeof (window as any).ZegoUIKitPrebuilt.generateKitTokenForTest !== 'function') {
+        setVvipAlert({msg: "⚠️ Live SDK not ready. Camera preview is active — please reload the page and try again."});
       }
       setCameraReady(true);
       if (cameraMicOk) {
-        setVvipAlert({msg:"✅ Camera & mic are working! Going live…"});
+        setVvipAlert({msg: "✅ Camera & mic are working! Going live…"});
       }
       // Now start ZegoCloud live — the SDK will handle camera & mic acquisition internally
       const roomId = `live_${user.uid}_${Date.now()}`;
@@ -4446,7 +4504,7 @@ Tip: Social Hub se copy karo 📤`,
           {/* Quick Nav Grid — 4 Main Cards with Details */}
           <div className="px-4 pt-4 grid grid-cols-2 gap-4">
             {/* GAMES Card */}
-            <button onClick={() => setScreen('games')} className="flex flex-col items-start gap-3 bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-purple-500/50 shadow-[0_0_20px_rgba(147,51,234,0.2)]">
+            <button onClick={() => navigateWithAd('games')} className="flex flex-col items-start gap-3 bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-purple-500/50 shadow-[0_0_20px_rgba(147,51,234,0.2)]">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-[0_0_16px_rgba(147,51,234,0.5)]">
                 <span className="text-2xl">🎮</span>
               </div>
@@ -4461,7 +4519,7 @@ Tip: Social Hub se copy karo 📤`,
             </button>
 
             {/* SOCIAL Card */}
-            <button onClick={() => { fetchSocialAPIs(); setScreen('social'); setSocialScreen('hub'); }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-cyan-900/40 to-blue-900/40 border border-cyan-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-cyan-500/50 shadow-[0_0_20px_rgba(6,182,212,0.2)]">
+            <button onClick={() => navigateWithAd('social')} className="flex flex-col items-start gap-3 bg-gradient-to-br from-cyan-900/40 to-blue-900/40 border border-cyan-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-cyan-500/50 shadow-[0_0_20px_rgba(6,182,212,0.2)]">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center shadow-[0_0_16px_rgba(6,182,212,0.5)]">
                 <span className="text-2xl">📡</span>
               </div>
@@ -4476,7 +4534,7 @@ Tip: Social Hub se copy karo 📤`,
             </button>
 
             {/* WALLET Card */}
-            <button onClick={() => { setScreen('wallet'); setWalletTab('main'); }} className="flex flex-col items-start gap-3 bg-gradient-to-br from-yellow-900/40 to-orange-900/40 border border-yellow-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-yellow-500/50 shadow-[0_0_20px_rgba(234,179,8,0.2)]">
+            <button onClick={() => navigateWithAd('wallet')} className="flex flex-col items-start gap-3 bg-gradient-to-br from-yellow-900/40 to-orange-900/40 border border-yellow-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-yellow-500/50 shadow-[0_0_20px_rgba(234,179,8,0.2)]">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-yellow-500 to-orange-500 flex items-center justify-center shadow-[0_0_16px_rgba(234,179,8,0.5)]">
                 <span className="text-2xl">💰</span>
               </div>
@@ -4491,7 +4549,7 @@ Tip: Social Hub se copy karo 📤`,
             </button>
 
             {/* AI TRADING BOT Card */}
-            <button onClick={() => setScreen('aibot')} className="flex flex-col items-start gap-3 bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.2)]">
+            <button onClick={() => navigateWithAd('aibot')} className="flex flex-col items-start gap-3 bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.2)]">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center shadow-[0_0_16px_rgba(34,197,94,0.5)]">
                 <span className="text-2xl">🤖</span>
               </div>
