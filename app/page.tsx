@@ -1524,25 +1524,35 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
     return () => clearTimeout(t);
   }, [adReady]);
 
-  // FIX: 3-second timeout — agar ad load nahi hua aur fallback video bhi fail
-  // ho gaya, toh ad container ko hide kar do (no blank/broken black screen).
+  // FIX: 3-second timeout — if the ad container shows nothing visible, hide it.
+  // Previous bug: adReady becomes true at 1s (line above), so at 3s the check
+  // !adReady was always false → adFailed was NEVER set → blank/black screen stayed.
+  // New approach: track video failure independently and hide ad as soon as all
+  // fallback videos exhaust (videoError=true) AND a short grace period passes.
+  useEffect(() => {
+    if (!videoError) return; // not all videos failed yet — keep trying
+    // All fallback videos failed — hide the ad container (no black screen)
+    const t = setTimeout(() => setAdFailed(true), 800);
+    return () => clearTimeout(t);
+  }, [videoError]);
+
+  // Secondary guard: if adReady never became true AND container has no real content
+  // after 5s (edge case: video never fires events), hide the ad.
   useEffect(() => {
     const t = setTimeout(() => {
-      if (!adReady && videoError) {
-        setAdFailed(true);
-        return;
-      }
-      // Check if container has any ad content (iframe, video, img, canvas)
+      if (adFailed) return; // already handled
       const c = containerRef.current;
-      if (c && !adReady) {
-        const hasContent = c.querySelector('iframe, video, img, canvas');
-        if (!hasContent) {
+      if (c) {
+        const hasVideo = c.querySelector('video');
+        // If the video exists but is not playing and has error, hide ad
+        const vid = hasVideo as HTMLVideoElement | null;
+        if (vid && vid.error && !vid.readyState) {
           setAdFailed(true);
         }
       }
-    }, 3000);
+    }, 5000);
     return () => clearTimeout(t);
-  }, [adReady, videoError]);
+  }, [adFailed]);
 
   // FIX: fireAdWhenContainerReady — Monetag ad script tabhi fire karo jab
   // parent container DOM mein fully mount ho chuka ho. Isse race condition
@@ -1584,7 +1594,11 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
       {/* FIX ROUND 3: Monetag SDK container — pointerEvents: 'auto' rakha gaya hai
           taaki real Monetag ad overlay interact ho sake (pehle 'none' tha isliye
           ad ke buttons tap nahi ho paate the). */}
-      <div ref={containerRef} className="absolute inset-0 w-full h-full" style={{ zIndex: 50, pointerEvents: 'auto', width: '100%', minHeight: '250px', display: 'flex', justifyContent: 'center', alignItems: 'center', background: `#0a0a1a url('${currentPoster}') center/cover no-repeat` }} />
+      {/* FIX: Monetag container — explicit dimensions prevent iframe from collapsing.
+           The SDK injects an iframe; without minHeight/width it may render as 0x0.
+           DOM mounting: containerRef is in the DOM when this renders, so SDK fires
+           AFTER the container exists (no race condition). */}
+      <div ref={containerRef} className="absolute inset-0 w-full h-full" style={{ zIndex: 50, pointerEvents: 'auto', width: '100%', height: '100%', minWidth: '100vw', minHeight: '250px', display: 'flex', justifyContent: 'center', alignItems: 'center', flexDirection: 'column', background: `#0a0a1a url('${currentPoster}') center/cover no-repeat`, overflow: 'hidden' }} />
 
       {/* Seamless in-feed video — looks exactly like a regular TikTok/Pulse video and plays immediately */}
       <div className="absolute inset-0 w-full h-full" style={{ zIndex: 2, background: `#0a0a1a url('${currentPoster}') center/cover no-repeat` }}>
@@ -2734,23 +2748,27 @@ export function AJSuperPortal() {
   // 4. Touch-friendly: tap on input directly opens keyboard (no readonly tricks)
   useEffect(() => {
     if (!commentPostId) return;
-    const focusInputNow = () => {
+    // Strategy: try at multiple timepoints — rAF fires before paint,
+    // then 100ms and 250ms as backups for slow-rendering modals.
+    const tryFocus = () => {
       try {
         const input = commentInputRef.current;
         if (input) {
-          input.focus({ preventScroll: true });
-          input.click();
+          input.focus({ preventScroll: false });
           try { input.setSelectionRange(input.value.length, input.value.length); } catch {}
-        } else {
-          // Input not rendered yet — retry on next frame
-          requestAnimationFrame(focusInputNow);
         }
       } catch(e) { console.warn('Comment focus error', e); }
     };
-    // FIX: Focus immediately on next animation frame (no 300ms delay)
-    requestAnimationFrame(focusInputNow);
-    // Backup: also try after 50ms in case rAF doesn't fire
-    setTimeout(focusInputNow, 50);
+    // Immediate rAF (before next paint)
+    const raf = requestAnimationFrame(tryFocus);
+    // Backup timers — handle slow modal animations
+    const t1 = setTimeout(tryFocus, 100);
+    const t2 = setTimeout(tryFocus, 280);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
   }, [commentPostId]);
 
   // FIX: Track keyboard height via visualViewport — when keyboard slides up,
@@ -2760,8 +2778,11 @@ export function AJSuperPortal() {
     if (typeof window === 'undefined' || !window.visualViewport) return;
     const vv = window.visualViewport;
     const onResize = () => {
-      const kbHeight = window.innerHeight - vv.height;
-      setKeyboardHeight(kbHeight > 0 ? kbHeight : 0);
+      // FIX: Include offsetTop (address bar / safe area offset) in calculation.
+      // On iOS Safari, vv.offsetTop shifts when keyboard appears; ignoring it
+      // gives a wrong (too-large) keyboard height estimate.
+      const kbHeight = Math.max(0, window.innerHeight - vv.height - (vv.offsetTop || 0));
+      setKeyboardHeight(kbHeight);
     };
     vv.addEventListener('resize', onResize);
     vv.addEventListener('scroll', onResize);
@@ -2968,14 +2989,17 @@ export function AJSuperPortal() {
     if (!user) return;
     let unsub: any = null;
     try {
+      // FIX: Composite Firestore index (rivalUid + status) may not exist — query fails silently.
+      // Query only on rivalUid (single-field — always works), filter status client-side.
       const q = query(
         collection(db, 'pk_sessions'),
-        where('rivalUid', '==', user.uid),
-        where('status', '==', 'pending')
+        where('rivalUid', '==', user.uid)
       );
       unsub = onSnapshot(q, (snap) => {
-        if (!snap.empty) {
-          const docSnap = snap.docs[0];
+        // Filter client-side: find the latest pending challenge
+        const pending = snap.docs.filter(d => d.data().status === 'pending');
+        if (pending.length > 0) {
+          const docSnap = pending[pending.length - 1]; // most recent pending
           const data = docSnap.data();
           if (!pkActive) {
             setPkIncomingChallenge({ id: docSnap.id, ...data });
@@ -3811,22 +3835,35 @@ export function AJSuperPortal() {
       setPkRivalData(rivalSnap.data());
       setPkTimer(PK_DURATION); setPkScore({ me:0, rival:0 });
       setPkWinner(null); setPkActive(true); setPkChallengeOpen(false);
-      // FIX: Host apni video frames PK session pe broadcast kare
-      // (agar live stream chal raha hai toh uska stream, warna naya getUserMedia)
+      // FIX: Host apni video frames PK session pe broadcast kare — IMMEDIATELY
+      // (agar rival 500ms ke andar accept kar le toh host ki frames nahi milti thi)
+      // Reduced timeout to near-zero so host starts broadcasting as soon as possible.
       setTimeout(() => {
         try {
           if (liveStreamRef.current) {
             startFrameBroadcast(newPkRoomId + '_host', liveStreamRef.current);
             startAudioBroadcast(newPkRoomId + '_host', liveStreamRef.current);
+          } else {
+            // Fallback: try to get camera/mic if not already live
+            if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+              navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: true })
+                .then(stream => {
+                  liveStreamRef.current = stream;
+                  if (liveVideoRef.current) { try { liveVideoRef.current.srcObject = stream; } catch {} }
+                  startFrameBroadcast(newPkRoomId + '_host', stream);
+                  startAudioBroadcast(newPkRoomId + '_host', stream);
+                })
+                .catch(err => console.warn('PK: getUserMedia fallback failed:', err));
+            }
           }
         } catch (e) { console.warn('PK host frame broadcast failed:', e); }
-      }, 500);
-      // FIX: Host rival ki frames + audio listen kare
+      }, 50);  // 50ms — quick start, right after state updates settle
+      // FIX: Host rival ki frames + audio listen kare (slight delay for rival to accept)
       setTimeout(() => {
         try {
           joinPkRivalStream(newPkRoomId);
         } catch (e) { console.warn('PK rival stream join failed:', e); }
-      }, 1000);
+      }, 200);
       setVvipAlert({msg:`⚔️ PK Challenge sent to @${rivalSnap.data().username || pkTargetId}! Match starting...`,icon:"⚔️"});
     } catch(e) { console.error('sendPkChallenge', e); setVvipAlert({msg:'Error sending challenge. Please try again.'}); }
   };
@@ -5933,7 +5970,7 @@ Tip: Social Hub se copy karo 📤`,
                             </div>
                             <span className="text-white text-[9px] font-black">{formatViews((likedPosts[vid.id] ? (vid.likes||0) + 1 : vid.likes||0))}</span>
                           </button>
-                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(vid.id); requestAnimationFrame(() => { commentInputRef.current?.focus(); commentInputRef.current?.click(); }); }} onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(vid.id); requestAnimationFrame(() => { commentInputRef.current?.focus(); commentInputRef.current?.click(); }); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(vid.id); let _tmp: any = null; try { _tmp = document.createElement('input'); _tmp.setAttribute('type','text'); _tmp.style.cssText='position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px;border:0;'; document.body.appendChild(_tmp); _tmp.focus(); } catch {} setTimeout(() => { if (commentInputRef.current) commentInputRef.current.focus(); if (_tmp) try { document.body.removeChild(_tmp); } catch {} }, 120); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <MessageSquare size={18} className="text-white"/>
                             </div>
@@ -6035,7 +6072,7 @@ Tip: Social Hub se copy karo 📤`,
                             </div>
                             <span className="text-white text-[9px] font-black">{(likedPosts[post.id] ? (post.likes||0) + 1 : post.likes||0)}</span>
                           </button>
-                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(post.id); requestAnimationFrame(() => { commentInputRef.current?.focus(); commentInputRef.current?.click(); }); }} onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(post.id); requestAnimationFrame(() => { commentInputRef.current?.focus(); commentInputRef.current?.click(); }); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(post.id); let _tmp: any = null; try { _tmp = document.createElement('input'); _tmp.setAttribute('type','text'); _tmp.style.cssText='position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px;border:0;'; document.body.appendChild(_tmp); _tmp.focus(); } catch {} setTimeout(() => { if (commentInputRef.current) commentInputRef.current.focus(); if (_tmp) try { document.body.removeChild(_tmp); } catch {} }, 120); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <MessageSquare size={18} className="text-white"/>
                             </div>
@@ -6349,7 +6386,7 @@ Tip: Social Hub se copy karo 📤`,
                               </div>
                               <span className="text-white text-[9px] font-black">{formatViews((likedPosts[post.id] ? (post.likes||0) + 1 : post.likes||0))}</span>
                             </button>
-                            <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(post.id); requestAnimationFrame(() => { commentInputRef.current?.focus(); commentInputRef.current?.click(); }); }} onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(post.id); requestAnimationFrame(() => { commentInputRef.current?.focus(); commentInputRef.current?.click(); }); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <button onClick={e => { e.stopPropagation(); e.preventDefault(); setCommentPostId(post.id); let _tmp: any = null; try { _tmp = document.createElement('input'); _tmp.setAttribute('type','text'); _tmp.style.cssText='position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px;border:0;'; document.body.appendChild(_tmp); _tmp.focus(); } catch {} setTimeout(() => { if (commentInputRef.current) commentInputRef.current.focus(); if (_tmp) try { document.body.removeChild(_tmp); } catch {} }, 120); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                               <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                                 <MessageSquare size={18} className="text-white"/>
                               </div>
@@ -7208,7 +7245,7 @@ Tip: Social Hub se copy karo 📤`,
               {/* Shared Comment Sheet — works for TikReels AND Pulse */}
               {commentPostId && (
                 <div className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end" onClick={() => { setCommentPostId(null); setPostComments([]); setKeyboardHeight(0); }}>
-                  <div className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl p-6 max-h-[70vh] flex flex-col" style={{ position: 'fixed', bottom: 0, left: 0, right: 0, paddingBottom: keyboardHeight, zIndex: 9001, transition: 'padding-bottom 0.1s ease-out' }} onClick={e => e.stopPropagation()}>
+                  <div className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl p-6 max-h-[70vh] flex flex-col" style={{ position: 'fixed', bottom: 0, left: 0, right: 0, paddingBottom: keyboardHeight > 0 ? keyboardHeight : 'env(safe-area-inset-bottom, 8px)', zIndex: 9001, transition: 'padding-bottom 0.1s ease-out' }} onClick={e => e.stopPropagation()}>
                     <div className="flex items-center justify-between mb-4">
                       <p className="text-sm font-black text-white">💬 Comments</p>
                       <button onClick={() => { setCommentPostId(null); setPostComments([]); setKeyboardHeight(0); }}><X size={18} className="text-gray-400"/></button>
@@ -7247,7 +7284,8 @@ Tip: Social Hub se copy karo 📤`,
                         onClick={(e) => { e.stopPropagation(); e.currentTarget.focus(); }}
                         onTouchStart={(e) => { e.stopPropagation(); }}
                         // FIX: Touchend pe bhi focus — agar touchstart se keyboard na khule
-                        onTouchEnd={(e) => { e.stopPropagation(); e.preventDefault(); e.currentTarget.focus(); }}
+                        // NOTE: e.preventDefault() REMOVED — it was blocking keyboard on iOS!
+                        onTouchEnd={(e) => { e.stopPropagation(); e.currentTarget.focus(); }}
                       />
                       <button onClick={submitComment} className="w-10 h-10 bg-pink-600 rounded-2xl flex items-center justify-center active:scale-90 transition-all shadow-[0_0_12px_rgba(236,72,153,0.4)]">
                         <Send size={14} className="text-white"/>
