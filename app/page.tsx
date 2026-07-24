@@ -214,7 +214,7 @@ import {
   addDoc, getDoc, serverTimestamp, query, orderBy, limit, deleteDoc, getDocs
 } from 'firebase/firestore';
 import {
-  getDatabase, ref, onDisconnect, set
+  getDatabase, ref, onDisconnect, set, onValue, remove
 } from 'firebase/database';
 import {
   getMessaging, getToken, onMessage
@@ -434,6 +434,83 @@ const navigateWithAdOverlay = (navFn: () => void) => {
 
 let _webrtcLocalStream: MediaStream | null = null; // host/call local camera stream
 
+// ============================================================
+// LIVE FRAME BROADCASTING (Host → RTDB → Viewer)
+// FIX ROUND 7: Jab ZegoCloud remove hua, toh host ka video stream
+// viewers tak pahunchna band ho gaya tha. Ab hum Firestore Realtime
+// Database (RTDB) use karte hain frames broadcast karne ke liye:
+//   - Host: canvas se video frames capture karke RTDB mein bhejta hai (~3fps)
+//   - Viewer: RTDB se frames listen karke <img> pe display karta hai
+// Yeh WebRTC P2P ke bina bhi cross-user video stream dikhata hai.
+// ============================================================
+let _frameBroadcastInterval: any = null;  // frame capture interval (host)
+let _frameBroadcastCanvas: HTMLCanvasElement | null = null;
+let _frameBroadcastVideo: HTMLVideoElement | null = null;
+
+// Start broadcasting host's video frames to RTDB
+const startFrameBroadcast = (roomId: string, stream: MediaStream) => {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+  try {
+    // Create a hidden video element to feed the canvas
+    const video = document.createElement('video');
+    video.autoplay = true;
+    video.muted = true;
+    video.playsInline = true;
+    video.srcObject = stream;
+    video.style.position = 'fixed';
+    video.style.top = '-9999px';
+    video.style.width = '320px';
+    video.style.height = '240px';
+    document.body.appendChild(video);
+    _frameBroadcastVideo = video;
+
+    // Create a canvas for frame capture (low res for bandwidth)
+    const canvas = document.createElement('canvas');
+    canvas.width = 320;
+    canvas.height = 240;
+    _frameBroadcastCanvas = canvas;
+    const ctx = canvas.getContext('2d');
+
+    const rtdb = getDatabase();
+    const frameRef = ref(rtdb, `live_frames/${roomId}/current`);
+
+    // Capture and push a frame every ~333ms (3fps — low bandwidth, smooth enough)
+    _frameBroadcastInterval = setInterval(() => {
+      if (!ctx || !_frameBroadcastVideo || _frameBroadcastVideo.readyState < 2) return;
+      try {
+        ctx.drawImage(_frameBroadcastVideo, 0, 0, 320, 240);
+        const dataURL = canvas.toDataURL('image/jpeg', 0.4);
+        // Push frame to RTDB — viewer will pick it up in real-time
+        set(frameRef, { frame: dataURL, ts: Date.now() }).catch(() => {});
+      } catch (e) {
+        // Frame capture failed — skip, don't crash
+      }
+    }, 333);
+  } catch (e) {
+    console.warn('startFrameBroadcast failed:', e);
+  }
+};
+
+// Stop broadcasting frames (called on stopLive)
+const stopFrameBroadcast = (roomId?: string) => {
+  if (_frameBroadcastInterval) {
+    clearInterval(_frameBroadcastInterval);
+    _frameBroadcastInterval = null;
+  }
+  if (_frameBroadcastVideo) {
+    try { _frameBroadcastVideo.srcObject = null; _frameBroadcastVideo.remove(); } catch {}
+    _frameBroadcastVideo = null;
+  }
+  _frameBroadcastCanvas = null;
+  // Clean up RTDB frame data
+  if (roomId) {
+    try {
+      const rtdb = getDatabase();
+      remove(ref(rtdb, `live_frames/${roomId}`)).catch(() => {});
+    } catch {}
+  }
+};
+
 // Helper: stop all tracks of a MediaStream
 const stopMediaStream = (stream: MediaStream | null) => {
   if (!stream) return;
@@ -609,6 +686,77 @@ const WITHDRAW_METHODS = [
 // ============================================================
 // CLOUDINARY UPLOADER
 // ============================================================
+// ============================================================
+// IMAGE COMPRESSION HELPER (FIX: DP update nahi ho raha tha)
+// ============================================================
+// FIX (Hinglish): Mobile phones se 3-10MB ki photos aati hain jo:
+//   1. Firebase Storage pe upload slow/cors-error deti hain
+//   2. Cloudinary pe upload preset misconfigured ho sakta hai
+//   3. Base64 fallback Firestore ke 1MB document limit ko exceed kar jaata hai
+//      — isliye updateDoc SILENTLY fail ho jaata tha aur DP update nahi hoti thi.
+//
+// Ab hum ek compression function add karte hain jo:
+//   - Image ko 512x512 pe resize karta hai (DP ke liye kaafi hai)
+//   - Quality 0.8 pe compress karta hai (JPEG)
+//   - Output ~50-150KB hota hai — Firestore 1MB limit ke andar easily fit
+//   - Firebase Storage + Cloudinary dono pe fast upload
+//   - Agar dono fail hon toh compressed base64 Firestore mein save ho jaata hai
+const compressImage = (file: File, maxSize = 512, quality = 0.8): Promise<string> => {
+  return new Promise((resolve) => {
+    if (!file.type.startsWith('image/')) {
+      // Not an image — return empty (caller will handle)
+      resolve('');
+      return;
+    }
+    try {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          // Calculate new dimensions (maintain aspect ratio, max maxSize)
+          let { width, height } = img;
+          if (width > height) {
+            if (width > maxSize) { height = Math.round(height * maxSize / width); width = maxSize; }
+          } else {
+            if (height > maxSize) { width = Math.round(width * maxSize / height); height = maxSize; }
+          }
+          // Draw to canvas and compress
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) { resolve(reader.result as string); return; }
+          ctx.drawImage(img, 0, 0, width, height);
+          // Compress to JPEG at quality 0.8
+          const compressed = canvas.toDataURL('image/jpeg', quality);
+          resolve(compressed);
+        };
+        img.onerror = () => { resolve(reader.result as string); };
+        img.src = reader.result as string;
+      };
+      reader.onerror = () => { resolve(''); };
+      reader.readAsDataURL(file);
+    } catch {
+      resolve('');
+    }
+  });
+};
+
+// Convert a data URL string to a File object (for uploading compressed images)
+const dataURLtoFile = (dataURL: string, filename: string): File => {
+  try {
+    const arr = dataURL.split(',');
+    const mime = arr[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
+    const bstr = atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) { u8arr[n] = bstr.charCodeAt(n); }
+    return new File([u8arr], filename, { type: mime });
+  } catch {
+    return new File([], filename);
+  }
+};
+
 const uploadToCloudinary = async (file: File): Promise<string> => {
   const fd = new FormData();
   fd.append('file', file);
@@ -1902,6 +2050,9 @@ export function AJSuperPortal() {
   const [viewerChatInput,    setViewerChatInput]    = useState('');
   const viewerChatEndRef = useRef<HTMLDivElement>(null);
   const viewerUnsubRef   = useRef<any>(null);
+  // FIX ROUND 7: Viewer live frame state — receives host's video frames from RTDB
+  const [viewerLiveFrame, setViewerLiveFrame] = useState('');
+  const viewerFrameUnsubRef = useRef<any>(null);
 
   // ── GLOBAL SOUND TOGGLE for TikReels (FIX #6: default OFF, UNMUTE ALL button)
   const [globalSoundOn, setGlobalSoundOn] = useState(true);
@@ -2960,6 +3111,12 @@ export function AJSuperPortal() {
           handleStartLiveOrCall(roomId, user.uid, username || 'AJ Member', () => setZegoAttached(true));
         });
       }, 600);
+      // FIX ROUND 7: Start broadcasting video frames to RTDB so viewers can see the live stream
+      setTimeout(() => {
+        if (liveStreamRef.current) {
+          startFrameBroadcast(roomId, liveStreamRef.current);
+        }
+      }, 1000);
       await setDoc(doc(db, "live_rooms", roomId), {
         uid: user.uid, username: username || 'AJ_Member',
         photo: tempPhoto || user.photoURL || '',
@@ -2999,6 +3156,8 @@ export function AJSuperPortal() {
       }
       // Stop local WebRTC stream (camera + mic)
       try { stopLocalWebRTC(); } catch {}
+      // FIX ROUND 7: Stop broadcasting frames to RTDB
+      try { stopFrameBroadcast(liveRoomId); } catch {}
 
       // Stop all media tracks (camera + mic)
       if (liveStreamRef.current) {
@@ -3071,6 +3230,22 @@ export function AJSuperPortal() {
         }
       );
       viewerUnsubRef.current = unsub;
+      // FIX ROUND 7: Listen to RTDB for host's live video frames —
+      // host broadcasts frames to live_frames/{roomId}/current and
+      // viewer displays them in real-time on an <img> element.
+      try {
+        const rtdb = getDatabase();
+        const frameRef = ref(rtdb, `live_frames/${roomSnap.id}/current`);
+        const frameUnsub = onValue(frameRef, (snap) => {
+          const data = snap.val();
+          if (data && data.frame) {
+            setViewerLiveFrame(data.frame);
+          }
+        });
+        viewerFrameUnsubRef.current = frameUnsub;
+      } catch (frameErr) {
+        console.warn('joinLiveByRoomId: frame listener setup failed', frameErr);
+      }
       // FIX: ZegoCloud removed — viewer gets room info + live chat via Firestore.
       // No external SDK needed — no "login room fail" error.
       setZegoAttached(true);
@@ -3081,6 +3256,9 @@ export function AJSuperPortal() {
     // FIX: Pura leaveViewerRoom try/finally mein — hamesha Social Hub par wapas aao
     try {
       if (viewerUnsubRef.current) { viewerUnsubRef.current(); viewerUnsubRef.current = null; }
+      // FIX ROUND 7: Stop RTDB frame listener
+      if (viewerFrameUnsubRef.current) { viewerFrameUnsubRef.current(); viewerFrameUnsubRef.current = null; }
+      setViewerLiveFrame('');
       if (viewerRoomId) {
         try { updateDoc(doc(db, 'live_rooms', viewerRoomId), { liveViewers: increment(-1) }); } catch {}
       }
@@ -3095,6 +3273,7 @@ export function AJSuperPortal() {
       // HAMESHA Social Hub par wapas aao — koi bhi error aaye
       setViewerRoom(null); setViewerRoomId('');
       setViewerChatMessages([]); setViewerChatInput('');
+      setViewerLiveFrame('');
       setLiveGiftPanelOpen(false);
       setSocialScreen('hub');
     }
@@ -3602,75 +3781,127 @@ export function AJSuperPortal() {
     } catch(e) { console.error('sendChatMessage', e); }
   };
 
-  // FIX ROUND 5: handlePhotoUpdate — same 3-layer fallback as handleDpUpdate
+  // FIX ROUND 6: handlePhotoUpdate — compress image first (mobile photos 3-10MB exceed Firestore 1MB limit),
+  // reset file input value (so same photo can be re-selected), and refresh viewProfile state so UI updates instantly.
   const handlePhotoUpdate = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || !e.target.files[0] || !user) return;
     setLoading(10);
     const file = e.target.files[0];
+    // Reset file input value so the SAME file can be re-selected later (browser onChange quirk)
+    e.target.value = '';
     let url = '';
-    try { url = await uploadToFirebaseStorage(file, user.uid); } catch {}
-    if (!url) { try { url = await uploadToCloudinary(file); } catch {} }
-    if (!url) {
-      // Base64 fallback
-      url = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = () => resolve('');
-        reader.readAsDataURL(file);
-      });
-    }
-    if (url) {
-      setTempPhoto(url);
-      try { await updateDoc(doc(db, "users", user.uid), { photo: url, photoURL: url }); } catch {}
-    }
-    setLoading(0);
-  };
-
-  // FIX ROUND 5: handleDpUpdate — DP upload nahi ho raha tha.
-  // 3-layer fallback: Firebase Storage → Cloudinary → base64 data URL
-  const handleDpUpdate = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || !e.target.files[0] || !user) return;
-    setLoading(20);
-    const file = e.target.files[0];
-    console.log('handleDpUpdate: file selected', file.name, file.type, file.size);
-    let url = '';
-    // Layer 1: Firebase Storage
+    // Compress the image first so base64 fallback is Firestore-safe (<1MB)
+    let uploadFile: File = file;
+    let compressedDataURL = '';
     try {
-      url = await uploadToFirebaseStorage(file, user.uid);
-      if (url) console.log('handleDpUpdate: Firebase Storage upload success');
-    } catch (err) { console.error('handleDpUpdate: Firebase Storage failed', err); }
-    // Layer 2: Cloudinary
-    if (!url) {
-      try {
-        url = await uploadToCloudinary(file);
-        if (url) console.log('handleDpUpdate: Cloudinary upload success');
-      } catch (err) { console.error('handleDpUpdate: Cloudinary failed', err); }
+      compressedDataURL = await compressImage(file, 512, 0.8);
+      uploadFile = dataURLtoFile(compressedDataURL, 'profile.jpg');
+    } catch (err) {
+      console.error('handlePhotoUpdate: compression failed, using original file', err);
     }
-    // Layer 3: Base64 data URL (last resort — at least local DP change ho jaayega)
+    // Layer 1: Firebase Storage
+    try { url = await uploadToFirebaseStorage(uploadFile, user.uid); } catch (err) { console.error('handlePhotoUpdate: Firebase Storage failed', err); }
+    // Layer 2: Cloudinary
+    if (!url) { try { url = await uploadToCloudinary(uploadFile); } catch (err) { console.error('handlePhotoUpdate: Cloudinary failed', err); } }
+    // Layer 3: Compressed base64 data URL (Firestore-safe because we compressed it)
     if (!url) {
-      console.log('handleDpUpdate: Both uploads failed, using base64 fallback');
-      url = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = () => resolve('');
-        reader.readAsDataURL(file);
-      });
+      if (compressedDataURL) {
+        url = compressedDataURL;
+      } else {
+        url = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = () => resolve('');
+          reader.readAsDataURL(file);
+        });
+      }
     }
     if (url) {
       setTempPhoto(url);
       try {
         await updateDoc(doc(db, "users", user.uid), { photo: url, photoURL: url });
-        console.log('handleDpUpdate: Firestore updated');
-      } catch (err) {
-        console.error('handleDpUpdate: Firestore update failed (non-fatal)', err);
-      }
-      setVvipAlert({msg:"✅ Profile picture updated!",icon:"📸"});
+        // Refresh viewProfile state so the profile screen shows the new photo immediately
+        setViewProfile((prev) => prev ? { ...prev, photo: url, photoURL: url } : prev);
+      } catch (err) { console.error('handlePhotoUpdate: Firestore update failed', err); }
+      setVvipAlert({msg:"✅ Photo updated!",icon:"📷"});
     } else {
       setVvipAlert({msg:"⚠️ Could not upload photo. Please try again."});
     }
     setLoading(0);
   };
 
+  // FIX ROUND 6: handleDpUpdate — DP upload nahi ho raha tha.
+  // ROOT CAUSE: Mobile photos are 3-10MB; base64 encoding exceeds Firestore 1MB doc limit
+  // so the updateDoc silently failed. Also file input value wasn't reset (can't re-select
+  // same photo), and viewProfile state wasn't refreshed (profile screen showed old photo).
+  //
+  // FIX: (1) Compress image to 512px max, JPEG 0.8 quality (~50-150KB, Firestore-safe).
+  //      (2) Reset file input value so same photo can be re-selected.
+  //      (3) 3-layer upload: Firebase Storage → Cloudinary → compressed base64.
+  //      (4) Refresh viewProfile state so UI updates instantly.
+  const handleDpUpdate = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || !e.target.files[0] || !user) return;
+    setLoading(20);
+    const file = e.target.files[0];
+    // Reset file input value so the SAME file can be re-selected later (browser onChange quirk)
+    e.target.value = '';
+    console.log('handleDpUpdate: file selected', file.name, file.type, file.size);
+
+    // Compress the image first so base64 fallback is Firestore-safe (<1MB)
+    let uploadFile: File = file;
+    let compressedDataURL = '';
+    try {
+      compressedDataURL = await compressImage(file, 512, 0.8);
+      uploadFile = dataURLtoFile(compressedDataURL, 'profile.jpg');
+      console.log('handleDpUpdate: image compressed to', compressedDataURL.length, 'bytes (base64)');
+    } catch (err) {
+      console.error('handleDpUpdate: compression failed, using original file', err);
+    }
+
+    let url = '';
+    // Layer 1: Firebase Storage
+    try {
+      url = await uploadToFirebaseStorage(uploadFile, user.uid);
+      if (url) console.log('handleDpUpdate: Firebase Storage upload success');
+    } catch (err) { console.error('handleDpUpdate: Firebase Storage failed', err); }
+    // Layer 2: Cloudinary
+    if (!url) {
+      try {
+        url = await uploadToCloudinary(uploadFile);
+        if (url) console.log('handleDpUpdate: Cloudinary upload success');
+      } catch (err) { console.error('handleDpUpdate: Cloudinary failed', err); }
+    }
+    // Layer 3: Compressed base64 data URL (Firestore-safe because we compressed it to <1MB)
+    if (!url) {
+      if (compressedDataURL) {
+        console.log('handleDpUpdate: Using compressed base64 fallback');
+        url = compressedDataURL;
+      } else {
+        console.log('handleDpUpdate: Both uploads failed, using raw base64 fallback');
+        url = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = () => resolve('');
+          reader.readAsDataURL(file);
+        });
+      }
+    }
+    if (url) {
+      setTempPhoto(url);
+      try {
+        await updateDoc(doc(db, "users", user.uid), { photo: url, photoURL: url });
+        console.log('handleDpUpdate: Firestore updated');
+        // Refresh viewProfile state so the profile screen shows the new photo immediately
+        setViewProfile((prev) => prev ? { ...prev, photo: url, photoURL: url } : prev);
+      } catch (err) {
+        console.error('handleDpUpdate: Firestore update failed (non-fatal)', err);
+      }
+      setVvipAlert({msg:"✅ Profile picture updated!",icon:"📷"});
+    } else {
+      setVvipAlert({msg:"⚠️ Could not upload photo. Please try again."});
+    }
+    setLoading(0);
+  };
   const handleCreatePost = async () => {
     if (!postText.trim() && !tempPhoto) return setVvipAlert({msg:"Empty Post!"});
     try {
@@ -4882,24 +5113,12 @@ Tip: Social Hub se copy karo 📤`,
                       vid[0], vid[1], vid[2], vid[3], AD, vid[4], vid[5], vid[6], vid[7], AD ...
                       — har 4 REAL videos ke baad ek ad, bilkul jaise user ne maanga. */}
                   {(() => {
-                    const AD_EVERY = 8; // FIX: 6 se 8 kar diya — kam ads, better UX (revenue in-feed fallback video se chalti rehti hai)
-                    const interleaved: any[] = [];
-                    pixaVideos.forEach((vid:any, i:number) => {
-                      interleaved.push({ kind:'content', vid, origIdx:i });
-                      // Har 4 content items ke baad ek ad insert karo (0-based: i=3,7,11...)
-                      if ((i + 1) % AD_EVERY === 0) {
-                        interleaved.push({ kind:'ad', adIdx: Math.floor((i + 1) / AD_EVERY) - 1 });
-                      }
-                    });
-                    return interleaved.map((item:any, idx:number) => {
-                      if (item.kind === 'ad') {
-                        return (
-                          <div key={`tik_ad_${item.adIdx}`} data-vidx={idx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
-                            <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} type="interstitial"/>
-                          </div>
-                        );
-                      }
-                      const vid = item.vid;
+                    // FIX ROUND 6: Full-screen MonetagVideoAd feed se HATA diya — user ko
+                    // har 8 post pe full-screen ad block karna padta tha jo UX kharab
+                    // karta tha. Ab feed mein SIRF content videos hain, koi ad slot nahi.
+                    // Real Monetag popup ad still fires once per 5-min cycle via navigation
+                    // and free-coin triggers (cooldown-gated), so revenue stays.
+                    return pixaVideos.map((vid:any, idx:number) => {
                       const isActive = activeVideoIdx === idx;
                       // FIX #6: mute=0 when globalSoundOn, else mute=1; audio kill on scroll
                       // FIX (Hinglish): enablejsapi=1 add kiya gaya hai taaki hum YouTube
@@ -5312,24 +5531,12 @@ Tip: Social Hub se copy karo 📤`,
                       post[0], post[1], post[2], post[3], AD, post[4], post[5], post[6], post[7], AD ...
                       — har 4 REAL posts ke baad ek ad, bilkul jaise user ne maanga. */}
                   {(() => {
-                    const AD_EVERY = 8; // FIX: 6 se 8 kar diya — kam ads, better UX (revenue in-feed fallback video se chalti rehti hai)
-                    const interleaved: any[] = [];
-                    combinedPulseFeed.forEach((post:any, i:number) => {
-                      interleaved.push({ kind:'content', post, origIdx:i });
-                      // Har 4 content items ke baad ek ad insert karo (0-based: i=3,7,11...)
-                      if ((i + 1) % AD_EVERY === 0) {
-                        interleaved.push({ kind:'ad', adIdx: Math.floor((i + 1) / AD_EVERY) - 1 });
-                      }
-                    });
-                    return interleaved.map((item:any, idx:number) => {
-                      if (item.kind === 'ad') {
-                        return (
-                          <div key={`pulse_ad_${item.adIdx}`} data-vidx={idx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
-                            <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} type="interstitial"/>
-                          </div>
-                        );
-                      }
-                      const post = item.post;
+                    // FIX ROUND 6: Full-screen MonetagVideoAd feed se HATA diya — user ko
+                    // har 8 post pe full-screen ad block karna padta tha jo UX kharab
+                    // karta tha. Ab feed mein SIRF content posts hain, koi ad slot nahi.
+                    // Real Monetag popup ad still fires once per 5-min cycle via navigation
+                    // and free-coin triggers (cooldown-gated), so revenue stays.
+                    return combinedPulseFeed.map((post:any, idx:number) => {
                       const isActive = activeVideoIdx === idx;
                       return (
                       <div key={post.id} data-vidx={idx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505] flex flex-col justify-end" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
@@ -5831,14 +6038,29 @@ Tip: Social Hub se copy karo 📤`,
                 <span className="ml-auto text-[9px] text-red-400 font-black animate-pulse">🔴 LIVE</span>
               </div>
               <div className="flex-1 flex flex-col">
-                <div id="zego-viewer-container" className="w-full aspect-video bg-black flex items-center justify-center relative">
-                  <img src={viewerRoom.photo||'/logo.png'} className="absolute inset-0 w-full h-full object-cover opacity-40"/>
-                  <div className="relative z-10 flex flex-col items-center gap-2">
-                    <div className="w-16 h-16 rounded-full border-2 border-red-500 overflow-hidden">
-                      <img src={viewerRoom.photo||'/logo.png'} className="w-full h-full object-cover"/>
+                <div id="zego-viewer-container" className="w-full aspect-video bg-black flex items-center justify-center relative overflow-hidden">
+                  {/* FIX ROUND 7: Show host's live video frame from RTDB.
+                      Jab tak frame nahi aaya, host ka profile photo dikhao. */}
+                  {viewerLiveFrame ? (
+                    <img src={viewerLiveFrame} className="absolute inset-0 w-full h-full object-cover" style={{ imageRendering: 'auto' }} alt="Live stream"/>
+                  ) : (
+                    <>
+                      <img src={viewerRoom.photo||'/logo.png'} className="absolute inset-0 w-full h-full object-cover opacity-40"/>
+                      <div className="relative z-10 flex flex-col items-center gap-2">
+                        <div className="w-16 h-16 rounded-full border-2 border-red-500 overflow-hidden">
+                          <img src={viewerRoom.photo||'/logo.png'} className="w-full h-full object-cover"/>
+                        </div>
+                        <span className="text-white text-xs font-black animate-pulse">🔴 LIVE</span>
+                      </div>
+                    </>
+                  )}
+                  {/* Loading indicator if no frame yet */}
+                  {!viewerLiveFrame && (
+                    <div className="absolute bottom-2 left-2 z-20 bg-black/50 backdrop-blur-sm rounded-full px-2 py-1 flex items-center gap-1">
+                      <div className="w-3 h-3 rounded-full border border-white/30 border-t-white animate-spin"/>
+                      <span className="text-white/70 text-[8px] font-bold">Connecting…</span>
                     </div>
-                    <span className="text-white text-xs font-black animate-pulse">🔴 LIVE</span>
-                  </div>
+                  )}
                 </div>
                 <div className="flex-1 overflow-y-auto p-3 space-y-2">
                   {viewerChatMessages.map((m:any) => (
