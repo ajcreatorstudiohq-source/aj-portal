@@ -310,8 +310,6 @@
 
     <div id="garage-icon-btn" onclick="openGarage()">🛠️</div>
 
-    <!-- SPLASH -->
-
     <!-- LOGIN -->
     <div id="login-screen" class="screen active">
         <div class="logo-text">LUDO ELITE</div>
@@ -368,7 +366,7 @@
         <div class="logo-text">LUDO ELITE</div>
         <div class="loading-container">
             <div class="loading-track"><div id="loading-bar"></div></div>
-            <div id="tap-text" style="display:none; color:var(--cyan); cursor:pointer; font-weight:900; font-size:18px;" onclick="showHome()">TAP TO CONTINUE</div>
+            <div id="tap-text" style="display:none; color:var(--cyan); cursor:pointer; font-weight:900; font-size:18px;" onclick="splashTapContinue()">TAP TO CONTINUE</div>
         </div>
         <div class="dev-tag">By AJ Creator</div>
     </div>
@@ -802,7 +800,6 @@ function switchScreen(id) {
 }
 
 function showHome() {
-    // No ad on every home visit — better UX. Ads only on reward claims.
     isPaused = false; isPausedManually = false;
     updateWalletUI(); updateDailyRewardUI();
     updateHomeProfile();
@@ -844,7 +841,8 @@ function handleCountSelection(count) {
         activePlayers = (count === 2) ? [0, 2] : (count === 3 ? [0, 1, 2] : [0, 1, 2, 3]);
         playerAvatars = [0, 1, myAvatarIdx, 3];
         playerNames[2] = document.getElementById('user-name-input').value || 'YOU';
-        initGame();
+        // AD: before starting a match (bot mode)
+        showAdOverlay(0, function() { initGame(); });
     } else {
         switchScreen('lobby-screen');
         initHostRoom();
@@ -872,7 +870,6 @@ function switchGarageTab(tab) {
             let acc = item.accent || item.color;
             previewHTML = `<div style="width:42px;height:42px;background:linear-gradient(145deg,${item.color},${acc});border-radius:9px;border:2px solid rgba(255,255,255,0.4);display:grid;grid-template-columns:repeat(3,1fr);padding:5px;box-shadow:0 4px 10px rgba(0,0,0,0.5),inset 0 1px 2px rgba(255,255,255,0.3);"><div style="background:radial-gradient(circle at 30% 30%,${item.dot}ee,${item.dot});border-radius:50%;width:7px;height:7px;align-self:center;justify-self:center;box-shadow:0 1px 2px rgba(0,0,0,0.3);"></div><div></div><div></div><div></div><div style="background:radial-gradient(circle at 30% 30%,${item.dot}ee,${item.dot});border-radius:50%;width:7px;height:7px;align-self:center;justify-self:center;box-shadow:0 1px 2px rgba(0,0,0,0.3);"></div><div></div><div></div><div></div><div style="background:radial-gradient(circle at 30% 30%,${item.dot}ee,${item.dot});border-radius:50%;width:7px;height:7px;align-self:center;justify-self:center;box-shadow:0 1px 2px rgba(0,0,0,0.3);"></div></div>`;
         } else if (tab === 'boards') {
-            let qColor = item.theme;
             previewHTML = `<div style="width:48px;height:48px;background:${item.theme};border:3px solid ${item.grid};border-radius:10px;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);box-shadow:0 4px 12px rgba(0,0,0,0.5);"><div style="background:${item.grid};border-radius:3px;margin:2px;"></div><div style="background:rgba(255,255,255,0.3);margin:2px;border-radius:3px;"></div><div style="background:${item.grid};border-radius:3px;margin:2px;"></div><div style="background:rgba(255,255,255,0.3);margin:2px;border-radius:3px;"></div><div style="background:${item.theme};border:2px solid ${item.grid};border-radius:5px;margin:2px;"></div><div style="background:rgba(255,255,255,0.3);margin:2px;border-radius:3px;"></div><div style="background:${item.grid};border-radius:3px;margin:2px;"></div><div style="background:rgba(255,255,255,0.3);margin:2px;border-radius:3px;"></div><div style="background:${item.grid};border-radius:3px;margin:2px;"></div></div>`;
         } else if (tab === 'avatars') {
             previewHTML = `<img src="${item.url}" style="width:52px;height:52px;border-radius:50%;border:2px solid var(--cyan);object-fit:cover;box-shadow:0 4px 12px rgba(0,0,0,0.5);">`;
@@ -897,8 +894,18 @@ function switchGarageTab(tab) {
         let btnColor = (isSelected || isOwned) ? '#000' : '#fff';
         let vvipBadge = isVVIP ? '<div style="position:absolute;top:2px;right:2px;background:linear-gradient(45deg,#ffd700,#ff8c00);color:#000;font-size:8px;font-weight:900;padding:1px 5px;border-radius:8px;">VVIP</div>' : '';
         card.style.position = 'relative';
-        card.innerHTML = `<div class="preview-box" style="position:relative;">${previewHTML}${vvipBadge}</div><div style="font-size:12px;font-weight:900;">${item.name}</div><button class="btn" style="width:110px;padding:6px;font-size:10px;background:${btnBg};color:${btnColor};" onclick="${isOwned ? `selectItem('${tab}',${i})` : `buyItem('${tab}',${i},${item.price})`}">${btnText}</button>`;
+        card.innerHTML = `<div class="preview-box" style="position:relative;">${previewHTML}${vvipBadge}</div><div style="font-size:12px;font-weight:900;">${item.name}</div><button class="btn" style="width:110px;padding:6px;font-size:10px;background:${btnBg};color:${btnColor};" onclick="${isOwned ? `selectItem('${tab}',${i})` : `buyItemWithAd('${tab}',${i},${item.price})`}">${btnText}</button>`;
         grid.appendChild(card);
+    });
+}
+
+// AD before purchase in garage
+function buyItemWithAd(type, index, price) {
+    if (myCoins < price) return showAlert("NOT ENOUGH COINS!");
+    playSfx(sfxButton);
+    showAdOverlay(0, function() {
+        myCoins -= price; playSfx(sfxCash);
+        inventory[type].push(index); saveInv(); updateWalletUI(); selectItem(type, index);
     });
 }
 
@@ -962,16 +969,73 @@ function updateDailyRewardUI() {
 setInterval(updateDailyRewardUI, 1000);
 
 function claimDailyBonus() {
-    ajShowAd();
-    myCoins += 1000; playSfx(sfxCollect); updateWalletUI();
-    localStorage.setItem('ludo_last_claim', Date.now().toString());
-    showAlert("CLAIMED 1000 COINS! 💰"); updateDailyRewardUI();
+    playSfx(sfxButton);
+    showAdOverlay(1000, function() {
+        localStorage.setItem('ludo_last_claim', Date.now().toString());
+        showAlert("CLAIMED 1000 COINS! 💰");
+        updateDailyRewardUI();
+    });
 }
 
 function watchUnlimitedAd() {
+    playSfx(sfxButton);
+    showAdOverlay(200, function() {
+        showAlert("EARNED 200 COINS! 📺");
+    });
+}
+
+// ===================================================================
+//  AD OVERLAY (unified) — used by all ad-gated actions
+//  rewardAmount: coins to give after ad (0 = no reward, just gate)
+//  callback: function to run after ad completes
+// ===================================================================
+let adTimerId = null;
+
+function showAdOverlay(rewardAmount, callback) {
+    const overlay = document.getElementById('ad-overlay');
+    const normal = document.getElementById('ad-content-normal');
+    const done = document.getElementById('ad-content-done');
+    const finalAmount = document.getElementById('ad-reward-amount');
+
+    normal.style.display = 'block';
+    done.style.display = 'none';
+    overlay.style.display = 'flex';
+
+    // Open the actual ad link (AJ SDK)
     ajShowAd();
-    myCoins += 200; playSfx(sfxCollect); updateWalletUI();
-    showAlert("EARNED 200 COINS! 📺");
+
+    // Countdown 5 seconds
+    let count = 5;
+    document.getElementById('ad-countdown').innerText = count;
+    if (adTimerId) clearInterval(adTimerId);
+    adTimerId = setInterval(() => {
+        count--;
+        document.getElementById('ad-countdown').innerText = count;
+        if (count <= 0) {
+            clearInterval(adTimerId);
+            adTimerId = null;
+            // Apply reward if any
+            if (rewardAmount > 0) {
+                myCoins += rewardAmount;
+                playSfx(sfxCollect);
+                updateWalletUI();
+                finalAmount.innerText = '+' + rewardAmount.toLocaleString();
+                normal.style.display = 'none';
+                done.style.display = 'block';
+            } else {
+                // No reward — just close and run callback
+                overlay.style.display = 'none';
+            }
+            if (typeof callback === 'function') {
+                try { callback(); } catch(e) { console.warn('ad callback error', e); }
+            }
+        }
+    }, 1000);
+}
+
+function closeAdOverlay() {
+    playSfx(sfxButton);
+    document.getElementById('ad-overlay').style.display = 'none';
 }
 
 // ===================================================================
@@ -999,7 +1063,6 @@ function initHostRoom() {
             if (data.guests) Object.keys(data.guests).forEach(k => roomPlayers[parseInt(k)] = data.guests[k]);
             renderLobbyPlayers();
         });
-        // Listen for game-start signal
         myRoomRef.child('started').on('value', (snap) => {
             if (snap.val() === true) {
                 // Host starts locally via startOnlineMatch
@@ -1037,7 +1100,6 @@ function joinFriendFromHome() {
             if (!data) { showAlert("Room not found!"); return; }
             playerCount = data.count || 2; gameMode = data.mode || 'classic';
             const tName = data.level; selectedLevel = tables.find(t => t.name === tName) || tables[0];
-            // Find a free slot
             const taken = data.guests ? Object.keys(data.guests).map(k => parseInt(k)) : [];
             let slot = -1;
             const order = [0, 1, 3];
@@ -1047,18 +1109,20 @@ function joinFriendFromHome() {
             const myData = { name: document.getElementById('user-name-input').value || 'GUEST', avatar: myAvatarIdx, ready: true };
             roomRef.child('guests/' + slot).set(myData);
             myRoomRef = roomRef;
-            switchScreen('lobby-screen');
-            document.getElementById('id-display-box').style.display = 'none';
-            document.getElementById('whatsapp-share-btn').style.display = 'none';
-            document.getElementById('player-status').innerText = "Joined! Waiting for host to start...";
-            document.getElementById('start-game-btn').style.display = 'none';
-            // Listen for start
-            roomRef.child('started').on('value', (s) => {
-                if (s.val() === true) {
-                    roomRef.child('gameState').on('value', (gs) => {
-                        const st = gs.val(); if (st) handleRemoteState(st);
-                    });
-                }
+            // AD before joining match
+            showAdOverlay(0, function() {
+                switchScreen('lobby-screen');
+                document.getElementById('id-display-box').style.display = 'none';
+                document.getElementById('whatsapp-share-btn').style.display = 'none';
+                document.getElementById('player-status').innerText = "Joined! Waiting for host to start...";
+                document.getElementById('start-game-btn').style.display = 'none';
+                roomRef.child('started').on('value', (s) => {
+                    if (s.val() === true) {
+                        roomRef.child('gameState').on('value', (gs) => {
+                            const st = gs.val(); if (st) handleRemoteState(st);
+                        });
+                    }
+                });
             });
         }).catch(() => { showAlert("Connection error!"); showHome(); });
     } else {
@@ -1111,11 +1175,6 @@ function sendChatToAll(msg) {
     }
 }
 function showFloatingChat(idx, msg) { const bubble = document.getElementById(`bubble-${idx}`); if (!bubble) return; bubble.innerText = msg; bubble.style.display = 'block'; setTimeout(() => bubble.style.display = 'none', 4000); }
-
-// Listen for chat in online mode
-if (rtdb) {
-    // chat listeners attached per room
-}
 
 // ===================================================================
 //  GAME LOGIC
@@ -1186,18 +1245,18 @@ function handleGameEnd() {
     else if (rank === 1) { winAmt = Math.floor(selectedLevel.fee * 1.0); title = "2ND PLACE! 🥈"; sub = "Great game!"; }
     else if (rank === 2) { winAmt = Math.floor(selectedLevel.fee * 0.5); title = "3RD PLACE! 🥉"; sub = "Not bad!"; }
     else { title = "GAME OVER"; sub = "Better luck next time!"; }
-    if (winAmt > 0) {
-        myCoins += winAmt; playSfx(sfxCollect); updateWalletUI();
-        // BRIDGE: send game coins to Next.js wallet as AJ coins (100:1)
-        ajSendScore(winAmt);
-    }
-    // Show win modal + confetti
-    document.getElementById('win-title-text').innerText = title;
-    document.getElementById('win-sub-text').innerText = sub;
-    document.getElementById('win-amount-text').innerText = "+" + winAmt.toLocaleString();
-    document.getElementById('win-modal').style.display = 'flex';
-    if (rank === 0) startConfetti();
-    ajShowAd();
+    // AD before awarding coins at game end
+    showAdOverlay(0, function() {
+        if (winAmt > 0) {
+            myCoins += winAmt; playSfx(sfxCollect); updateWalletUI();
+            ajSendScore(winAmt);
+        }
+        document.getElementById('win-title-text').innerText = title;
+        document.getElementById('win-sub-text').innerText = sub;
+        document.getElementById('win-amount-text').innerText = "+" + winAmt.toLocaleString();
+        document.getElementById('win-modal').style.display = 'flex';
+        if (rank === 0) startConfetti();
+    });
 }
 
 function userRequestsRoll() { if (isPaused) return; if (isBotMode ? (turn === 2) : (turn === myColorIdx)) rollDice(); }
@@ -1434,7 +1493,6 @@ function roundRect(c, x, y, w, h, r) {
 }
 
 function render() {
-    // Use selected board from garage if available, otherwise table theme
     let boardTheme, gridCol;
     if (inventory.boards && shopData.boards[inventory.selectedBoard]) {
         const bd = shopData.boards[inventory.selectedBoard];
@@ -1444,7 +1502,6 @@ function render() {
         gridCol = selectedLevel ? selectedLevel.grid : "#ddd";
     }
 
-    // Board background with rounded corners + shadow
     ctx.fillStyle = boardTheme;
     roundRect(ctx, 0, 0, canvas.width, canvas.height, canvas.width * 0.03);
     ctx.fill();
@@ -1454,16 +1511,12 @@ function render() {
     ctx.rotate(getBoardRotation());
     ctx.translate(-canvas.width / 2, -canvas.height / 2);
 
-    // Draw 4 colored home quadrants (Ludo Star style)
     COLORS.forEach((c, i) => {
         let x = (i === 1 || i === 2) ? 9 * cell : 0, y = (i === 2 || i === 3) ? 9 * cell : 0;
-        // Outer colored block
         ctx.fillStyle = c;
         roundRect(ctx, x, y, 6 * cell, 6 * cell, cell * 0.3); ctx.fill();
-        // Inner white area
         ctx.fillStyle = 'rgba(255,255,255,0.92)';
         roundRect(ctx, x + 0.8 * cell, y + 0.8 * cell, 4.4 * cell, 4.4 * cell, cell * 0.2); ctx.fill();
-        // Home circles for tokens
         const hcx = [1.8, 4.2], hcy = [1.8, 4.2];
         for (let a = 0; a < 2; a++) for (let b = 0; b < 2; b++) {
             ctx.beginPath();
@@ -1473,45 +1526,31 @@ function render() {
         }
     });
 
-    // Colored entry paths (centered in the corridor — Ludo Star style)
-    // The corridors are 3 cells wide (rows/cols 6,7,8). Colored path sits on center line (7).
-    // Red (0) — from tile 0 going right along center row 7
     ctx.fillStyle = COLORS[0];
     for (let i = 1; i <= 5; i++) ctx.fillRect(i * cell, 7 * cell, cell, cell);
-    // Green (1) — from tile 13 going down along center col 7
     for (let i = 1; i <= 5; i++) ctx.fillRect(7 * cell, i * cell, cell, cell);
-    // Yellow (2) — from tile 26 going left along center row 7
     for (let i = 9; i <= 13; i++) ctx.fillRect(i * cell, 7 * cell, cell, cell);
-    // Blue (3) — from tile 39 going up along center col 7
     for (let i = 9; i <= 13; i++) ctx.fillRect(7 * cell, i * cell, cell, cell);
 
-    // Grid lines
     ctx.strokeStyle = gridCol; ctx.lineWidth = 0.8;
     for (let i = 0; i <= 15; i++) {
         ctx.beginPath(); ctx.moveTo(i * cell, 0); ctx.lineTo(i * cell, canvas.width); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(0, i * cell); ctx.lineTo(canvas.height, i * cell); ctx.stroke();
     }
 
-    // Center home triangles (Ludo Star style)
     const ctr = 7.5 * cell;
-    // Red triangle (points left)
     ctx.beginPath(); ctx.moveTo(6 * cell, 6 * cell); ctx.lineTo(ctr, ctr); ctx.lineTo(6 * cell, 9 * cell); ctx.closePath();
     ctx.fillStyle = COLORS[0]; ctx.fill();
-    // Green triangle (points up)
     ctx.beginPath(); ctx.moveTo(6 * cell, 6 * cell); ctx.lineTo(ctr, ctr); ctx.lineTo(9 * cell, 6 * cell); ctx.closePath();
     ctx.fillStyle = COLORS[1]; ctx.fill();
-    // Yellow triangle (points right)
     ctx.beginPath(); ctx.moveTo(9 * cell, 6 * cell); ctx.lineTo(ctr, ctr); ctx.lineTo(9 * cell, 9 * cell); ctx.closePath();
     ctx.fillStyle = COLORS[2]; ctx.fill();
-    // Blue triangle (points down)
     ctx.beginPath(); ctx.moveTo(9 * cell, 9 * cell); ctx.lineTo(ctr, ctr); ctx.lineTo(6 * cell, 9 * cell); ctx.closePath();
     ctx.fillStyle = COLORS[3]; ctx.fill();
 
-    // Center diamond outline
     ctx.beginPath(); ctx.moveTo(6 * cell, 7.5 * cell); ctx.lineTo(7.5 * cell, 6 * cell); ctx.lineTo(9 * cell, 7.5 * cell); ctx.lineTo(7.5 * cell, 9 * cell); ctx.closePath();
     ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 2; ctx.stroke();
 
-    // Arrow indicators (arrow mode)
     if (gameMode === 'arrow') {
         Object.keys(arrowMap).forEach(key => {
             let sIdx = parseInt(key), eIdx = arrowMap[sIdx];
@@ -1526,7 +1565,6 @@ function render() {
         });
     }
 
-    // Safe star tiles
     safeTiles.forEach(idx => {
         let s = mainPath[idx];
         ctx.fillStyle = "rgba(0,0,0,0.4)"; ctx.font = (cell * 0.8) + "px Poppins";
@@ -1534,7 +1572,6 @@ function render() {
         ctx.fillText("★", (s[0] + 0.5) * cell, (s[1] + 0.5) * cell);
     });
 
-    // Winner rank overlays
     winnersRank.forEach((pIdx, rank) => {
         let x = (pIdx === 1 || pIdx === 2) ? 9 * cell : 0, y = (pIdx === 2 || pIdx === 3) ? 9 * cell : 0;
         ctx.fillStyle = "rgba(0,0,0,0.65)";
@@ -1544,7 +1581,6 @@ function render() {
         ctx.fillText(txt, x + 3 * cell, y + 3.5 * cell);
     });
 
-    // === TOKEN DRAWING (3D glowing spheres) ===
     const posMap = {};
     const activeTokens = [];
     players.forEach(p => p.forEach(g => { if (activePlayers.includes(g.pIdx)) activeTokens.push(g); }));
@@ -1574,7 +1610,6 @@ function render() {
             const cx2 = c.x + dx, cy2 = (c.y + dy) - g.jumpY;
             const r = cell * 0.4;
 
-            // Shadow
             ctx.beginPath();
             ctx.ellipse(cx2, cy2 + r * 0.7, r * 0.9, r * 0.35, 0, 0, 7);
             ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fill();
@@ -1599,60 +1634,46 @@ function render() {
                 ctx.fillStyle = grad2; ctx.fill();
                 ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke();
             } else if (style === 'crown') {
-                // 3D sphere with glow
                 const grad3 = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
                 grad3.addColorStop(0, 'rgba(255,255,255,0.9)'); grad3.addColorStop(0.4, g.color); grad3.addColorStop(1, COLORS_DARK[g.pIdx]);
                 ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.fillStyle = grad3; ctx.fill();
                 ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke();
-                // Glow ring
                 ctx.beginPath(); ctx.arc(0, 0, r + 2, 0, 7);
                 ctx.strokeStyle = g.color + '88'; ctx.lineWidth = 3; ctx.stroke();
             } else if (style === 'vvip-gold') {
-                // Gold gem with crown sparkle — VVIP
                 const g5 = ctx.createRadialGradient(-r*0.3, -r*0.3, r*0.1, 0, 0, r);
                 g5.addColorStop(0, '#fff8dc'); g5.addColorStop(0.4, '#ffd700'); g5.addColorStop(1, '#b8860b');
                 ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.fillStyle = g5; ctx.fill();
-                // Star cut facets
                 ctx.strokeStyle = '#b8860b'; ctx.lineWidth = 1.5;
                 for (let a = 0; a < 5; a++) { let ang = a * 1.2566; ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(Math.cos(ang)*r, Math.sin(ang)*r); ctx.stroke(); }
                 ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.stroke();
                 ctx.beginPath(); ctx.arc(0, 0, r + 3, 0, 7); ctx.strokeStyle = '#ffd70099'; ctx.lineWidth = 3; ctx.stroke();
-                // Center sparkle
                 ctx.fillStyle = '#fff'; ctx.font = (r*0.8)+'px Poppins'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('★', 0, 0);
             } else if (style === 'vvip-diamond') {
-                // Diamond — clear ice with rainbow shimmer — VVIP
                 ctx.beginPath();
                 ctx.moveTo(0, -r); ctx.lineTo(r, -r*0.3); ctx.lineTo(r*0.6, r); ctx.lineTo(-r*0.6, r); ctx.lineTo(-r, -r*0.3); ctx.closePath();
                 const g6 = ctx.createLinearGradient(-r, -r, r, r);
                 g6.addColorStop(0, '#b9f2ff'); g6.addColorStop(0.3, '#e0f7ff'); g6.addColorStop(0.6, '#fff'); g6.addColorStop(1, '#80deea');
                 ctx.fillStyle = g6; ctx.fill();
-                // Facet lines
                 ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1;
                 ctx.beginPath(); ctx.moveTo(0, -r); ctx.lineTo(0, r); ctx.moveTo(-r, -r*0.3); ctx.lineTo(r, -r*0.3); ctx.stroke();
                 ctx.strokeStyle = '#80deea'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, -r); ctx.lineTo(r, -r*0.3); ctx.lineTo(r*0.6, r); ctx.lineTo(-r*0.6, r); ctx.lineTo(-r, -r*0.3); ctx.closePath(); ctx.stroke();
-                // Rainbow sparkle
                 ctx.fillStyle = 'rgba(255,0,128,0.4)'; ctx.beginPath(); ctx.arc(-r*0.3, -r*0.3, r*0.2, 0, 7); ctx.fill();
                 ctx.fillStyle = 'rgba(0,255,200,0.4)'; ctx.beginPath(); ctx.arc(r*0.2, r*0.2, r*0.15, 0, 7); ctx.fill();
             } else if (style === 'vvip-royal') {
-                // Royal crest — golden ring + colored core + glow — VVIP
                 ctx.beginPath(); ctx.arc(0, 0, r, 0, 7);
                 const g7 = ctx.createRadialGradient(0, 0, r*0.2, 0, 0, r);
                 g7.addColorStop(0, g.color); g7.addColorStop(0.7, COLORS_DARK[g.pIdx]); g7.addColorStop(1, '#1a1a1a');
                 ctx.fillStyle = g7; ctx.fill();
-                // Gold rim
                 ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 4; ctx.stroke();
                 ctx.beginPath(); ctx.arc(0, 0, r - 3, 0, 7); ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke();
-                // Inner star
                 ctx.fillStyle = '#ffd700'; ctx.font = (r*0.9)+'px Poppins'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('♛', 0, 0);
-                // Outer glow
                 ctx.beginPath(); ctx.arc(0, 0, r + 4, 0, 7); ctx.strokeStyle = '#ffd70066'; ctx.lineWidth = 4; ctx.stroke();
             } else {
-                // Default 3D sphere
                 const grad4 = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
                 grad4.addColorStop(0, 'rgba(255,255,255,0.85)'); grad4.addColorStop(0.5, g.color); grad4.addColorStop(1, COLORS_DARK[g.pIdx]);
                 ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.fillStyle = grad4; ctx.fill();
                 ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke();
-                // Highlight
                 ctx.beginPath(); ctx.arc(-r * 0.3, -r * 0.3, r * 0.25, 0, 7);
                 ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.fill();
             }
@@ -1729,15 +1750,17 @@ function leaveMatch() {
     if (myRoomRef) { try { myRoomRef.remove(); } catch(e){} myRoomRef = null; }
     if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
     playSfx(sfxButton);
-    isPaused = false; isPausedManually = false;
-    confettiActive = false;
-    document.getElementById('win-modal').style.display = 'none';
-    document.getElementById('mic-btn').classList.remove('speaking', 'muted');
-    document.getElementById('whatsapp-share-btn').style.display = 'none';
-    document.getElementById('id-display-box').style.display = 'none';
-    showHome();
+    // AD on leave match (before going home)
+    showAdOverlay(0, function() {
+        isPaused = false; isPausedManually = false;
+        confettiActive = false;
+        document.getElementById('win-modal').style.display = 'none';
+        document.getElementById('mic-btn').classList.remove('speaking', 'muted');
+        document.getElementById('whatsapp-share-btn').style.display = 'none';
+        document.getElementById('id-display-box').style.display = 'none';
+        showHome();
+    });
 }
-
 
 // ===================================================================
 //  LOGIN SYSTEM
@@ -1758,9 +1781,7 @@ function doLogin(provider) {
     document.getElementById('user-name-input').value = name;
     myAvatarIdx = playerProfile.avatar || 0;
     updateHomeProfile();
-    // Show splash -> home
     switchScreen('splash-screen');
-    // Auto-advance from splash after short delay
     setTimeout(() => {
         if (document.getElementById('splash-screen').classList.contains('active')) {
             showHome();
@@ -1777,50 +1798,6 @@ function updateHomeProfile() {
         document.getElementById('home-profile-avatar-img').src = avatarUrls[playerProfile.avatar || 0];
         document.getElementById('home-profile-name-text').innerText = playerProfile.name;
     }
-}
-
-// ===================================================================
-//  AD OVERLAY (non-intrusive ad with countdown)
-// ===================================================================
-let adTimerId = null;
-let adCallback = null;
-
-function showAdWithOverlay(rewardAmount, callback) {
-    const overlay = document.getElementById('ad-overlay');
-    const normal = document.getElementById('ad-content-normal');
-    const done = document.getElementById('ad-content-done');
-    normal.style.display = 'block';
-    done.style.display = 'none';
-    overlay.style.display = 'flex';
-
-    // Open the actual ad link (AJ SDK)
-    ajShowAd();
-
-    // Countdown 5 seconds
-    let count = 5;
-    document.getElementById('ad-countdown').innerText = count;
-    if (adTimerId) clearInterval(adTimerId);
-    adTimerId = setInterval(() => {
-        count--;
-        document.getElementById('ad-countdown').innerText = count;
-        if (count <= 0) {
-            clearInterval(adTimerId);
-            adTimerId = null;
-            // Show reward
-            normal.style.display = 'none';
-            done.style.display = 'block';
-            document.getElementById('ad-reward-amount').innerText = '+' + rewardAmount.toLocaleString();
-            myCoins += rewardAmount;
-            playSfx(sfxCollect);
-            updateWalletUI();
-            if (typeof callback === 'function') callback();
-        }
-    }, 1000);
-}
-
-function closeAdOverlay() {
-    playSfx(sfxButton);
-    document.getElementById('ad-overlay').style.display = 'none';
 }
 
 // ===================================================================
@@ -1861,8 +1838,7 @@ function renderMagicCards() {
 
 function openMagicCard(index, reward, claimedKey, claimedArr) {
     playSfx(sfxButton);
-    // Show ad overlay with countdown, then give reward
-    showAdWithOverlay(reward.amount, () => {
+    showAdOverlay(reward.amount, function() {
         claimedArr.push(index);
         localStorage.setItem(claimedKey, JSON.stringify(claimedArr));
         renderMagicCards();
@@ -1894,7 +1870,6 @@ function drawSpinWheel() {
         ctx.strokeStyle = '#fff';
         ctx.lineWidth = 2;
         ctx.stroke();
-        // Text
         ctx.save();
         ctx.translate(cx, cy);
         ctx.rotate(i * segAngle + segAngle / 2);
@@ -1912,22 +1887,24 @@ function spinRewardWheel() {
     isSpinning = true;
     const result = document.getElementById('spin-result');
     result.innerText = 'Spinning...';
-    // Show ad, then spin
-    ajShowAd();
-    const winIdx = Math.floor(Math.random() * spinSegments.length);
-    const segAngle = 360 / spinSegments.length;
-    const targetRotation = 360 * 5 + (360 - (winIdx * segAngle + segAngle / 2));
-    spinWheelRotation += targetRotation;
-    const c = document.getElementById('spin-wheel');
-    c.style.transform = 'rotate(' + spinWheelRotation + 'deg)';
-    setTimeout(() => {
-        const win = spinSegments[winIdx];
-        result.innerText = 'You won ' + win + ' coins! \u{1F389}';
-        myCoins += win;
-        playSfx(sfxCollect);
-        updateWalletUI();
-        isSpinning = false;
-    }, 4000);
+
+    // AD before spin reward
+    showAdOverlay(0, function() {
+        const winIdx = Math.floor(Math.random() * spinSegments.length);
+        const segAngle = 360 / spinSegments.length;
+        const targetRotation = 360 * 5 + (360 - (winIdx * segAngle + segAngle / 2));
+        spinWheelRotation += targetRotation;
+        const c = document.getElementById('spin-wheel');
+        c.style.transform = 'rotate(' + spinWheelRotation + 'deg)';
+        setTimeout(() => {
+            const win = spinSegments[winIdx];
+            result.innerText = 'You won ' + win + ' coins! \u{1F389}';
+            myCoins += win;
+            playSfx(sfxCollect);
+            updateWalletUI();
+            isSpinning = false;
+        }, 4000);
+    });
 }
 
 // ===================================================================
@@ -1940,7 +1917,6 @@ function showLeague() {
 }
 
 function renderLeague() {
-    // Determine player's league based on coins
     let league = 'Bronze', leagueColor = '#cd7f32';
     if (myCoins >= 50000) { league = 'Diamond'; leagueColor = '#b9f2ff'; }
     else if (myCoins >= 20000) { league = 'Gold'; leagueColor = '#ffd700'; }
@@ -1950,7 +1926,6 @@ function renderLeague() {
     const myName = playerProfile ? playerProfile.name : 'YOU';
     banner.innerHTML = '<h3>\u{1F3C6} ' + league + ' LEAGUE</h3><p>Your Rank: #' + (Math.floor(myCoins/100) + 1) + ' \u2022 Score: ' + myCoins.toLocaleString() + '</p>';
 
-    // Generate fake leaderboard with player included
     const players = [
         { name: 'ChampionKing', score: myCoins + 15000, avatar: 0 },
         { name: 'ProGamerX', score: myCoins + 8000, avatar: 1 },
@@ -1989,6 +1964,17 @@ function shareWhatsApp() {
 }
 
 // ===================================================================
+//  SPLASH "TAP TO CONTINUE" — ad gate before home
+// ===================================================================
+function splashTapContinue() {
+    playSfx(sfxButton);
+    // AD on tap to continue (splash -> home)
+    showAdOverlay(0, function() {
+        showHome();
+    });
+}
+
+// ===================================================================
 //  INIT
 // ===================================================================
 let lp = 0;
@@ -2000,26 +1986,15 @@ const lIv = setInterval(() => {
 
 initAvatars(); updateWalletUI(); resize();
 
-// Check login status on load
 if (playerProfile) {
     isLoggedIn = true;
     document.getElementById('user-name-input').value = playerProfile.name;
     myAvatarIdx = playerProfile.avatar || 0;
     document.getElementById('current-avatar-preview').src = avatarUrls[myAvatarIdx];
-    // Skip login, go to splash -> home
-    setTimeout(() => {
-        if (document.getElementById('splash-screen').classList.contains('active')) {
-            // Let the loading bar finish, then show home
-        }
-    }, 100);
 } else {
-    // Not logged in — show login screen instead of splash
     document.getElementById('splash-screen').classList.remove('active');
     document.getElementById('login-screen').classList.add('active');
 }
-
-// Auto-go to home from splash when loading bar finishes (only if logged in)
-const origTapText = document.getElementById('tap-text');
 </script>
 </body>
 </html>

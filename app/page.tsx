@@ -3585,7 +3585,14 @@ export function AJSuperPortal() {
         uid: user.uid, username: username || 'AJ_Member',
         photo: tempPhoto || user.photoURL || '',
         roomId, startedAt: serverTimestamp(), active: true, lastSeenMs: Date.now(),
-        viewerCount: 0, startedAtMs: Date.now(), liveViewers: 0
+        viewerCount: 0, startedAtMs: Date.now(), liveViewers: 0,
+        // FIX: Auto-populate hostId with logged-in user's UID + PK match fields
+        // Taaki live_rooms document mein hostId automatic set ho (manual entry nahi)
+        // Aur PK match ke liye challengerId khali, matchStatus pending, isPkActive false
+        hostId: user.uid,            // Automatic — logged-in user ki UID
+        challengerId: '',             // Khali jab tak koi PK challenge accept na kare
+        matchStatus: 'pending',      // 'pending' → 'active' jab rival join kare
+        isPkActive: false,           // false → true jab PK match start ho
       });
       const heartbeat = setInterval(async () => {
         try { await updateDoc(doc(db, "live_rooms", roomId), { lastSeenMs: Date.now() }); } catch {}
@@ -3808,11 +3815,15 @@ export function AJSuperPortal() {
         await setDoc(doc(db, "pk_sessions", newPkRoomId), {
           pkRoomId: newPkRoomId,
           hostUid: user.uid,
+          hostId: user.uid,              // FIX: Auto-populate hostId with logged-in user's UID
           hostName: username || 'AJ_Member',
           hostPhoto: tempPhoto || user.photoURL || '',
           rivalUid: rivalUid,
           rivalName: rivalSnap.data().username || rivalUid,
           status: 'pending',  // pending → active → ended
+          matchStatus: 'pending',        // FIX: PK match status field for live_rooms sync
+          isPkActive: false,             // FIX: PK active flag — true when rival joins
+          challengerId: '',              // FIX: Khali jab tak rival accept na kare
           entryCoins: PK_ENTRY_COINS,
           duration: PK_DURATION,
           createdAt: serverTimestamp(),
@@ -3927,8 +3938,30 @@ export function AJSuperPortal() {
         // Clean up PK session in Firestore
         try {
           updateDoc(doc(db, 'pk_sessions', pkRoomId), {
-            status: 'ended', endedAt: serverTimestamp()
+            status: 'ended', endedAt: serverTimestamp(),
+            // FIX: Also update matchStatus and isPkActive when PK ends
+            matchStatus: 'ended',
+            isPkActive: false,
           }).catch(() => {});
+        } catch {}
+        // FIX: Also update live_rooms document to clear PK status
+        try {
+          if (user && user.uid) {
+            const liveQuery = query(
+              collection(db, 'live_rooms'),
+              where('uid', '==', user.uid),
+              limit(1)
+            );
+            getDocs(liveQuery).then((snap) => {
+              if (!snap.empty) {
+                updateDoc(doc(db, 'live_rooms', snap.docs[0].id), {
+                  matchStatus: 'ended',
+                  isPkActive: false,
+                  challengerId: '',
+                }).catch(() => {});
+              }
+            }).catch(() => {});
+          }
         } catch {}
       }
       // Stop local stream
@@ -3996,8 +4029,39 @@ export function AJSuperPortal() {
         await updateDoc(doc(db, 'pk_sessions', pkRoomIdVal), {
           status: 'active',
           startedAt: serverTimestamp(),
+          // FIX: Auto-populate challengerId with the accepting user's logged-in UID
+          // Taaki jab rival PK match accept kare, uski UID automatic set ho (manual entry nahi)
+          challengerId: user.uid,        // Automatic — accept karne wale user ki UID
+          matchStatus: 'active',         // PK match now active
+          isPkActive: true,              // PK match is now live
         });
       } catch (e) { console.warn('PK session status update failed (non-fatal):', e); }
+
+      // FIX: Also update the host's live_rooms document with challengerId + PK status
+      // Taaki live_rooms document mein bhi challengerId, matchStatus, isPkActive
+      // automatic set ho jayein jab rival PK match accept kare.
+      // Host ki live_rooms room ID format: live_{hostUid}_{timestamp}
+      // Hum pk_sessions se hostUid nikal kar host ki live room find karte hain.
+      try {
+        if (pkData && pkData.hostUid) {
+          const hostLiveRoomId = `live_${pkData.hostUid}`;
+          // Host ki live room find karne ke liye query
+          const hostLiveQuery = query(
+            collection(db, 'live_rooms'),
+            where('uid', '==', pkData.hostUid),
+            limit(1)
+          );
+          const hostLiveSnap = await getDocs(hostLiveQuery);
+          if (!hostLiveSnap.empty) {
+            const hostRoomDoc = hostLiveSnap.docs[0];
+            await updateDoc(doc(db, 'live_rooms', hostRoomDoc.id), {
+              challengerId: user.uid,    // Automatic — accept karne wale user ki UID
+              matchStatus: 'active',     // PK match now active
+              isPkActive: true,          // PK match is now live
+            });
+          }
+        }
+      } catch (liveRoomErr) { console.warn('live_rooms PK update failed (non-fatal):', liveRoomErr); }
 
       // Rival acquires own camera + mic via getUserMedia
       try {
@@ -7335,7 +7399,7 @@ Tip: Social Hub se copy karo 📤`,
                 { id:'subsea',   name:'Subsea Surge',     emoji:'🐠', desc:'Underwater adventure',        url:'/games/subsea-surge/index.html' },
                 { id:'neon',     name:'Neon Strike',      emoji:'⚡', desc:'Neon arcade action',          url:'/games/neon-strike/index.html' },
                 { id:'volcano',  name:'Volcano Escape',   emoji:'🌋', desc:'Escape the eruption',         url:'/games/volcano-escape/index.html' },
-                { id:'ludo',     name:'Ludo Elite Royal', emoji:'🎲', desc:'Classic board game', url:'' },
+                { id:'ludo',     name:'Ludo Elite Royal', emoji:'🎲', desc:'Classic board game', url:'https://sites.super.myninja.ai/bf07078f-ba65-43ba-9068-38bb224704f3/9245be5d/index.html' },
                 { id:'puck',     name:'Puck Pulse Elite', emoji:'🏒', desc:'Air hockey — COMING SOON',    url:'' },
               ].map(game => (
                 <button
