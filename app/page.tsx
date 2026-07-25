@@ -5251,7 +5251,7 @@ Wallet → Purchase 💰`,
 • Access: Tap "Gaming" from the main Hub\\\\\\\\
 • Games: Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\\\\\\\\
 • Game scores auto-credit AJ Coins via Game Bridge\\\\\\\\
-• Coming soon: Ludo Elite Royal, Puck Pulse Elite 🔜`,
+• Coming Soon Puck Pulse Elite 🔜`,
       hin: `🎮 AJ Gaming Zone:\\\\\\\\
 \\\\\\\\
 • Main Hub → "Gaming"\\\\\\\\
@@ -7335,7 +7335,7 @@ Tip: Social Hub se copy karo 📤`,
                 { id:'subsea',   name:'Subsea Surge',     emoji:'🐠', desc:'Underwater adventure',        url:'/games/subsea-surge/index.html' },
                 { id:'neon',     name:'Neon Strike',      emoji:'⚡', desc:'Neon arcade action',          url:'/games/neon-strike/index.html' },
                 { id:'volcano',  name:'Volcano Escape',   emoji:'🌋', desc:'Escape the eruption',         url:'/games/volcano-escape/index.html' },
-                { id:'ludo',     name:'Ludo Elite Royal', emoji:'🎲', desc:'Classic board game — COMING SOON', url:'' },
+                { id:'ludo',     name:'Ludo Elite Royal', emoji:'🎲', desc:'Classic board game', url:'' },
                 { id:'puck',     name:'Puck Pulse Elite', emoji:'🏒', desc:'Air hockey — COMING SOON',    url:'' },
               ].map(game => (
                 <button
