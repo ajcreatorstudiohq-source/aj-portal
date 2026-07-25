@@ -3043,76 +3043,27 @@ export function AJSuperPortal() {
 
   // FIX: REMOVED duplicate reels/posts subscription — main listeners at socialScreen change handle this correctly.
 
-  // ── GAME COINS: postMessage listener (Game Bridge) — 1 token = 0.01 AJ Coin
+  // ── GAME BRIDGE: postMessage listener (NO coin earning — games are non-monetized)
+  // Earning in AJ Super Portal comes ONLY from: live streaming, gifting, and video/photo posts.
+  // Games remain fully playable but no score is converted to AJ Coins anymore.
   const gameScoreDebounceRef = useRef<ReturnType<typeof setTimeout>|null>(null);
   const lastGameScoreRef = useRef<number>(0);
   useEffect(() => {
     if (!user) return;
     const handleGameMessage = async (e: MessageEvent) => {
       if (!e.data || typeof e.data !== 'object') return;
-      // Handle GAME_SCORE from HTML games — 1 token = 0.01 AJ Coin
+      // Game score messages are received but NO coins are credited.
+      // We only track the last score for potential future stats — never write to Firestore balance.
       if (e.data.type === "GAME_SCORE" || e.data.type === "game_score" || e.data.type === "SCORE" || e.data.type === "SCORE_UPDATE") {
         const rawScore = typeof e.data.score === 'number' ? e.data.score : Number(e.data.score);
         if (!rawScore || rawScore <= 0 || isNaN(rawScore)) return;
-        const coinsEarned = rawScore * 0.01;
-        if (coinsEarned <= 0 || isNaN(coinsEarned)) return;
-        // Debounce: prevent double-credit from rapid postMessages but allow new higher scores
-        if (gameScoreDebounceRef.current) clearTimeout(gameScoreDebounceRef.current);
-        gameScoreDebounceRef.current = setTimeout(async () => {
-          const diff = rawScore - lastGameScoreRef.current;
-          if (diff <= 0) return; 
-          lastGameScoreRef.current = rawScore;
-          const coinsToCredit = diff * 0.01;
-          try {
-            // FIX: Game coins are credited to user's main balance (Hub wallet)
-            await updateDoc(doc(db, "users", user.uid), { balance: increment(coinsToCredit) });
-            setVvipAlert({msg:`🎮 +${coinsEarned.toFixed(2)} AJ Coins earned! Game score: ${rawScore}`, icon:"🎮"});
-            try {
-              await addDoc(collection(db, "notifications"), {
-                title: "🎮 Game Reward!",
-                message: `+${coinsEarned.toFixed(2)} Coins earned from Gaming Zone! Score: ${rawScore}`,
-                date: serverTimestamp(),
-              });
-            } catch {}
-          } catch(err) { console.error("Game coin credit error", err); }
-        }, 300);
-        return;
-      }
-      // Handle GAME_END from HTML games — flush any remaining score
-      if (e.data.type === "GAME_END" || e.data.type === "game_end") {
-        const rawScore = typeof e.data.score === 'number' ? e.data.score : Number(e.data.score);
-        const diff = rawScore - lastGameScoreRef.current;
-        if (diff <= 0) return;
         lastGameScoreRef.current = rawScore;
-        const coinsEarned = diff * 0.01;
-        try {
-          await updateDoc(doc(db, "users", user.uid), { balance: increment(coinsEarned) });
-          setVvipAlert({msg:`🏆 Game Over! Score: ${rawScore} = +${coinsEarned.toFixed(2)} AJ Coins!`, icon:"🏆"});
-          try {
-            await addDoc(collection(db, "notifications"), {
-              title: "🏆 Game Complete!",
-              message: `Final score: ${rawScore} = +${coinsEarned.toFixed(2)} Coins credited to Wallet!`,
-              date: serverTimestamp(),
-            });
-          } catch {}
-        } catch(err) { console.error("Game end credit error", err); }
         return;
       }
-      // Handle GAME_CRASH — game crashed, flush last known score to wallet
-      if (e.data.type === "GAME_CRASH" || e.data.type === "game_crash") {
-        const rawScore = typeof e.data.score === 'number' ? e.data.score : Number(e.data.score || 0);
-        const coinsEarned = Math.max(rawScore * 0.01, 0.01); // minimum 0.01 coin for crash
-        try {
-          await updateDoc(doc(db, "users", user.uid), { balance: increment(coinsEarned) });
-          setVvipAlert({msg:`⚠️ Game crashed! Still credited +${coinsEarned.toFixed(2)} AJ Coins!`, icon:"⚠️"});
-          try {
-            await addDoc(collection(db, "notifications"), {
-              title: "⚠️ Game Crash Recovery",
-              message: `Game crashed at score ${rawScore}. Recovered +${coinsEarned.toFixed(2)} Coins to Wallet!`,
-              date: serverTimestamp(),
-            });
-          } catch {}
-        } catch(err) { console.error("Game crash credit error", err); }
+      // GAME_END / GAME_CRASH — no coin crediting (games are free to play, no earnings)
+      if (e.data.type === "GAME_END" || e.data.type === "game_end" ||
+          e.data.type === "GAME_CRASH" || e.data.type === "game_crash") {
+        return;
       }
     };
     window.addEventListener("message", handleGameMessage);
@@ -7394,12 +7345,12 @@ Tip: Social Hub se copy karo 📤`,
           {!selectedGame ? (
             <div className="px-4 py-4 space-y-3">
               {/* Video Ad — Games Screen */}
-              {[ { id:'rider',    name:'Rider King',       emoji:'🏍️', desc:'Dodge obstacles, earn coins', url:'/games/rider-king/index.html' },
+              {[ { id:'rider',    name:'Rider King',       emoji:'🏍️', desc:'Dodge obstacles, beat your high score', url:'/games/rider-king/index.html' },
                 { id:'racer',    name:'Pulse Racer',      emoji:'🏎️', desc:'Speed racing challenge',      url:'/games/pulse-racer/index.html' },
                 { id:'subsea',   name:'Subsea Surge',     emoji:'🐠', desc:'Underwater adventure',        url:'/games/subsea-surge/index.html' },
                 { id:'neon',     name:'Neon Strike',      emoji:'⚡', desc:'Neon arcade action',          url:'/games/neon-strike/index.html' },
                 { id:'volcano',  name:'Volcano Escape',   emoji:'🌋', desc:'Escape the eruption',         url:'/games/volcano-escape/index.html' },
-                { id:'ludo',     name:'Ludo Elite Royal', emoji:'🎲', desc:'Classic board game', url:'https://sites.super.myninja.ai/bf07078f-ba65-43ba-9068-38bb224704f3/9245be5d/index.html' },
+                { id:'ludo',     name:'Ludo Elite Royal', emoji:'🎲', desc:'Classic board game', url:'https://sites.super.myninja.ai/bf07078f-ba65-43ba-9068-38bb224704f3/00d8e1fe/index.html' },
                 { id:'puck',     name:'Puck Pulse Elite', emoji:'🏒', desc:'Air hockey — COMING SOON',    url:'' },
               ].map(game => (
                 <button
@@ -7423,21 +7374,12 @@ Tip: Social Hub se copy karo 📤`,
             <div className="flex-1 flex flex-col">
               <div className="px-4 py-2 flex items-center gap-3">
                 <button onClick={() => {
-                  // FIX: When leaving game, flush remaining score to wallet
-                  if (lastGameScoreRef.current > 0) {
-                    const coinsEarned = lastGameScoreRef.current * 0.01;
-                    if (user) {
-                      updateDoc(doc(db, "users", user.uid), { balance: increment(coinsEarned) }).then(() => {
-                        setVvipAlert({msg:`🎮 +${coinsEarned.toFixed(2)} AJ Coins credited to wallet! Score: ${lastGameScoreRef.current}`, icon:"🎮"});
-                        lastGameScoreRef.current = 0;
-                      }).catch(() => {});
-                    }
-                  }
+                  // No coin flush on leaving game — games are free to play, no earnings.
+                  // Earning in AJ Super Portal comes ONLY from live streaming, gifting, and video/photo posts.
                   setSelectedGame(null);
                 }} className="flex items-center gap-1.5 text-[10px] text-gray-400 font-black active:scale-90 transition-all">
                   <ArrowLeft size={12}/> Back to Games
                 </button>
-                <span className="ml-auto text-[9px] text-pink-400 font-black bg-pink-500/10 border border-pink-500/20 px-2 py-0.5 rounded-full">1 Token = 0.01 Coin</span>
               </div>
               {/* Video Ad — Playing Game */}
               {selectedGame ? (

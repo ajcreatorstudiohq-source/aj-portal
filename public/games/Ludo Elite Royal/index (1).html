@@ -520,13 +520,136 @@
 "use strict";
 
 // ===================================================================
-//  AJ SDK BRIDGE — sends game coins to Next.js wallet as AJ Coins
-//  100 game coins = 1 AJ coin (handled in aj-sdk.js sendScore)
+//  MONETAG INTERSTITIAL AD SDK (real ads)
+//  Zone: 11377822  | Tag: https://nap5k.com/tag.min.js
+//  show_11377822({ type:'preload' }) then show_11377822({ type:'end' })
+// ===================================================================
+const MONETAG_ZONE_ID = 11377822;
+const MONETAG_TAG_URL = 'https://nap5k.com/tag.min.js';
+const MONETAG_SDK_VAR = 'show_' + MONETAG_ZONE_ID;
+const AD_COOLDOWN_MS = 5 * 60 * 1000; // 5 minute cooldown between ads
+let monetagSdkLoading = false;
+let monetagSdkReady = false;
+let lastAnyAdShownTime = 0;
+let lastInterstitialAdTime = 0;
+
+function ensureMonetagSdkLoaded(zoneId) {
+    if (monetagSdkReady) return Promise.resolve(true);
+    if (monetagSdkLoading) {
+        // wait for the in-flight load
+        return new Promise((resolve) => {
+            const t0 = Date.now();
+            const iv = setInterval(() => {
+                if (monetagSdkReady || Date.now() - t0 > 8000) {
+                    clearInterval(iv);
+                    resolve(monetagSdkReady);
+                }
+            }, 150);
+        });
+    }
+    monetagSdkLoading = true;
+    return new Promise((resolve) => {
+        try {
+            // Remove any existing tag first to avoid duplicates
+            const existing = document.querySelector('script[data-zone="' + zoneId + '"]');
+            if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+
+            const s = document.createElement('script');
+            s.src = MONETAG_TAG_URL;
+            s.setAttribute('data-zone', String(zoneId));
+            s.setAttribute('data-sdk', 'show_' + zoneId);
+            s.async = true;
+            s.onload = function() { monetagSdkReady = true; monetagSdkLoading = false; resolve(true); };
+            s.onerror = function() { monetagSdkReady = false; monetagSdkLoading = false; resolve(false); };
+            document.head.appendChild(s);
+
+            // Fallback timeout in case onload never fires but the global fn appears
+            setTimeout(() => {
+                if (typeof window[MONETAG_SDK_VAR] === 'function') {
+                    monetagSdkReady = true; monetagSdkLoading = false; resolve(true);
+                }
+            }, 6000);
+        } catch (e) {
+            console.warn('Monetag SDK load error', e);
+            monetagSdkLoading = false;
+            resolve(false);
+        }
+    });
+}
+
+function waitForMonetagShowFn(zoneId, maxWaitMs) {
+    const fnName = 'show_' + zoneId;
+    return new Promise((resolve) => {
+        if (typeof window[fnName] === 'function') { resolve(true); return; }
+        const t0 = Date.now();
+        const iv = setInterval(() => {
+            if (typeof window[fnName] === 'function') {
+                clearInterval(iv);
+                resolve(true);
+            } else if (Date.now() - t0 > maxWaitMs) {
+                clearInterval(iv);
+                resolve(false);
+            }
+        }, 150);
+    });
+}
+
+// Fire a real Monetag interstitial ad. Resolves true if fired, false if skipped (cooldown/no-feed).
+async function triggerMonetagInterstitialAd(zoneId) {
+    const now = Date.now();
+    if (now - lastAnyAdShownTime < AD_COOLDOWN_MS) {
+        console.log('[Monetag] Skipped — within cooldown');
+        return false;
+    }
+    try {
+        await ensureMonetagSdkLoaded(zoneId);
+        const ok = await waitForMonetagShowFn(zoneId, 5000);
+        if (!ok) {
+            console.warn('[Monetag] show fn not available');
+            return false;
+        }
+        const fn = window[MONETAG_SDK_VAR];
+        if (typeof fn !== 'function') return false;
+        // Preload first
+        try { fn({ type: 'preload' }); } catch (e) { /* ignore preload errors */ }
+        // Short delay then fire end interstitial
+        await new Promise(r => setTimeout(r, 250));
+        let fired = false;
+        try {
+            fn({ type: 'end', catchIfNoFeed: true });
+            fired = true;
+            lastAnyAdShownTime = Date.now();
+            lastInterstitialAdTime = Date.now();
+            console.log('[Monetag] Interstitial fired');
+        } catch (e) {
+            console.warn('[Monetag] show error', e);
+        }
+        return fired;
+    } catch (e) {
+        console.warn('[Monetag] trigger error', e);
+        return false;
+    }
+}
+
+// Kick off SDK preload on page load so the first ad is instant
+(function preloadMonetagOnLoad() {
+    if (typeof window === 'undefined') return;
+    window.addEventListener('load', function() {
+        setTimeout(() => { ensureMonetagSdkLoaded(MONETAG_ZONE_ID).then(() => {
+            if (typeof window[MONETAG_SDK_VAR] === 'function') {
+                try { window[MONETAG_SDK_VAR]({ type: 'preload' }); } catch(e) {}
+            }
+        }); }, 800);
+    });
+})();
+
+// ===================================================================
+//  AJ SDK BRIDGE (legacy, kept for compatibility — no longer used for ads)
 // ===================================================================
 function ajShowAd() {
-    if (typeof AJ_SDK !== 'undefined' && AJ_SDK.showAd) {
-        try { AJ_SDK.showAd(); } catch(e) { console.warn('AJ ad error', e); }
-    }
+    // Real ads now handled by triggerMonetagInterstitialAd() inside showAdOverlay.
+    // This stub is kept only for any external callers that still reference it.
+    return triggerMonetagInterstitialAd(MONETAG_ZONE_ID);
 }
 function ajSendScore(points) {
     if (typeof AJ_SDK !== 'undefined' && AJ_SDK.sendScore) {
@@ -1001,8 +1124,11 @@ function showAdOverlay(rewardAmount, callback) {
     done.style.display = 'none';
     overlay.style.display = 'flex';
 
-    // Open the actual ad link (AJ SDK)
-    ajShowAd();
+    // Fire REAL Monetag interstitial ad (zone 11377822)
+    triggerMonetagInterstitialAd(MONETAG_ZONE_ID).then(function(fired) {
+        // fired is true if the real ad was triggered; false if skipped (cooldown)
+        console.log('[Monetag] ad fired in showAdOverlay:', fired);
+    }).catch(function(e) { console.warn('[Monetag] overlay ad error', e); });
 
     // Countdown 5 seconds
     let count = 5;
