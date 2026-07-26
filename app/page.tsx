@@ -26,6 +26,7 @@ import { earnReward } from './lib/client-rewards';
 import { trackAdEvent } from './lib/ad-client';
 import { MONETAG_INTERSTITIAL_ZONE } from './lib/ads-config';
 import AdminUsersPanel from './components/AdminUsersPanel';
+import { isPortalAdminUser } from './lib/admin-auth';
 import { BAN_FORBIDDEN_MESSAGE, DEFAULT_ACCOUNT_BAN_FIELDS, isUserBanned } from './lib/user-ban';
 
 // ============================================================
@@ -267,6 +268,7 @@ const YOUTUBE_API_KEY          = "AIzaSyD9vR3hNLt7pBNlm6PMaZWbJOB9QGcrD1Y";
 const NOWPAYMENTS_API_KEY      = "3THXNSZ-AYVMTP6-HQ9KGKK-9J6CQD7";
 const CLOUDINARY_CLOUD_NAME    = "atm28akz";
 const CLOUDINARY_UPLOAD_PRESET = "aj_portal";
+/** @deprecated use isPortalAdminUser — kept only for any legacy string compares */
 const CEO_EMAIL                = "ajcreatorstudio.hq@gmail.com";
 const CEO_WHATSAPP             = "https://wa.me/96878994093";
 const AGORA_APP_ID             = "7863c5369b3648bf931893a52ebaa6db";
@@ -2565,7 +2567,15 @@ export function AJSuperPortal() {
   const totalCoins     = balance + visualProfit;
   const displayBalance = totalCoins.toFixed(2);
   const displayUsdt    = (totalCoins / CASH_RATE).toFixed(2);
-  const isPortalAdmin  = !!user?.email && user.email.toLowerCase() === CEO_EMAIL.toLowerCase();
+  // Admin One-Click Ban — ONLY for configured admin email and/or ADMIN_UIDS
+  const isPortalAdmin = isPortalAdminUser(user);
+
+  // If a non-admin somehow lands on screen='admin', kick back to hub (no 403 UI leak)
+  useEffect(() => {
+    if (screen === 'admin' && !isPortalAdmin) {
+      setScreen('hub');
+    }
+  }, [screen, isPortalAdmin]);
 
   const currentWithdrawMethod = WITHDRAW_METHODS.find(m => m.label === payoutMethod) || WITHDRAW_METHODS[0];
 
@@ -5889,26 +5899,15 @@ Tip: Social Hub se copy karo 📤`,
       )}
 
       {/* ══════════════════════════════════════════════════════
-          ADMIN PANEL — One-Click User Ban
+          ADMIN PANEL — One-Click User Ban (admin email/UID only)
       ══════════════════════════════════════════════════════ */}
-      {screen === 'admin' && isPortalAdmin && (
+      {screen === 'admin' && isPortalAdmin && user ? (
         <AdminUsersPanel
+          adminUser={{ uid: user.uid, email: user.email }}
           onBack={() => setScreen('hub')}
           onAlert={(msg, icon) => setVvipAlert({ msg, icon })}
         />
-      )}
-      {screen === 'admin' && !isPortalAdmin && (
-        <div className="fixed inset-0 flex flex-col items-center justify-center bg-[#050505] px-6 gap-4">
-          <p className="text-red-400 font-black text-sm">403 Forbidden — Admin only</p>
-          <button
-            type="button"
-            onClick={() => setScreen('hub')}
-            className="px-6 py-3 rounded-2xl bg-white/10 text-white text-xs font-black"
-          >
-            Back to Hub
-          </button>
-        </div>
-      )}
+      ) : null}
 
 
       {/* ══════════════════════════════════════════════════════
