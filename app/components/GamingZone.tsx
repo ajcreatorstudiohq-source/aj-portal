@@ -264,7 +264,21 @@ export default function GamingZone({
           </div>
           <iframe
             key={selectedGameUrl}
-            src={`${selectedGameUrl}${selectedGameUrl.includes('?') ? '&' : '?'}ajGameId=${encodeURIComponent(selectedGameId || '')}`}
+            src={(() => {
+              const base = selectedGameUrl || '';
+              const params = new URLSearchParams();
+              params.set('ajGameId', selectedGameId || '');
+              if (user?.uid) params.set('uid', user.uid);
+              if (typeof window !== 'undefined') {
+                try {
+                  const room = new URLSearchParams(window.location.search).get('room');
+                  if (room) params.set('room', room);
+                } catch {
+                  /* ignore */
+                }
+              }
+              return `${base}${base.includes('?') ? '&' : '?'}${params.toString()}`;
+            })()}
             className="flex-1 w-full border-0 bg-black"
             allow="autoplay; fullscreen; gyroscope; accelerometer; clipboard-write; encrypted-media; picture-in-picture"
             allowFullScreen

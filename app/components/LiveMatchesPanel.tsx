@@ -17,22 +17,38 @@ type Props = {
   onWatchEarn?: () => void;
 };
 
+/** Playable embed IDs used when the live API is empty / quota-blocked */
 const FALLBACK_MATCHES: MatchItem[] = [
   {
-    id: 'fallback-pk-1',
-    title: 'Pakistan Cricket — Live Match Hub',
+    id: 'aqz-KE-bpKQ',
+    title: 'Match Stream — Smooth Playback Check',
     channel: 'AJ Live Sports',
-    thumb: 'https://images.unsplash.com/photo-1531415074968-036ba1b575da?w=640&h=360&fit=crop',
-    live: true,
+    thumb: 'https://i.ytimg.com/vi/aqz-KE-bpKQ/hqdefault.jpg',
+    live: false,
   },
   {
-    id: 'fallback-pk-2',
-    title: 'PK Battle Arena — Watch & Interact',
+    id: 'jNQXAC9IVRw',
+    title: 'Embed Playback Fallback',
     channel: 'AJ Super Portal',
-    thumb: 'https://images.unsplash.com/photo-1540747913346-19e32dc12fba?w=640&h=360&fit=crop',
-    live: true,
+    thumb: 'https://i.ytimg.com/vi/jNQXAC9IVRw/hqdefault.jpg',
+    live: false,
   },
 ];
+
+function mapYtItems(items: any[], live: boolean): MatchItem[] {
+  return (items || [])
+    .map((it: any) => ({
+      id: it.id?.videoId || '',
+      title: it.snippet?.title || 'Live Match',
+      channel: it.snippet?.channelTitle || 'Live',
+      thumb:
+        it.snippet?.thumbnails?.medium?.url ||
+        it.snippet?.thumbnails?.default?.url ||
+        '',
+      live,
+    }))
+    .filter((m: MatchItem) => !!m.id);
+}
 
 /**
  * Live Matches panel — loads Pakistan / cricket live streams via YouTube Data API
@@ -51,20 +67,27 @@ export default function LiveMatchesPanel({ youtubeApiKey, onAlert, onWatchEarn }
         setMatches(FALLBACK_MATCHES);
         return;
       }
-      const q = encodeURIComponent('Pakistan cricket live match');
-      const url =
-        `https://www.googleapis.com/youtube/v3/search?part=snippet&eventType=live&type=video&maxResults=6&q=${q}&key=${youtubeApiKey}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error('yt_search_failed');
-      const data = await res.json();
-      const items: MatchItem[] = (data.items || []).map((it: any) => ({
-        id: it.id?.videoId || '',
-        title: it.snippet?.title || 'Live Match',
-        channel: it.snippet?.channelTitle || 'Live',
-        thumb: it.snippet?.thumbnails?.medium?.url || it.snippet?.thumbnails?.default?.url || '',
-        live: true,
-      })).filter((m: MatchItem) => !!m.id);
-      setMatches(items.length ? items : FALLBACK_MATCHES);
+      const qLive = encodeURIComponent('Pakistan cricket live');
+      const liveUrl =
+        `https://www.googleapis.com/youtube/v3/search?part=snippet&eventType=live&type=video&maxResults=6&q=${qLive}&key=${youtubeApiKey}`;
+      const liveRes = await fetch(liveUrl);
+      if (liveRes.ok) {
+        const liveData = await liveRes.json();
+        const liveItems = mapYtItems(liveData.items || [], true);
+        if (liveItems.length) {
+          setMatches(liveItems);
+          return;
+        }
+      }
+      // No live events — fall back to recent Pakistan cricket videos (still playable)
+      const qRecent = encodeURIComponent('Pakistan cricket match highlights');
+      const recentUrl =
+        `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoEmbeddable=true&maxResults=6&order=date&q=${qRecent}&key=${youtubeApiKey}`;
+      const recentRes = await fetch(recentUrl);
+      if (!recentRes.ok) throw new Error('yt_search_failed');
+      const recentData = await recentRes.json();
+      const recentItems = mapYtItems(recentData.items || [], false);
+      setMatches(recentItems.length ? recentItems : FALLBACK_MATCHES);
     } catch {
       setMatches(FALLBACK_MATCHES);
       onAlert('Using offline match list — stream list refresh failed.', '📡');
@@ -80,7 +103,7 @@ export default function LiveMatchesPanel({ youtubeApiKey, onAlert, onWatchEarn }
 
   // Watch-time tracker for live_view earn (fires once after ~60s)
   useEffect(() => {
-    if (!activeId || activeId.startsWith('fallback')) return;
+    if (!activeId) return;
     setWatchedMs(0);
     const iv = setInterval(() => {
       setWatchedMs((m) => {
@@ -94,7 +117,7 @@ export default function LiveMatchesPanel({ youtubeApiKey, onAlert, onWatchEarn }
     return () => clearInterval(iv);
   }, [activeId, onWatchEarn]);
 
-  const playable = activeId && !activeId.startsWith('fallback');
+  const playable = !!activeId;
 
   return (
     <div className="space-y-3">
@@ -120,7 +143,7 @@ export default function LiveMatchesPanel({ youtubeApiKey, onAlert, onWatchEarn }
         <div className="rounded-2xl overflow-hidden border border-red-500/30 bg-black aspect-video">
           <iframe
             key={activeId}
-            src={`https://www.youtube.com/embed/${activeId}?autoplay=1&playsinline=1&rel=0&modestbranding=1`}
+            src={`https://www.youtube-nocookie.com/embed/${activeId}?autoplay=1&playsinline=1&rel=0&modestbranding=1&enablejsapi=1`}
             title="Live Match"
             className="w-full h-full"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
@@ -130,10 +153,9 @@ export default function LiveMatchesPanel({ youtubeApiKey, onAlert, onWatchEarn }
         </div>
       )}
 
-      {activeId?.startsWith('fallback') && (
+      {!playable && (
         <div className="rounded-2xl border border-amber-500/30 bg-amber-950/30 p-4 text-[11px] text-amber-100">
-          Open Social Hub → Live rooms or start a PK Battle for interactive AJ match streaming.
-          External sports feeds refresh when YouTube live results are available.
+          Tap a match below to start playback. Prefer AJ Live rooms / PK Battle for interactive streaming.
           <a
             className="mt-2 flex items-center gap-1 text-cyan-300 font-bold"
             href="https://www.youtube.com/results?search_query=Pakistan+cricket+live"

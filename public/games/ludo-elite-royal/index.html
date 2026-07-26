@@ -173,6 +173,13 @@
         .emoji-btn { cursor: pointer; font-size: 22px; text-align: center; border-radius: 8px; padding: 4px; }
         .emoji-btn:active { background: rgba(0,229,255,0.2); }
 
+        .lobby-code-row { display:flex; align-items:center; justify-content:center; gap:10px; flex-wrap:wrap; }
+        .lobby-copy-btn { background:linear-gradient(135deg,var(--cyan),#0097a7); color:#000; border:none; border-radius:12px; padding:8px 14px; font-weight:900; cursor:pointer; font-size:12px; }
+        .board-skin-row { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin:10px 0 4px; max-width:320px; }
+        .board-skin-chip { border:2px solid rgba(255,255,255,0.2); border-radius:12px; padding:6px 10px; font-size:11px; font-weight:900; cursor:pointer; background:rgba(255,255,255,0.05); color:#fff; }
+        .board-skin-chip.active { border-color:var(--gold); box-shadow:0 0 12px rgba(255,215,0,0.35); color:var(--gold); }
+        .ready-pill { display:inline-block; margin-left:6px; font-size:10px; color:var(--green); }
+
         .dice-area { position: absolute; width: 54px; height: 54px; display: none; align-items: center; justify-content: center; z-index: 5500; }
         .dice {
             width: 48px; height: 48px;
@@ -396,8 +403,8 @@
             <button class="btn btn-green" style="width:160px; font-size:12px;" onclick="watchUnlimitedAd()">📺 WATCH AD +200</button>
         </div>
         <div style="margin-top:14px;">
-            <p style="font-size:12px; color:var(--cyan); margin:0 0 8px 0; font-weight:900;">JOIN MATCH</p>
-            <input type="text" id="home-join-id" placeholder="ROOM CODE" style="margin-bottom:8px; width:180px; border:2px solid #444; border-radius:12px; padding:8px;">
+            <p style="font-size:12px; color:var(--cyan); margin:0 0 8px 0; font-weight:900;">JOIN FRIEND ROOM</p>
+            <input type="text" id="home-join-id" placeholder="e.g. AJ4821" maxlength="8" autocomplete="off" style="margin-bottom:8px; width:180px; border:2px solid #444; border-radius:12px; padding:8px; text-transform:uppercase; letter-spacing:2px;">
             <button class="btn btn-green" style="width:210px; padding:12px;" onclick="joinFriendFromHome()">JOIN ROOM</button>
         </div>
         <div id="avatar-popup"></div>
@@ -451,13 +458,22 @@
 
     <!-- LOBBY -->
     <div id="lobby-screen" class="screen">
-        <h2 style="color:var(--cyan); font-family:'Audiowide';">LOBBY</h2>
+        <h2 style="color:var(--cyan); font-family:'Audiowide';">LUDO STAR LOBBY</h2>
         <div id="id-display-box" style="background:rgba(255,255,255,0.05); padding:16px; border-radius:18px; border:2px solid var(--gold); margin-bottom:14px; display:none;">
-            <p style="font-size:12px; margin:0 0 4px 0; color:#aaa;">ROOM CODE:</p>
-            <div id="my-peer-id" style="color:var(--gold); font-size:26px; font-weight:900; font-family:'Audiowide; letter-spacing:2px;">...</div>
+            <p style="font-size:12px; margin:0 0 4px 0; color:#aaa;">PRIVATE ROOM CODE</p>
+            <div class="lobby-code-row">
+                <div id="my-peer-id" style="color:var(--gold); font-size:28px; font-weight:900; font-family:'Audiowide'; letter-spacing:3px;">...</div>
+                <button type="button" class="lobby-copy-btn" onclick="copyRoomCode()">COPY</button>
+            </div>
+            <p style="font-size:11px; color:#888; margin:8px 0 0 0;">Friends enter this code on JOIN ROOM</p>
         </div>
-        <div id="player-status" style="margin-bottom:14px; color:var(--green); font-weight:900;">Connecting...</div>
-        <div id="lobby-players" style="margin-bottom:14px; min-height:30px;"></div>
+        <div id="player-status" style="margin-bottom:10px; color:var(--green); font-weight:900;">Connecting...</div>
+        <div id="lobby-players" style="margin-bottom:10px; min-height:30px;"></div>
+        <div id="lobby-board-wrap" style="display:none;">
+            <p style="font-size:11px; color:var(--cyan); font-weight:900; margin:0 0 4px 0;">BOARD THEME (HOST)</p>
+            <div id="lobby-board-skins" class="board-skin-row"></div>
+        </div>
+        <button class="btn btn-blue" id="ready-btn" onclick="toggleLobbyReady()" style="display:none;">I'M READY</button>
         <button class="btn btn-green" id="start-game-btn" onclick="startOnlineMatch()" style="display:none;">START GAME</button>
         <button class="btn whatsapp-btn" id="whatsapp-share-btn" style="display:none;" onclick="shareWhatsApp()">💬 INVITE VIA WHATSAPP</button>
         <button class="btn btn-dark" onclick="leaveMatch()">EXIT</button>
@@ -493,6 +509,14 @@
             <span class="emoji-btn" onclick="sendQuickChat('👍')">👍</span>
             <span class="emoji-btn" onclick="sendQuickChat('😡')">😡</span>
             <span class="emoji-btn" onclick="sendQuickChat('😱')">😱</span>
+            <span class="emoji-btn" onclick="sendQuickChat('🔥')">🔥</span>
+            <span class="emoji-btn" onclick="sendQuickChat('🎉')">🎉</span>
+            <span class="emoji-btn" onclick="sendQuickChat('😎')">😎</span>
+            <span class="emoji-btn" onclick="sendQuickChat('💔')">💔</span>
+            <span class="emoji-btn" onclick="sendQuickChat('🎯')">🎯</span>
+            <span class="emoji-btn" onclick="sendQuickChat('👑')">👑</span>
+            <span class="emoji-btn" onclick="sendQuickChat('🤝')">🤝</span>
+            <span class="emoji-btn" onclick="sendQuickChat('⚡')">⚡</span>
         </div>
     </div>
 
@@ -509,10 +533,10 @@
 
         <canvas id="ludoCanvas"></canvas>
 
-        <div id="dice-0" class="dice-area"><div class="dice"></div></div>
-        <div id="dice-1" class="dice-area"><div class="dice"></div></div>
+        <div id="dice-0" class="dice-area"><div class="dice" onclick="userRequestsRoll()"></div></div>
+        <div id="dice-1" class="dice-area"><div class="dice" onclick="userRequestsRoll()"></div></div>
         <div id="dice-2" class="dice-area"><div class="dice user-turn" onclick="userRequestsRoll()"></div></div>
-        <div id="dice-3" class="dice-area"><div class="dice"></div></div>
+        <div id="dice-3" class="dice-area"><div class="dice" onclick="userRequestsRoll()"></div></div>
     </div>
 
     <canvas id="confetti-canvas"></canvas>
@@ -736,13 +760,13 @@ function toggleSound() {
 //  FIREBASE RTDB — online multiplayer (replaces PeerJS)
 // ===================================================================
 const firebaseConfig = {
-    apiKey: "AIzaSyDemoReplaceWithYourKey1234567890",
-    authDomain: "ludo-elite-demo.firebaseapp.com",
-    databaseURL: "https://ludo-elite-demo-default-rtdb.firebaseio.com",
-    projectId: "ludo-elite-demo",
-    storageBucket: "ludo-elite-demo.appspot.com",
-    messagingSenderId: "000000000000",
-    appId: "1:000000000000:web:0000000000000000000000"
+    apiKey: "AIzaSyDp2od-lrfAhEHV5oAIqBW5rWjaRbnAdFM",
+    authDomain: "aj-super-portal.firebaseapp.com",
+    databaseURL: "https://aj-super-portal-default-rtdb.firebaseio.com",
+    projectId: "aj-super-portal",
+    storageBucket: "aj-super-portal.appspot.com",
+    messagingSenderId: "288191292906",
+    appId: "1:288191292906:web:bc31cb072948533f88fe93"
 };
 let rtdb = null;
 try {
@@ -757,6 +781,18 @@ let isHost = false;
 let roomCode = null;
 let mySlot = 0;
 let roomPlayers = {};
+let onlineMatchLive = false;
+let stateSeq = 0;
+let lastAppliedSeq = 0;
+let applyingRemote = false;
+let chatBound = false;
+let lobbyValueUnsub = null;
+let gameStateUnsub = null;
+let startedUnsub = null;
+let portalUid = '';
+let pendingJoinCode = '';
+const ROOM_ROOT = 'ludo/rooms';
+const CODE_ROOT = 'ludo/codes';
 
 // ===================================================================
 //  WEBRTC VOICE CHAT (via RTDB signaling)
@@ -1220,126 +1256,455 @@ function closeAdOverlay() {
 }
 
 // ===================================================================
-//  ONLINE MULTIPLAYER (Firebase RTDB)
+//  ONLINE MULTIPLAYER (Firebase RTDB) — Ludo Star lobby + turn sync
 // ===================================================================
-function initHostRoom() {
-    roomCode = "LUDO" + Math.floor(1000 + Math.random() * 9000);
-    isHost = true; mySlot = 2;
+function portalQuery() {
+    try { return new URLSearchParams(window.location.search || ''); } catch (e) { return new URLSearchParams(); }
+}
+function resolvePortalUid() {
+    const q = portalQuery();
+    return (q.get('uid') || q.get('ajUid') || localStorage.getItem('aj_portal_uid') || ('guest_' + Math.random().toString(36).slice(2, 9))).slice(0, 48);
+}
+function genRoomCode() {
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code = 'AJ';
+    for (let i = 0; i < 4; i++) code += alphabet[Math.floor(Math.random() * alphabet.length)];
+    return code;
+}
+function roomPath(code) { return ROOM_ROOT + '/' + code; }
+function myPlayerPayload(ready) {
+    return {
+        name: (document.getElementById('user-name-input').value || (isHost ? 'HOST' : 'GUEST')).slice(0, 12),
+        avatar: myAvatarIdx,
+        ready: !!ready,
+        uid: portalUid || resolvePortalUid(),
+        joinedAt: Date.now()
+    };
+}
+function detachRoomListeners() {
+    try { if (myRoomRef) myRoomRef.off(); } catch (e) {}
+    chatBound = false;
+    lobbyValueUnsub = null;
+    gameStateUnsub = null;
+    startedUnsub = null;
+}
+function copyRoomCode() {
+    playSfx(sfxButton);
+    if (!roomCode) return showAlert('No room code yet!');
+    const done = () => showAlert('Room code copied!');
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(roomCode).then(done).catch(() => {
+            try {
+                const t = document.createElement('textarea');
+                t.value = roomCode;
+                document.body.appendChild(t);
+                t.select();
+                document.execCommand('copy');
+                document.body.removeChild(t);
+                done();
+            } catch (e) { showAlert(roomCode); }
+        });
+    } else {
+        showAlert('CODE: ' + roomCode);
+    }
+}
+function renderLobbyBoardSkins() {
+    const wrap = document.getElementById('lobby-board-wrap');
+    const box = document.getElementById('lobby-board-skins');
+    if (!wrap || !box) return;
+    if (!isHost || onlineMatchLive) { wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block';
+    box.innerHTML = '';
+    const owned = (inventory.boards || [0]).slice();
+    owned.forEach((bi) => {
+        const item = shopData.boards[bi];
+        if (!item) return;
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'board-skin-chip' + (inventory.selectedBoard === bi ? ' active' : '');
+        chip.textContent = item.name;
+        chip.onclick = () => {
+            inventory.selectedBoard = bi;
+            try { localStorage.setItem('ludo_inv', JSON.stringify(inventory)); } catch (e) {}
+            if (myRoomRef) {
+                try { myRoomRef.child('meta/boardSkin').set(bi); } catch (e2) {}
+            }
+            renderLobbyBoardSkins();
+            showAlert('Board: ' + item.name);
+        };
+        box.appendChild(chip);
+    });
+}
+function seatMapFromRoom(data) {
+    const map = {};
+    if (!data) return map;
+    if (data.seats) {
+        Object.keys(data.seats).forEach((k) => {
+            const si = parseInt(k, 10);
+            if (!isNaN(si) && data.seats[k]) map[si] = data.seats[k];
+        });
+    } else {
+        if (data.host) map[2] = data.host;
+        if (data.guests) Object.keys(data.guests).forEach((k) => { map[parseInt(k, 10)] = data.guests[k]; });
+    }
+    return map;
+}
+function renderLobbyPlayers() {
+    const box = document.getElementById('lobby-players');
+    if (!box) return;
+    box.innerHTML = '';
+    [0, 1, 2, 3].forEach((s) => {
+        if (!roomPlayers[s]) return;
+        const p = roomPlayers[s];
+        const readyTag = p.ready ? '<span class="ready-pill">READY</span>' : '';
+        const you = (s === mySlot) ? ' · YOU' : '';
+        box.innerHTML += `<div style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,0.06);padding:6px 12px;border-radius:20px;margin:3px;border:2px solid ${COLORS[s]};"><img src="${avatarUrls[(p.avatar || 0) % 10]}" style="width:24px;height:24px;border-radius:50%;">${(p.name || 'P') + you}${readyTag}</div>`;
+    });
+    const joined = Object.keys(roomPlayers).length;
+    const need = playerCount || 2;
+    const status = document.getElementById('player-status');
+    if (status) {
+        if (onlineMatchLive) status.innerText = 'Match in progress…';
+        else if (isHost) status.innerText = `Players: ${joined}/${need} — share code ${roomCode || ''}`;
+        else status.innerText = `Joined ${roomCode} · ${joined}/${need} — waiting for host`;
+    }
+    const startBtn = document.getElementById('start-game-btn');
+    const readyBtn = document.getElementById('ready-btn');
+    if (startBtn) startBtn.style.display = (isHost && !onlineMatchLive && joined >= 2) ? 'block' : 'none';
+    if (readyBtn) readyBtn.style.display = (!isHost && !onlineMatchLive && myRoomRef) ? 'block' : 'none';
+    renderLobbyBoardSkins();
+}
+function toggleLobbyReady() {
+    playSfx(sfxButton);
+    if (!myRoomRef || isHost || onlineMatchLive) return;
+    const cur = roomPlayers[mySlot] || myPlayerPayload(false);
+    const next = !cur.ready;
+    myRoomRef.child('seats/' + mySlot).update({ ready: next }).catch(() => {});
+    const btn = document.getElementById('ready-btn');
+    if (btn) btn.innerText = next ? 'READY ✓' : "I'M READY";
+}
+function bindLobbyRoom(roomRef) {
+    myRoomRef = roomRef;
+    roomRef.on('value', (snap) => {
+        const data = snap.val();
+        if (!data) {
+            if (!isHost && !onlineMatchLive) {
+                showAlert('Host closed the room');
+                cleanupOnlineSession(false);
+                showHome();
+            }
+            return;
+        }
+        roomPlayers = seatMapFromRoom(data);
+        if (data.meta) {
+            if (data.meta.count) playerCount = data.meta.count;
+            if (data.meta.mode) gameMode = data.meta.mode;
+            if (data.meta.level) {
+                const tName = data.meta.level;
+                selectedLevel = tables.find((t) => t.name === tName) || selectedLevel;
+            }
+            if (typeof data.meta.boardSkin === 'number') {
+                inventory.selectedBoard = data.meta.boardSkin;
+            }
+        }
+        renderLobbyPlayers();
+        if (data.started === true && !onlineMatchLive && !isHost) {
+            beginOnlineGameAsGuest(data);
+        }
+    });
+}
+function attachChatListener() {
+    if (!myRoomRef || chatBound) return;
+    chatBound = true;
+    myRoomRef.child('chat').limitToLast(30).on('child_added', (snap) => {
+        const c = snap.val();
+        if (!c || c.msg == null) return;
+        const idx = (typeof c.pIdx === 'number') ? c.pIdx : myColorIdx;
+        if (c.uid && portalUid && c.uid === portalUid && (Date.now() - (c.ts || 0)) < 900) return;
+        showFloatingChat(idx, String(c.msg).slice(0, 80));
+    });
+}
+function attachGameStateListener() {
+    if (!myRoomRef) return;
+    myRoomRef.child('gameState').on('value', (snap) => {
+        const st = snap.val();
+        if (!st || !onlineMatchLive) return;
+        handleRemoteState(st);
+    });
+}
+async function initHostRoom() {
+    portalUid = resolvePortalUid();
+    isHost = true;
+    mySlot = 2;
+    onlineMatchLive = false;
+    stateSeq = 0;
+    lastAppliedSeq = 0;
     roomPlayers = {};
-    roomPlayers[mySlot] = { name: document.getElementById('user-name-input').value || 'HOST', avatar: myAvatarIdx, ready: false };
+    roomPlayers[mySlot] = myPlayerPayload(true);
+
+    let code = genRoomCode();
+    if (rtdb) {
+        for (let attempt = 0; attempt < 6; attempt++) {
+            const exists = await rtdb.ref(roomPath(code)).once('value');
+            if (!exists.val()) break;
+            code = genRoomCode();
+        }
+    }
+    roomCode = code;
 
     document.getElementById('id-display-box').style.display = 'block';
     document.getElementById('my-peer-id').innerText = roomCode;
     document.getElementById('whatsapp-share-btn').style.display = 'block';
-    document.getElementById('player-status').innerText = "Waiting for friends... (1/" + playerCount + ")";
+    document.getElementById('player-status').innerText = 'Waiting for friends… (1/' + playerCount + ')';
     document.getElementById('start-game-btn').style.display = 'none';
+    const readyBtn = document.getElementById('ready-btn');
+    if (readyBtn) readyBtn.style.display = 'none';
 
-    if (rtdb) {
-        myRoomRef = rtdb.ref('rooms/' + roomCode);
-        myRoomRef.set({ host: roomPlayers[mySlot], created: Date.now(), count: playerCount, mode: gameMode, level: selectedLevel.name });
-        myRoomRef.on('value', (snap) => {
-            const data = snap.val(); if (!data) return;
-            roomPlayers = {};
-            if (data.host) roomPlayers[2] = data.host;
-            if (data.guests) Object.keys(data.guests).forEach(k => roomPlayers[parseInt(k)] = data.guests[k]);
-            renderLobbyPlayers();
-        });
-        myRoomRef.child('started').on('value', (snap) => {
-            if (snap.val() === true) {
-                // Host starts locally via startOnlineMatch
-            }
-        });
-    } else {
-        document.getElementById('player-status').innerText = "Offline mode — start solo or add bots";
+    if (!rtdb) {
+        document.getElementById('player-status').innerText = 'Offline — Firebase unavailable';
         document.getElementById('start-game-btn').style.display = 'block';
+        renderLobbyPlayers();
+        return;
     }
-}
 
-function renderLobbyPlayers() {
-    const box = document.getElementById('lobby-players');
-    box.innerHTML = '';
-    const slots = [0, 1, 2, 3];
-    slots.forEach(s => {
-        if (roomPlayers[s]) {
-            const p = roomPlayers[s];
-            box.innerHTML += `<div style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,0.06);padding:6px 12px;border-radius:20px;margin:3px;border:2px solid ${COLORS[s]};"><img src="${avatarUrls[p.avatar % 10]}" style="width:24px;height:24px;border-radius:50%;">${p.name}</div>`;
-        }
-    });
-    const joined = Object.keys(roomPlayers).length;
-    document.getElementById('player-status').innerText = `Players joined: ${joined}/${playerCount}`;
-    if (isHost && joined >= 1) document.getElementById('start-game-btn').style.display = 'block';
+    detachRoomListeners();
+    const roomRef = rtdb.ref(roomPath(roomCode));
+    const payload = {
+        meta: {
+            hostUid: portalUid,
+            count: playerCount,
+            mode: gameMode,
+            level: selectedLevel.name,
+            boardSkin: inventory.selectedBoard || 0,
+            created: Date.now(),
+            version: 2
+        },
+        seats: { 2: roomPlayers[mySlot] },
+        started: false,
+        chat: null,
+        gameState: null
+    };
+    await roomRef.set(payload);
+    await rtdb.ref(CODE_ROOT + '/' + roomCode).set({ path: roomPath(roomCode), created: Date.now() });
+    try {
+        roomRef.onDisconnect().remove();
+        rtdb.ref(CODE_ROOT + '/' + roomCode).onDisconnect().remove();
+    } catch (e) {}
+    bindLobbyRoom(roomRef);
+    attachChatListener();
+    renderLobbyPlayers();
 }
 
 function joinFriendFromHome() {
-    const id = document.getElementById('home-join-id').value.trim().toUpperCase();
-    if (!id) return showAlert("Enter Room Code!");
-    roomCode = id; isHost = false;
-    if (rtdb) {
-        const roomRef = rtdb.ref('rooms/' + roomCode);
-        roomRef.once('value').then((snap) => {
-            const data = snap.val();
-            if (!data) { showAlert("Room not found!"); return; }
-            playerCount = data.count || 2; gameMode = data.mode || 'classic';
-            const tName = data.level; selectedLevel = tables.find(t => t.name === tName) || tables[0];
-            const taken = data.guests ? Object.keys(data.guests).map(k => parseInt(k)) : [];
+    const id = (document.getElementById('home-join-id').value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!id) return showAlert('Enter Room Code!');
+    joinRoomByCode(id);
+}
+
+function joinRoomByCode(id) {
+    portalUid = resolvePortalUid();
+    roomCode = id;
+    isHost = false;
+    onlineMatchLive = false;
+    if (!rtdb) { showAlert('Online needs Firebase!'); return; }
+
+    const roomRef = rtdb.ref(roomPath(roomCode));
+    roomRef.once('value').then((snap) => {
+        let data = snap.val();
+        const finishJoin = (roomData) => {
+            if (!roomData) { showAlert('Room not found!'); return; }
+            if (roomData.started === true) { showAlert('Match already started!'); return; }
+            playerCount = (roomData.meta && roomData.meta.count) || roomData.count || 2;
+            gameMode = (roomData.meta && roomData.meta.mode) || roomData.mode || 'classic';
+            const tName = (roomData.meta && roomData.meta.level) || roomData.level;
+            selectedLevel = tables.find((t) => t.name === tName) || tables[0];
+            if (roomData.meta && typeof roomData.meta.boardSkin === 'number') {
+                inventory.selectedBoard = roomData.meta.boardSkin;
+            }
+            const seats = seatMapFromRoom(roomData);
+            const taken = Object.keys(seats).map((k) => parseInt(k, 10));
             let slot = -1;
             const order = [0, 1, 3];
-            for (let i = 0; i < order.length; i++) { if (!taken.includes(order[i]) && order[i] !== 2) { slot = order[i]; break; } }
-            if (slot === -1) { showAlert("Room full!"); return; }
+            for (let i = 0; i < order.length; i++) {
+                if (!taken.includes(order[i])) { slot = order[i]; break; }
+            }
+            if (slot === -1 || taken.length >= playerCount) { showAlert('Room full!'); return; }
             mySlot = slot;
-            const myData = { name: document.getElementById('user-name-input').value || 'GUEST', avatar: myAvatarIdx, ready: true };
-            roomRef.child('guests/' + slot).set(myData);
-            myRoomRef = roomRef;
-            // AD before joining match
-            showAdOverlay(0, function() {
-                switchScreen('lobby-screen');
-                document.getElementById('id-display-box').style.display = 'none';
-                document.getElementById('whatsapp-share-btn').style.display = 'none';
-                document.getElementById('player-status').innerText = "Joined! Waiting for host to start...";
-                document.getElementById('start-game-btn').style.display = 'none';
-                roomRef.child('started').on('value', (s) => {
-                    if (s.val() === true) {
-                        roomRef.child('gameState').on('value', (gs) => {
-                            const st = gs.val(); if (st) handleRemoteState(st);
-                        });
-                    }
-                });
+            const myData = myPlayerPayload(true);
+            showAdOverlay(0, function () {
+                roomRef.child('seats/' + slot).set(myData).then(() => {
+                    try { roomRef.child('seats/' + slot).onDisconnect().remove(); } catch (e) {}
+                    detachRoomListeners();
+                    bindLobbyRoom(roomRef);
+                    attachChatListener();
+                    switchScreen('lobby-screen');
+                    document.getElementById('id-display-box').style.display = 'block';
+                    document.getElementById('my-peer-id').innerText = roomCode;
+                    document.getElementById('whatsapp-share-btn').style.display = 'none';
+                    document.getElementById('start-game-btn').style.display = 'none';
+                    document.getElementById('player-status').innerText = 'Joined! Waiting for host…';
+                    const readyBtn = document.getElementById('ready-btn');
+                    if (readyBtn) { readyBtn.style.display = 'block'; readyBtn.innerText = 'READY ✓'; }
+                    renderLobbyPlayers();
+                }).catch(() => showAlert('Join failed'));
             });
-        }).catch(() => { showAlert("Connection error!"); showHome(); });
-    } else {
-        showAlert("Online needs Firebase config!"); showHome();
-    }
+        };
+        if (data) return finishJoin(data);
+        return rtdb.ref(CODE_ROOT + '/' + roomCode).once('value').then((cSnap) => {
+            const idx = cSnap.val();
+            if (!idx || !idx.path) { showAlert('Room not found!'); return; }
+            return rtdb.ref(idx.path).once('value').then((r2) => finishJoin(r2.val()));
+        });
+    }).catch(() => { showAlert('Connection error!'); showHome(); });
+}
+
+function applySeatCosmetics() {
+    Object.keys(roomPlayers).forEach((s) => {
+        const si = parseInt(s, 10);
+        const p = roomPlayers[s];
+        if (!p) return;
+        playerAvatars[si] = p.avatar || 0;
+        playerNames[si] = p.name || ('P' + (si + 1));
+    });
+    myColorIdx = mySlot;
+}
+
+function beginOnlineGameAsGuest(data) {
+    if (onlineMatchLive) return;
+    onlineMatchLive = true;
+    roomPlayers = seatMapFromRoom(data);
+    applySeatCosmetics();
+    const gs = data.gameState || {};
+    activePlayers = gs.active || ((playerCount === 2) ? [0, 2] : (playerCount === 3 ? [0, 1, 2] : [0, 1, 2, 3]));
+    if (typeof gs.boardSkin === 'number') inventory.selectedBoard = gs.boardSkin;
+    attachGameStateListener();
+    attachChatListener();
+    playSfx(sfxCollect);
+    initGame();
+    if (gs.tokens) handleRemoteState(gs);
 }
 
 function startOnlineMatch() {
-    if (!rtdb || !isHost) return;
+    if (!isHost) return;
+    if (!rtdb || !myRoomRef) {
+        activePlayers = (playerCount === 2) ? [0, 2] : (playerCount === 3 ? [0, 1, 2] : [0, 1, 2, 3]);
+        applySeatCosmetics();
+        onlineMatchLive = true;
+        initGame();
+        return;
+    }
+    const joined = Object.keys(roomPlayers).length;
+    if (joined < 1) return showAlert('Need at least you in the lobby');
     activePlayers = (playerCount === 2) ? [0, 2] : (playerCount === 3 ? [0, 1, 2] : [0, 1, 2, 3]);
-    const avatars = [0, 1, myAvatarIdx, 3];
-    Object.keys(roomPlayers).forEach(s => { const si = parseInt(s); playerAvatars[si] = roomPlayers[si].avatar; playerNames[si] = roomPlayers[si].name; });
-    myColorIdx = mySlot;
-    myRoomRef.child('started').set(true);
-    myRoomRef.child('gameState').set({ active: activePlayers, turn: activePlayers[0], started: true });
-    playSfx(sfxCollect);
-    initGame();
+    const filled = Object.keys(roomPlayers).map((k) => parseInt(k, 10)).sort((a, b) => a - b);
+    if (filled.length >= 2) {
+        activePlayers = filled.slice(0, playerCount);
+        if (!activePlayers.includes(2)) activePlayers[activePlayers.length - 1] = 2;
+        activePlayers = Array.from(new Set(activePlayers)).sort((a, b) => a - b);
+    }
+    applySeatCosmetics();
+    stateSeq = 1;
+    lastAppliedSeq = 0;
+    const gs = {
+        seq: stateSeq,
+        active: activePlayers,
+        turn: activePlayers[0],
+        diceValue: 1,
+        tokens: null,
+        winnersRank: [],
+        hasKilled: [false, false, false, false],
+        boardSkin: inventory.selectedBoard || 0,
+        started: true,
+        lastActor: mySlot
+    };
+    onlineMatchLive = true;
+    myRoomRef.update({
+        started: true,
+        'meta/boardSkin': inventory.selectedBoard || 0,
+        gameState: gs
+    }).then(() => {
+        attachGameStateListener();
+        attachChatListener();
+        playSfx(sfxCollect);
+        initGame();
+        setTimeout(() => syncStateToRoom(true), 50);
+    }).catch(() => showAlert('Could not start match'));
 }
 
-function syncStateToRoom() {
-    if (!myRoomRef || isBotMode) return;
+function syncStateToRoom(force) {
+    if (!myRoomRef || isBotMode || applyingRemote) return;
+    if (!onlineMatchLive && !force) return;
+    if (!force && turn !== myColorIdx) return;
+    stateSeq += 1;
     const state = {
-        turn: turn, diceValue: diceValue,
-        tokens: players.map(p => p.map(t => ({ pos: t.pos, id: t.id }))),
-        winnersRank: winnersRank, hasKilled: hasKilled
+        seq: stateSeq,
+        turn: turn,
+        diceValue: diceValue,
+        tokens: players.map((p) => p.map((t) => ({ pos: t.pos, id: t.id }))),
+        winnersRank: winnersRank,
+        hasKilled: hasKilled,
+        active: activePlayers,
+        boardSkin: inventory.selectedBoard || 0,
+        started: true,
+        lastActor: myColorIdx,
+        ts: Date.now()
     };
-    try { myRoomRef.child('gameState').update(state); } catch(e) {}
+    try { myRoomRef.child('gameState').update(state); } catch (e) {}
 }
 
 function handleRemoteState(st) {
-    if (st.turn !== undefined) turn = st.turn;
-    if (st.diceValue !== undefined) { diceValue = st.diceValue; updateDiceUI(diceValue); }
-    if (st.tokens) { st.tokens.forEach((toks, i) => { toks.forEach((tk, j) => { if (players[i] && players[i][j]) players[i][j].pos = tk.pos; }); }); }
-    if (st.winnersRank) winnersRank = st.winnersRank;
-    if (st.hasKilled) hasKilled = st.hasKilled;
-    updateTurn();
+    if (!st) return;
+    const seq = typeof st.seq === 'number' ? st.seq : 0;
+    if (seq && seq <= lastAppliedSeq) return;
+    if (st.lastActor === myColorIdx && seq && seq <= stateSeq) {
+        lastAppliedSeq = Math.max(lastAppliedSeq, seq);
+        return;
+    }
+    applyingRemote = true;
+    try {
+        if (seq) lastAppliedSeq = seq;
+        if (seq) stateSeq = Math.max(stateSeq, seq);
+        if (st.active) activePlayers = st.active;
+        if (typeof st.boardSkin === 'number') inventory.selectedBoard = st.boardSkin;
+        if (st.tokens && players && players.length) {
+            st.tokens.forEach((toks, i) => {
+                if (!toks || !players[i]) return;
+                toks.forEach((tk, j) => {
+                    if (players[i][j] && tk && typeof tk.pos === 'number') players[i][j].pos = tk.pos;
+                });
+            });
+        }
+        if (st.winnersRank) winnersRank = st.winnersRank;
+        if (st.hasKilled) hasKilled = st.hasKilled;
+        if (st.diceValue !== undefined) { diceValue = st.diceValue; updateDiceUI(diceValue); }
+        if (st.turn !== undefined) turn = st.turn;
+        isRolling = false;
+        isAnimating = false;
+        canMove = false;
+        updateTurn();
+    } finally {
+        applyingRemote = false;
+    }
+}
+
+function cleanupOnlineSession(removeRoom) {
+    try {
+        if (myRoomRef) {
+            if (isHost && removeRoom) {
+                myRoomRef.remove();
+                if (rtdb && roomCode) rtdb.ref(CODE_ROOT + '/' + roomCode).remove();
+            } else if (!isHost && typeof mySlot === 'number') {
+                myRoomRef.child('seats/' + mySlot).remove();
+            }
+            detachRoomListeners();
+        }
+    } catch (e) {}
+    myRoomRef = null;
+    onlineMatchLive = false;
+    roomCode = null;
+    isHost = false;
+    roomPlayers = {};
+    chatBound = false;
 }
 
 // ===================================================================
@@ -1349,13 +1714,27 @@ function toggleChat() { playSfx(sfxButton); const p = document.getElementById('c
 function sendCustomChat() { const input = document.getElementById('custom-chat-input'); const msg = input.value.trim(); if (!msg) return; sendChatToAll(msg); input.value = ""; toggleChat(); }
 function sendQuickChat(msg) { sendChatToAll(msg); toggleChat(); }
 function sendChatToAll(msg) {
-    if (isBotMode) { showFloatingChat(2, msg); }
-    else {
-        if (myRoomRef) { try { myRoomRef.child('chat').push({ pIdx: myColorIdx, msg: msg }); } catch(e){} }
-        showFloatingChat(myColorIdx, msg);
+    const text = String(msg).slice(0, 80);
+    if (isBotMode) { showFloatingChat(2, text); return; }
+    showFloatingChat(myColorIdx, text);
+    if (myRoomRef) {
+        try {
+            myRoomRef.child('chat').push({
+                pIdx: myColorIdx,
+                msg: text,
+                uid: portalUid || resolvePortalUid(),
+                ts: Date.now()
+            });
+        } catch (e) {}
     }
 }
-function showFloatingChat(idx, msg) { const bubble = document.getElementById(`bubble-${idx}`); if (!bubble) return; bubble.innerText = msg; bubble.style.display = 'block'; setTimeout(() => bubble.style.display = 'none', 4000); }
+function showFloatingChat(idx, msg) {
+    const bubble = document.getElementById('bubble-' + idx);
+    if (!bubble) return;
+    bubble.innerText = msg;
+    bubble.style.display = 'block';
+    setTimeout(() => { bubble.style.display = 'none'; }, 4000);
+}
 
 // ===================================================================
 //  GAME LOGIC
@@ -1456,7 +1835,7 @@ function rollDice() {
             clearInterval(itv);
             if (dEl) dEl.style.animation = "none";
             isRolling = false;
-            syncStateToRoom();
+            syncStateToRoom(true);
             processLogic();
         }
     }, 60);
@@ -1506,7 +1885,7 @@ function processLogic() {
 async function moveToken(t) {
     if (isPaused || isAnimating) return;
     canMove = false; isAnimating = true;
-    syncStateToRoom();
+    syncStateToRoom(true);
     try {
         if (t.pos === -1) { t.pos = 0; await jump(t); }
         else {
@@ -1540,7 +1919,7 @@ async function moveToken(t) {
         if (players[turn].every(tok => tok.pos === 57) && !winnersRank.includes(turn)) { winnersRank.push(turn); bonus = false; }
 
         isAnimating = false;
-        syncStateToRoom();
+        syncStateToRoom(true);
         if (winnersRank.includes(turn)) nextTurn();
         else if (bonus) updateTurn();
         else nextTurn();
@@ -1584,7 +1963,7 @@ function nextTurn() {
     let nextPlayerIdx = (activePlayers.indexOf(turn) + 1) % activePlayers.length;
     turn = activePlayers[nextPlayerIdx];
     if (winnersRank.includes(turn)) { if (winnersRank.length < activePlayers.length) nextTurn(); }
-    else { updateTurn(); syncStateToRoom(); }
+    else { updateTurn(); syncStateToRoom(true); }
 }
 
 function showAlert(txt) { alertBox.innerText = txt; alertBox.style.display = 'block'; setTimeout(() => alertBox.style.display = 'none', 1800); }
@@ -1612,6 +1991,7 @@ window.addEventListener('resize', resize);
 
 canvas.onclick = (e) => {
     if (isPaused || !canMove || isAnimating) return;
+    if (!isBotMode && turn !== myColorIdx) return;
     const rect = canvas.getBoundingClientRect();
     const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
     const my = (e.clientY - rect.top) * (canvas.height / rect.height);
@@ -1928,10 +2308,10 @@ function resumeGame() {
     updateTurn();
 }
 function leaveMatch() {
-    if (myRoomRef) { try { myRoomRef.remove(); } catch(e){} myRoomRef = null; }
+    const wasHost = isHost;
+    cleanupOnlineSession(!!wasHost);
     if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
     playSfx(sfxButton);
-    // AD on leave match (before going home)
     showAdOverlay(0, function() {
         isPaused = false; isPausedManually = false;
         confettiActive = false;
@@ -1939,6 +2319,8 @@ function leaveMatch() {
         document.getElementById('mic-btn').classList.remove('speaking', 'muted');
         document.getElementById('whatsapp-share-btn').style.display = 'none';
         document.getElementById('id-display-box').style.display = 'none';
+        const readyBtn = document.getElementById('ready-btn');
+        if (readyBtn) readyBtn.style.display = 'none';
         showHome();
     });
 }
@@ -2139,7 +2521,14 @@ function renderLeague() {
 function shareWhatsApp() {
     playSfx(sfxButton);
     if (!roomCode) { showAlert('No room code yet!'); return; }
-    const msg = '\u{1F3B2} Join my LUDO ELITE game! Room Code: ' + roomCode + ' \u{1F3AE}';
+    let link = '';
+    try {
+        const u = new URL(window.location.href);
+        u.searchParams.set('room', roomCode);
+        if (portalUid) u.searchParams.set('uid', portalUid);
+        link = u.toString();
+    } catch (e) { link = ''; }
+    const msg = 'Join my LUDO STAR private room! Code: ' + roomCode + (link ? ('\n' + link) : '');
     const url = 'https://wa.me/?text=' + encodeURIComponent(msg);
     window.open(url, '_blank');
 }
@@ -2167,6 +2556,10 @@ const lIv = setInterval(() => {
 
 initAvatars(); updateWalletUI(); resize();
 
+portalUid = resolvePortalUid();
+try { localStorage.setItem('aj_portal_uid', portalUid); } catch (e) {}
+pendingJoinCode = (portalQuery().get('room') || portalQuery().get('code') || '').trim().toUpperCase();
+
 if (playerProfile) {
     isLoggedIn = true;
     document.getElementById('user-name-input').value = playerProfile.name;
@@ -2175,6 +2568,20 @@ if (playerProfile) {
 } else {
     document.getElementById('splash-screen').classList.remove('active');
     document.getElementById('login-screen').classList.add('active');
+}
+
+if (pendingJoinCode) {
+    const joinInput = document.getElementById('home-join-id');
+    if (joinInput) joinInput.value = pendingJoinCode;
+    const _origShowHome = showHome;
+    let autoJoined = false;
+    showHome = function() {
+        _origShowHome();
+        if (!autoJoined && pendingJoinCode) {
+            autoJoined = true;
+            setTimeout(function() { joinRoomByCode(pendingJoinCode); }, 400);
+        }
+    };
 }
 </script>
 </body>

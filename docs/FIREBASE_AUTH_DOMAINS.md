@@ -58,6 +58,8 @@ Optional env overrides (see `.env.example`):
 3. Add it under Authorized domains
 4. Wait 1–2 minutes, hard-refresh, retry Google sign-in
 5. If popup is blocked on in-app browsers, fall back guidance: open in system browser
+6. Deploy RTDB rules (`database.rules.json`) so Ludo Star rooms + live frames work in preview/production
+7. Confirm Realtime Database URL is `https://aj-super-portal-default-rtdb.firebaseio.com`
 
 ## Common errors
 

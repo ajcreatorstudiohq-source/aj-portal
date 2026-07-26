@@ -50,4 +50,20 @@ Engine: `computeRewardSplit(seed)` → `applySplitReward` / `POST /api/rewards/e
 - `live_audio/{roomId}/join_requests/{uid}` — multi-viewer join
 - `live_audio/{roomId}/peers/{uid}/*` — per-viewer WebRTC
 
+## Ludo Star multiplayer RTDB
+
+Deploy rules from repo root: `database.rules.json`
+
+| Path | Purpose |
+|---|---|
+| `ludo/rooms/{CODE}` | Private lobby + match (`meta`, `seats`, `started`, `gameState`, `chat`) |
+| `ludo/codes/{CODE}` | Code → room path index for join lookup |
+| `ludo/rooms/{CODE}/seats/{slot}` | Seat 0–3 presence (`name`, `avatar`, `ready`, `uid`) |
+| `ludo/rooms/{CODE}/gameState` | Sequenced turn sync (`seq`, `turn`, `diceValue`, `tokens`, `lastActor`) |
+| `ludo/rooms/{CODE}/chat` | In-match chat / emoji bubbles |
+| `ludo/rooms/{CODE}/meta/boardSkin` | Host board theme index |
+
+Client: `public/games/ludo-elite-royal/index.html` (portal Firebase project `aj-super-portal`).  
+Iframe query: `?ajGameId=ludo&uid={firebaseUid}&room={CODE}`.
+
 See also: `docs/FIREBASE_AUTH_DOMAINS.md`
