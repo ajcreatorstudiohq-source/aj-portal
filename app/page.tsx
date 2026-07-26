@@ -19,8 +19,12 @@ import React, { useState, useEffect, useRef, Component } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import GamingZone from './components/GamingZone';
 import LiveMatchesPanel from './components/LiveMatchesPanel';
+import BannerAdSlot from './components/ads/BannerAdSlot';
+import InFeedAdShell from './components/ads/InFeedAdShell';
 import type { GameProgressDoc } from './lib/economy';
 import { earnReward } from './lib/client-rewards';
+import { trackAdEvent } from './lib/ad-client';
+import { MONETAG_INTERSTITIAL_ZONE } from './lib/ads-config';
 
 // ============================================================
 // GLOBAL ERROR SHIELD (FIX: "Page couldn't load" error)
@@ -1414,17 +1418,39 @@ function triggerMonetagInterstitialAd(zoneId: number): Promise<boolean> {
               .then((result: any) => {
                 // Ad was shown successfully — revenue event
                 lastAnyAdShownTime = Date.now(); // Confirm gate — ad actually shown
+                try {
+                  trackAdEvent({
+                    event: 'complete',
+                    placement: 'hub_nav_interstitial',
+                    zoneId: MONETAG_INTERSTITIAL_ZONE,
+                    meta: { network: 'monetag', zoneId },
+                  }).catch(() => {});
+                } catch {}
                 resolve(true);
               })
               .catch(() => {
                 // No ad feed available or ad failed — resolve false (fallback video will show)
                 lastAnyAdShownTime = Date.now() - (AD_COOLDOWN_MS - 30000);
                 cleanupMonetagDom();
+                try {
+                  trackAdEvent({
+                    event: 'fail',
+                    placement: 'hub_nav_interstitial',
+                    zoneId: MONETAG_INTERSTITIAL_ZONE,
+                  }).catch(() => {});
+                } catch {}
                 resolve(false);
               });
           } else {
             // Synchronous return (unlikely) — assume ad was triggered
             lastAnyAdShownTime = Date.now();
+            try {
+              trackAdEvent({
+                event: 'complete',
+                placement: 'hub_nav_interstitial',
+                zoneId: MONETAG_INTERSTITIAL_ZONE,
+              }).catch(() => {});
+            } catch {}
             resolve(true);
           }
         } catch {
@@ -6022,7 +6048,9 @@ Tip: Social Hub se copy karo 📤`,
                       if ((idx + 1) % 4 === 0) {
                         return [contentEl, (
                           <div key={`ad_pixa_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
-                            <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} />
+                            <InFeedAdShell placement="tikreel_infeed" user={user}>
+                              <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} />
+                            </InFeedAdShell>
                           </div>
                         )];
                       }
@@ -6128,7 +6156,9 @@ Tip: Social Hub se copy karo 📤`,
                       if ((idx + 1) % 4 === 0) {
                         return [contentEl, (
                           <div key={`ad_user_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
-                            <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} />
+                            <InFeedAdShell placement="tikreel_infeed" user={user}>
+                              <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} />
+                            </InFeedAdShell>
                           </div>
                         )];
                       }
@@ -6461,7 +6491,9 @@ Tip: Social Hub se copy karo 📤`,
                       if ((idx + 1) % 4 === 0) {
                         return [contentEl, (
                           <div key={`ad_pulse_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
-                            <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} />
+                            <InFeedAdShell placement="pulse_infeed" user={user}>
+                              <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} />
+                            </InFeedAdShell>
                           </div>
                         )];
                       }
@@ -6612,6 +6644,9 @@ Tip: Social Hub se copy karo 📤`,
                     <span className="text-gray-400 text-[9px] font-black">⏱ 2h 15m</span>
                   </div>
                 )}
+              </div>
+              <div className="px-4 pt-3">
+                <BannerAdSlot placement="live_go_banner" user={user} label="Go Live" />
               </div>
               <div className="flex-1 flex flex-col items-center justify-center gap-6 px-4">
                 {/* WebRTC Live Container - local camera preview via getUserMedia (no ZegoCloud) */}
@@ -6869,6 +6904,8 @@ Tip: Social Hub se copy karo 📤`,
                 <span className="text-sm font-black text-white">Join Live & Matches</span>
               </div>
               <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
+                <BannerAdSlot placement="live_join_banner" user={user} label="Join Live" />
+                <BannerAdSlot placement="live_matches_banner" user={user} label="PK Matches" />
                 <LiveMatchesPanel
                   youtubeApiKey={YOUTUBE_API_KEY}
                   onAlert={(msg, icon) => setVvipAlert({ msg, icon })}

@@ -7,6 +7,10 @@ import {
   OFFERWALL_PUBLIC,
   type GameProgressDoc,
 } from '../lib/economy';
+import BannerAdSlot from './ads/BannerAdSlot';
+import RewardedVideoOffer from './ads/RewardedVideoOffer';
+import { trackAdEvent } from '../lib/ad-client';
+import { MONETAG_INTERSTITIAL_ZONE } from '../lib/ads-config';
 
 type Props = {
   user: { uid: string; getIdToken: () => Promise<string> } | null;
@@ -174,6 +178,15 @@ export default function GamingZone({
     const open = () => {
       setSelectedGameId(gameId);
       setSelectedGameUrl(url);
+      trackAdEvent(
+        {
+          event: 'impression',
+          placement: 'games_interstitial',
+          zoneId: MONETAG_INTERSTITIAL_ZONE,
+          meta: { gameId },
+        },
+        user
+      ).catch(() => {});
     };
     if (gameId === 'ludo' && onOpenWithAd) onOpenWithAd(open);
     else open();
@@ -301,10 +314,29 @@ export default function GamingZone({
             </p>
           </div>
 
+          <RewardedVideoOffer
+            user={user}
+            onAlert={onAlert}
+            onRefreshUser={onRefreshUser}
+          />
+
+          <BannerAdSlot placement="games_banner" user={user} label="Offerwall" />
+
           <a
             href={OFFERWALL_PUBLIC.wallUrl}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={() => {
+              trackAdEvent(
+                {
+                  event: 'click',
+                  placement: 'offerwall_rewarded_video',
+                  zoneId: MONETAG_INTERSTITIAL_ZONE,
+                  meta: { action: 'open_partners' },
+                },
+                user
+              ).catch(() => {});
+            }}
             className="block w-full text-center bg-white/5 border border-white/10 rounded-2xl p-4 text-sm font-black text-cyan-300 active:scale-95"
           >
             Open Offer Partners ↗
@@ -313,7 +345,6 @@ export default function GamingZone({
           {[
             { id: 'survey_starter', title: 'Starter Survey', note: 'Complete a short partner survey' },
             { id: 'app_trial', title: 'App Trial Offer', note: 'Install & open a partner app' },
-            { id: 'video_quest', title: 'Video Quest', note: 'Watch a verified partner video' },
           ].map((offer) => (
             <button
               key={offer.id}
@@ -331,11 +362,13 @@ export default function GamingZone({
           ))}
 
           <p className="text-[9px] text-gray-500 text-center px-2">
-            Postbacks validated at <code className="text-gray-400">/api/offerwall/callback</code>. Duplicate txids are ignored.
+            Video ads credit via <code className="text-gray-400">/api/ads/rewarded</code>.
+            Partner postbacks: <code className="text-gray-400">/api/offerwall/callback</code>.
           </p>
         </div>
       ) : (
         <div className="px-4 py-4 space-y-3">
+          <BannerAdSlot placement="games_banner" user={user} label="Games" />
           <div className="rounded-2xl border border-pink-500/20 bg-pink-950/20 p-3">
             <p className="text-[11px] text-gray-300 leading-relaxed">
               <span className="text-pink-300 font-black">Download & Level Unlock:</span> No free game dumps.

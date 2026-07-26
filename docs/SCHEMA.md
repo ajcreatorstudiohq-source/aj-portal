@@ -12,7 +12,7 @@ Engine: `computeRewardSplit(seed)` → `applySplitReward` / `POST /api/rewards/e
 
 ### Sources (`reward_sources.ts`)
 
-`game_install` · `game_milestone` · `offerwall` · `tiktok_post` · `pulse_post` · `live_view` · `live_host` · `live_gift` · `ai_bot_sync` · `pk_match` · `referral`
+`game_install` · `game_milestone` · `offerwall` · `offerwall_video` · `tiktok_post` · `pulse_post` · `live_view` · `live_host` · `live_gift` · `ai_bot_sync` · `pk_match` · `referral`
 
 ## `users/{uid}`
 
@@ -29,8 +29,10 @@ Engine: `computeRewardSplit(seed)` → `applySplitReward` / `POST /api/rewards/e
 ## Ledgers
 
 - `reward_ledger/{txId}` — all unified earn events (idempotent)
-- `offerwall_ledger/{txId}` — offerwall postbacks / completes
-- `AdminRevenue/{autoId}` — platform share of every $5–$7 pool
+- `offerwall_ledger/{txId}` — offerwall postbacks / completes / rewarded video
+- `ad_events/{autoId}` — Monetag impression / click / complete / fail
+- `ad_reward_sessions/{sessionId}` — short-lived rewarded-video anti-replay sessions
+- `AdminRevenue/{autoId}` — platform share of every $5–$7 pool + ad eCPM/click estimates
 
 ## APIs
 
@@ -41,7 +43,19 @@ Engine: `computeRewardSplit(seed)` → `applySplitReward` / `POST /api/rewards/e
 | PATCH/POST | `/api/games/milestone` | Level progress / claim |
 | GET/POST | `/api/offerwall/callback` | Provider postback |
 | POST | `/api/offerwall/complete` | In-app offer complete |
+| POST | `/api/ads/track` | Ad impression / click / complete tracking |
+| POST | `/api/ads/rewarded` | Offerwall rewarded video prepare + complete |
 | POST | `/api/callback` · `/api/nowpayments-callback` | Purchase IPN |
+
+## Ad placements
+
+| Placement ID | Surface |
+|---|---|
+| `hub_nav_interstitial` | Hub card navigation overlay |
+| `offerwall_rewarded_video` | Offerwall Watch & Earn |
+| `games_banner` / `games_interstitial` | Gaming Zone |
+| `tikreel_infeed` / `pulse_infeed` | Social feeds (every 4th item) |
+| `live_go_banner` / `live_join_banner` / `live_matches_banner` | Live streaming |
 
 ## Live streaming RTDB
 
