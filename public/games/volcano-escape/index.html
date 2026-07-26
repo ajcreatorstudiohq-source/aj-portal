@@ -67,13 +67,13 @@
 
     <div id="hud">
         <div class="stats"><div style="font-size:18px; color:var(--gold);"><span id="txt-height">HEIGHT</span>: <span id="heightVal">0</span>M</div></div>
-        <div class="stats"><div style="font-size:18px; color:var(--neon-blue);">💎 <span id="crystalVal">0</span> | AJ: <span id="liveAJ">0.000</span></div></div>
+        <div class="stats"><div style="font-size:18px; color:var(--neon-blue);">💎 <span id="crystalVal">0</span> | LOCAL: <span id="liveAJ">0.000</span></div></div>
     </div>
 
     <div id="mainMenu" class="screen">
         <h1 style="font-size: 45px; color: var(--lava); text-shadow: 0 0 30px var(--lava); font-style: italic; margin: 0;">VOLCANO ESCAPE</h1>
         <div style="background: rgba(255,255,255,0.05); padding: 10px 40px; border-radius: 50px; border: 2.5px solid var(--gold); margin: 20px 0;">
-            <p style="margin: 0; font-weight: bold; color: var(--gold); letter-spacing: 1px;"><span id="txt-best">BEST RECORD</span>: <span id="bestRecord">0</span>M | AJ: <span id="mainAJDisplay">0.000</span></p>
+            <p style="margin: 0; font-weight: bold; color: var(--gold); letter-spacing: 1px;"><span id="txt-best">BEST RECORD</span>: <span id="bestRecord">0</span>M | LOCAL: <span id="mainAJDisplay">0.000</span></p>
         </div>
         <button class="btn btn-red" onclick="initGameWithAd(); playSfx('click');" id="txt-start">START MISSION</button>
         <button class="btn btn-blue" onclick="openGarage(); playSfx('click');" id="txt-garage">GARAGE</button>
@@ -109,7 +109,7 @@
 
     <div id="garageScreen" class="screen">
         <h2 style="color: var(--gold); margin: 0;">SURVIVOR DEPOT</h2>
-        <p style="font-size: 18px; margin: 10px;">CRYSTALS: <span id="shopCrystals" style="color:var(--neon-blue);">0</span> 💎 | AJ: <span id="garageAJ">0.000</span></p>
+        <p style="font-size: 18px; margin: 10px;">CRYSTALS: <span id="shopCrystals" style="color:var(--neon-blue);">0</span> 💎 | LOCAL: <span id="garageAJ">0.000</span></p>
         <div class="garage-container"><div class="shop-grid" id="skinGrid"></div></div>
         <button class="btn btn-green" id="adBtn" onclick="watchRewardAdWithSDK(); playSfx('click');">GET FREE CRYSTALS (+20 💎 🎬)</button>
         <button class="btn btn-red" style="margin: 5px;" onclick="closeGarage(); playSfx('click');">BACK</button>
@@ -136,27 +136,19 @@
 
 <script>
 
-    // ===== AJ GAME BRIDGE — sends score to parent app for wallet credit =====
+    // ===== AJ GAME BRIDGE — LOCAL ONLY (NO portal wallet / cash credit) =====
+    // Game tokens stay inside this game for unlocks & fun. Zero connection to AJ Wallet.
     var AJ_GAME_SCORE = 0;
     function ajSendScore(s) {
-        AJ_GAME_SCORE = s;
-        try { window.parent.postMessage({type:'GAME_SCORE', score: s}, '*'); } catch(e) {}
+        AJ_GAME_SCORE = typeof s === 'number' ? s : 0;
+        // Intentionally do NOT postMessage GAME_SCORE to parent — no wallet credit.
     }
-    function ajSendGameEnd(s) {
-        AJ_GAME_SCORE = s;
-        try { window.parent.postMessage({type:'GAME_END', score: s}, '*'); } catch(e) {}
-        try { window.parent.postMessage({type:'GAME_CRASH', score: s}, '*'); } catch(e) {}
+    function ajEndGame(s) {
+        AJ_GAME_SCORE = typeof s === 'number' ? s : AJ_GAME_SCORE;
+        // Intentionally do NOT postMessage GAME_END / GAME_CRASH to parent.
     }
-    window.addEventListener('error', function(e) {
-        if (AJ_GAME_SCORE > 0) {
-            try { window.parent.postMessage({type:'GAME_CRASH', score: AJ_GAME_SCORE}, '*'); } catch(err) {}
-        }
-    });
-    window.addEventListener('beforeunload', function() {
-        if (AJ_GAME_SCORE > 0) {
-            try { window.parent.postMessage({type:'GAME_END', score: AJ_GAME_SCORE}, '*'); } catch(e) {}
-        }
-    });
+    window.addEventListener('error', function() { /* local only — no wallet flush */ });
+    window.addEventListener('beforeunload', function() { /* local only — no wallet flush */ });
     // ===== END AJ GAME BRIDGE =====
 
     const canvas = document.getElementById('gameCanvas');
@@ -305,14 +297,7 @@
     }
 
     function syncWithPortal() {
-        if(window.AJ_SDK) {
-            window.AJ_SDK.addBalance({
-                game_coins: totalCrystals,
-                aj_net: (totalCrystals * 0.003),
-                source: "Volcano Escape Sync"
-            });
-        }
-        // AJ BRIDGE: send current crystals to parent app
+        // LOCAL ONLY — never credit AJ Super Portal wallet / cash-out
         ajSendScore(totalCrystals);
     }
 
@@ -450,7 +435,7 @@
         document.getElementById('gameOver').classList.add('active-screen'); document.getElementById('hud').style.display = 'none';
         localStorage.setItem('volcano_crystals', totalCrystals);
         syncWithPortal();
-        // AJ BRIDGE: send game over crystals to parent app for wallet credit
+        // AJ BRIDGE: send game over crystals to parent app LOCAL ONLY — no wallet credit
         ajSendGameEnd(totalCrystals);
         updateUIDisplays();
     }

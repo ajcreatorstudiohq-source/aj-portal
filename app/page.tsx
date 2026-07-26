@@ -318,9 +318,9 @@ const PK_DURATION    = 300;
 //    - Fallback video hamesha chalega (revenue + non-intrusive, TikTok jaisa)
 //    - Real Monetag popup sirf cooldown ke baad fire hoga (3 min mein ek baar)
 //
-// 3. FREE COIN AD:
+// 3. WATCH AD (Games screen):
 //    - 5 MINUTE alag cooldown (user voluntarily watch karta hai)
-//    - Sirf "Free 50 Coins" button se trigger
+//    - Sirf "Watch Ad" button se trigger — NO wallet / AJ Coin credit from games
 //
 // NET RESULT: Revenue chalti rehti hai (in-feed + occasional popup), lekin
 // user ko har click pe ad NAHI dikhta — UX smooth rehti hai.
@@ -365,22 +365,22 @@ const triggerInterstitialAd = (force = false) => {
   } catch {}
 };
 
-// Dedicated function for "Free 50 Coins" button — has its own cooldown
+// Dedicated function for Games "Watch Ad" button — own cooldown, NO wallet credit
 const triggerFreeCoinAd = () => {
   try {
     if (typeof window !== 'undefined') {
       const now = Date.now();
       if ((now - lastFreeCoinAdTime) < FREE_COIN_AD_COOLDOWN_MS) {
-        // Free coin ad cooldown active — return false so caller can show "try again later" message
         return false;
       }
-      // FIX: Global ad gate — agar 5 min ke andar koi bhi ad dikh chuka hai, skip
       if ((now - lastAnyAdShownTime) < AD_COOLDOWN_MS) {
         return false;
       }
       lastFreeCoinAdTime = now;
       ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL);
-      triggerMonetagInterstitialAd(MONETAG_INTERSTITIAL).catch(() => {});
+      triggerMonetagInterstitialAd(MONETAG_INTERSTITIAL)
+        .then((shown) => { if (!shown) cleanupMonetagDom(); })
+        .catch(() => cleanupMonetagDom());
       return true;
     }
   } catch {}
@@ -404,13 +404,11 @@ const navigateWithAdOverlay = (navFn: () => void) => {
     navFn();
     return;
   }
-  // Show interstitial ad overlay, store navigation to run after ad closes
+  // Show interstitial ad overlay first; Monetag fires only after overlay host is painted
+  // (see InterstitialAdOverlay) — avoids black freeze from firing before UI is ready.
   pendingNavAfterAd = navFn;
-  // Trigger the real Monetag ad (SDK-based)
   lastInterstitialAdTime = now;
   ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL);
-  triggerMonetagInterstitialAd(MONETAG_INTERSTITIAL).catch(() => {});
-  // Signal the component to show the overlay (set via a custom event)
   if (typeof window !== 'undefined') {
     try { (window as any).__AJ_SHOW_INTERSTITIAL = true; window.dispatchEvent(new Event('aj-show-interstitial')); } catch {}
   }
@@ -1206,6 +1204,21 @@ const monetagSdkLoadedZones: Set<number> = new Set();
 // issue bilkul khatam ho jaayega. Flag cooldown ke saath reset hota hai.
 let realAdFiredThisCycle = false;
 
+// Tear down Monetag leftover iframes/overlays so they cannot leave a black freeze layer.
+function cleanupMonetagDom(): void {
+  if (typeof document === 'undefined') return;
+  try {
+    document.querySelectorAll(
+      'iframe[src*="nap5k"],iframe[src*="monetag"],iframe[src*="mdn201"],iframe[id*="google_ads"],div[id*="ad_iframe"]'
+    ).forEach((node) => {
+      try { node.remove(); } catch {}
+    });
+    document.documentElement.style.overflow = '';
+    document.body.style.overflow = '';
+    document.body.style.pointerEvents = '';
+  } catch {}
+}
+
 // Load the Monetag SDK once per zone — uses data-sdk attribute so show_XXX() becomes available
 function ensureMonetagSdkLoaded(zoneId: number): void {
   if (typeof window === 'undefined') return;
@@ -1366,13 +1379,8 @@ function triggerMonetagInterstitialAd(zoneId: number): Promise<boolean> {
               })
               .catch(() => {
                 // No ad feed available or ad failed — resolve false (fallback video will show)
-                // FIX (Hinglish): Pehle yahan `lastAnyAdShownTime = 0` set hota tha jisse
-                // gate TURANT khul jaata tha aur agla MonetagVideoAd (har 6 post pe mount
-                // hota hai) FORAN dobara ad fire kar deta tha — yahi "har millisecond ad"
-                // wala bug tha. Ab hum ek SHORT cooldown (30 second) lagate hain taaki
-                // failed ad ke baad bhi 30s tak koi dobara ad na fire ho. Ad genuinely
-                // fail hua toh 30s baad retry ho sakta hai, lekin spam nahi hoga.
                 lastAnyAdShownTime = Date.now() - (AD_COOLDOWN_MS - 30000);
+                cleanupMonetagDom();
                 resolve(false);
               });
           } else {
@@ -1382,14 +1390,14 @@ function triggerMonetagInterstitialAd(zoneId: number): Promise<boolean> {
           }
         } catch {
           // show_XXX threw — no ad available
-          // FIX: Same as above — pehle `lastAnyAdShownTime = 0` reset karta tha jisse
-          // ad spam ho jaata tha. Ab 30s short cooldown taaki retry ho but spam na ho.
           lastAnyAdShownTime = Date.now() - (AD_COOLDOWN_MS - 30000);
+          cleanupMonetagDom();
           resolve(false);
         }
       } catch (e) {
         // Any unexpected error — resolve false so the fallback video shows
         console.warn('[Monetag] triggerMonetagInterstitialAd error:', e);
+        cleanupMonetagDom();
         resolve(false);
       }
     })();
@@ -1459,124 +1467,57 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
     }
   }, [currentPoster]);
 
-  // Trigger the real Monetag interstitial ad (NON-BLOCKING) — runs in background for revenue
-  // FIX (Hinglish): YAH MAIN FIX HAI — "har millisecond ad" wala issue.
-  // Pehle HAR MonetagVideoAd mount pe triggerMonetagInterstitialAd() call hota tha.
-  // Feed mein har 6 post pe ek ad aata tha, aur TikReels + Pulse dono feeds mein
-  // ads the, isliye scroll karne pe continuously ads fire ho rahe the. Plus failed
-  // ad pe gate reset (`= 0`) hone ki wajah se gate turant khul jaata tha.
-  //
-  // AB: `realAdFiredThisCycle` session flag check karte hain. Agar is cycle (5 min
-  // cooldown) mein pehle hi REAL Monetag popup fire ho chuka hai, toh BAQI sab
-  // MonetagVideoAd mounts SIRF in-feed fallback video dikhayenge — koi full-screen
-  // popup NAHI fire karenge. Isse:
-  //   - Feed scroll karne pe sirf ek hi baar real ad aayega (5 min mein)
-  //   - Baqi sab ad slots mein seamless in-feed fallback video chalega
-  //   - UX smooth rahega, revenue bhi rahega (in-feed + ek real popup)
+  // CRITICAL BLACK-SCREEN FIX:
+  // In-feed slots must NEVER call show_XXX({ type: 'end' }) / triggerMonetagInterstitialAd.
+  // That fullscreen Monetag overlay freezes the feed and leaves a black layer.
+  // Hub navigation + explicit Watch Ad / Ludo transitions own fullscreen ads.
+  // This component only renders a seamless sponsored fallback video card.
   useEffect(() => {
     if (adTriggeredRef.current) return;
     adTriggeredRef.current = true;
     setAdTriggered(true);
-
-    // FIX: Session-level flag — agar is cycle mein real ad already fire ho chuka hai,
-    // toh sirf in-feed fallback video chalegi, koi real popup nahi.
-    const now = Date.now();
-    const inCooldown = (now - lastInFeedPopupTime) < INFEED_POPUP_COOLDOWN_MS;
-    const globalGate = (now - lastAnyAdShownTime) < AD_COOLDOWN_MS;
-    if (inCooldown || globalGate || realAdFiredThisCycle) {
-      // Cooldown/gate/session-flag active — sirf in-feed fallback video chalega,
-      // REAL Monetag popup NAHI fire hoga. Isse feed smooth rahega.
-      return;
-    }
-
-    // Mark that we're attempting the real ad this cycle — taaki baqi sab MonetagVideoAd
-    // mounts is cycle mein dobara real ad fire na karein.
-    realAdFiredThisCycle = true;
-
-    // Fire the REAL Monetag ad using the Promise-based SDK API in the background.
-    triggerMonetagInterstitialAd(publisherId).then((shown) => {
-      if (shown) {
-        // Real Monetag ad was shown successfully — revenue generated!
-        lastInFeedPopupTime = Date.now(); // Update IN-FEED popup cooldown (5 min)
-        lastInterstitialAdTime = Date.now(); // Also update global cooldown
-        lastAnyAdShownTime = Date.now(); // Global gate — 5 min mein ek baar
-        // realAdFiredThisCycle stays true until cooldown resets it (below)
-      } else {
-        // No Monetag ad feed available — fallback in-feed video keeps playing.
-        // FIX: Ad fail hua toh session flag ko reset kar do taaki thodi der baad
-        // dobara try ho sakta hai (lekin 30s short cooldown ki wajah se spam nahi hoga).
-        realAdFiredThisCycle = false;
-      }
-    });
-
-    return () => {
-      // Nothing to clean — SDK handles its own ad lifecycle
-    };
+    // Soft-load SDK in background for later hub/interstitial use — do not show.
+    try { ensureMonetagSdkLoaded(publisherId); } catch {}
   }, [publisherId]);
 
   // Auto-hide the loading shimmer after 1s max even if onLoadedData never fires
   // (so the ad never gets "stuck on loading" like the user reported — NO BLACK SCREEN)
-  // FIX BLACK SCREEN 100%: 1.5s se 1s kar diya — poster image FORAN dikhega,
-  // loading spinner 1s baad chale jaayega, kabhi black screen NAHI.
   useEffect(() => {
     if (adReady) return;
     const t = setTimeout(() => setAdReady(true), 1000);
     return () => clearTimeout(t);
   }, [adReady]);
 
-  // FIX: 3-second timeout — if the ad container shows nothing visible, hide it.
-  // Previous bug: adReady becomes true at 1s (line above), so at 3s the check
-  // !adReady was always false → adFailed was NEVER set → blank/black screen stayed.
-  // New approach: track video failure independently and hide ad as soon as all
-  // fallback videos exhaust (videoError=true) AND a short grace period passes.
+  // All fallback videos failed — keep a poster surface (never collapse to null/black gap)
   useEffect(() => {
-    if (!videoError) return; // not all videos failed yet — keep trying
-    // All fallback videos failed — hide the ad container (no black screen)
+    if (!videoError) return;
     const t = setTimeout(() => setAdFailed(true), 800);
     return () => clearTimeout(t);
   }, [videoError]);
 
-  // Secondary guard: if adReady never became true AND container has no real content
-  // after 5s (edge case: video never fires events), hide the ad.
+  // Secondary guard: force poster-ready state if media never starts
   useEffect(() => {
     const t = setTimeout(() => {
-      if (adFailed) return; // already handled
+      if (adFailed) return;
+      setAdReady(true);
       const c = containerRef.current;
       if (c) {
-        const hasVideo = c.querySelector('video');
-        // If the video exists but is not playing and has error, hide ad
-        const vid = hasVideo as HTMLVideoElement | null;
+        const vid = c.querySelector('video') as HTMLVideoElement | null;
         if (vid && vid.error && !vid.readyState) {
           setAdFailed(true);
+          setVideoError(true);
         }
       }
     }, 5000);
     return () => clearTimeout(t);
   }, [adFailed]);
 
-  // FIX: fireAdWhenContainerReady — Monetag ad script tabhi fire karo jab
-  // parent container DOM mein fully mount ho chuka ho. Isse race condition
-  // aur failed script injection prevent hoti hai.
-  const fireAdWhenContainerReady = (attempt: number = 0) => {
-    if (attempt > 20) return; // Max 20 retries (1 second total)
-    if (containerRef.current) {
-      // Container is mounted — fire the real ad
-      try { triggerMonetagInterstitialAd(); } catch {}
-    } else {
-      // Container not ready yet — retry in 50ms
-      setTimeout(() => fireAdWhenContainerReady(attempt + 1), 50);
-    }
-  };
-
   // FIX: Try next fallback video if current one fails — cycle through ALL videos
   const handleVideoError = () => {
-    // Try the NEXT video in the array (cycle through all of them before giving up)
     if (currentVideoIdx < AD_FALLBACK_VIDEOS.length - 1) {
       setCurrentVideoIdx(idx => idx + 1);
-      // Reset error so the new video attempt shows
       setVideoError(false);
     } else {
-      // All videos failed — show static poster image (NO BLACK SCREEN)
       setVideoError(true);
       setAdReady(true);
     }
@@ -1585,20 +1526,28 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
   const skipAd = () => {
     setAdFinished(true);
     setCanSkip(true);
+    cleanupMonetagDom();
   };
 
-  if (adFinished || adFailed) return null;
+  // NEVER return null — a null in-feed ad slot collapses into a black gap/freeze.
+  // Finished / failed slots keep a non-black sponsored poster surface.
+  if (adFinished || adFailed) {
+    return (
+      <div className="absolute inset-0 w-full h-full overflow-hidden z-[100]" style={{ background: `#0a0a1a url('${currentPoster}') center/cover no-repeat` }}>
+        <img src={currentPoster} className="w-full h-full object-cover" alt="Sponsored" onError={() => {}} />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/20 pointer-events-none" />
+        <div className="absolute bottom-6 left-4 right-16 z-10">
+          <p className="text-white font-black text-xs truncate">@AJ_Super_Portal</p>
+          <p className="text-gray-300 text-[10px] mt-0.5">Sponsored · Thanks for watching</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="absolute inset-0 w-full h-full overflow-hidden z-[100]" style={{ background: `#0a0a1a url('${currentPoster}') center/cover no-repeat` }}>
-      {/* FIX ROUND 3: Monetag SDK container — pointerEvents: 'auto' rakha gaya hai
-          taaki real Monetag ad overlay interact ho sake (pehle 'none' tha isliye
-          ad ke buttons tap nahi ho paate the). */}
-      {/* FIX: Monetag container — explicit dimensions prevent iframe from collapsing.
-           The SDK injects an iframe; without minHeight/width it may render as 0x0.
-           DOM mounting: containerRef is in the DOM when this renders, so SDK fires
-           AFTER the container exists (no race condition). */}
-      <div ref={containerRef} className="absolute inset-0 w-full h-full" style={{ zIndex: 50, pointerEvents: 'auto', width: '100%', height: '100%', minWidth: '100vw', minHeight: '250px', display: 'flex', justifyContent: 'center', alignItems: 'center', flexDirection: 'column', background: `#0a0a1a url('${currentPoster}') center/cover no-repeat`, overflow: 'hidden' }} />
+      {/* Visual host only — no fullscreen Monetag fire from in-feed */}
+      <div ref={containerRef} className="absolute inset-0 w-full h-full" style={{ zIndex: 1, pointerEvents: 'none', width: '100%', height: '100%', minHeight: '250px', background: `#0a0a1a url('${currentPoster}') center/cover no-repeat`, overflow: 'hidden' }} />
 
       {/* Seamless in-feed video — looks exactly like a regular TikTok/Pulse video and plays immediately */}
       <div className="absolute inset-0 w-full h-full" style={{ zIndex: 2, background: `#0a0a1a url('${currentPoster}') center/cover no-repeat` }}>
@@ -1873,18 +1822,33 @@ function InterstitialAdOverlay({ onClose }: { onClose: () => void }) {
     }
   }, [closed]);
 
-  // FIX (Hinglish): Pehle yahan DOBARA triggerMonetagInterstitialAd call hota tha,
-  // jabki navigateWithAdOverlay ne pehle hi ad trigger kar diya tha. Isse double-
-  // fire ho sakta tha. Ab sirf tracking karte hain — actual ad navigateWithAdOverlay
-  // ne already fire kar diya hai. Global gate (lastAnyAdShownTime) ensure karta hai
-  // ki 5 min mein ek hi real ad dikhay.
+  // Fire Monetag only after this overlay is painted (prevents black freeze from early show).
+  // navigateWithAdOverlay may have already gated cooldown — we still try once from a ready host.
   useEffect(() => {
     if (closed || adShown) return;
     setAdShown(true);
-    // No need to re-trigger — ad was already triggered by navigateWithAdOverlay.
-    // Just mark the gate so the cooldown is respected.
     lastInterstitialAdTime = Date.now();
-    lastAnyAdShownTime = Date.now(); // Global gate — 5 min mein ek baar
+    let cancelled = false;
+    let attempts = 0;
+    const tryFire = () => {
+      if (cancelled) return;
+      attempts += 1;
+      const host = document.getElementById('aj-interstitial-monetag-host');
+      if (host) {
+        const r = host.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) {
+          triggerMonetagInterstitialAd(MONETAG_INTERSTITIAL)
+            .then((shown) => {
+              if (shown) lastAnyAdShownTime = Date.now();
+            })
+            .catch(() => cleanupMonetagDom());
+          return;
+        }
+      }
+      if (attempts < 40) requestAnimationFrame(tryFire);
+    };
+    requestAnimationFrame(tryFire);
+    return () => { cancelled = true; };
   }, [closed, adShown]);
 
   // Auto-dismiss after 8 seconds even if user doesn't skip
@@ -1900,6 +1864,7 @@ function InterstitialAdOverlay({ onClose }: { onClose: () => void }) {
     if (closed) return;
     setClosed(true);
     setCanSkip(true);
+    cleanupMonetagDom();
     // Run pending navigation if stored
     if (pendingNavAfterAd) {
       try { pendingNavAfterAd(); } catch {}
@@ -1919,6 +1884,9 @@ function InterstitialAdOverlay({ onClose }: { onClose: () => void }) {
       <div className="relative w-full h-full overflow-hidden">
         {/* Background poster (prevents black screen) */}
         <div className="absolute inset-0" style={{ background: `#0a0a1a url('${poster}') center/cover no-repeat` }} />
+
+        {/* Isolated Monetag host — sized + painted before SDK fire */}
+        <div id="aj-interstitial-monetag-host" className="absolute inset-0 w-full h-full" style={{ zIndex: 3, pointerEvents: 'auto' }} />
 
         {/* Fallback video */}
         {!videoError && (
@@ -3043,124 +3011,27 @@ export function AJSuperPortal() {
 
   // FIX: REMOVED duplicate reels/posts subscription — main listeners at socialScreen change handle this correctly.
 
-  // ── GAME BRIDGE: postMessage listener (NO coin earning — games are non-monetized)
-  // Earning in AJ Super Portal comes ONLY from: live streaming, gifting, and video/photo posts.
-  // Games remain fully playable but no score is converted to AJ Coins anymore.
-  const gameScoreDebounceRef = useRef<ReturnType<typeof setTimeout>|null>(null);
-  const lastGameScoreRef = useRef<number>(0);
+  // ── GAME BRIDGE: ignore score messages — games never credit portal wallet / cash-out.
+  // Local in-game tokens stay inside each game HTML only (unlocks / fun).
   useEffect(() => {
     if (!user) return;
-    const handleGameMessage = async (e: MessageEvent) => {
+    const handleGameMessage = (e: MessageEvent) => {
       if (!e.data || typeof e.data !== 'object') return;
-      // Game score messages are received but NO coins are credited.
-      // We only track the last score for potential future stats — never write to Firestore balance.
-      if (e.data.type === "GAME_SCORE" || e.data.type === "game_score" || e.data.type === "SCORE" || e.data.type === "SCORE_UPDATE") {
-        const rawScore = typeof e.data.score === 'number' ? e.data.score : Number(e.data.score);
-        if (!rawScore || rawScore <= 0 || isNaN(rawScore)) return;
-        lastGameScoreRef.current = rawScore;
-        return;
-      }
-      // GAME_END / GAME_CRASH — no coin crediting (games are free to play, no earnings)
-      if (e.data.type === "GAME_END" || e.data.type === "game_end" ||
-          e.data.type === "GAME_CRASH" || e.data.type === "game_crash") {
+      if (
+        e.data.type === "GAME_SCORE" || e.data.type === "game_score" ||
+        e.data.type === "SCORE" || e.data.type === "SCORE_UPDATE" ||
+        e.data.type === "GAME_END" || e.data.type === "game_end" ||
+        e.data.type === "GAME_CRASH" || e.data.type === "game_crash"
+      ) {
+        // Intentionally no Firestore balance writes — entertainment only.
         return;
       }
     };
     window.addEventListener("message", handleGameMessage);
-    return () => { window.removeEventListener("message", handleGameMessage); if (gameScoreDebounceRef.current) clearTimeout(gameScoreDebounceRef.current); };
+    return () => { window.removeEventListener("message", handleGameMessage); };
   }, [user]);
 
-  // ── Inject bridge script into game iframes + crash detection
-  useEffect(() => {
-    if (!selectedGame || !user) return;
-    const injectBridge = () => {
-      try {
-        const iframes = document.querySelectorAll('iframe');
-        iframes.forEach(iframe => {
-          if (!iframe.src) return;
-          try {
-            const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
-            if (!iframeDoc) return;
-            const script = iframeDoc.createElement('script');
-            script.textContent = `
-              // Enhanced Game Bridge: forward score messages to parent with retry
-              var lastScoreCheck = null;
-              var scoreStuckCount = 0;
-              
-              // Forward score from parent message
-              window.addEventListener('message', function(e) {
-                if (e.data && (e.data.type === 'SEND_SCORE' || e.data.type === 'SCORE' || e.data.type === 'GAME_SCORE')) {
-                  try {
-                    if (window.parent && window.parent !== window) {
-                      window.parent.postMessage({type: 'GAME_SCORE', score: e.data.score || e.data.points || 0}, '*');
-                    }
-                  } catch(ex) {}
-                }
-              });
-              
-              // Hook into common game score patterns
-              function pollGameScore() {
-                var score = 0;
-                if (typeof Game !== 'undefined' && Game.score !== undefined) score = Game.score;
-                else if (typeof game !== 'undefined' && game.score !== undefined) score = game.score;
-                else if (typeof GAME !== 'undefined' && GAME.score !== undefined) score = GAME.score;
-                else if (typeof gameScore !== 'undefined') score = gameScore;
-                else if (typeof app !== 'undefined' && app.score !== undefined) score = app.score;
-                
-                if (score > 0) {
-                  try {
-                    if (window.parent && window.parent !== window) {
-                      window.parent.postMessage({type: 'GAME_SCORE', score: score}, '*');
-                    }
-                  } catch(ex) {}
-                  
-                  if (lastScoreCheck !== null && score === lastScoreCheck) {
-                    scoreStuckCount++;
-                    if (scoreStuckCount >= 10) {
-                      try {
-                        if (window.parent && window.parent !== window) {
-                          window.parent.postMessage({type: 'GAME_CRASH', score: score}, '*');
-                        }
-                      } catch(ex) {}
-                      scoreStuckCount = 0;
-                    }
-                  } else {
-                    scoreStuckCount = 0;
-                  }
-                  lastScoreCheck = score;
-                }
-              }
-              
-              setInterval(pollGameScore, 1500);
-              
-              // Window error handler — notify parent of crash
-              window.addEventListener('error', function(e) {
-                if (window.parent && lastScoreCheck && lastScoreCheck > 0) {
-                  try {
-                    window.parent.postMessage({type: 'GAME_CRASH', score: lastScoreCheck}, '*');
-                  } catch(ex) {}
-                }
-              });
-              
-              // Unload handler — flush score on page leave
-              window.addEventListener('beforeunload', function() {
-                if (lastScoreCheck && lastScoreCheck > 0) {
-                  try {
-                    if (window.parent && window.parent !== window) {
-                      window.parent.postMessage({type: 'GAME_END', score: lastScoreCheck}, '*');
-                    }
-                  } catch(ex) {}
-                }
-              });
-            `;
-            (iframeDoc.head || iframeDoc.documentElement).appendChild(script);
-          } catch {}
-        });
-      } catch {}
-    };
-    const t = setTimeout(injectBridge, 3000);
-    return () => clearTimeout(t);
-  }, [selectedGame, user]);
+  // Game iframes own their local coin economy — do NOT inject a parent score bridge.
 
   // PK Timer
   useEffect(() => {
@@ -5261,36 +5132,37 @@ Wallet → Purchase 💰`,
 • Posts, Followers, Likes`,
     },
     gaming: {
-      en:  `🎮 AJ Gaming Zone — Play & Multiply Coins!\\\\\\\\
+      en:  `🎮 AJ Gaming Zone — Play for Fun!\\\\\\\\
 \\\\\\\\
 • Access: Tap "Gaming" from the main Hub\\\\\\\\
-• Games: Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\\\\\\\\
-• Game scores auto-credit AJ Coins via Game Bridge\\\\\\\\
-• Coming Soon Puck Pulse Elite 🔜`,
+• Games: Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape, Ludo Elite Royal\\\\\\\\
+• In-game tokens are LOCAL ONLY — for levels/unlocks inside each game\\\\\\\\
+• Games do NOT credit AJ Coins or cash withdrawal\\\\\\\\
+• Earn real AJ Coins from posts, gifts, live & referrals — not from games`,
       hin: `🎮 AJ Gaming Zone:\\\\\\\\
 \\\\\\\\
 • Main Hub → "Gaming"\\\\\\\\
-• Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape\\\\\\\\
-• Game score → auto coins credit 🔥\\\\\\\\
-• Jald: Ludo Elite Royal 🔜`,
+• Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape, Ludo Elite Royal\\\\\\\\
+• Local tokens sirf game ke andar (levels/unlocks)\\\\\\\\
+• Games se AJ Coins / cash nahi milta`,
       ur:  `🎮 Gaming:\\\\\\\\
 \\\\\\\\
 • Main Hub → "Gaming"\\\\\\\\
-• 5 games available\\\\\\\\
-• Score → auto coins 🔥\\\\\\\\
-• جلد: Ludo Elite Royal 🔜`,
+• 6 games available + Ludo\\\\\\\\
+• Local tokens صرف گیم کے اندر\\\\\\\\
+• Games سے AJ Coins / cash نہیں`,
       hi:  `🎮 Gaming:\\\\\\\\
 \\\\\\\\
 • Main Hub → "Gaming"\\\\\\\\
-• 5 games\\\\\\\\
-• Score → auto coins 🔥\\\\\\\\
-• जल्द: Ludo Elite Royal 🔜`,
+• 6 games + Ludo\\\\\\\\
+• Local tokens केवल गेम के अंदर\\\\\\\\
+• Games से AJ Coins / cash नहीं`,
       ar:  `🎮 Gaming:\\\\\\\\
 \\\\\\\\
 • "Gaming" من الرئيسية\\\\\\\\
-• 5 ألعاب\\\\\\\\
-• نقاط → كوينز تلقائي 🔥\\\\\\\\
-• قريباً: Ludo Elite Royal 🔜`,
+• 6 ألعاب + Ludo\\\\\\\\
+• الرموز المحلية داخل اللعبة فقط\\\\\\\\
+• الألعاب لا تمنح AJ Coins أو سحب نقدي`,
     },
     refer: {
       en:  `👥 Referral System:\\\\\\\\
@@ -7332,32 +7204,36 @@ Tip: Social Hub se copy karo 📤`,
             <button onClick={() => { 
               const adOk = triggerFreeCoinAd(); 
               if (adOk) {
-                setVvipAlert({msg:'🎁 Ad watched! +50 Coins reward coming...', icon:'💰'}); 
-                setTimeout(() => updateDoc(doc(db,'users',user.uid), {balance: increment(50)}), 5000); 
+                setVvipAlert({msg:'🎬 Thanks for watching! Games stay free for fun — no wallet coins from Gaming Zone.', icon:'🎮'}); 
               } else {
-                setVvipAlert({msg:'⏳ Please wait a few minutes before watching another ad for free coins.', icon:'⏱️'}); 
+                setVvipAlert({msg:'⏳ Please wait a few minutes before watching another ad.', icon:'⏱️'}); 
               }
             }} className="ml-auto bg-gradient-to-r from-yellow-400 to-orange-500 text-black text-[9px] font-black px-3 py-1.5 rounded-xl active:scale-90 transition-all shadow-[0_0_10px_rgba(234,179,8,0.4)]">
-              🎁 Free 50 Coins
+              🎬 Watch Ad
             </button>
 </div>
 
           {!selectedGame ? (
             <div className="px-4 py-4 space-y-3">
               {/* Video Ad — Games Screen */}
-              {[ { id:'rider',    name:'Rider King',       emoji:'🏍️', desc:'Dodge obstacles, beat your high score', url:'/games/rider-king/index.html' },
-                { id:'racer',    name:'Pulse Racer',      emoji:'🏎️', desc:'Speed racing challenge',      url:'/games/pulse-racer/index.html' },
-                { id:'subsea',   name:'Subsea Surge',     emoji:'🐠', desc:'Underwater adventure',        url:'/games/subsea-surge/index.html' },
-                { id:'neon',     name:'Neon Strike',      emoji:'⚡', desc:'Neon arcade action',          url:'/games/neon-strike/index.html' },
-                { id:'volcano',  name:'Volcano Escape',   emoji:'🌋', desc:'Escape the eruption',         url:'/games/volcano-escape/index.html' },
-                { id:'ludo',     name:'Ludo Elite Royal', emoji:'🎲', desc:'Classic board game', url:'https://sites.super.myninja.ai/bf07078f-ba65-43ba-9068-38bb224704f3/00d8e1fe/index.html' },
+              {[ { id:'rider',    name:'Rider King',       emoji:'🏍️', desc:'Dodge obstacles — local tokens only', url:'/games/rider-king/index.html' },
+                { id:'racer',    name:'Pulse Racer',      emoji:'🏎️', desc:'Speed racing — entertainment only', url:'/games/pulse-racer/index.html' },
+                { id:'subsea',   name:'Subsea Surge',     emoji:'🐠', desc:'Underwater adventure — local coins', url:'/games/subsea-surge/index.html' },
+                { id:'neon',     name:'Neon Strike',      emoji:'⚡', desc:'Neon arcade — no wallet credit', url:'/games/neon-strike/index.html' },
+                { id:'volcano',  name:'Volcano Escape',   emoji:'🌋', desc:'Escape the eruption — fun only', url:'/games/volcano-escape/index.html' },
+                { id:'ludo',     name:'Ludo Elite Royal', emoji:'🎲', desc:'Board classic with transition ads', url:'/games/ludo-elite-royal/index.html' },
                 { id:'puck',     name:'Puck Pulse Elite', emoji:'🏒', desc:'Air hockey — COMING SOON',    url:'' },
               ].map(game => (
                 <button
                   key={game.id}
                   onClick={() => {
                     if (!game.url) return setVvipAlert({msg:`${game.name} coming soon! 🔜`});
-                    lastGameScoreRef.current = 0; setSelectedGame(game.url);
+                    // Ludo: interstitial/rewarded transition before gameplay (in-game ads handle the rest)
+                    if (game.id === 'ludo') {
+                      navigateWithAdOverlay(() => setSelectedGame(game.url));
+                      return;
+                    }
+                    setSelectedGame(game.url);
                   }}
                   className="w-full flex items-center gap-4 bg-white/5 border border-white/10 rounded-2xl p-4 active:scale-95 transition-all hover:border-pink-500/30"
                 >
@@ -7374,14 +7250,13 @@ Tip: Social Hub se copy karo 📤`,
             <div className="flex-1 flex flex-col">
               <div className="px-4 py-2 flex items-center gap-3">
                 <button onClick={() => {
-                  // No coin flush on leaving game — games are free to play, no earnings.
-                  // Earning in AJ Super Portal comes ONLY from live streaming, gifting, and video/photo posts.
+                  cleanupMonetagDom();
                   setSelectedGame(null);
                 }} className="flex items-center gap-1.5 text-[10px] text-gray-400 font-black active:scale-90 transition-all">
                   <ArrowLeft size={12}/> Back to Games
                 </button>
               </div>
-              {/* Video Ad — Playing Game */}
+              {/* Game iframe — no wallet score bridge; local tokens stay in-game */}
               {selectedGame ? (
                 <iframe
                   key={selectedGame}
@@ -7389,62 +7264,10 @@ Tip: Social Hub se copy karo 📤`,
                   className="flex-1 w-full border-0 bg-black"
                   allow="autoplay; fullscreen; gyroscope; accelerometer; clipboard-write; encrypted-media; picture-in-picture; camera; microphone"
                   allowFullScreen
-                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-pointer-lock allow-top-navigation-by-user-activation allow-downloads allow-presentation"
+                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-pointer-lock allow-top-navigation-by-user-activation allow-downloads allow-presentation"
                   referrerPolicy="no-referrer-when-downgrade"
                   title="Game"
                   style={{ minHeight: 'calc(100vh - 120px)', display:'block' }}
-                  onLoad={(e) => {
-                    // FIX: Inject bridge script into game iframe on load
-                    try {
-                      const iframe = e.currentTarget as HTMLIFrameElement;
-                      const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
-                      if (iframeDoc) {
-                        const script = iframeDoc.createElement('script');
-                        script.textContent = `
-                          var ajLastScore = 0;
-                          var ajScoreStuckCount = 0;
-                          // Send score to parent every 1.5s
-                          function ajPollScore() {
-                            var score = 0;
-                            try {
-                              if (typeof Game !== 'undefined' && Game.score !== undefined) score = Game.score;
-                              else if (typeof game !== 'undefined' && game.score !== undefined) score = game.score;
-                              else if (typeof GAME !== 'undefined' && GAME.score !== undefined) score = GAME.score;
-                              else if (typeof gameScore !== 'undefined') score = gameScore;
-                              else if (typeof app !== 'undefined' && app.score !== undefined) score = app.score;
-                              else if (typeof score !== 'undefined' && score > 0) score = score;
-                              else if (typeof SCORE !== 'undefined' && SCORE > 0) score = SCORE;
-                            } catch(ex) {}
-                            if (score > 0) {
-                              try { window.parent.postMessage({type:'GAME_SCORE', score:score}, '*'); } catch(ex) {}
-                              if (ajLastScore === score) {
-                                ajScoreStuckCount++;
-                                if (ajScoreStuckCount >= 8) { try { window.parent.postMessage({type:'GAME_CRASH', score:score}, '*'); } catch(ex) {} ajScoreStuckCount = 0; }
-                              } else { ajScoreStuckCount = 0; }
-                              ajLastScore = score;
-                            }
-                          }
-                          // Listen for parent requests
-                          window.addEventListener('message', function(e) {
-                            if (e.data && (e.data.type === 'SEND_SCORE' || e.data.type === 'SCORE' || e.data.type === 'GAME_SCORE')) {
-                              try { window.parent.postMessage({type:'GAME_SCORE', score: e.data.score || e.data.points || 0}, '*'); } catch(ex) {}
-                            }
-                          });
-                          // Poll score every 1.5 seconds
-                          setInterval(ajPollScore, 1500);
-                          // On unload, flush score
-                          window.addEventListener('beforeunload', function() {
-                            if (ajLastScore > 0) { try { window.parent.postMessage({type:'GAME_END', score: ajLastScore}, '*'); } catch(ex) {} }
-                          });
-                          // On error, flush score
-                          window.addEventListener('error', function() {
-                            if (ajLastScore > 0) { try { window.parent.postMessage({type:'GAME_CRASH', score: ajLastScore}, '*'); } catch(ex) {} }
-                          });
-                        `;
-                        (iframeDoc.head || iframeDoc.documentElement).appendChild(script);
-                      }
-                    } catch(err) { console.error('Bridge inject on load failed', err); }
-                  }}
                   onError={() => setVvipAlert({msg:'Game failed to load. Try another game.',icon:'⚠️'})}
                 />
               ) : (

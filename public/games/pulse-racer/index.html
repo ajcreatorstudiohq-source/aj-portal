@@ -171,7 +171,7 @@
             <h1 class="neon-text-blue glitch" data-text="PULSE RACER">PULSE RACER</h1>
             <div style="margin: 10px 0;">
                 <p style="font-size:12px; color:#aaa;">BEST SCORE: <span id="menuBestScore" style="color:#fff;">0</span></p>
-                <p style="font-size:12px; color:#aaa;">TOTAL RINGS: <span id="menuTotalRings" style="color:var(--neon-pink);">0</span> | AJ: <span id="menuAJCoins" style="color:var(--neon-gold);">0.000</span></p>
+                <p style="font-size:12px; color:#aaa;">TOTAL RINGS: <span id="menuTotalRings" style="color:var(--neon-pink);">0</span> | LOCAL: <span id="menuAJCoins" style="color:var(--neon-gold);">0.000</span></p>
             </div>
 
             <div class="settings-panel">
@@ -214,7 +214,7 @@
     <div id="shopMenu" class="overlay" style="display:none">
         <div class="glass-container">
             <h2 class="neon-text-blue">SELECT SHIP</h2>
-            <p style="font-size:12px; color:#aaa; margin:10px 0;">YOUR RINGS: <span id="shopRings" style="color:var(--neon-pink);">0</span> | AJ: <span id="shopAJ" style="color:var(--neon-gold);">0.000</span></p>
+            <p style="font-size:12px; color:#aaa; margin:10px 0;">YOUR RINGS: <span id="shopRings" style="color:var(--neon-pink);">0</span> | LOCAL: <span id="shopAJ" style="color:var(--neon-gold);">0.000</span></p>
             <div class="shop-container"><div class="shop-grid" id="shopGrid"></div></div>
             
             <button id="adRewardBtn" class="btn" style="width:100%; border-color:var(--neon-gold); color:var(--neon-gold); margin-bottom:10px;" onclick="watchAdForRings()">GET FREE RINGS (+20 RINGS)</button>
@@ -275,27 +275,19 @@
 
 <script>
 
-    // ===== AJ GAME BRIDGE — sends score to parent app for wallet credit =====
+    // ===== AJ GAME BRIDGE — LOCAL ONLY (NO portal wallet / cash credit) =====
+    // Game tokens stay inside this game for unlocks & fun. Zero connection to AJ Wallet.
     var AJ_GAME_SCORE = 0;
     function ajSendScore(s) {
-        AJ_GAME_SCORE = s;
-        try { window.parent.postMessage({type:'GAME_SCORE', score: s}, '*'); } catch(e) {}
+        AJ_GAME_SCORE = typeof s === 'number' ? s : 0;
+        // Intentionally do NOT postMessage GAME_SCORE to parent — no wallet credit.
     }
-    function ajSendGameEnd(s) {
-        AJ_GAME_SCORE = s;
-        try { window.parent.postMessage({type:'GAME_END', score: s}, '*'); } catch(e) {}
-        try { window.parent.postMessage({type:'GAME_CRASH', score: s}, '*'); } catch(e) {}
+    function ajEndGame(s) {
+        AJ_GAME_SCORE = typeof s === 'number' ? s : AJ_GAME_SCORE;
+        // Intentionally do NOT postMessage GAME_END / GAME_CRASH to parent.
     }
-    window.addEventListener('error', function(e) {
-        if (AJ_GAME_SCORE > 0) {
-            try { window.parent.postMessage({type:'GAME_CRASH', score: AJ_GAME_SCORE}, '*'); } catch(err) {}
-        }
-    });
-    window.addEventListener('beforeunload', function() {
-        if (AJ_GAME_SCORE > 0) {
-            try { window.parent.postMessage({type:'GAME_END', score: AJ_GAME_SCORE}, '*'); } catch(e) {}
-        }
-    });
+    window.addEventListener('error', function() { /* local only — no wallet flush */ });
+    window.addEventListener('beforeunload', function() { /* local only — no wallet flush */ });
     // ===== END AJ GAME BRIDGE =====
 
 // --- AUDIO SYSTEM ---
@@ -445,7 +437,7 @@ function triggerGameOver() {
     document.getElementById('finalAJ').innerText = (sessionRings * 0.003).toFixed(3);
     document.getElementById('gameOverScreen').style.display = 'flex'; 
     document.getElementById('pauseBtn').style.display = 'none';
-    // AJ BRIDGE: send game over score to parent app for wallet credit
+    // AJ BRIDGE: send game over score to parent app LOCAL ONLY — no wallet credit
     ajSendGameEnd(score);
     ajSendScore(score);
 }
