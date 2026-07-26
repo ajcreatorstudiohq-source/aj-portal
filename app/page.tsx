@@ -2990,23 +2990,20 @@ export function AJSuperPortal() {
             // FIX: Naye user ke liye camera/mic permission prompt show karo
             setShowCameraPermissionPrompt(true);
           }
-          onSnapshot(userRef, s => {
-            if (s.exists()) {
-              const d = s.data();
-              setBalance(d.balance||0);
-              setBotTier(d.botTier||'none');
-              setInvested(d.invested||0);
-              setUnlockedGames(Array.isArray(d.unlockedGames) ? d.unlockedGames : []);
-              setGameProgress((d.gameProgress && typeof d.gameProgress === 'object') ? d.gameProgress : {});
-            }
           onSnapshot(userRef, async (s) => {
             if (!s.exists()) return;
             const data = s.data() as Record<string, unknown>;
             // Instant session terminate when admin bans an active user
             if (await kickIfBanned(cu, data)) return;
-            setBalance((data.balance as number)||0);
-            setBotTier((data.botTier as string)||'none');
-            setInvested((data.invested as number)||0);
+            setBalance((data.balance as number) || 0);
+            setBotTier((data.botTier as string) || 'none');
+            setInvested((data.invested as number) || 0);
+            setUnlockedGames(Array.isArray(data.unlockedGames) ? (data.unlockedGames as string[]) : []);
+            setGameProgress(
+              data.gameProgress && typeof data.gameProgress === 'object'
+                ? (data.gameProgress as Record<string, GameProgressDoc>)
+                : {}
+            );
           });
         } catch(e) { console.error('Auth init error', e); }
         await setUserOnlinePresence(cu);
@@ -4623,7 +4620,7 @@ export function AJSuperPortal() {
       try {
         await updateDoc(doc(db, "users", user.uid), { photo: url, photoURL: url });
         // Refresh viewProfile state so the profile screen shows the new photo immediately
-        setViewProfile((prev) => prev ? { ...prev, photo: url, photoURL: url } : prev);
+        setViewProfile((prev: any) => prev ? { ...prev, photo: url, photoURL: url } : prev);
       } catch (err) { console.error('handlePhotoUpdate: Firestore update failed', err); }
       setVvipAlert({msg:"✅ Photo updated!",icon:"📷"});
     } else {
@@ -4694,7 +4691,7 @@ export function AJSuperPortal() {
         await updateDoc(doc(db, "users", user.uid), { photo: url, photoURL: url });
         console.log('handleDpUpdate: Firestore updated');
         // Refresh viewProfile state so the profile screen shows the new photo immediately
-        setViewProfile((prev) => prev ? { ...prev, photo: url, photoURL: url } : prev);
+        setViewProfile((prev: any) => prev ? { ...prev, photo: url, photoURL: url } : prev);
       } catch (err) {
         console.error('handleDpUpdate: Firestore update failed (non-fatal)', err);
       }
