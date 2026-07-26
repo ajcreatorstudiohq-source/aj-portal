@@ -98,7 +98,7 @@ export async function POST(request: Request) {
       totalPoolUsd: result.split?.totalUsd,
       message: result.duplicate
         ? 'Already credited'
-        : `${SOURCE_LABELS[source]}: +${result.balanceCredited} AJ Coins ($${Number(result.split?.userUsd).toFixed(2)}). Platform kept $${Number(result.split?.adminUsd).toFixed(2)} of $${Number(result.split?.totalPoolUsd).toFixed(2)} pool.`,
+        : `${SOURCE_LABELS[source]}: +${result.balanceCredited} AJ Coins ($${Number(result.split?.userUsd).toFixed(2)}). Platform kept $${Number(result.split?.adminUsd).toFixed(2)} of $${Number(result.split?.totalUsd).toFixed(2)} pool.`,
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'earn_failed';

@@ -36,7 +36,7 @@ export async function earnReward(
     });
     const data = (await res.json().catch(() => ({}))) as EarnResult;
     if (!res.ok) {
-      return { ok: false, error: data.error || `http_${res.status}`, ...data };
+      return { ...data, ok: false, error: data.error || `http_${res.status}` };
     }
     return data;
   } catch (e: unknown) {
