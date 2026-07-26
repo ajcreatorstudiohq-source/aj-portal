@@ -1,26 +1,26 @@
-// AJ SUPER PORTAL SDK - The Sovereign Money Machine
+// AJ SUPER PORTAL SDK — Games entertainment bridge (NO wallet / cash credit)
+// In-game tokens stay local. Real AJ Coins come from posts, gifts, live & referrals only.
 window.AJ_SDK = {
-    // 1. Tumhara Monetag Direct Link
-    directLink: "https://omg10.com/4/11280173", 
+    directLink: "https://omg10.com/4/11280173",
 
-    // 2. Ad trigger function
+    // Optional interstitial helper (games may call this on transitions)
     showAd: function() {
-        console.log("SDK: Opening Ad Link...");
-        // User ko new tab mein ad dikhayega
-        window.open(this.directLink, '_blank');
+        try {
+            if (typeof window.parent !== 'undefined' && window.parent !== window) {
+                window.parent.postMessage({ type: 'GAME_SHOW_AD' }, '*');
+            }
+        } catch (e) {
+            console.log('SDK: showAd (local only)');
+        }
     },
 
-    // 3. Game Coins ko Portal Wallet mein bhejna (100:1 Ratio)
-    sendScore: function(points) {
-        const ajCoins = Math.floor(points / 100);
-        if (ajCoins > 0) {
-            console.log(`CEO Sync: Sending ${ajCoins} AJ Coins to Portal`);
-            
-            // Ye event Portal (Next.js) ko signal bhejega
-            const event = new CustomEvent('updateFirebaseBalance', { 
-                detail: { amount: ajCoins, type: 'EARNED' } 
-            });
-            window.parent.dispatchEvent(event);
-        }
+    // NO-OP — games must never credit portal wallet / cash-out
+    sendScore: function(_points) {
+        console.log('SDK: sendScore ignored — games do not credit AJ Coins');
+    },
+
+    // NO-OP — local game banks stay inside each game only
+    addBalance: function(_data) {
+        console.log('SDK: addBalance ignored — no portal wallet sync from games');
     }
 };

@@ -229,7 +229,7 @@
     
     <div id="bg-mountains" class="parallax"></div>
     <div id="bg-trees" class="parallax"></div>
-    <div id="total-coins-ui">💰 <span id="global-coins">0</span> | AJ: <span id="global-aj-coins">0.000</span></div>
+    <div id="total-coins-ui">💰 <span id="global-coins">0</span> | LOCAL: <span id="global-aj-coins">0.000</span></div>
     <div id="brake-pedal"><span>BRAKE</span></div>
     <div id="splash-screen" class="screen active-screen">
         <div class="splash-logo-container"><div class="logo-bike-main"></div><div class="logo-text-rider" style="font-size: 80px;">Rider</div><div class="logo-text-king" style="font-size: 80px;">King</div></div>
@@ -320,33 +320,25 @@
         </div>
     </div>
 
-    <div id="ui"><div style="display: flex; align-items: center; justify-content: flex-start; margin-bottom: 5px;"><button id="pause-btn" class="game-ctrl-btn">⏸️</button><button id="ingame-back-btn" class="game-ctrl-btn">🏠</button><div style="color:var(--gold); font-size:26px; font-weight:bold; margin-left: 10px;">💰 <span id="coinCount">0</span> | AJ: <span id="ajCount">0.000</span></div></div><div style="color:#00ff88; font-size:20px; font-weight:bold; margin-left: 5px;">Level: <span id="levelDisplay">1</span></div><div id="fever-bar-container"><div id="fever-fill"></div></div></div>
+    <div id="ui"><div style="display: flex; align-items: center; justify-content: flex-start; margin-bottom: 5px;"><button id="pause-btn" class="game-ctrl-btn">⏸️</button><button id="ingame-back-btn" class="game-ctrl-btn">🏠</button><div style="color:var(--gold); font-size:26px; font-weight:bold; margin-left: 10px;">💰 <span id="coinCount">0</span> | LOCAL: <span id="ajCount">0.000</span></div></div><div style="color:#00ff88; font-size:20px; font-weight:bold; margin-left: 5px;">Level: <span id="levelDisplay">1</span></div><div id="fever-bar-container"><div id="fever-fill"></div></div></div>
     <canvas id="gameCanvas"></canvas>
 </div>
 
 <script>
 
-    // ===== AJ GAME BRIDGE — sends score to parent app for wallet credit =====
+    // ===== AJ GAME BRIDGE — LOCAL ONLY (NO portal wallet / cash credit) =====
+    // Game tokens stay inside this game for unlocks & fun. Zero connection to AJ Wallet.
     var AJ_GAME_SCORE = 0;
     function ajSendScore(s) {
-        AJ_GAME_SCORE = s;
-        try { window.parent.postMessage({type:'GAME_SCORE', score: s}, '*'); } catch(e) {}
+        AJ_GAME_SCORE = typeof s === 'number' ? s : 0;
+        // Intentionally do NOT postMessage GAME_SCORE to parent — no wallet credit.
     }
-    function ajSendGameEnd(s) {
-        AJ_GAME_SCORE = s;
-        try { window.parent.postMessage({type:'GAME_END', score: s}, '*'); } catch(e) {}
-        try { window.parent.postMessage({type:'GAME_CRASH', score: s}, '*'); } catch(e) {}
+    function ajEndGame(s) {
+        AJ_GAME_SCORE = typeof s === 'number' ? s : AJ_GAME_SCORE;
+        // Intentionally do NOT postMessage GAME_END / GAME_CRASH to parent.
     }
-    window.addEventListener('error', function(e) {
-        if (AJ_GAME_SCORE > 0) {
-            try { window.parent.postMessage({type:'GAME_CRASH', score: AJ_GAME_SCORE}, '*'); } catch(err) {}
-        }
-    });
-    window.addEventListener('beforeunload', function() {
-        if (AJ_GAME_SCORE > 0) {
-            try { window.parent.postMessage({type:'GAME_END', score: AJ_GAME_SCORE}, '*'); } catch(e) {}
-        }
-    });
+    window.addEventListener('error', function() { /* local only — no wallet flush */ });
+    window.addEventListener('beforeunload', function() { /* local only — no wallet flush */ });
     // ===== END AJ GAME BRIDGE =====
 
     function showToast(msg) {
@@ -584,7 +576,8 @@
         engineSound.pause(); 
         
         // AJ SDK SYNC
-        if(window.AJ_SDK) window.AJ_SDK.sendScore(coinsCollected);
+        // LOCAL ONLY — do not credit portal wallet via AJ_SDK.sendScore
+        // if(window.AJ_SDK) window.AJ_SDK.sendScore(coinsCollected);
         // AJ BRIDGE: send current coins to parent app
         ajSendScore(coinsCollected);
         

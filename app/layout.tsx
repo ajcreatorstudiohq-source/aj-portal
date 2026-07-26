@@ -28,14 +28,14 @@ export default function RootLayout({
           {`
             if (!window.AJ_SDK) {
               window.AJ_SDK = {
-                showAd: function() { 
-                  console.log("SDK: Showing Interstitial Ad...");
-                  // Agar asli SDK load nahi hua to ye dummy function chalega
-                },
-                addBalance: function(data) {
-                  console.log("SDK: Syncing Balance...", data);
-                }
+                showAd: function() { console.log("SDK: showAd (local only)"); },
+                sendScore: function() { console.log("SDK: sendScore ignored — no wallet credit"); },
+                addBalance: function() { console.log("SDK: addBalance ignored — no wallet credit"); }
               };
+            } else {
+              // Hard-disable any wallet-credit paths even if an older SDK cached
+              window.AJ_SDK.sendScore = function() { console.log("SDK: sendScore ignored — no wallet credit"); };
+              window.AJ_SDK.addBalance = function() { console.log("SDK: addBalance ignored — no wallet credit"); };
             }
           `}
         </Script>

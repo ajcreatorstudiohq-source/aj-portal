@@ -80,7 +80,7 @@
 
     <div id="hud">
         <div style="display:flex; flex-direction:column; gap:8px;">
-            <div class="stat-badge" style="color: var(--neon-blue);">SCORE: <span id="xpVal">0</span> | AJ: <span id="liveAJ">0.000</span></div>
+            <div class="stat-badge" style="color: var(--neon-blue);">SCORE: <span id="xpVal">0</span> | LOCAL: <span id="liveAJ">0.000</span></div>
             <div class="stat-badge" style="color: var(--neon-gold); border-color: var(--neon-gold);">SIGNAL: <span id="timeVal">0</span>s</div>
         </div>
         <button id="pauseBtn" onclick="togglePause()">II</button>
@@ -88,7 +88,7 @@
 
     <div id="mainMenu" class="screen">
         <h1 class="game-title" style="margin-bottom: 40px;">NEON STRIKE</h1>
-        <div style="margin-bottom:20px; font-weight:900; color:var(--neon-blue)">BANK: <span id="totalPointsDisplay" style="color:var(--neon-gold)">0</span> | AJ: <span id="mainAJDisplay" style="color:var(--neon-gold)">0.000</span></div>
+        <div style="margin-bottom:20px; font-weight:900; color:var(--neon-blue)">BANK: <span id="totalPointsDisplay" style="color:var(--neon-gold)">0</span> | LOCAL: <span id="mainAJDisplay" style="color:var(--neon-gold)">0.000</span></div>
         <button class="btn" onclick="startGameWithAd()">GAME START</button>
         <button class="btn" style="background:transparent; border-color:var(--neon-gold); color:var(--neon-gold)" onclick="openGarage()">GARAGE</button>
         <button class="btn" style="background:transparent; border-color:var(--steel); color:var(--steel)" onclick="toggleSettings(true)">SETTINGS</button>
@@ -107,7 +107,7 @@
 
     <div id="garageScreen" class="screen">
         <h2 style="color: var(--neon-gold);">GARAGE</h2>
-        <div style="font-weight:900; margin-bottom:10px">BANK: <span id="garagePointsDisplay" style="color:var(--neon-gold)">0</span> | AJ: <span id="garageAJDisplay" style="color:var(--neon-gold)">0.000</span></div>
+        <div style="font-weight:900; margin-bottom:10px">BANK: <span id="garagePointsDisplay" style="color:var(--neon-gold)">0</span> | LOCAL: <span id="garageAJDisplay" style="color:var(--neon-gold)">0.000</span></div>
         <div class="garage-container"><div class="garage-grid" id="unitGrid"></div></div>
         <button class="btn" id="adBtn" onclick="showRewardAd()" style="border-color:var(--neon-green); color:var(--neon-green);">GET FREE POINTS (+500 🎬)</button>
         <button class="btn" onclick="closeGarage()">BACK</button>
@@ -138,27 +138,19 @@
 
 <script>
 
-    // ===== AJ GAME BRIDGE — sends score to parent app for wallet credit =====
+    // ===== AJ GAME BRIDGE — LOCAL ONLY (NO portal wallet / cash credit) =====
+    // Game tokens stay inside this game for unlocks & fun. Zero connection to AJ Wallet.
     var AJ_GAME_SCORE = 0;
     function ajSendScore(s) {
-        AJ_GAME_SCORE = s;
-        try { window.parent.postMessage({type:'GAME_SCORE', score: s}, '*'); } catch(e) {}
+        AJ_GAME_SCORE = typeof s === 'number' ? s : 0;
+        // Intentionally do NOT postMessage GAME_SCORE to parent — no wallet credit.
     }
-    function ajSendGameEnd(s) {
-        AJ_GAME_SCORE = s;
-        try { window.parent.postMessage({type:'GAME_END', score: s}, '*'); } catch(e) {}
-        try { window.parent.postMessage({type:'GAME_CRASH', score: s}, '*'); } catch(e) {}
+    function ajEndGame(s) {
+        AJ_GAME_SCORE = typeof s === 'number' ? s : AJ_GAME_SCORE;
+        // Intentionally do NOT postMessage GAME_END / GAME_CRASH to parent.
     }
-    window.addEventListener('error', function(e) {
-        if (AJ_GAME_SCORE > 0) {
-            try { window.parent.postMessage({type:'GAME_CRASH', score: AJ_GAME_SCORE}, '*'); } catch(err) {}
-        }
-    });
-    window.addEventListener('beforeunload', function() {
-        if (AJ_GAME_SCORE > 0) {
-            try { window.parent.postMessage({type:'GAME_END', score: AJ_GAME_SCORE}, '*'); } catch(e) {}
-        }
-    });
+    window.addEventListener('error', function() { /* local only — no wallet flush */ });
+    window.addEventListener('beforeunload', function() { /* local only — no wallet flush */ });
     // ===== END AJ GAME BRIDGE =====
 
     const canvas = document.getElementById('gameCanvas');
@@ -302,10 +294,10 @@
     }
 
     function syncWithPortal() {
-        if(window.AJ_SDK) {
-            window.AJ_SDK.addBalance({ game_coins: totalPoints, aj_net: (totalPoints * 0.003), source: "Neon Strike Sync" });
+        // LOCAL ONLY — never credit AJ Super Portal wallet / cash-out
+        if (window.AJ_SDK && typeof window.AJ_SDK.addBalance === 'function') {
+            // Intentionally not calling addBalance for wallet credit
         }
-        // AJ BRIDGE: send current score to parent app
         ajSendScore(score);
     }
 
@@ -352,7 +344,7 @@
         document.getElementById('finalScore').innerText = score; 
         document.getElementById('finalAJ').innerText = (score * 0.003).toFixed(3); 
         updateUIDisplays(); syncWithPortal(); 
-        // AJ BRIDGE: send final score (game over) to parent app for wallet credit
+        // AJ BRIDGE: send final score (game over) to parent app LOCAL ONLY — no wallet credit
         ajSendGameEnd(score);
         document.querySelectorAll('.screen').forEach(s => s.classList.remove('active-screen'));
         document.getElementById('gameOver').classList.add('active-screen'); 
