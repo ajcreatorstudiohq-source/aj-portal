@@ -2941,88 +2941,129 @@ export function AJSuperPortal() {
   }, [socialScreen, tiktabMode, user]);
 
   useEffect(() => {
+    let userDocUnsub: (() => void) | null = null;
+
     const kickIfBanned = async (cu: any, data: Record<string, unknown>) => {
       if (!isUserBanned(data) || banKickInProgress.current) return false;
       banKickInProgress.current = true;
       try {
         setBanNotice(BAN_FORBIDDEN_MESSAGE);
         setVvipAlert({ msg: `🚫 ${BAN_FORBIDDEN_MESSAGE}`, icon: '🚫' });
-        try { await setUserOfflineStatus(cu.uid); } catch {}
+        try {
+          await setUserOfflineStatus(cu.uid);
+        } catch {
+          /* ignore offline write errors during ban kick */
+        }
         await signOut(auth);
         setUser(null);
         setScreen('auth');
-      } catch (e) {
-        console.error('kickIfBanned', e);
+      } catch (err) {
+        console.error('kickIfBanned', err);
       } finally {
         banKickInProgress.current = false;
       }
       return true;
     };
 
-    const unsub = onAuthStateChanged(auth, async (cu) => {
-      if (cu) {
-        setUser(cu);
+    const unsubAuth = onAuthStateChanged(auth, async (cu) => {
+      // Clear previous user doc listener on every auth change
+      if (userDocUnsub) {
         try {
-          const userRef  = doc(db,"users",cu.uid);
-          const snap = await getDoc(userRef);
-          if (snap.exists()) {
-            const d = snap.data() as Record<string, unknown>;
-            // Strict ban check on login / session restore — 403 Forbidden equivalent
-            if (await kickIfBanned(cu, d)) return;
-            setBanNotice(null);
-            setHasSocialProfile((d.hasSocialProfile as boolean) ?? true);
-            setUsername((d.username as string)||'');
-            setBio((d.bio as string)||'');
-            setTempPhoto((d.photo as string)||cu.photoURL||'');
-          } else {
-            // NEW USER — just signed up! Camera/mic permission prompt dikhao
-            // BEFORE going to hub, taaki user se pehle permission le lein.
-            // Agar user allow kare toh great, agar deny kare toh bhi hub par bhej do.
-            await setDoc(userRef, {
-              name:cu.displayName, email:cu.email,
-              balance:500, botTier:'none', invested:0,
-              uid:cu.uid, lastSync:serverTimestamp(),
-              hasSocialProfile:true,
-              photo:cu.photoURL||'',
-              followers:0, following:0,
-              postsCount:0, followersCount:0, followingCount:0, totalLikes:0,
-              status:'online', fcmToken:'',
-              // Install & Level Unlock + Offerwall economy fields
-              unlockedGames: [],
-              gameProgress: {},
-              // Ban schema — presence `status` stays online/offline; account ban uses these fields
-              ...DEFAULT_ACCOUNT_BAN_FIELDS,
-            });
-            setHasSocialProfile(true);
-            setBanNotice(null);
-            // FIX: Naye user ke liye camera/mic permission prompt show karo
-            setShowCameraPermissionPrompt(true);
-          }
-          onSnapshot(userRef, async (s) => {
-            if (!s.exists()) return;
-            const data = s.data() as Record<string, unknown>;
-            // Instant session terminate when admin bans an active user
-            if (await kickIfBanned(cu, data)) return;
-            setBalance((data.balance as number) || 0);
-            setBotTier((data.botTier as string) || 'none');
-            setInvested((data.invested as number) || 0);
-            setUnlockedGames(Array.isArray(data.unlockedGames) ? (data.unlockedGames as string[]) : []);
-            setGameProgress(
-              data.gameProgress && typeof data.gameProgress === 'object'
-                ? (data.gameProgress as Record<string, GameProgressDoc>)
-                : {}
-            );
-          });
-        } catch(e) { console.error('Auth init error', e); }
-        await setUserOnlinePresence(cu);
-        // FIX: Agar permission prompt nahi dikhana (returning user), seedha hub par jao
-        // Naye user ke liye permission prompt pehle handle hoga, phir hub par jayega
-        if (!showCameraPermissionPrompt) {
-          setScreen('hub');
+          userDocUnsub();
+        } catch {
+          /* ignore */
         }
-      } else { setUser(null); setScreen('auth'); }
+        userDocUnsub = null;
+      }
+
+      if (!cu) {
+        setUser(null);
+        setScreen('auth');
+        return;
+      }
+
+      setUser(cu);
+
+      try {
+        const userRef = doc(db, 'users', cu.uid);
+        const snap = await getDoc(userRef);
+
+        if (snap.exists()) {
+          const d = snap.data() as Record<string, unknown>;
+          // Strict ban check on login / session restore
+          if (await kickIfBanned(cu, d)) return;
+          setBanNotice(null);
+          setHasSocialProfile((d.hasSocialProfile as boolean) ?? true);
+          setUsername((d.username as string) || '');
+          setBio((d.bio as string) || '');
+          setTempPhoto((d.photo as string) || cu.photoURL || '');
+        } else {
+          // NEW USER — create profile + show camera permission prompt
+          await setDoc(userRef, {
+            name: cu.displayName,
+            email: cu.email,
+            balance: 500,
+            botTier: 'none',
+            invested: 0,
+            uid: cu.uid,
+            lastSync: serverTimestamp(),
+            hasSocialProfile: true,
+            photo: cu.photoURL || '',
+            followers: 0,
+            following: 0,
+            postsCount: 0,
+            followersCount: 0,
+            followingCount: 0,
+            totalLikes: 0,
+            status: 'online',
+            fcmToken: '',
+            unlockedGames: [],
+            gameProgress: {},
+            ...DEFAULT_ACCOUNT_BAN_FIELDS,
+          });
+          setHasSocialProfile(true);
+          setBanNotice(null);
+          setShowCameraPermissionPrompt(true);
+        }
+
+        userDocUnsub = onSnapshot(userRef, async (s) => {
+          if (!s.exists()) return;
+          const data = s.data() as Record<string, unknown>;
+          // Instant session terminate when admin bans an active user
+          if (await kickIfBanned(cu, data)) return;
+          setBalance((data.balance as number) || 0);
+          setBotTier((data.botTier as string) || 'none');
+          setInvested((data.invested as number) || 0);
+          setUnlockedGames(
+            Array.isArray(data.unlockedGames) ? (data.unlockedGames as string[]) : []
+          );
+          setGameProgress(
+            data.gameProgress && typeof data.gameProgress === 'object'
+              ? (data.gameProgress as Record<string, GameProgressDoc>)
+              : {}
+          );
+        });
+      } catch (err) {
+        console.error('Auth init error', err);
+      }
+
+      await setUserOnlinePresence(cu);
+      // Returning users go to hub; new users stay on permission prompt first
+      if (!showCameraPermissionPrompt) {
+        setScreen('hub');
+      }
     });
-    return () => unsub();
+
+    return () => {
+      if (userDocUnsub) {
+        try {
+          userDocUnsub();
+        } catch {
+          /* ignore */
+        }
+      }
+      unsubAuth();
+    };
   }, []);
 
   // FIX (Hinglish): ZegoCloud cleanup on unmount + pagehide.
