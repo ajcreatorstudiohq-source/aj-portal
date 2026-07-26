@@ -175,6 +175,27 @@ export const OFFERWALL_PUBLIC = {
     'https://omg10.com/4/11280173',
 };
 
+/**
+ * Build partner offerwall URL with user id for postback attribution.
+ * Opening this link alone never credits coins — partner postback required.
+ */
+export function buildOfferwallUrl(uid?: string | null): string {
+  const base = OFFERWALL_PUBLIC.wallUrl;
+  try {
+    const url = new URL(base);
+    if (uid) {
+      url.searchParams.set('ymid', uid);
+      url.searchParams.set('user_id', uid);
+      url.searchParams.set('external_id', uid);
+    }
+    return url.toString();
+  } catch {
+    if (!uid) return base;
+    const sep = base.includes('?') ? '&' : '?';
+    return `${base}${sep}ymid=${encodeURIComponent(uid)}&user_id=${encodeURIComponent(uid)}`;
+  }
+}
+
 /** Server-only offerwall config — import only from API routes / server code */
 export function getOfferwallServerConfig() {
   return {

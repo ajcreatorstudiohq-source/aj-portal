@@ -33,6 +33,7 @@ import { MONETAG_INTERSTITIAL_ZONE } from './lib/ads-config';
 import AdminUsersPanel from './components/AdminUsersPanel';
 import { isPortalAdminUser } from './lib/admin-auth';
 import { BAN_FORBIDDEN_MESSAGE, DEFAULT_ACCOUNT_BAN_FIELDS, isUserBanned } from './lib/user-ban';
+import { startIntrusiveAdGuard, stripIntrusiveAdNodes } from './lib/ad-guards';
 
 // ============================================================
 // GLOBAL ERROR SHIELD (FIX: "Page couldn't load" error)
@@ -1263,6 +1264,7 @@ function cleanupMonetagDom(): void {
     ).forEach((node) => {
       try { node.remove(); } catch {}
     });
+    stripIntrusiveAdNodes();
     document.documentElement.style.overflow = '';
     document.body.style.overflow = '';
     document.body.style.pointerEvents = '';
@@ -1344,133 +1346,113 @@ function waitForMonetagShowFn(zoneId: number, maxWaitMs = 15000): Promise<Functi
 //   (so we can distinguish "ad failed" from "ad succeeded" for revenue tracking).
 // Returns a Promise that resolves true if the ad was shown, false otherwise.
 function triggerMonetagInterstitialAd(zoneId: number): Promise<boolean> {
+  // Hard timeout so UI never hangs on a stuck Monetag Promise
+  const SHOW_MS = 28000;
   return new Promise((resolve) => {
-    // FIX (Hinglish): Pura body ek async IIFE mein wrap kiya gaya hai jo
-    // kabhi bhi reject nahi hoga — hamesha resolve(false) karega agar koi
-    // error aaye. Isse unhandled promise rejection se "page couldn't load"
-    // error nahi aayega.
+    let settled = false;
+    const done = (v: boolean) => {
+      if (settled) return;
+      settled = true;
+      resolve(v);
+    };
+    const hardTimer = setTimeout(() => {
+      cleanupMonetagDom();
+      done(false);
+    }, SHOW_MS + 4000);
+
     (async () => {
       try {
         if (typeof window === 'undefined') {
-          resolve(false);
+          clearTimeout(hardTimer);
+          done(false);
           return;
         }
 
-        // Ensure the SDK script tag is injected into the DOM
+        startIntrusiveAdGuard();
         ensureMonetagSdkLoaded(zoneId);
 
-        // FIX: GLOBAL AD GATE — show_XXX({ type: 'end' }) sirf 5 min mein ek baar
-        // call hoga. Chahe hub card, in-feed, ya free coin — koi bhi trigger ho,
-        // yeh gate ensure karta hai ki Monetag SDK bar-bar full-screen reward ad
-        // nahi dikhayega. Agar 5 min ke andar already ad dikh chuka hai, toh
-        // yahan se hi return — SDK call hi nahi hoga.
         const nowGate = Date.now();
         if ((nowGate - lastAnyAdShownTime) < AD_COOLDOWN_MS) {
-          // Global ad gate active — 5 min mein ek baar hi real ad dikhana
-          resolve(false);
+          clearTimeout(hardTimer);
+          done(false);
           return;
         }
-        // FIX: Cooldown expire ho gaya — naya ad cycle shuru. Session flag reset
-        // karo taaki MonetagVideoAd components naye cycle mein dobara real ad fire
-        // kar sakein.
         realAdFiredThisCycle = false;
 
-        // Wait for the show_XXX() function to become available (SDK loaded)
-        const showFn = await waitForMonetagShowFn(zoneId, 15000);
-
+        // Zone 11377822 only — never legacy push/popunder zones
+        const showFn = await waitForMonetagShowFn(zoneId, 12000);
         if (typeof showFn !== 'function') {
-          // SDK didn't load in time — try legacy fallback zone if available
-          if (typeof (window as any).show_9087571 === 'function') {
-            try {
-              const result = (window as any).show_9087571();
-              if (result && typeof result.then === 'function') {
-                result.then(() => resolve(true)).catch(() => resolve(false));
-              } else {
-                resolve(true);
-              }
-              return;
-            } catch {
-              resolve(false);
-              return;
+          clearTimeout(hardTimer);
+          done(false);
+          return;
+        }
+
+        try {
+          await Promise.race([
+            Promise.resolve(showFn({ type: 'preload', requestVar: 'infeed_ad', timeout: 8 })).catch(() => null),
+            new Promise((r) => setTimeout(r, 10000)),
+          ]);
+        } catch {
+          /* preload optional */
+        }
+
+        if ((Date.now() - lastAnyAdShownTime) < AD_COOLDOWN_MS) {
+          clearTimeout(hardTimer);
+          done(false);
+          return;
+        }
+
+        // Only type:'end' rewarded interstitial — never pop / inApp / push
+        try {
+          const showResult = showFn({ type: 'end', requestVar: 'infeed_ad' });
+          if (showResult && typeof (showResult as Promise<unknown>).then === 'function') {
+            const shown = await Promise.race([
+              (showResult as Promise<unknown>).then(() => true).catch(() => false),
+              new Promise<boolean>((r) => setTimeout(() => r(false), SHOW_MS)),
+            ]);
+            if (shown) {
+              lastAnyAdShownTime = Date.now();
+              stripIntrusiveAdNodes();
+              try {
+                trackAdEvent({
+                  event: 'complete',
+                  placement: 'hub_nav_interstitial',
+                  zoneId: MONETAG_INTERSTITIAL_ZONE,
+                  meta: { network: 'monetag', zoneId },
+                }).catch(() => {});
+              } catch {}
+              clearTimeout(hardTimer);
+              done(true);
+            } else {
+              lastAnyAdShownTime = Date.now() - (AD_COOLDOWN_MS - 30000);
+              cleanupMonetagDom();
+              try {
+                trackAdEvent({
+                  event: 'fail',
+                  placement: 'hub_nav_interstitial',
+                  zoneId: MONETAG_INTERSTITIAL_ZONE,
+                }).catch(() => {});
+              } catch {}
+              clearTimeout(hardTimer);
+              done(false);
             }
-          }
-          resolve(false);
-          return;
-        }
-
-        // Step 1: Preload the ad in background (reduces delay when showing)
-        try {
-          await showFn({ type: 'preload', requestVar: 'infeed_ad', catchIfNoFeed: true });
-        } catch {
-          // Preload failed — try showing directly without preload
-        }
-
-        // FIX: Re-check global gate after preload (preload may take time)
-        const nowGate2 = Date.now();
-        if ((nowGate2 - lastAnyAdShownTime) < AD_COOLDOWN_MS) {
-          resolve(false);
-          return;
-        }
-
-        // Step 2: Show the full-screen interstitial ad (type: 'end' = Rewarded Interstitial)
-        // This is the actual revenue-generating ad call.
-        // catchIfNoFeed: true → promise rejects if no ad inventory available
-        // FIX: Update global gate timestamp BEFORE showing — taaki agar yeh ad
-        // successfully show ho, toh 5 min tak koi aur ad trigger na ho.
-        lastAnyAdShownTime = Date.now();
-        try {
-          const showResult = showFn({ type: 'end', requestVar: 'infeed_ad', catchIfNoFeed: true });
-          if (showResult && typeof showResult.then === 'function') {
-            showResult
-              .then((result: any) => {
-                // Ad was shown successfully — revenue event
-                lastAnyAdShownTime = Date.now(); // Confirm gate — ad actually shown
-                try {
-                  trackAdEvent({
-                    event: 'complete',
-                    placement: 'hub_nav_interstitial',
-                    zoneId: MONETAG_INTERSTITIAL_ZONE,
-                    meta: { network: 'monetag', zoneId },
-                  }).catch(() => {});
-                } catch {}
-                resolve(true);
-              })
-              .catch(() => {
-                // No ad feed available or ad failed — resolve false (fallback video will show)
-                lastAnyAdShownTime = Date.now() - (AD_COOLDOWN_MS - 30000);
-                cleanupMonetagDom();
-                try {
-                  trackAdEvent({
-                    event: 'fail',
-                    placement: 'hub_nav_interstitial',
-                    zoneId: MONETAG_INTERSTITIAL_ZONE,
-                  }).catch(() => {});
-                } catch {}
-                resolve(false);
-              });
           } else {
-            // Synchronous return (unlikely) — assume ad was triggered
-            lastAnyAdShownTime = Date.now();
-            try {
-              trackAdEvent({
-                event: 'complete',
-                placement: 'hub_nav_interstitial',
-                zoneId: MONETAG_INTERSTITIAL_ZONE,
-              }).catch(() => {});
-            } catch {}
-            resolve(true);
+            // Non-promise = not a verified completion
+            cleanupMonetagDom();
+            clearTimeout(hardTimer);
+            done(false);
           }
         } catch {
-          // show_XXX threw — no ad available
           lastAnyAdShownTime = Date.now() - (AD_COOLDOWN_MS - 30000);
           cleanupMonetagDom();
-          resolve(false);
+          clearTimeout(hardTimer);
+          done(false);
         }
       } catch (e) {
-        // Any unexpected error — resolve false so the fallback video shows
         console.warn('[Monetag] triggerMonetagInterstitialAd error:', e);
         cleanupMonetagDom();
-        resolve(false);
+        clearTimeout(hardTimer);
+        done(false);
       }
     })();
   });
@@ -2583,28 +2565,35 @@ export function AJSuperPortal() {
   const currentWithdrawMethod = WITHDRAW_METHODS.find(m => m.label === payoutMethod) || WITHDRAW_METHODS[0];
 
   // ==========================================================
-  // INJECT MONETAG VIDEO AD SDK ON MOUNT (FIXED — no banner/push ads)
-  // Loads SDK for interstitial zone only, then preloads for instant video ad display.
+  // INJECT MONETAG VIDEO AD SDK ON MOUNT
+  // Block push / in-page-push / floating notification ads permanently.
+  // Zone 11377822 SDK only (rewarded interstitial via show_XXX type:end).
   // ==========================================================
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    // Interstitial Video Ad — zone 11377822 — load SDK once (MonetagVideoAd components use this)
+    const stopGuard = startIntrusiveAdGuard();
+
     try {
       ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL);
     } catch {}
 
-    // Preload the interstitial ad so it's ready to show instantly when a MonetagVideoAd mounts.
-    // This waits for the SDK to load, then calls show_XXX({ type: 'preload' }).
-    // The actual ad SHOW (type: 'end') happens when MonetagVideoAd component mounts.
-    waitForMonetagShowFn(MONETAG_INTERSTITIAL, 15000).then((showFn) => {
+    waitForMonetagShowFn(MONETAG_INTERSTITIAL, 12000).then((showFn) => {
       if (typeof showFn === 'function') {
         try {
-          showFn({ type: 'preload', requestVar: 'infeed_ad' }).catch(() => {});
+          // preload only — never pop / inApp / push
+          const p = showFn({ type: 'preload', requestVar: 'infeed_ad', timeout: 8 });
+          if (p && typeof (p as Promise<unknown>).then === 'function') {
+            (p as Promise<unknown>).catch(() => {});
+          }
         } catch {}
       }
+      stripIntrusiveAdNodes();
     });
 
+    return () => {
+      try { stopGuard(); } catch {}
+    };
   }, []);
 
   // ==========================================================

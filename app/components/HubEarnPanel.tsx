@@ -6,7 +6,7 @@ import RewardedVideoOffer from './ads/RewardedVideoOffer';
 import BannerAdSlot from './ads/BannerAdSlot';
 import {
   GAME_CATALOG,
-  OFFERWALL_PUBLIC,
+  buildOfferwallUrl,
   type GameCatalogItem,
   type GameProgressDoc,
 } from '../lib/economy';
@@ -21,6 +21,7 @@ import {
   isAdCooldownActive,
   triggerMonetagInterstitialAd,
 } from '../lib/monetag-client';
+import { startIntrusiveAdGuard } from '../lib/ad-guards';
 
 type UserLike = { uid: string; getIdToken: () => Promise<string>; email?: string | null } | null;
 
@@ -59,11 +60,8 @@ export default function HubEarnPanel({
   const [downloadPct, setDownloadPct] = useState<Record<string, number>>({});
 
   useEffect(() => {
-    try {
-      ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL_ZONE);
-    } catch {
-      /* ignore */
-    }
+    startIntrusiveAdGuard();
+    ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL_ZONE).catch(() => {});
     trackAdEvent(
       {
         event: 'impression',
@@ -177,8 +175,16 @@ export default function HubEarnPanel({
       return onAlert('Ad cooldown active — try again in a few minutes', '⏱️');
     }
     setAdBusy(true);
+    const hardStop = window.setTimeout(() => {
+      setAdBusy(false);
+      cleanupMonetagDom();
+    }, 32000);
     try {
-      ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL_ZONE);
+      const sdkOk = await ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL_ZONE);
+      if (!sdkOk) {
+        onAlert('Ad SDK failed to load. Check connection and try again.', '⚠️');
+        return;
+      }
       await trackAdEvent(
         {
           event: 'impression',
@@ -188,9 +194,11 @@ export default function HubEarnPanel({
         },
         user
       );
+      // force:true — user tapped Watch Interstitial intentionally (own button cooldown above)
       const shown = await triggerMonetagInterstitialAd(MONETAG_INTERSTITIAL_ZONE, {
-        force: false,
+        force: true,
         requestVar: 'hub_interstitial',
+        ymid: user?.uid ? `hub_${user.uid}_${Date.now()}` : undefined,
       });
       await trackAdEvent(
         {
@@ -204,16 +212,37 @@ export default function HubEarnPanel({
       if (!shown) cleanupMonetagDom();
       onAlert(
         shown
-          ? 'Thanks for watching! More rewards via Watch & Earn below.'
-          : 'No ad inventory right now — try Watch & Earn rewarded video.',
+          ? 'Thanks for watching! Earn coins via Watch Rewarded Video below.'
+          : 'No ad inventory right now — try Watch Rewarded Video.',
         shown ? '📺' : 'ℹ️'
       );
     } catch {
       cleanupMonetagDom();
       onAlert('Ad failed to load', '⚠️');
     } finally {
+      window.clearTimeout(hardStop);
       setAdBusy(false);
     }
+  };
+
+  const openOfferPartners = () => {
+    const url = buildOfferwallUrl(user?.uid || null);
+    trackAdEvent(
+      {
+        event: 'click',
+        placement: 'offerwall_rewarded_video',
+        zoneId: MONETAG_INTERSTITIAL_ZONE,
+        meta: { action: 'open_offer_partners_hub' },
+      },
+      user
+    ).catch(() => {});
+    // In-app offerwall page + external partner wall (no free coins on open)
+    window.open('/offerwall', '_blank', 'noopener,noreferrer');
+    window.open(url, '_blank', 'noopener,noreferrer');
+    onAlert(
+      'Offer Partners opened. Finish a real survey/trial — coins credit only after verified postback.',
+      '🔗'
+    );
   };
 
   const downloadableGames = GAME_CATALOG.filter((g) => !g.comingSoon).slice(0, 4);
@@ -296,33 +325,23 @@ export default function HubEarnPanel({
         </button>
       </div>
 
-      {/* Partner offerwall */}
-      <a
-        href={OFFERWALL_PUBLIC.wallUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        onClick={() => {
-          trackAdEvent(
-            {
-              event: 'click',
-              placement: 'offerwall_rewarded_video',
-              zoneId: MONETAG_INTERSTITIAL_ZONE,
-              meta: { action: 'open_offer_partners_hub' },
-            },
-            user
-          ).catch(() => {});
-        }}
-        className="flex items-center gap-3 w-full rounded-2xl border border-white/10 bg-white/5 p-4 active:scale-[0.99]"
+      {/* Partner offerwall — real external surveys/trials */}
+      <button
+        type="button"
+        onClick={openOfferPartners}
+        className="flex items-center gap-3 w-full rounded-2xl border border-white/10 bg-white/5 p-4 active:scale-[0.99] text-left"
       >
         <div className="w-10 h-10 rounded-xl bg-pink-500/20 border border-pink-400/30 flex items-center justify-center shrink-0">
           <Gift size={18} className="text-pink-300" />
         </div>
         <div className="text-left flex-1 min-w-0">
           <p className="text-sm font-black text-white">Open Offer Partners</p>
-          <p className="text-[10px] text-gray-400">Surveys · trials · external offerwall</p>
+          <p className="text-[10px] text-gray-400">
+            Real surveys · app trials · partner offerwall (verified only)
+          </p>
         </div>
         <ExternalLink size={14} className="text-gray-500 shrink-0" />
-      </a>
+      </button>
 
       {/* 3) In-portal game APK / package downloads */}
       <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 space-y-2">
