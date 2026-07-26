@@ -22,7 +22,11 @@ import LiveMatchesPanel from './components/LiveMatchesPanel';
 import HubEarnPanel from './components/HubEarnPanel';
 import BannerAdSlot from './components/ads/BannerAdSlot';
 import InFeedAdShell from './components/ads/InFeedAdShell';
-import type { GameProgressDoc } from './lib/economy';
+import {
+  SIGNUP_BONUS_COINS,
+  REFERRAL_BONUS_COINS,
+  type GameProgressDoc,
+} from './lib/economy';
 import { earnReward } from './lib/client-rewards';
 import { trackAdEvent } from './lib/ad-client';
 import { MONETAG_INTERSTITIAL_ZONE } from './lib/ads-config';
@@ -296,7 +300,7 @@ const COIN_RATE      = 100;
 const CASH_RATE      = 500;
 const MIN_PURCHASE   = 20;
 const WITHDRAW_MIN   = 10000;
-const REFERRAL_COINS = 50;
+const REFERRAL_COINS = REFERRAL_BONUS_COINS;
 
 const ADMIN_EARN_SHARE = 0.70;  // Admin (aap) gets 70% of revenue
 const USER_EARN_SHARE  = 0.30;  // User/creator gets 30% of revenue
@@ -3003,7 +3007,7 @@ export function AJSuperPortal() {
           await setDoc(userRef, {
             name: cu.displayName,
             email: cu.email,
-            balance: 500,
+            balance: SIGNUP_BONUS_COINS,
             botTier: 'none',
             invested: 0,
             uid: cu.uid,
@@ -4203,7 +4207,7 @@ export function AJSuperPortal() {
       setCinematicSender(username || 'Anonymous');
       setVvipAlert({
         msg: reward.ok
-          ? `${gift.icon} ${gift.name} sent! Creator +${creatorShare} AJ Coins ($${Number(reward.userUsd||0).toFixed(2)}). Platform $${Number(reward.adminUsd||0).toFixed(2)} of $${Number(reward.totalPoolUsd||0).toFixed(2)} pool.`
+          ? `${gift.icon} ${gift.name} sent! Creator +${creatorShare} AJ Coins`
           : `${gift.icon} ${gift.name} sent!`,
         icon: gift.icon,
       });
@@ -4979,7 +4983,7 @@ export function AJSuperPortal() {
         balance: increment(-cost), botTier:tier, invested:cost, lastSync:serverTimestamp()
       });
       setVisualProfit(0);
-      setVvipAlert({msg:`${tier.toUpperCase()} BOT ACTIVATED! Sync profits to earn $1–$1.50 rewards.`});
+      setVvipAlert({msg:`${tier.toUpperCase()} BOT ACTIVATED! Sync profits to earn AJ Coin rewards.`});
     } catch(e) { console.error('activateBot', e); setVvipAlert({msg:'Activation failed. Please try again.'}); }
   };
 
@@ -5117,14 +5121,14 @@ export function AJSuperPortal() {
         await addDoc(collection(db,"notifications"), {
           title:"Referral Claimed",
           message: reward.ok
-            ? `+${reward.creditedCoins || 0} AJ Coins ($${Number(reward.userUsd||0).toFixed(2)}) credited to referrer via split engine.`
+            ? `+${reward.creditedCoins || 0} AJ Coins credited to referrer.`
             : 'Referral claimed.',
           date:serverTimestamp()
         });
       } catch {}
       setVvipAlert({
         msg: reward.ok
-          ? `Referral Applied! Referrer +${reward.creditedCoins || 0} AJ Coins ($${Number(reward.userUsd||0).toFixed(2)} of $${Number(reward.totalPoolUsd||0).toFixed(2)} pool).`
+          ? `Referral Applied! Referrer +${reward.creditedCoins || REFERRAL_COINS} AJ Coins`
           : reward.error === 'daily_limit'
             ? 'Referral recorded — daily referral reward limit reached.'
             : 'Referral Applied!',
@@ -5203,7 +5207,7 @@ Kuch bhi poocho, seedha batata hoon! 🔥`,
       en:  `🪙 AJ Coins — Full Breakdown:\\\\\\\\
 \\\\\\\\
 • Rate: $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1 cash-out\\\\\\\\
-• Welcome Bonus: 500 Coins on signup 🎉\\\\\\\\
+• Welcome Bonus: ${SIGNUP_BONUS_COINS} Coins on signup 🎉\\\\\\\\
 • Referral Bonus: +${REFERRAL_COINS} Coins per friend referred\\\\\\\\
 • Video Post (TikReel): +10 Coins per upload\\\\\\\\
 • Photo Post (Pulse): +5 Coins per post\\\\\\\\
@@ -5215,7 +5219,7 @@ Go to Wallet → Purchase to top up anytime. 💰`,
       hin: `Bhai, yeh lo puri detail! 🪙\\\\\\\\
 \\\\\\\\
 • Rate: $1 = ${COIN_RATE} Coins | Cash out: ${CASH_RATE} Coins = $1\\\\\\\\
-• Signup bonus: 500 Coins FREE 🎉\\\\\\\\
+• Signup bonus: ${SIGNUP_BONUS_COINS} Coins FREE 🎉\\\\\\\\
 • Referral: +${REFERRAL_COINS} Coins har dost ke liye\\\\\\\\
 • TikReel video upload: +10 Coins\\\\\\\\
 • Pulse photo post: +5 Coins\\\\\\\\
@@ -5227,7 +5231,7 @@ Wallet → Purchase se recharge karo, dost! 💰`,
       ur:  `🪙 AJ Coins — مکمل تفصیل:\\\\\\\\
 \\\\\\\\
 • شرح: $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1\\\\\\\\
-• Signup بونس: 500 Coins مفت 🎉\\\\\\\\
+• Signup بونس: ${SIGNUP_BONUS_COINS} Coins مفت 🎉\\\\\\\\
 • ریفرل: +${REFERRAL_COINS} Coins\\\\\\\\
 • TikReel ویڈیو: +10 Coins\\\\\\\\
 • Pulse فوٹو: +5 Coins\\\\\\\\
@@ -5239,7 +5243,7 @@ Wallet → Purchase 💰`,
       hi:  `🪙 AJ Coins:\\\\\\\\
 \\\\\\\\
 • $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1\\\\\\\\
-• Signup: 500 Coins 🎉\\\\\\\\
+• Signup: ${SIGNUP_BONUS_COINS} Coins 🎉\\\\\\\\
 • Referral: +${REFERRAL_COINS} Coins\\\\\\\\
 • TikReel Video: +10 Coins\\\\\\\\
 • Pulse Photo: +5 Coins\\\\\\\\
@@ -5250,7 +5254,7 @@ Wallet → Purchase 💰`,
       ar:  `🪙 AJ Coins:\\\\\\\\
 \\\\\\\\
 • $1 = ${COIN_RATE} | ${CASH_RATE} = $1\\\\\\\\
-• Signup: 500 🎉\\\\\\\\
+• Signup: ${SIGNUP_BONUS_COINS} 🎉\\\\\\\\
 • Referral: +${REFERRAL_COINS}\\\\\\\\
 • TikReel Video: +10\\\\\\\\
 • Pulse Photo: +5\\\\\\\\
@@ -5389,26 +5393,25 @@ Wallet → Purchase 💰`,
       en:  `🎮 AJ Gaming Zone — Install & Level Unlock\\\\\\\\
 \\\\\\\\
 • Tap Gaming → Install a game to unlock play\\\\\\\\
-• Reach milestone levels (e.g. L3 / L5 / L10) to earn $1.00–$1.50 in AJ Coins\\\\\\\\
-• Of each $5–$7 reward pool, the rest is platform revenue\\\\\\\\
-• Offerwall tab: complete verified offers for the same split\\\\\\\\
+• Reach milestone levels (e.g. L3 / L5 / L10) to earn AJ Coins\\\\\\\\
+• Offerwall tab: complete verified offers / watch full rewarded videos\\\\\\\\
 • Local in-game tokens stay for fun/unlocks only — no free wallet dumps`,
       hin: `🎮 Gaming — Install & Level Unlock:\\\\\\\\
 \\\\\\\\
 • Game install karo, milestone levels clear karo\\\\\\\\
-• Reward: $1.00–$1.50 AJ Coins (pool $5–$7, baaki platform)\\\\\\\\
-• Offerwall bhi same split use karta hai`,
+• Reward: AJ Coins (sirf verified tasks)\\\\\\\\
+• Offerwall / rewarded video complete karo`,
       ur:  `🎮 Gaming — Install & Level Unlock\\\\\\\\
 \\\\\\\\
 • گیم انسٹال کریں، لیول مکمل کریں\\\\\\\\
-• انعام: $1.00–$1.50 (پول $5–$7)`,
+• انعام: AJ Coins (صرف verified tasks)`,
       hi:  `🎮 Gaming — Install & Level Unlock\\\\\\\\
 \\\\\\\\
 • गेम Install करें, milestone levels पूरे करें\\\\\\\\
-• इनाम: $1.00–$1.50 AJ Coins`,
+• इनाम: AJ Coins`,
       ar:  `🎮 Gaming — تثبيت ومستويات\\\\\\\\
 \\\\\\\\
-• ثبّت اللعبة ثم أكمل المستويات للحصول على $1.00–$1.50`,
+• ثبّت اللعبة ثم أكمل المستويات للحصول على AJ Coins`,
     },
     refer: {
       en:  `👥 Referral System:\\\\\\\\
@@ -5835,7 +5838,7 @@ Tip: Social Hub se copy karo 📤`,
               </div>
               <div className="text-left">
                 <p className="text-white font-black text-sm">Gaming Zone</p>
-                <p className="text-[10px] text-gray-400 mt-0.5">Install games, clear milestones, earn via Offerwall ($1–$1.50).</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">Install games, clear milestones, earn via Offerwall.</p>
               </div>
               <div className="flex items-center gap-1 mt-1">
                 <span className="text-[8px] text-purple-400 font-black bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-full">INSTALL · LEVELS</span>
@@ -7614,7 +7617,7 @@ Tip: Social Hub se copy karo 📤`,
                     onClick={syncBotProfits}
                     className="mt-3 w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 text-black text-[11px] font-black active:scale-95"
                   >
-                    Sync Profits → Wallet ($1–$1.50 split)
+                    Sync Profits → Wallet
                   </button>
                 )}
               </div>

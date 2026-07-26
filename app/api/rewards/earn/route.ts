@@ -20,7 +20,7 @@ import {
  *   meta?: object
  * }
  *
- * Unified multi-channel earning: $5–$7 pool → user $1–$1.50, rest AdminRevenue.
+ * Unified multi-channel earning. Strict sources require verification meta flags.
  */
 export async function POST(request: Request) {
   try {
@@ -39,6 +39,38 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: 'invalid_source' }, { status: 400 });
     }
     const source = sourceRaw as RewardSource;
+    const meta =
+      body.meta && typeof body.meta === 'object'
+        ? (body.meta as Record<string, unknown>)
+        : {};
+
+    // No free coins: ad / offerwall / app-download must prove completion.
+    if (source === 'offerwall_video' && meta.networkShown !== true) {
+      return NextResponse.json(
+        { ok: false, error: 'ad_not_verified', message: 'Rewarded video not verified.' },
+        { status: 403 }
+      );
+    }
+    if (source === 'offerwall' && meta.fromPostback !== true) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'verification_required',
+          message: 'Complete the partner offerwall task. Coins credit via verified postback only.',
+        },
+        { status: 403 }
+      );
+    }
+    if (source === 'app_download' && meta.installVerified !== true) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'verification_required',
+          message: 'Install the app first. Click-only downloads do not earn coins.',
+        },
+        { status: 403 }
+      );
+    }
 
     // Optional beneficiary (gifts → creator, referrals → referrer)
     let creditUid = actor.uid;
@@ -64,7 +96,7 @@ export async function POST(request: Request) {
       source,
       seed,
       meta: {
-        ...(body.meta && typeof body.meta === 'object' ? body.meta : {}),
+        ...meta,
         actorUid: actor.uid,
         label: SOURCE_LABELS[source],
       },
@@ -98,7 +130,7 @@ export async function POST(request: Request) {
       totalPoolUsd: result.split?.totalUsd,
       message: result.duplicate
         ? 'Already credited'
-        : `${SOURCE_LABELS[source]}: +${result.balanceCredited} AJ Coins ($${Number(result.split?.userUsd).toFixed(2)}). Platform kept $${Number(result.split?.adminUsd).toFixed(2)} of $${Number(result.split?.totalUsd).toFixed(2)} pool.`,
+        : `${SOURCE_LABELS[source]}: +${result.balanceCredited} AJ Coins`,
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'earn_failed';
@@ -109,8 +141,6 @@ export async function POST(request: Request) {
 export async function GET() {
   return NextResponse.json({
     ok: true,
-    userRewardUsd: { min: 1.0, max: 1.5 },
-    providerPoolUsd: { min: 5.0, max: 7.0 },
     sources: Object.keys(SOURCE_LABELS),
     labels: SOURCE_LABELS,
   });

@@ -1,6 +1,6 @@
 /**
- * Shared Monetag SDK loader + interstitial trigger with global cooldowns.
- * Used by hub overlays, offerwall rewarded video, and game transitions.
+ * Shared Monetag SDK loader + interstitial / rewarded show helpers.
+ * Zone 11377822 — preload → show (type:end) → resolve only on SDK success.
  */
 import {
   AD_COOLDOWN_MS,
@@ -10,6 +10,7 @@ import {
 } from './ads-config';
 
 const monetagSdkLoadedZones: Set<number> = new Set();
+const monetagSdkLoading: Map<number, Promise<boolean>> = new Map();
 
 let lastAnyAdShownTime = 0;
 let lastInterstitialAdTime = 0;
@@ -67,54 +68,114 @@ export function cleanupMonetagDom(): void {
   }
 }
 
-export function ensureMonetagSdkLoaded(zoneId: number = MONETAG_INTERSTITIAL_ZONE): void {
-  if (typeof window === 'undefined') return;
-  if (monetagSdkLoadedZones.has(zoneId)) return;
+type ShowFn = (opts?: Record<string, unknown> | string) => unknown;
 
-  const existing = document.querySelector(`script[data-zone="${zoneId}"][data-sdk]`);
-  if (existing) {
+function getShowFn(zoneId: number): ShowFn | null {
+  if (typeof window === 'undefined') return null;
+  const fnName = `show_${zoneId}`;
+  const w = window as unknown as Record<string, unknown>;
+  return typeof w[fnName] === 'function' ? (w[fnName] as ShowFn) : null;
+}
+
+/**
+ * Inject Monetag SDK for zone. Resolves true when show_{zoneId} is available.
+ */
+export function ensureMonetagSdkLoaded(
+  zoneId: number = MONETAG_INTERSTITIAL_ZONE
+): Promise<boolean> {
+  if (typeof window === 'undefined') return Promise.resolve(false);
+
+  if (getShowFn(zoneId)) {
     monetagSdkLoadedZones.add(zoneId);
-    return;
+    return Promise.resolve(true);
   }
 
-  try {
-    const sdkScript = document.createElement('script');
-    sdkScript.async = true;
-    sdkScript.setAttribute('data-zone', String(zoneId));
-    sdkScript.setAttribute('data-sdk', `show_${zoneId}`);
-    sdkScript.src = MONETAG_TAG_URLS[zoneId] || MONETAG_TAG_URL;
-    sdkScript.onerror = () => {
-      console.warn(`[Monetag] SDK script failed to load for zone ${zoneId}`);
+  const inflight = monetagSdkLoading.get(zoneId);
+  if (inflight) return inflight;
+
+  const loadPromise = new Promise<boolean>((resolve) => {
+    let settled = false;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      monetagSdkLoading.delete(zoneId);
+      if (ok) monetagSdkLoadedZones.add(zoneId);
+      resolve(ok);
     };
-    document.head.appendChild(sdkScript);
-    monetagSdkLoadedZones.add(zoneId);
-  } catch (e) {
-    console.warn('[Monetag] ensureMonetagSdkLoaded error:', e);
-  }
+
+    try {
+      let script = document.querySelector(
+        `script[data-zone="${zoneId}"][data-sdk]`
+      ) as HTMLScriptElement | null;
+
+      if (!script) {
+        script = document.createElement('script');
+        script.async = true;
+        script.setAttribute('data-zone', String(zoneId));
+        script.setAttribute('data-sdk', `show_${zoneId}`);
+        script.src = MONETAG_TAG_URLS[zoneId] || MONETAG_TAG_URL;
+        document.head.appendChild(script);
+      }
+
+      if (getShowFn(zoneId)) {
+        finish(true);
+        return;
+      }
+
+      script.addEventListener('load', () => {
+        if (getShowFn(zoneId)) finish(true);
+      });
+      script.addEventListener('error', () => {
+        console.warn(`[Monetag] SDK script failed to load for zone ${zoneId}`);
+        finish(false);
+      });
+
+      // Poll in case the global is attached after load event
+      let elapsed = 0;
+      const intervalMs = 250;
+      const maxWaitMs = 20000;
+      const timer = setInterval(() => {
+        elapsed += intervalMs;
+        if (getShowFn(zoneId)) {
+          clearInterval(timer);
+          finish(true);
+        } else if (elapsed >= maxWaitMs) {
+          clearInterval(timer);
+          finish(false);
+        }
+      }, intervalMs);
+    } catch (e) {
+      console.warn('[Monetag] ensureMonetagSdkLoaded error:', e);
+      finish(false);
+    }
+  });
+
+  monetagSdkLoading.set(zoneId, loadPromise);
+  return loadPromise;
 }
 
 export function waitForMonetagShowFn(
   zoneId: number,
-  maxWaitMs = 15000
-): Promise<((opts?: Record<string, unknown>) => unknown) | null> {
+  maxWaitMs = 20000
+): Promise<ShowFn | null> {
   return new Promise((resolve) => {
     if (typeof window === 'undefined') {
       resolve(null);
       return;
     }
-    const fnName = `show_${zoneId}`;
-    const w = window as unknown as Record<string, unknown>;
-    if (typeof w[fnName] === 'function') {
-      resolve(w[fnName] as (opts?: Record<string, unknown>) => unknown);
+    const existing = getShowFn(zoneId);
+    if (existing) {
+      resolve(existing);
       return;
     }
     let elapsed = 0;
-    const intervalMs = 300;
+    const intervalMs = 250;
     const timer = setInterval(() => {
       elapsed += intervalMs;
-      if (typeof w[fnName] === 'function') {
+      const fn = getShowFn(zoneId);
+      if (fn) {
         clearInterval(timer);
-        resolve(w[fnName] as (opts?: Record<string, unknown>) => unknown);
+        resolve(fn);
       } else if (elapsed >= maxWaitMs) {
         clearInterval(timer);
         resolve(null);
@@ -127,10 +188,22 @@ export type MonetagShowOptions = {
   /** When true, bypass global cooldown (offerwall rewarded video only). */
   force?: boolean;
   requestVar?: string;
+  /** User / session id for Monetag postback linking */
+  ymid?: string;
 };
 
+function asPromise(result: unknown): Promise<unknown> {
+  if (result && typeof (result as Promise<unknown>).then === 'function') {
+    return result as Promise<unknown>;
+  }
+  // Monetag docs: show always returns a Promise when SDK is healthy.
+  // Non-promise return is not treated as a verified completion.
+  return Promise.reject(new Error('monetag_no_promise'));
+}
+
 /**
- * Show Monetag rewarded interstitial. Resolves true when the SDK reports a show.
+ * Show Monetag rewarded interstitial. Resolves true ONLY when the SDK
+ * Promise resolves after the ad is shown and closed.
  */
 export function triggerMonetagInterstitialAd(
   zoneId: number = MONETAG_INTERSTITIAL_ZONE,
@@ -144,7 +217,11 @@ export function triggerMonetagInterstitialAd(
           return;
         }
 
-        ensureMonetagSdkLoaded(zoneId);
+        const sdkOk = await ensureMonetagSdkLoaded(zoneId);
+        if (!sdkOk) {
+          resolve(false);
+          return;
+        }
 
         const nowGate = Date.now();
         if (!opts.force && nowGate - lastAnyAdShownTime < AD_COOLDOWN_MS) {
@@ -153,37 +230,27 @@ export function triggerMonetagInterstitialAd(
         }
         realAdFiredThisCycle = false;
 
-        const showFn = await waitForMonetagShowFn(zoneId, 15000);
+        const showFn = await waitForMonetagShowFn(zoneId, 20000);
         if (typeof showFn !== 'function') {
-          const legacy = (window as unknown as Record<string, unknown>).show_9087571;
-          if (typeof legacy === 'function') {
-            try {
-              const result = (legacy as () => unknown)();
-              if (result && typeof (result as Promise<unknown>).then === 'function') {
-                (result as Promise<unknown>)
-                  .then(() => resolve(true))
-                  .catch(() => resolve(false));
-              } else {
-                resolve(true);
-              }
-              return;
-            } catch {
-              resolve(false);
-              return;
-            }
-          }
+          console.warn(`[Monetag] show_${zoneId} unavailable`);
           resolve(false);
           return;
         }
 
+        const requestVar = opts.requestVar || 'rewarded_video';
+        const ymid = opts.ymid || `aj_${Date.now()}`;
+        const common = { requestVar, ymid };
+
         try {
-          await showFn({
-            type: 'preload',
-            requestVar: opts.requestVar || 'infeed_ad',
-            catchIfNoFeed: true,
-          });
+          await asPromise(
+            showFn({
+              type: 'preload',
+              timeout: 8,
+              ...common,
+            })
+          );
         } catch {
-          /* preload optional */
+          /* preload optional — still attempt show */
         }
 
         if (!opts.force && Date.now() - lastAnyAdShownTime < AD_COOLDOWN_MS) {
@@ -191,31 +258,16 @@ export function triggerMonetagInterstitialAd(
           return;
         }
 
-        lastAnyAdShownTime = Date.now();
-        lastInterstitialAdTime = lastAnyAdShownTime;
         try {
           const showResult = showFn({
             type: 'end',
-            requestVar: opts.requestVar || 'rewarded_video',
-            catchIfNoFeed: true,
+            ...common,
           });
-          if (showResult && typeof (showResult as Promise<unknown>).then === 'function') {
-            (showResult as Promise<unknown>)
-              .then(() => {
-                lastAnyAdShownTime = Date.now();
-                realAdFiredThisCycle = true;
-                resolve(true);
-              })
-              .catch(() => {
-                lastAnyAdShownTime = Date.now() - (AD_COOLDOWN_MS - 30000);
-                cleanupMonetagDom();
-                resolve(false);
-              });
-          } else {
-            lastAnyAdShownTime = Date.now();
-            realAdFiredThisCycle = true;
-            resolve(true);
-          }
+          await asPromise(showResult);
+          lastAnyAdShownTime = Date.now();
+          lastInterstitialAdTime = lastAnyAdShownTime;
+          realAdFiredThisCycle = true;
+          resolve(true);
         } catch {
           lastAnyAdShownTime = Date.now() - (AD_COOLDOWN_MS - 30000);
           cleanupMonetagDom();
@@ -230,6 +282,21 @@ export function triggerMonetagInterstitialAd(
   });
 }
 
+/** Dedicated rewarded-video helper (always force=true, zone 11377822 by default). */
+export async function showRewardedVideoAd(opts: {
+  zoneId?: number;
+  requestVar?: string;
+  ymid?: string;
+} = {}): Promise<boolean> {
+  const zoneId = opts.zoneId ?? MONETAG_INTERSTITIAL_ZONE;
+  await ensureMonetagSdkLoaded(zoneId);
+  return triggerMonetagInterstitialAd(zoneId, {
+    force: true,
+    requestVar: opts.requestVar || 'offerwall_rewarded',
+    ymid: opts.ymid,
+  });
+}
+
 export function triggerInterstitialAd(force = false) {
   try {
     if (typeof window === 'undefined') return;
@@ -237,8 +304,9 @@ export function triggerInterstitialAd(force = false) {
     if (!force && now - lastInterstitialAdTime < AD_COOLDOWN_MS) return;
     if (!force && now - lastAnyAdShownTime < AD_COOLDOWN_MS) return;
     lastInterstitialAdTime = now;
-    ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL_ZONE);
-    triggerMonetagInterstitialAd(MONETAG_INTERSTITIAL_ZONE).catch(() => {});
+    ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL_ZONE).then(() => {
+      triggerMonetagInterstitialAd(MONETAG_INTERSTITIAL_ZONE).catch(() => {});
+    });
   } catch {
     /* ignore */
   }
@@ -273,8 +341,8 @@ export function triggerFreeCoinAd() {
     if (now - lastFreeCoinAdTime < AD_COOLDOWN_MS) return false;
     if (now - lastAnyAdShownTime < AD_COOLDOWN_MS) return false;
     lastFreeCoinAdTime = now;
-    ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL_ZONE);
-    triggerMonetagInterstitialAd(MONETAG_INTERSTITIAL_ZONE)
+    ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL_ZONE)
+      .then(() => triggerMonetagInterstitialAd(MONETAG_INTERSTITIAL_ZONE))
       .then((shown) => {
         if (!shown) cleanupMonetagDom();
       })

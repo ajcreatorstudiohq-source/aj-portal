@@ -26,7 +26,7 @@ function dayKeyUtc() {
  * Auth: Bearer <Firebase ID token>
  *
  * action: 'prepare'  → create short-lived session (anti-replay)
- * action: 'complete' → validate session + credit via $1–$1.50 split (`offerwall_video`)
+ * action: 'complete' → require networkShown + credit via offerwall_video
  */
 export async function POST(request: Request) {
   try {
@@ -83,8 +83,6 @@ export async function POST(request: Request) {
         sessionId,
         expiresAt,
         remainingToday: Math.max(0, OFFERWALL_VIDEO_MAX_DAILY - dailyCount),
-        userRewardUsd: { min: 1.0, max: 1.5 },
-        providerPoolUsd: { min: 5.0, max: 7.0 },
       });
     }
 
@@ -95,6 +93,19 @@ export async function POST(request: Request) {
     const sessionId = String(body.sessionId || '').trim();
     if (!sessionId) {
       return NextResponse.json({ ok: false, error: 'missing_session' }, { status: 400 });
+    }
+
+    // Strict: Monetag SDK must report a successful show/close before credit.
+    const networkShown = body.networkShown === true;
+    if (!networkShown) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'ad_not_verified',
+          message: 'Watch the full rewarded video before coins can be credited.',
+        },
+        { status: 403 }
+      );
     }
 
     const sessionRef = doc(db, 'ad_reward_sessions', sessionId);
@@ -130,9 +141,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Require network-reported show OR allow fallback completion after prepare
-    // (inventory gaps still credit once per session — capped daily).
-    const networkShown = !!body.networkShown;
     const slot = typeof session.slot === 'number' ? session.slot : dailyCount;
     const txId = `offerwall_video_${user.uid}_${dayKey}_${slot}`;
 
@@ -144,7 +152,7 @@ export async function POST(request: Request) {
       meta: {
         placement: session.placement || placement,
         sessionId,
-        networkShown,
+        networkShown: true,
         via: 'rewarded_video',
         dayKey,
         ...(body.meta && typeof body.meta === 'object' ? body.meta : {}),
@@ -164,7 +172,7 @@ export async function POST(request: Request) {
     await updateDoc(sessionRef, {
       consumed: true,
       completedAt: serverTimestamp(),
-      networkShown,
+      networkShown: true,
       txId,
     });
 
@@ -202,7 +210,7 @@ export async function POST(request: Request) {
       remainingToday: remaining,
       message: result.duplicate
         ? 'Video reward already claimed'
-        : `Video complete! +${result.balanceCredited} AJ Coins ($${Number(result.split?.userUsd).toFixed(2)}). Platform kept $${Number(result.split?.adminUsd).toFixed(2)}.`,
+        : `Video complete! +${result.balanceCredited} AJ Coins`,
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'rewarded_failed';
@@ -214,8 +222,7 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     maxDaily: OFFERWALL_VIDEO_MAX_DAILY,
-    userRewardUsd: { min: 1.0, max: 1.5 },
-    providerPoolUsd: { min: 5.0, max: 7.0 },
     source: 'offerwall_video',
+    requiresNetworkShown: true,
   });
 }

@@ -134,7 +134,7 @@ export async function POST(request: Request) {
       totalPoolUsd: outcome.split.totalUsd,
       message: outcome.duplicate
         ? 'Milestone already claimed'
-        : `Milestone L${level} complete! +${outcome.split.userCoins} AJ Coins ($${outcome.split.userUsd.toFixed(2)})`,
+        : `Milestone L${level} complete! +${outcome.split.userCoins} AJ Coins`,
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'milestone_failed';

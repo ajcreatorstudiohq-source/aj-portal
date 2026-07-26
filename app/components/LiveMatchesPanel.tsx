@@ -136,7 +136,7 @@ export default function LiveMatchesPanel({ youtubeApiKey, onAlert, onWatchEarn }
       </div>
 
       <p className="text-[10px] text-gray-400">
-        Pakistan cricket & live match streams. Watch 60s+ to unlock viewing rewards ($1–$1.50 split).
+        Pakistan cricket & live match streams. Watch 60s+ to unlock viewing coin rewards.
       </p>
 
       {playable && (

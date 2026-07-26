@@ -12,6 +12,11 @@
 export const COIN_RATE = 100; // $1 buy → 100 AJ Coins
 export const CASH_RATE = 500; // 500 coins → $1 cash-out display
 
+/** New-user wallet credit on first profile create */
+export const SIGNUP_BONUS_COINS = 100;
+/** Coins credited to the referrer per successful referral */
+export const REFERRAL_BONUS_COINS = 50;
+
 /** User-facing reward band (USD) for offerwall + level milestones */
 export const USER_REWARD_USD_MIN = 1.0;
 export const USER_REWARD_USD_MAX = 1.5;

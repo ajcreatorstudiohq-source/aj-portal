@@ -15,7 +15,6 @@ import {
   AD_COOLDOWN_MS,
 } from '../lib/ads-config';
 import { trackAdEvent } from '../lib/ad-client';
-import { earnReward } from '../lib/client-rewards';
 import {
   cleanupMonetagDom,
   ensureMonetagSdkLoaded,
@@ -123,8 +122,7 @@ export default function HubEarnPanel({
         return;
       }
       onAlert(
-        data.message ||
-          `Downloaded! +${data.creditedCoins || 0} AJ Coins ($${Number(data.userUsd || 0).toFixed(2)})`,
+        data.message || `Downloaded! +${data.creditedCoins || 0} AJ Coins`,
         '💰'
       );
       await trackAdEvent(
@@ -146,7 +144,7 @@ export default function HubEarnPanel({
   };
 
   const downloadPortalApp = async () => {
-    if (!user) return onAlert('Please sign in to track your download reward', '🔒');
+    if (!user) return onAlert('Please sign in first', '🔒');
     setApkBusy(true);
     try {
       await trackAdEvent(
@@ -159,34 +157,12 @@ export default function HubEarnPanel({
         user
       );
 
-      // Open APK / PWA install target
+      // Open install target only — no free coins on click (install must be verified).
       window.open(apkUrl, '_blank', 'noopener,noreferrer');
-
-      const day = new Date().toISOString().slice(0, 10);
-      const result = await earnReward(user, 'app_download', {
-        idempotencyKey: `${user.uid}_apk_${day}`,
-        meta: { channel: 'portal_apk', apkUrl },
-      });
-
-      if (!result.ok) {
-        if (result.error === 'daily_limit' || result.error === 'invalid_source') {
-          // invalid_source means older server — still opened download
-          onAlert(
-            result.error === 'invalid_source'
-              ? 'App download started!'
-              : 'Daily app-download reward already claimed. App link opened.',
-            result.error === 'invalid_source' ? '📲' : 'ℹ️'
-          );
-        } else {
-          onAlert(result.error || 'Download tracked', '📲');
-        }
-      } else {
-        onAlert(
-          result.message ||
-            `App download tracked! +${result.creditedCoins || 0} AJ Coins`,
-          result.duplicate ? 'ℹ️' : '💰'
-        );
-      }
+      onAlert(
+        'Install started. Coins unlock after a verified install or completed offer — not from a click alone.',
+        '📲'
+      );
       onRefreshUser?.();
     } catch (e: unknown) {
       onAlert(e instanceof Error ? e.message : 'Download failed', '⚠️');
@@ -297,9 +273,8 @@ export default function HubEarnPanel({
           <div className="min-w-0 flex-1">
             <p className="text-sm font-black text-white">Download AJ Super Portal App</p>
             <p className="text-[11px] text-gray-300 mt-0.5 leading-relaxed">
-              Install the app / PWA. Tracked download unlocks{' '}
-              <span className="text-amber-300 font-bold">$1.00–$1.50</span> wallet credit once per day
-              (same $5–$7 pool split).
+              Install the app / PWA. Coin rewards unlock only after a verified install — opening the
+              link alone does not credit coins.
             </p>
           </div>
         </div>
@@ -372,7 +347,7 @@ export default function HubEarnPanel({
                 <p className="text-[9px] text-gray-400 truncate">
                   {installed
                     ? `Installed · Lv ${gameProgress[game.id]?.level || 0}`
-                    : 'Download → unlock $1–$1.50 install reward'}
+                    : 'Download & install → unlock coin reward'}
                 </p>
                 {busy && pct > 0 && pct < 100 && (
                   <div className="mt-1.5 h-1 rounded-full bg-white/10 overflow-hidden">

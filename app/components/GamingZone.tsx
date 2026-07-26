@@ -59,8 +59,6 @@ export default function GamingZone({
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [downloadPct, setDownloadPct] = useState<Record<string, number>>({});
-  const [offerBusy, setOfferBusy] = useState(false);
-
   const catalog = useMemo(() => GAME_CATALOG, []);
 
   const isInstalled = useCallback(
@@ -115,11 +113,7 @@ export default function GamingZone({
       if (data.duplicate) {
         onAlert('Milestone already claimed', 'ℹ️');
       } else {
-        onAlert(
-          data.message ||
-            `+${data.creditedCoins} AJ Coins ($${Number(data.userUsd).toFixed(2)})`,
-          '💰'
-        );
+        onAlert(data.message || `+${data.creditedCoins} AJ Coins`, '💰');
       }
       onRefreshUser?.();
     } catch (e: unknown) {
@@ -192,30 +186,22 @@ export default function GamingZone({
     else open();
   };
 
-  const completeOffer = async (offerId: string, note: string) => {
+  const openPartnerOffer = (offerId: string) => {
     if (!user) return onAlert('Please sign in first', '🔒');
-    setOfferBusy(true);
-    try {
-      const data = await authFetch('/api/offerwall/complete', user, {
-        method: 'POST',
-        body: JSON.stringify({ offerId, note }),
-      });
-      onAlert(
-        data.message ||
-          `+${data.creditedCoins} AJ Coins — platform kept $${Number(data.adminUsd).toFixed(2)} of $${Number(data.totalPoolUsd).toFixed(2)} pool`,
-        '💰'
-      );
-      onRefreshUser?.();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'offer_failed';
-      if (msg === 'daily_limit') {
-        onAlert('Daily offerwall limit reached. Try again tomorrow.', '⏳');
-      } else {
-        onAlert(`Offerwall: ${msg}`, '⚠️');
-      }
-    } finally {
-      setOfferBusy(false);
-    }
+    trackAdEvent(
+      {
+        event: 'click',
+        placement: 'offerwall_rewarded_video',
+        zoneId: MONETAG_INTERSTITIAL_ZONE,
+        meta: { action: 'open_partner_offer', offerId },
+      },
+      user
+    ).catch(() => {});
+    window.open(OFFERWALL_PUBLIC.wallUrl, '_blank', 'noopener,noreferrer');
+    onAlert(
+      'Finish the partner offer in the opened tab. Coins credit only after verified completion — no free tap rewards.',
+      '🔗'
+    );
   };
 
   return (
@@ -309,8 +295,9 @@ export default function GamingZone({
               <p className="text-sm font-black text-white">Offerwall Rewards</p>
             </div>
             <p className="text-[11px] text-gray-300 leading-relaxed">
-              Complete verified offers to earn <span className="text-amber-300 font-bold">$1.00–$1.50</span> in AJ Coins.
-              Of each <span className="text-white font-bold">$5–$7</span> provider payout, the remainder is logged as platform revenue.
+              Complete verified partner offers or watch a full rewarded video to earn{' '}
+              <span className="text-amber-300 font-bold">AJ Coins</span>. No credit without real task
+              completion.
             </p>
           </div>
 
@@ -348,14 +335,14 @@ export default function GamingZone({
           ].map((offer) => (
             <button
               key={offer.id}
-              disabled={offerBusy}
-              onClick={() => completeOffer(offer.id, offer.note)}
-              className="w-full flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl p-4 active:scale-95 text-left disabled:opacity-50"
+              type="button"
+              onClick={() => openPartnerOffer(offer.id)}
+              className="w-full flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl p-4 active:scale-95 text-left"
             >
               <Trophy size={18} className="text-amber-400" />
               <div className="flex-1">
                 <p className="text-sm font-black text-white">{offer.title}</p>
-                <p className="text-[10px] text-gray-400">{offer.note} · ~$1.00–$1.50 credit</p>
+                <p className="text-[10px] text-gray-400">{offer.note} · verified completion only</p>
               </div>
               <ChevronRight size={16} className="text-gray-500" />
             </button>
@@ -372,8 +359,7 @@ export default function GamingZone({
           <div className="rounded-2xl border border-pink-500/20 bg-pink-950/20 p-3">
             <p className="text-[11px] text-gray-300 leading-relaxed">
               <span className="text-pink-300 font-black">Download & Level Unlock:</span> No free game dumps.
-              Download/install a game (earns $1–$1.50 once), then clear milestone levels for more rewards.
-              Of each $5–$7 pool, the rest is platform revenue.
+              Download/install a game (one-time coin reward), then clear milestone levels for more AJ Coins.
             </p>
           </div>
 
