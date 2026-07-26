@@ -7,6 +7,7 @@
     
     <!-- AJ SDK CONNECTED (DO NOT REMOVE) -->
     <script src="../../aj-sdk.js"></script>
+    <script src="../aj-progress.js"></script>
 
     <!-- Stylish but Readable Font -->
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
@@ -512,7 +513,7 @@ function update() {
         }
         obstacles.forEach((o, i) => {
             let oldZ = o.z; o.z -= speed * 6; let newZ = o.z;
-            if(o.z < 0.5) { obstacles.splice(i, 1); score += 1; if(score >= nextLevelAt) { playSfx('levelup'); level++; nextLevelAt += 300; speed += 0.005; } document.getElementById('scoreVal').innerText = score + " / " + nextLevelAt; }
+            if(o.z < 0.5) { obstacles.splice(i, 1); score += 1; if(score >= nextLevelAt) { playSfx('levelup'); level++; nextLevelAt += 300; speed += 0.005; try { if (window.ajReportLevelOnce) window.ajReportLevelOnce(level, 'racer'); } catch(e) {} } document.getElementById('scoreVal').innerText = score + " / " + nextLevelAt; }
             
             // Collision zone stays synced with ship position
             if (o.z < 2.5 && o.z > 1.9) {

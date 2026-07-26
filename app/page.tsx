@@ -17,6 +17,8 @@
 import Script from 'next/script';
 import React, { useState, useEffect, useRef, Component } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import GamingZone from './components/GamingZone';
+import type { GameProgressDoc } from './lib/economy';
 
 // ============================================================
 // GLOBAL ERROR SHIELD (FIX: "Page couldn't load" error)
@@ -2228,6 +2230,8 @@ export function AJSuperPortal() {
   const [walletTab,   setWalletTab]    = useState('main');
   const [socialScreen, setSocialScreen] = useState('hub');
   const [selectedGame, setSelectedGame] = useState<string|null>(null);
+  const [unlockedGames, setUnlockedGames] = useState<string[]>([]);
+  const [gameProgress, setGameProgress] = useState<Record<string, GameProgressDoc>>({});
 
   // ── AUTH
   const [user,     setUser]     = useState<any>(null);
@@ -2885,6 +2889,9 @@ export function AJSuperPortal() {
               followers:0, following:0,
               postsCount:0, followersCount:0, followingCount:0, totalLikes:0,
               status:'online', fcmToken:'',
+              // Install & Level Unlock + Offerwall economy fields
+              unlockedGames: [],
+              gameProgress: {},
             });
             setHasSocialProfile(true);
             // FIX: Naye user ke liye camera/mic permission prompt show karo
@@ -2892,9 +2899,12 @@ export function AJSuperPortal() {
           }
           onSnapshot(userRef, s => {
             if (s.exists()) {
-              setBalance(s.data().balance||0);
-              setBotTier(s.data().botTier||'none');
-              setInvested(s.data().invested||0);
+              const d = s.data();
+              setBalance(d.balance||0);
+              setBotTier(d.botTier||'none');
+              setInvested(d.invested||0);
+              setUnlockedGames(Array.isArray(d.unlockedGames) ? d.unlockedGames : []);
+              setGameProgress((d.gameProgress && typeof d.gameProgress === 'object') ? d.gameProgress : {});
             }
           });
         } catch(e) { console.error('Auth init error', e); }
@@ -3011,8 +3021,8 @@ export function AJSuperPortal() {
 
   // FIX: REMOVED duplicate reels/posts subscription — main listeners at socialScreen change handle this correctly.
 
-  // ── GAME BRIDGE: ignore score messages — games never credit portal wallet / cash-out.
-  // Local in-game tokens stay inside each game HTML only (unlocks / fun).
+  // ── GAME BRIDGE: raw scores never credit wallet.
+  // Level milestones are handled by GamingZone → /api/games/milestone (Install & Level Unlock).
   useEffect(() => {
     if (!user) return;
     const handleGameMessage = (e: MessageEvent) => {
@@ -3023,15 +3033,13 @@ export function AJSuperPortal() {
         e.data.type === "GAME_END" || e.data.type === "game_end" ||
         e.data.type === "GAME_CRASH" || e.data.type === "game_crash"
       ) {
-        // Intentionally no Firestore balance writes — entertainment only.
+        // No free game earnings — wallet credits only via milestone/offerwall APIs.
         return;
       }
     };
     window.addEventListener("message", handleGameMessage);
     return () => { window.removeEventListener("message", handleGameMessage); };
   }, [user]);
-
-  // Game iframes own their local coin economy — do NOT inject a parent score bridge.
 
   // PK Timer
   useEffect(() => {
@@ -5132,37 +5140,29 @@ Wallet → Purchase 💰`,
 • Posts, Followers, Likes`,
     },
     gaming: {
-      en:  `🎮 AJ Gaming Zone — Play for Fun!\\\\\\\\
+      en:  `🎮 AJ Gaming Zone — Install & Level Unlock\\\\\\\\
 \\\\\\\\
-• Access: Tap "Gaming" from the main Hub\\\\\\\\
-• Games: Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape, Ludo Elite Royal\\\\\\\\
-• In-game tokens are LOCAL ONLY — for levels/unlocks inside each game\\\\\\\\
-• Games do NOT credit AJ Coins or cash withdrawal\\\\\\\\
-• Earn real AJ Coins from posts, gifts, live & referrals — not from games`,
-      hin: `🎮 AJ Gaming Zone:\\\\\\\\
+• Tap Gaming → Install a game to unlock play\\\\\\\\
+• Reach milestone levels (e.g. L3 / L5 / L10) to earn $1.00–$1.50 in AJ Coins\\\\\\\\
+• Of each $5–$7 reward pool, the rest is platform revenue\\\\\\\\
+• Offerwall tab: complete verified offers for the same split\\\\\\\\
+• Local in-game tokens stay for fun/unlocks only — no free wallet dumps`,
+      hin: `🎮 Gaming — Install & Level Unlock:\\\\\\\\
 \\\\\\\\
-• Main Hub → "Gaming"\\\\\\\\
-• Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape, Ludo Elite Royal\\\\\\\\
-• Local tokens sirf game ke andar (levels/unlocks)\\\\\\\\
-• Games se AJ Coins / cash nahi milta`,
-      ur:  `🎮 Gaming:\\\\\\\\
+• Game install karo, milestone levels clear karo\\\\\\\\
+• Reward: $1.00–$1.50 AJ Coins (pool $5–$7, baaki platform)\\\\\\\\
+• Offerwall bhi same split use karta hai`,
+      ur:  `🎮 Gaming — Install & Level Unlock\\\\\\\\
 \\\\\\\\
-• Main Hub → "Gaming"\\\\\\\\
-• 6 games available + Ludo\\\\\\\\
-• Local tokens صرف گیم کے اندر\\\\\\\\
-• Games سے AJ Coins / cash نہیں`,
-      hi:  `🎮 Gaming:\\\\\\\\
+• گیم انسٹال کریں، لیول مکمل کریں\\\\\\\\
+• انعام: $1.00–$1.50 (پول $5–$7)`,
+      hi:  `🎮 Gaming — Install & Level Unlock\\\\\\\\
 \\\\\\\\
-• Main Hub → "Gaming"\\\\\\\\
-• 6 games + Ludo\\\\\\\\
-• Local tokens केवल गेम के अंदर\\\\\\\\
-• Games से AJ Coins / cash नहीं`,
-      ar:  `🎮 Gaming:\\\\\\\\
+• गेम Install करें, milestone levels पूरे करें\\\\\\\\
+• इनाम: $1.00–$1.50 AJ Coins`,
+      ar:  `🎮 Gaming — تثبيت ومستويات\\\\\\\\
 \\\\\\\\
-• "Gaming" من الرئيسية\\\\\\\\
-• 6 ألعاب + Ludo\\\\\\\\
-• الرموز المحلية داخل اللعبة فقط\\\\\\\\
-• الألعاب لا تمنح AJ Coins أو سحب نقدي`,
+• ثبّت اللعبة ثم أكمل المستويات للحصول على $1.00–$1.50`,
     },
     refer: {
       en:  `👥 Referral System:\\\\\\\\
@@ -5535,16 +5535,16 @@ Tip: Social Hub se copy karo 📤`,
           {/* Quick Nav Grid — 4 Main Cards with Details */}
           <div className="px-4 pt-4 grid grid-cols-2 gap-4">
             {/* GAMES Card */}
-            <button onClick={() => navigateWithAd('games')} className="flex flex-col items-start gap-3 bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-purple-500/50 shadow-[0_0_20px_rgba(147,51,234,0.2)]">
+            <button onClick={() => navigateWithAd('games')} className="flex flex-col items-start gap-3 bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-purple-500/50 shadow-[0_0_20px_rgba(147,51,234,0.2)]" title="Install games, clear milestones, earn via Offerwall">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-[0_0_16px_rgba(147,51,234,0.5)]">
                 <span className="text-2xl">🎮</span>
               </div>
               <div className="text-left">
                 <p className="text-white font-black text-sm">Gaming Zone</p>
-                <p className="text-[10px] text-gray-400 mt-0.5">Play & earn AJ Coins. 5+ games available with auto-score bridge.</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">Install games, clear milestones, earn via Offerwall ($1–$1.50).</p>
               </div>
               <div className="flex items-center gap-1 mt-1">
-                <span className="text-[8px] text-purple-400 font-black bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-full">5+ GAMES</span>
+                <span className="text-[8px] text-purple-400 font-black bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-full">INSTALL · LEVELS</span>
                 <ChevronRight size={12} className="text-purple-400"/>
               </div>
             </button>
@@ -7189,95 +7189,19 @@ Tip: Social Hub se copy karo 📤`,
 
 
       {/* ══════════════════════════════════════════════════════
-          GAMES SCREEN — FIX #7: card click triggers interstitial
+          GAMES + OFFERWALL — Install & Level Unlock progression
       ══════════════════════════════════════════════════════ */}
       {screen === 'games' && (
-        <div className="flex flex-col min-h-screen bg-[#050505]">
-          <div className="sticky top-0 z-40 bg-[#050505]/95 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center gap-3">
-            <button onClick={() => { setScreen('hub'); setSelectedGame(null); }} className="p-1.5 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all">
-              <ArrowLeft size={14} className="text-gray-400"/>
-            </button>
-            <div style={{ position:'relative', zIndex:50 }}>
-              <img src="/logo.png" alt="AJ" className="w-8 h-8 rounded-xl shadow-[0_0_14px_rgba(236,72,153,0.5)]"/>
-            </div>
-            <h1 className="text-sm font-black bg-gradient-to-r from-pink-500 to-cyan-400 bg-clip-text text-transparent uppercase tracking-widest">Gaming Zone</h1>
-            <button onClick={() => { 
-              const adOk = triggerFreeCoinAd(); 
-              if (adOk) {
-                setVvipAlert({msg:'🎬 Thanks for watching! Games stay free for fun — no wallet coins from Gaming Zone.', icon:'🎮'}); 
-              } else {
-                setVvipAlert({msg:'⏳ Please wait a few minutes before watching another ad.', icon:'⏱️'}); 
-              }
-            }} className="ml-auto bg-gradient-to-r from-yellow-400 to-orange-500 text-black text-[9px] font-black px-3 py-1.5 rounded-xl active:scale-90 transition-all shadow-[0_0_10px_rgba(234,179,8,0.4)]">
-              🎬 Watch Ad
-            </button>
-</div>
-
-          {!selectedGame ? (
-            <div className="px-4 py-4 space-y-3">
-              {/* Video Ad — Games Screen */}
-              {[ { id:'rider',    name:'Rider King',       emoji:'🏍️', desc:'Dodge obstacles — local tokens only', url:'/games/rider-king/index.html' },
-                { id:'racer',    name:'Pulse Racer',      emoji:'🏎️', desc:'Speed racing — entertainment only', url:'/games/pulse-racer/index.html' },
-                { id:'subsea',   name:'Subsea Surge',     emoji:'🐠', desc:'Underwater adventure — local coins', url:'/games/subsea-surge/index.html' },
-                { id:'neon',     name:'Neon Strike',      emoji:'⚡', desc:'Neon arcade — no wallet credit', url:'/games/neon-strike/index.html' },
-                { id:'volcano',  name:'Volcano Escape',   emoji:'🌋', desc:'Escape the eruption — fun only', url:'/games/volcano-escape/index.html' },
-                { id:'ludo',     name:'Ludo Elite Royal', emoji:'🎲', desc:'Board classic with transition ads', url:'/games/ludo-elite-royal/index.html' },
-                { id:'puck',     name:'Puck Pulse Elite', emoji:'🏒', desc:'Air hockey — COMING SOON',    url:'' },
-              ].map(game => (
-                <button
-                  key={game.id}
-                  onClick={() => {
-                    if (!game.url) return setVvipAlert({msg:`${game.name} coming soon! 🔜`});
-                    // Ludo: interstitial/rewarded transition before gameplay (in-game ads handle the rest)
-                    if (game.id === 'ludo') {
-                      navigateWithAdOverlay(() => setSelectedGame(game.url));
-                      return;
-                    }
-                    setSelectedGame(game.url);
-                  }}
-                  className="w-full flex items-center gap-4 bg-white/5 border border-white/10 rounded-2xl p-4 active:scale-95 transition-all hover:border-pink-500/30"
-                >
-                  <span className="text-3xl">{game.emoji}</span>
-                  <div className="text-left flex-1">
-                    <p className="text-sm font-black text-white">{game.name}</p>
-                    <p className="text-[10px] text-gray-400">{game.desc}</p>
-                  </div>
-                  <ChevronRight size={16} className="text-gray-500"/>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="flex-1 flex flex-col">
-              <div className="px-4 py-2 flex items-center gap-3">
-                <button onClick={() => {
-                  cleanupMonetagDom();
-                  setSelectedGame(null);
-                }} className="flex items-center gap-1.5 text-[10px] text-gray-400 font-black active:scale-90 transition-all">
-                  <ArrowLeft size={12}/> Back to Games
-                </button>
-              </div>
-              {/* Game iframe — no wallet score bridge; local tokens stay in-game */}
-              {selectedGame ? (
-                <iframe
-                  key={selectedGame}
-                  src={selectedGame}
-                  className="flex-1 w-full border-0 bg-black"
-                  allow="autoplay; fullscreen; gyroscope; accelerometer; clipboard-write; encrypted-media; picture-in-picture; camera; microphone"
-                  allowFullScreen
-                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-pointer-lock allow-top-navigation-by-user-activation allow-downloads allow-presentation"
-                  referrerPolicy="no-referrer-when-downgrade"
-                  title="Game"
-                  style={{ minHeight: 'calc(100vh - 120px)', display:'block' }}
-                  onError={() => setVvipAlert({msg:'Game failed to load. Try another game.',icon:'⚠️'})}
-                />
-              ) : (
-                <div className="flex-1 flex items-center justify-center">
-                  <p className="text-gray-400">Loading game...</p>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+        <GamingZone
+          user={user}
+          unlockedGames={unlockedGames}
+          gameProgress={gameProgress}
+          onBack={() => { setScreen('hub'); setSelectedGame(null); }}
+          onAlert={(msg, icon) => setVvipAlert({ msg, icon })}
+          onRefreshUser={() => { /* live via onSnapshot */ }}
+          onOpenWithAd={(open) => navigateWithAdOverlay(open)}
+          cleanupAds={cleanupMonetagDom}
+        />
       )}
 
       {/* ══════════════════════════════════════════════════════

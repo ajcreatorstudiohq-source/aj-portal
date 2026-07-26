@@ -7,6 +7,7 @@
     
     <!-- AJ SDK CONNECTED (DO NOT REMOVE) -->
     <script src="../../aj-sdk.js"></script>
+    <script src="../aj-progress.js"></script>
     
     <!-- Firebase RTDB for online multiplayer + voice signaling -->
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -672,6 +673,7 @@ async function triggerMonetagInterstitialAd(zoneId) {
 function ajShowAd() {
     return triggerMonetagInterstitialAd(MONETAG_ZONE_ID);
 }
+let ludoPortalWins = parseInt(localStorage.getItem("ludo_portal_wins") || "0", 10) || 0;
 function ajSendScore(points) {
     // Local prestige only — do NOT credit AJ Super Portal wallet / cash-out.
     try {
@@ -1420,7 +1422,7 @@ function handleGameEnd() {
     if (winnersRank.includes(2)) rank = winnersRank.indexOf(2);
     else if (winnersRank.includes(myColorIdx)) rank = winnersRank.indexOf(myColorIdx);
     let winAmt = 0, title = "", sub = "";
-    if (rank === 0) { winAmt = Math.floor(selectedLevel.fee * 2.5); title = "CHAMPION! 🏆"; sub = "You won the match!"; }
+    if (rank === 0) { winAmt = Math.floor(selectedLevel.fee * 2.5); title = "CHAMPION! 🏆"; sub = "You won the match!"; try { ludoPortalWins += 1; localStorage.setItem("ludo_portal_wins", String(ludoPortalWins)); if (window.ajReportLevelOnce) window.ajReportLevelOnce(ludoPortalWins, "ludo"); } catch(e) {} }
     else if (rank === 1) { winAmt = Math.floor(selectedLevel.fee * 1.0); title = "2ND PLACE! 🥈"; sub = "Great game!"; }
     else if (rank === 2) { winAmt = Math.floor(selectedLevel.fee * 0.5); title = "3RD PLACE! 🥉"; sub = "Not bad!"; }
     else { title = "GAME OVER"; sub = "Better luck next time!"; }

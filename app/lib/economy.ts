@@ -1,0 +1,194 @@
+/**
+ * AJ Super Portal — economy, games catalog, and revenue-split constants.
+ *
+ * Offerwall / milestone model:
+ *   Provider average payout pool: $5.00 – $7.00 USD
+ *   User wallet credit:           $1.00 – $1.50 USD equivalent
+ *   Platform / admin revenue:     remainder of the pool
+ *
+ * Coin conversion (purchase rate): $1 USD = COIN_RATE AJ Coins
+ */
+
+export const COIN_RATE = 100; // $1 buy → 100 AJ Coins
+export const CASH_RATE = 500; // 500 coins → $1 cash-out display
+
+/** User-facing reward band (USD) for offerwall + level milestones */
+export const USER_REWARD_USD_MIN = 1.0;
+export const USER_REWARD_USD_MAX = 1.5;
+
+/** Typical provider / offer payout pool (USD) before split */
+export const PROVIDER_PAYOUT_USD_MIN = 5.0;
+export const PROVIDER_PAYOUT_USD_MAX = 7.0;
+
+export type GameCatalogItem = {
+  id: string;
+  name: string;
+  emoji: string;
+  desc: string;
+  url: string;
+  /** Levels that unlock real wallet rewards after install */
+  milestones: number[];
+  comingSoon?: boolean;
+};
+
+export const GAME_CATALOG: GameCatalogItem[] = [
+  {
+    id: 'rider',
+    name: 'Rider King',
+    emoji: '🏍️',
+    desc: 'Install → clear levels → earn at milestones',
+    url: '/games/rider-king/index.html',
+    milestones: [3, 5, 10],
+  },
+  {
+    id: 'racer',
+    name: 'Pulse Racer',
+    emoji: '🏎️',
+    desc: 'Install → clear levels → earn at milestones',
+    url: '/games/pulse-racer/index.html',
+    milestones: [3, 5, 10],
+  },
+  {
+    id: 'subsea',
+    name: 'Subsea Surge',
+    emoji: '🐠',
+    desc: 'Install → clear levels → earn at milestones',
+    url: '/games/subsea-surge/index.html',
+    milestones: [3, 5, 10],
+  },
+  {
+    id: 'neon',
+    name: 'Neon Strike',
+    emoji: '⚡',
+    desc: 'Install → clear levels → earn at milestones',
+    url: '/games/neon-strike/index.html',
+    milestones: [3, 5, 10],
+  },
+  {
+    id: 'volcano',
+    name: 'Volcano Escape',
+    emoji: '🌋',
+    desc: 'Install → clear levels → earn at milestones',
+    url: '/games/volcano-escape/index.html',
+    milestones: [3, 5, 10],
+  },
+  {
+    id: 'ludo',
+    name: 'Ludo Elite Royal',
+    emoji: '🎲',
+    desc: 'Install → win matches → earn at milestones',
+    url: '/games/ludo-elite-royal/index.html',
+    milestones: [1, 3, 5],
+  },
+  {
+    id: 'puck',
+    name: 'Puck Pulse Elite',
+    emoji: '🏒',
+    desc: 'Air hockey — COMING SOON',
+    url: '',
+    milestones: [],
+    comingSoon: true,
+  },
+];
+
+export type GameProgressDoc = {
+  installed: boolean;
+  installedAt?: unknown;
+  level: number;
+  claimedMilestones: number[];
+  lastLevelAt?: unknown;
+};
+
+export type UserEconomyFields = {
+  balance: number;
+  unlockedGames: string[];
+  gameProgress: Record<string, GameProgressDoc>;
+};
+
+export type RewardSplit = {
+  totalUsd: number;
+  userUsd: number;
+  adminUsd: number;
+  userCoins: number;
+  adminCoins: number;
+};
+
+function clamp(n: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, n));
+}
+
+/** Stable 0–1 hash from a string (for deterministic reward bands per tx). */
+export function hashUnit(seed: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return ((h >>> 0) % 10000) / 10000;
+}
+
+/**
+ * Compute user / admin split from a $5–$7 pool with $1–$1.50 user credit.
+ * Deterministic when `seed` is provided (idempotent postbacks).
+ */
+export function computeRewardSplit(seed: string): RewardSplit {
+  const u = hashUnit(seed);
+  const v = hashUnit(seed + ':admin');
+  const totalUsd =
+    PROVIDER_PAYOUT_USD_MIN +
+    u * (PROVIDER_PAYOUT_USD_MAX - PROVIDER_PAYOUT_USD_MIN);
+  let userUsd =
+    USER_REWARD_USD_MIN +
+    v * (USER_REWARD_USD_MAX - USER_REWARD_USD_MIN);
+  userUsd = clamp(userUsd, USER_REWARD_USD_MIN, Math.min(USER_REWARD_USD_MAX, totalUsd - 0.5));
+  const adminUsd = Number((totalUsd - userUsd).toFixed(4));
+  const userCoins = Math.floor(userUsd * COIN_RATE);
+  const adminCoins = Math.floor(adminUsd * COIN_RATE);
+  return {
+    totalUsd: Number(totalUsd.toFixed(4)),
+    userUsd: Number(userUsd.toFixed(4)),
+    adminUsd,
+    userCoins,
+    adminCoins,
+  };
+}
+
+export function getGameById(gameId: string): GameCatalogItem | undefined {
+  return GAME_CATALOG.find((g) => g.id === gameId);
+}
+
+export function isValidMilestone(gameId: string, level: number): boolean {
+  const game = getGameById(gameId);
+  if (!game || game.comingSoon) return false;
+  return game.milestones.includes(level);
+}
+
+/** Public offerwall config (safe for client bundles — NEXT_PUBLIC only) */
+export const OFFERWALL_PUBLIC = {
+  wallUrl:
+    process.env.NEXT_PUBLIC_OFFERWALL_URL ||
+    'https://omg10.com/4/11280173',
+};
+
+/** Server-only offerwall config — import only from API routes / server code */
+export function getOfferwallServerConfig() {
+  return {
+    wallUrl: OFFERWALL_PUBLIC.wallUrl,
+    postbackSecret:
+      process.env.OFFERWALL_POSTBACK_SECRET || 'aj-offerwall-dev-secret-change-me',
+    maxDailyCompletions: Number(process.env.OFFERWALL_MAX_DAILY || 5),
+  };
+}
+
+/** @deprecated use OFFERWALL_PUBLIC or getOfferwallServerConfig() */
+export const OFFERWALL_DEFAULTS = {
+  get wallUrl() {
+    return OFFERWALL_PUBLIC.wallUrl;
+  },
+  get postbackSecret() {
+    return getOfferwallServerConfig().postbackSecret;
+  },
+  get maxDailyCompletions() {
+    return getOfferwallServerConfig().maxDailyCompletions;
+  },
+};

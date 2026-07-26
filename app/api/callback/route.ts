@@ -12,14 +12,14 @@ export async function POST(request: Request) {
             const userId = body.order_id; 
             const payAmount = parseFloat(body.price_amount); 
             
-            // 1 OMR = 200 Coins Logic
-            const coinsToAdd = Math.floor(payAmount * 200); 
+            // Align with portal COIN_RATE ($1 → 100 AJ Coins)
+            const coinsToAdd = Math.floor(payAmount * 100);
 
             const userRef = doc(db, "users", userId);
             
-            // Automatic Firebase update
+            // Credit main wallet balance (UI reads `balance`, not `earnedBalance`)
             await updateDoc(userRef, {
-                earnedBalance: increment(coinsToAdd)
+                balance: increment(coinsToAdd)
             });
 
             console.log(`✅ Success: ${coinsToAdd} coins added to ${userId}`);
