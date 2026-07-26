@@ -12,7 +12,7 @@ Engine: `computeRewardSplit(seed)` → `applySplitReward` / `POST /api/rewards/e
 
 ### Sources (`reward_sources.ts`)
 
-`game_install` · `game_milestone` · `offerwall` · `offerwall_video` · `tiktok_post` · `pulse_post` · `live_view` · `live_host` · `live_gift` · `ai_bot_sync` · `pk_match` · `referral`
+`game_install` · `game_milestone` · `offerwall` · `offerwall_video` · `app_download` · `tiktok_post` · `pulse_post` · `live_view` · `live_host` · `live_gift` · `ai_bot_sync` · `pk_match` · `referral`
 
 ## `users/{uid}`
 

@@ -19,6 +19,7 @@ import React, { useState, useEffect, useRef, Component } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import GamingZone from './components/GamingZone';
 import LiveMatchesPanel from './components/LiveMatchesPanel';
+import HubEarnPanel from './components/HubEarnPanel';
 import BannerAdSlot from './components/ads/BannerAdSlot';
 import InFeedAdShell from './components/ads/InFeedAdShell';
 import type { GameProgressDoc } from './lib/economy';
@@ -5797,6 +5798,34 @@ Tip: Social Hub se copy karo 📤`,
             </div>
           </div>
 
+          {/* Earn hub — rewarded video, APK download, Monetag, game installs */}
+          <HubEarnPanel
+            user={user}
+            unlockedGames={unlockedGames}
+            gameProgress={gameProgress}
+            onAlert={(msg, icon) => setVvipAlert({ msg, icon: icon || '💰' })}
+            onRefreshUser={async () => {
+              // Force-refresh balance from Firestore if snapshot is slow
+              if (!user?.uid) return;
+              try {
+                const snap = await getDoc(doc(db, 'users', user.uid));
+                if (snap.exists()) {
+                  const d = snap.data() as Record<string, unknown>;
+                  setBalance((d.balance as number) || 0);
+                  setUnlockedGames(Array.isArray(d.unlockedGames) ? (d.unlockedGames as string[]) : []);
+                  setGameProgress(
+                    d.gameProgress && typeof d.gameProgress === 'object'
+                      ? (d.gameProgress as Record<string, GameProgressDoc>)
+                      : {}
+                  );
+                }
+              } catch {
+                /* live onSnapshot remains source of truth */
+              }
+            }}
+            onOpenGames={() => navigateWithAd('games')}
+          />
+
           {/* Quick Nav Grid — 4 Main Cards with Details */}
           <div className="px-4 pt-4 grid grid-cols-2 gap-4">
             {/* GAMES Card */}
@@ -7515,7 +7544,24 @@ Tip: Social Hub se copy karo 📤`,
           gameProgress={gameProgress}
           onBack={() => { setScreen('hub'); setSelectedGame(null); }}
           onAlert={(msg, icon) => setVvipAlert({ msg, icon })}
-          onRefreshUser={() => { /* live via onSnapshot */ }}
+          onRefreshUser={async () => {
+            if (!user?.uid) return;
+            try {
+              const snap = await getDoc(doc(db, 'users', user.uid));
+              if (snap.exists()) {
+                const d = snap.data() as Record<string, unknown>;
+                setBalance((d.balance as number) || 0);
+                setUnlockedGames(Array.isArray(d.unlockedGames) ? (d.unlockedGames as string[]) : []);
+                setGameProgress(
+                  d.gameProgress && typeof d.gameProgress === 'object'
+                    ? (d.gameProgress as Record<string, GameProgressDoc>)
+                    : {}
+                );
+              }
+            } catch {
+              /* onSnapshot fallback */
+            }
+          }}
           onOpenWithAd={(open) => navigateWithAdOverlay(open)}
           cleanupAds={cleanupMonetagDom}
         />
