@@ -13,6 +13,7 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 import { auth, db } from '../firebase';
+import { isPortalAdminUser } from '../lib/admin-auth';
 import { ACCOUNT_STATUS, buildBanUpdate, isUserBanned } from '../lib/user-ban';
 
 export type AdminUserRow = {
@@ -29,18 +30,42 @@ export type AdminUserRow = {
 };
 
 type Props = {
+  /** Current signed-in user — must pass admin gate */
+  adminUser?: { uid?: string | null; email?: string | null } | null;
   onBack: () => void;
   onAlert?: (msg: string, icon?: string) => void;
 };
 
-export default function AdminUsersPanel({ onBack, onAlert }: Props) {
+export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
   const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [banningUid, setBanningUid] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [error, setError] = useState('');
+  const [allowed, setAllowed] = useState(false);
+
+  // Hard client gate — never render admin tools for normal users
+  useEffect(() => {
+    const current = auth.currentUser;
+    const identity = adminUser || {
+      uid: current?.uid,
+      email: current?.email,
+    };
+    if (!isPortalAdminUser(identity)) {
+      setAllowed(false);
+      onBack();
+      return;
+    }
+    setAllowed(true);
+  }, [adminUser, onBack]);
 
   const loadUsers = useCallback(async () => {
+    const current = auth.currentUser;
+    if (!isPortalAdminUser(adminUser || { uid: current?.uid, email: current?.email })) {
+      setError('Forbidden');
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError('');
     try {
@@ -74,11 +99,12 @@ export default function AdminUsersPanel({ onBack, onAlert }: Props) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [adminUser]);
 
   useEffect(() => {
+    if (!allowed) return;
     loadUsers();
-  }, [loadUsers]);
+  }, [allowed, loadUsers]);
 
   const markBannedInUi = (uid: string, banReason: string) => {
     setUsers((prev) =>
@@ -97,7 +123,9 @@ export default function AdminUsersPanel({ onBack, onAlert }: Props) {
 
   const banViaClientFallback = async (targetUid: string, reason: string) => {
     const current = auth.currentUser;
-    if (!current) throw new Error('Not signed in');
+    if (!current || !isPortalAdminUser(current)) {
+      throw new Error('Forbidden');
+    }
     const fields = buildBanUpdate(current.uid, reason);
     await updateDoc(doc(db, 'users', targetUid), {
       ...fields,
@@ -106,6 +134,7 @@ export default function AdminUsersPanel({ onBack, onAlert }: Props) {
   };
 
   const handleBanUser = async (target: AdminUserRow) => {
+    if (!allowed) return;
     if (isUserBanned(target)) return;
     if (
       !window.confirm(
@@ -119,8 +148,9 @@ export default function AdminUsersPanel({ onBack, onAlert }: Props) {
     const reason = 'Banned by admin (one-click)';
     try {
       const current = auth.currentUser;
-      if (!current) {
+      if (!current || !isPortalAdminUser(current)) {
         onAlert?.('Admin session expired. Please sign in again.', '⚠️');
+        onBack();
         return;
       }
       const token = await current.getIdToken();
@@ -170,6 +200,8 @@ export default function AdminUsersPanel({ onBack, onAlert }: Props) {
       (u.name || '').toLowerCase().includes(q)
     );
   });
+
+  if (!allowed) return null;
 
   return (
     <div className="flex flex-col min-h-screen bg-[#050505]">
