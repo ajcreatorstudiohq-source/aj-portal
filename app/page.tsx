@@ -17,6 +17,14 @@
 import Script from 'next/script';
 import React, { useState, useEffect, useRef, Component } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import GamingZone from './components/GamingZone';
+import LiveMatchesPanel from './components/LiveMatchesPanel';
+import BannerAdSlot from './components/ads/BannerAdSlot';
+import InFeedAdShell from './components/ads/InFeedAdShell';
+import type { GameProgressDoc } from './lib/economy';
+import { earnReward } from './lib/client-rewards';
+import { trackAdEvent } from './lib/ad-client';
+import { MONETAG_INTERSTITIAL_ZONE } from './lib/ads-config';
 import AdminUsersPanel from './components/AdminUsersPanel';
 import { BAN_FORBIDDEN_MESSAGE, DEFAULT_ACCOUNT_BAN_FIELDS, isUserBanned } from './lib/user-ban';
 
@@ -476,18 +484,19 @@ const startFrameBroadcast = (roomId: string, stream: MediaStream) => {
     const rtdb = getDatabase();
     const frameRef = ref(rtdb, `live_frames/${roomId}/current`);
 
-    // Capture and push a frame every ~333ms (3fps — low bandwidth, smooth enough)
+    // ~6fps JPEG broadcast — smoother Pakistan/PK match viewing without huge RTDB payloads
+    canvas.width = 480;
+    canvas.height = 360;
     _frameBroadcastInterval = setInterval(() => {
       if (!ctx || !_frameBroadcastVideo || _frameBroadcastVideo.readyState < 2) return;
       try {
-        ctx.drawImage(_frameBroadcastVideo, 0, 0, 320, 240);
-        const dataURL = canvas.toDataURL('image/jpeg', 0.4);
-        // Push frame to RTDB — viewer will pick it up in real-time
+        ctx.drawImage(_frameBroadcastVideo, 0, 0, canvas.width, canvas.height);
+        const dataURL = canvas.toDataURL('image/jpeg', 0.55);
         set(frameRef, { frame: dataURL, ts: Date.now() }).catch(() => {});
       } catch (e) {
         // Frame capture failed — skip, don't crash
       }
-    }, 333);
+    }, 160);
   } catch (e) {
     console.warn('startFrameBroadcast failed:', e);
   }
@@ -527,98 +536,129 @@ const stopFrameBroadcast = (roomId?: string) => {
 //   - Sab kuch try/catch mein hai — kuch fail ho toh live video
 //     frames (RTDB) se continue chalta hai, crash nahi hota.
 // ============================================================
-let _hostAudioPC: RTCPeerConnection | null = null;  // host's peer connection
-let _hostAudioUnsubs: Array<() => void> = [];  // RTDB listeners to clean up
-let _hostAudioRoomId: string | null = null;  // current host audio room ID
+const LIVE_ICE_SERVERS: RTCIceServer[] = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun.cloudflare.com:3478' },
+];
 
-// Start broadcasting host's mic audio to viewers via WebRTC
+// Multi-viewer host audio: one RTCPeerConnection per viewer under peers/{viewerId}
+let _hostAudioPeers: Map<string, RTCPeerConnection> = new Map();
+let _hostAudioUnsubs: Array<() => void> = [];
+let _hostAudioRoomId: string | null = null;
+let _hostAudioStream: MediaStream | null = null;
+
 const startAudioBroadcast = (roomId: string, stream: MediaStream) => {
   if (typeof window === 'undefined' || typeof RTCPeerConnection === 'undefined') return;
   try {
     const rtdb = getDatabase();
     const audioTracks = stream.getAudioTracks();
     if (!audioTracks || audioTracks.length === 0) {
-      console.warn('startAudioBroadcast: no audio tracks in stream — mic may be unavailable');
+      console.warn('startAudioBroadcast: no audio tracks in stream');
       return;
     }
-
-    // Create RTCPeerConnection with Google STUN server
-    const pc = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-    });
-    _hostAudioPC = pc;
     _hostAudioRoomId = roomId;
+    _hostAudioStream = stream;
 
-    // Add all audio tracks to the peer connection
-    audioTracks.forEach(track => {
-      try { pc.addTrack(track, stream); } catch {}
-    });
-
-    // When ICE candidates are generated, push them to RTDB for viewers
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        try {
-          push(ref(rtdb, `live_audio/${roomId}/ice_host`), event.candidate.toJSON()).catch(() => {});
-        } catch {}
-      }
-    };
-
-    // Create SDP offer and write it to RTDB
-    pc.createOffer({ offerToReceiveAudio: false, offerToReceiveVideo: false })
-      .then((offer) => pc.setLocalDescription(offer))
-      .then(() => {
+    const createPeerForViewer = async (viewerId: string) => {
+      if (!viewerId || _hostAudioPeers.has(viewerId)) return;
+      const pc = new RTCPeerConnection({ iceServers: LIVE_ICE_SERVERS });
+      _hostAudioPeers.set(viewerId, pc);
+      audioTracks.forEach((track) => {
+        try { pc.addTrack(track, stream); } catch {}
+      });
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          push(ref(rtdb, `live_audio/${roomId}/peers/${viewerId}/ice_host`), event.candidate.toJSON()).catch(() => {});
+        }
+      };
+      try {
+        const offer = await pc.createOffer({ offerToReceiveAudio: false, offerToReceiveVideo: false });
+        await pc.setLocalDescription(offer);
         if (pc.localDescription) {
-          return set(ref(rtdb, `live_audio/${roomId}/offer`), {
+          await set(ref(rtdb, `live_audio/${roomId}/peers/${viewerId}/offer`), {
             type: pc.localDescription.type,
             sdp: pc.localDescription.sdp,
-            ts: Date.now()
+            ts: Date.now(),
+          });
+        }
+      } catch (e) {
+        console.warn('host peer offer failed', viewerId, e);
+      }
+
+      const unsubAnswer = onValue(ref(rtdb, `live_audio/${roomId}/peers/${viewerId}/answer`), (snap) => {
+        const data = snap.val();
+        if (data?.sdp && data?.type && pc.connectionState !== 'closed' && !pc.currentRemoteDescription) {
+          pc.setRemoteDescription(new RTCSessionDescription({ type: data.type, sdp: data.sdp })).catch(() => {});
+        }
+      });
+      _hostAudioUnsubs.push(unsubAnswer);
+
+      const unsubIce = onChildAdded(ref(rtdb, `live_audio/${roomId}/peers/${viewerId}/ice_viewer`), (snap) => {
+        const candidate = snap.val();
+        if (candidate && pc.connectionState !== 'closed') {
+          pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {});
+        }
+      });
+      _hostAudioUnsubs.push(unsubIce);
+    };
+
+    // Legacy single-offer path (first viewer compatibility) + per-viewer join requests
+    const pcLegacy = new RTCPeerConnection({ iceServers: LIVE_ICE_SERVERS });
+    _hostAudioPeers.set('__legacy__', pcLegacy);
+    audioTracks.forEach((track) => { try { pcLegacy.addTrack(track, stream); } catch {} });
+    pcLegacy.onicecandidate = (event) => {
+      if (event.candidate) {
+        push(ref(rtdb, `live_audio/${roomId}/ice_host`), event.candidate.toJSON()).catch(() => {});
+      }
+    };
+    pcLegacy.createOffer({ offerToReceiveAudio: false, offerToReceiveVideo: false })
+      .then((offer) => pcLegacy.setLocalDescription(offer))
+      .then(() => {
+        if (pcLegacy.localDescription) {
+          return set(ref(rtdb, `live_audio/${roomId}/offer`), {
+            type: pcLegacy.localDescription.type,
+            sdp: pcLegacy.localDescription.sdp,
+            ts: Date.now(),
           });
         }
       })
-      .catch((e) => {
-        console.warn('startAudioBroadcast: createOffer/setLocalDescription failed:', e);
-      });
+      .catch(() => {});
 
-    // Listen for viewer's answer from RTDB
-    const answerRef = ref(rtdb, `live_audio/${roomId}/answer`);
-    const unsubAnswer = onValue(answerRef, (snap) => {
+    const unsubAnswer = onValue(ref(rtdb, `live_audio/${roomId}/answer`), (snap) => {
       const data = snap.val();
-      if (data && data.sdp && data.type && pc.connectionState !== 'closed') {
-        pc.setRemoteDescription(new RTCSessionDescription({ type: data.type, sdp: data.sdp }))
-          .catch((e) => console.warn('startAudioBroadcast: setRemoteDescription (answer) failed:', e));
+      if (data?.sdp && data?.type && pcLegacy.connectionState !== 'closed' && !pcLegacy.currentRemoteDescription) {
+        pcLegacy.setRemoteDescription(new RTCSessionDescription({ type: data.type, sdp: data.sdp })).catch(() => {});
       }
     });
     _hostAudioUnsubs.push(unsubAnswer);
 
-    // Listen for viewer's ICE candidates from RTDB
-    const iceViewerRef = ref(rtdb, `live_audio/${roomId}/ice_viewer`);
-    const unsubIce = onChildAdded(iceViewerRef, (snap) => {
+    const unsubIce = onChildAdded(ref(rtdb, `live_audio/${roomId}/ice_viewer`), (snap) => {
       const candidate = snap.val();
-      if (candidate && pc.connectionState !== 'closed') {
-        pc.addIceCandidate(new RTCIceCandidate(candidate))
-          .catch((e) => console.warn('startAudioBroadcast: addIceCandidate failed:', e));
+      if (candidate && pcLegacy.connectionState !== 'closed') {
+        pcLegacy.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {});
       }
     });
     _hostAudioUnsubs.push(unsubIce);
+
+    // Multi-viewer: each viewer publishes join_requests/{uid}
+    const unsubJoins = onChildAdded(ref(rtdb, `live_audio/${roomId}/join_requests`), (snap) => {
+      const viewerId = snap.key;
+      if (viewerId) createPeerForViewer(viewerId);
+    });
+    _hostAudioUnsubs.push(unsubJoins);
   } catch (e) {
     console.warn('startAudioBroadcast failed:', e);
   }
 };
 
-// Stop broadcasting host's mic audio (called on stopLive)
 const stopAudioBroadcast = (roomId?: string) => {
   try {
-    // Unsubscribe all RTDB listeners
-    _hostAudioUnsubs.forEach(fn => { try { fn(); } catch {} });
+    _hostAudioUnsubs.forEach((fn) => { try { fn(); } catch {} });
     _hostAudioUnsubs = [];
-
-    // Close the peer connection
-    if (_hostAudioPC) {
-      try { _hostAudioPC.close(); } catch {}
-      _hostAudioPC = null;
-    }
-
-    // Clean up RTDB audio data
+    _hostAudioPeers.forEach((pc) => { try { pc.close(); } catch {} });
+    _hostAudioPeers = new Map();
+    _hostAudioStream = null;
     if (roomId || _hostAudioRoomId) {
       const rid = roomId || _hostAudioRoomId;
       try {
@@ -632,93 +672,96 @@ const stopAudioBroadcast = (roomId?: string) => {
   }
 };
 
-// ============================================================
-// VIEWER AUDIO — Join host's WebRTC audio stream via RTDB signaling
-// ============================================================
-let _viewerAudioPC: RTCPeerConnection | null = null;  // viewer's peer connection
-let _viewerAudioUnsubs: Array<() => void> = [];  // RTDB listeners to clean up
-let _viewerAudioRoomId: string | null = null;  // current viewer audio room ID
-let _viewerAudioEl: HTMLAudioElement | null = null;  // audio element to play received audio
+let _viewerAudioPC: RTCPeerConnection | null = null;
+let _viewerAudioUnsubs: Array<() => void> = [];
+let _viewerAudioRoomId: string | null = null;
+let _viewerAudioEl: HTMLAudioElement | null = null;
 
-// Join host's audio stream as a viewer (called from joinLiveByRoomId)
-const joinAudioStream = (roomId: string, onConnected?: () => void) => {
+const joinAudioStream = (roomId: string, onConnected?: () => void, viewerUid?: string) => {
   if (typeof window === 'undefined' || typeof RTCPeerConnection === 'undefined') return;
   try {
     const rtdb = getDatabase();
+    const peerId = viewerUid || `anon_${Date.now()}`;
 
-    // Create RTCPeerConnection with Google STUN server
-    const pc = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-    });
+    // Announce join for multi-viewer host routing
+    set(ref(rtdb, `live_audio/${roomId}/join_requests/${peerId}`), { ts: Date.now() }).catch(() => {});
+
+    const pc = new RTCPeerConnection({ iceServers: LIVE_ICE_SERVERS });
     _viewerAudioPC = pc;
     _viewerAudioRoomId = roomId;
 
-    // Create a hidden audio element to play the received audio
     const audioEl = document.createElement('audio');
     audioEl.autoplay = true;
+    audioEl.setAttribute('playsinline', 'true');
     audioEl.style.display = 'none';
     document.body.appendChild(audioEl);
     _viewerAudioEl = audioEl;
 
-    // When we receive a remote audio track, attach it to the audio element
     pc.ontrack = (event) => {
       try {
-        if (event.streams && event.streams.length > 0) {
-          audioEl.srcObject = event.streams[0];
-        } else if (event.track) {
-          const newStream = new MediaStream([event.track]);
-          audioEl.srcObject = newStream;
-        }
-        audioEl.play().catch((e) => {
-          console.warn('joinAudioStream: audio play() failed (may need user gesture):', e);
-        });
+        if (event.streams?.[0]) audioEl.srcObject = event.streams[0];
+        else if (event.track) audioEl.srcObject = new MediaStream([event.track]);
+        audioEl.play().catch(() => {});
         if (onConnected) onConnected();
+      } catch {}
+    };
+
+    const attachOffer = async (data: { sdp: string; type: RTCSdpType }, icePath: string, answerPath: string, iceHostPath: string) => {
+      if (!data?.sdp || pc.connectionState === 'closed' || pc.currentRemoteDescription) return;
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription({ type: data.type, sdp: data.sdp }));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        if (pc.localDescription) {
+          await set(ref(rtdb, answerPath), {
+            type: pc.localDescription.type,
+            sdp: pc.localDescription.sdp,
+            ts: Date.now(),
+          });
+        }
+        pc.onicecandidate = (event) => {
+          if (event.candidate) {
+            push(ref(rtdb, icePath), event.candidate.toJSON()).catch(() => {});
+          }
+        };
+        const unsubIce = onChildAdded(ref(rtdb, iceHostPath), (snap) => {
+          const candidate = snap.val();
+          if (candidate && pc.connectionState !== 'closed') {
+            pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {});
+          }
+        });
+        _viewerAudioUnsubs.push(unsubIce);
       } catch (e) {
-        console.warn('joinAudioStream: ontrack attach failed:', e);
+        console.warn('joinAudioStream offer attach failed', e);
       }
     };
 
-    // When ICE candidates are generated, push them to RTDB for the host
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        try {
-          push(ref(rtdb, `live_audio/${roomId}/ice_viewer`), event.candidate.toJSON()).catch(() => {});
-        } catch {}
-      }
-    };
-
-    // Listen for host's offer from RTDB
-    const offerRef = ref(rtdb, `live_audio/${roomId}/offer`);
-    const unsubOffer = onValue(offerRef, (snap) => {
+    // Prefer per-viewer peer offer; fall back to legacy shared offer
+    const unsubPeerOffer = onValue(ref(rtdb, `live_audio/${roomId}/peers/${peerId}/offer`), (snap) => {
       const data = snap.val();
-      if (data && data.sdp && data.type && pc.connectionState !== 'closed') {
-        pc.setRemoteDescription(new RTCSessionDescription({ type: data.type, sdp: data.sdp }))
-          .then(() => pc.createAnswer())
-          .then((answer) => pc.setLocalDescription(answer))
-          .then(() => {
-            if (pc.localDescription) {
-              return set(ref(rtdb, `live_audio/${roomId}/answer`), {
-                type: pc.localDescription.type,
-                sdp: pc.localDescription.sdp,
-                ts: Date.now()
-              });
-            }
-          })
-          .catch((e) => console.warn('joinAudioStream: offer/answer exchange failed:', e));
+      if (data?.sdp) {
+        attachOffer(
+          data,
+          `live_audio/${roomId}/peers/${peerId}/ice_viewer`,
+          `live_audio/${roomId}/peers/${peerId}/answer`,
+          `live_audio/${roomId}/peers/${peerId}/ice_host`
+        );
+      }
+    });
+    _viewerAudioUnsubs.push(unsubPeerOffer);
+
+    const unsubOffer = onValue(ref(rtdb, `live_audio/${roomId}/offer`), (snap) => {
+      const data = snap.val();
+      if (data?.sdp && !pc.currentRemoteDescription) {
+        attachOffer(
+          data,
+          `live_audio/${roomId}/ice_viewer`,
+          `live_audio/${roomId}/answer`,
+          `live_audio/${roomId}/ice_host`
+        );
       }
     });
     _viewerAudioUnsubs.push(unsubOffer);
-
-    // Listen for host's ICE candidates from RTDB
-    const iceHostRef = ref(rtdb, `live_audio/${roomId}/ice_host`);
-    const unsubIce = onChildAdded(iceHostRef, (snap) => {
-      const candidate = snap.val();
-      if (candidate && pc.connectionState !== 'closed') {
-        pc.addIceCandidate(new RTCIceCandidate(candidate))
-          .catch((e) => console.warn('joinAudioStream: addIceCandidate failed:', e));
-      }
-    });
-    _viewerAudioUnsubs.push(unsubIce);
   } catch (e) {
     console.warn('joinAudioStream failed:', e);
   }
@@ -1377,17 +1420,39 @@ function triggerMonetagInterstitialAd(zoneId: number): Promise<boolean> {
               .then((result: any) => {
                 // Ad was shown successfully — revenue event
                 lastAnyAdShownTime = Date.now(); // Confirm gate — ad actually shown
+                try {
+                  trackAdEvent({
+                    event: 'complete',
+                    placement: 'hub_nav_interstitial',
+                    zoneId: MONETAG_INTERSTITIAL_ZONE,
+                    meta: { network: 'monetag', zoneId },
+                  }).catch(() => {});
+                } catch {}
                 resolve(true);
               })
               .catch(() => {
                 // No ad feed available or ad failed — resolve false (fallback video will show)
                 lastAnyAdShownTime = Date.now() - (AD_COOLDOWN_MS - 30000);
                 cleanupMonetagDom();
+                try {
+                  trackAdEvent({
+                    event: 'fail',
+                    placement: 'hub_nav_interstitial',
+                    zoneId: MONETAG_INTERSTITIAL_ZONE,
+                  }).catch(() => {});
+                } catch {}
                 resolve(false);
               });
           } else {
             // Synchronous return (unlikely) — assume ad was triggered
             lastAnyAdShownTime = Date.now();
+            try {
+              trackAdEvent({
+                event: 'complete',
+                placement: 'hub_nav_interstitial',
+                zoneId: MONETAG_INTERSTITIAL_ZONE,
+              }).catch(() => {});
+            } catch {}
             resolve(true);
           }
         } catch {
@@ -2230,6 +2295,8 @@ export function AJSuperPortal() {
   const [walletTab,   setWalletTab]    = useState('main');
   const [socialScreen, setSocialScreen] = useState('hub');
   const [selectedGame, setSelectedGame] = useState<string|null>(null);
+  const [unlockedGames, setUnlockedGames] = useState<string[]>([]);
+  const [gameProgress, setGameProgress] = useState<Record<string, GameProgressDoc>>({});
 
   // ── AUTH
   const [user,     setUser]     = useState<any>(null);
@@ -2912,6 +2979,9 @@ export function AJSuperPortal() {
               followers:0, following:0,
               postsCount:0, followersCount:0, followingCount:0, totalLikes:0,
               status:'online', fcmToken:'',
+              // Install & Level Unlock + Offerwall economy fields
+              unlockedGames: [],
+              gameProgress: {},
               // Ban schema — presence `status` stays online/offline; account ban uses these fields
               ...DEFAULT_ACCOUNT_BAN_FIELDS,
             });
@@ -2920,6 +2990,15 @@ export function AJSuperPortal() {
             // FIX: Naye user ke liye camera/mic permission prompt show karo
             setShowCameraPermissionPrompt(true);
           }
+          onSnapshot(userRef, s => {
+            if (s.exists()) {
+              const d = s.data();
+              setBalance(d.balance||0);
+              setBotTier(d.botTier||'none');
+              setInvested(d.invested||0);
+              setUnlockedGames(Array.isArray(d.unlockedGames) ? d.unlockedGames : []);
+              setGameProgress((d.gameProgress && typeof d.gameProgress === 'object') ? d.gameProgress : {});
+            }
           onSnapshot(userRef, async (s) => {
             if (!s.exists()) return;
             const data = s.data() as Record<string, unknown>;
@@ -3043,8 +3122,8 @@ export function AJSuperPortal() {
 
   // FIX: REMOVED duplicate reels/posts subscription — main listeners at socialScreen change handle this correctly.
 
-  // ── GAME BRIDGE: ignore score messages — games never credit portal wallet / cash-out.
-  // Local in-game tokens stay inside each game HTML only (unlocks / fun).
+  // ── GAME BRIDGE: raw scores never credit wallet.
+  // Level milestones are handled by GamingZone → /api/games/milestone (Install & Level Unlock).
   useEffect(() => {
     if (!user) return;
     const handleGameMessage = (e: MessageEvent) => {
@@ -3055,15 +3134,13 @@ export function AJSuperPortal() {
         e.data.type === "GAME_END" || e.data.type === "game_end" ||
         e.data.type === "GAME_CRASH" || e.data.type === "game_crash"
       ) {
-        // Intentionally no Firestore balance writes — entertainment only.
+        // No free game earnings — wallet credits only via milestone/offerwall APIs.
         return;
       }
     };
     window.addEventListener("message", handleGameMessage);
     return () => { window.removeEventListener("message", handleGameMessage); };
   }, [user]);
-
-  // Game iframes own their local coin economy — do NOT inject a parent score bridge.
 
   // PK Timer
   useEffect(() => {
@@ -3473,6 +3550,19 @@ export function AJSuperPortal() {
     // error aaye (ZegoCloud destroy, Firestore delete, media stop), user HAMESHA
     // Social Hub par wapas aa jaayega. Error se page crash nahi hoga.
     try {
+      // Host live reward once per day when ending a session ($1–$1.50 split)
+      try {
+        if (user && liveRoomId) {
+          const day = new Date().toISOString().slice(0, 10);
+          const reward = await earnReward(user, 'live_host', {
+            idempotencyKey: `${user.uid}_${day}`,
+            meta: { roomId: liveRoomId },
+          });
+          if (reward.ok && !reward.duplicate && (reward.creditedCoins || 0) > 0) {
+            setVvipAlert({ msg: reward.message || `Live host reward +${reward.creditedCoins}`, icon: '🔴' });
+          }
+        }
+      } catch {}
       setZegoAttached(false);
       setCameraReady(false);
       if ((liveStreamRef as any)._heartbeat) {
@@ -3582,12 +3672,23 @@ export function AJSuperPortal() {
       try {
         joinAudioStream(roomSnap.id, () => {
           console.log('joinLiveByRoomId: WebRTC audio connected');
-        });
+        }, user?.uid);
       } catch (audioErr) {
         console.warn('joinLiveByRoomId: audio join failed (non-fatal — video still works)', audioErr);
       }
-      // FIX: ZegoCloud removed — viewer gets room info + live chat via Firestore.
-      // No external SDK needed — no "login room fail" error.
+      // Live view reward after ~60s of uninterrupted watching ($1–$1.50 split)
+      try {
+        if ((liveStreamRef as any)._liveViewTimer) clearTimeout((liveStreamRef as any)._liveViewTimer);
+        (liveStreamRef as any)._liveViewTimer = setTimeout(async () => {
+          const r = await earnReward(user, 'live_view', {
+            idempotencyKey: `${user?.uid}_${roomSnap.id}_${new Date().toISOString().slice(0, 10)}`,
+            meta: { roomId: roomSnap.id },
+          });
+          if (r.ok && !r.duplicate && (r.creditedCoins || 0) > 0) {
+            setVvipAlert({ msg: r.message || `Live view reward +${r.creditedCoins} coins`, icon: '🔴' });
+          }
+        }, 60000);
+      } catch {}
       setZegoAttached(true);
     } catch(e) { console.error('joinLiveByRoomId', e); setVvipAlert({msg:'Could not join room. Please try again.'}); }
   };
@@ -3598,6 +3699,12 @@ export function AJSuperPortal() {
       if (viewerUnsubRef.current) { viewerUnsubRef.current(); viewerUnsubRef.current = null; }
       // FIX ROUND 7: Stop RTDB frame listener
       if (viewerFrameUnsubRef.current) { viewerFrameUnsubRef.current(); viewerFrameUnsubRef.current = null; }
+      try {
+        if ((liveStreamRef as any)._liveViewTimer) {
+          clearTimeout((liveStreamRef as any)._liveViewTimer);
+          (liveStreamRef as any)._liveViewTimer = null;
+        }
+      } catch {}
       // FIX: Stop WebRTC audio stream + clean up
       try { leaveAudioStream(viewerRoomId); } catch {}
       setViewerLiveFrame('');
@@ -4027,20 +4134,16 @@ export function AJSuperPortal() {
       return;
     }
     try {
-      // Deduct from sender
+      // Deduct gift cost from sender (engagement spend)
       await updateDoc(doc(db,"users",user.uid), { balance: increment(-gift.cost) });
-      // GIFTING SPLIT: 60% admin (aap) | 40% creator
-      const creatorShare = gift.cost * GIFT_USER_SHARE;
-      const adminShare   = gift.cost * GIFT_ADMIN_SHARE;
-      await updateDoc(doc(db,"users",creatorId), { balance: increment(creatorShare) });
-      // Admin ledger
-      try {
-        await addDoc(collection(db,"admin_ledger"), {
-          giftName:gift.name, totalCost:gift.cost, adminShare,
-          senderUid:user.uid, creatorUid:creatorId, date:serverTimestamp()
-        });
-      } catch {}
-      // Notification to creator
+      // Creator earns via unified $5–$7 / $1–$1.50 split engine (not flat 40%)
+      const giftKey = `${user.uid}_${creatorId}_${gift.name}_${Date.now()}`;
+      const reward = await earnReward(user, 'live_gift', {
+        idempotencyKey: giftKey,
+        beneficiaryUid: creatorId,
+        meta: { giftName: gift.name, giftCost: gift.cost },
+      });
+      const creatorShare = reward.creditedCoins || 0;
       try {
         await addDoc(collection(db,"users",creatorId,"notifications"), {
           type:'gift', giftName:gift.name, giftIcon:gift.icon,
@@ -4049,10 +4152,14 @@ export function AJSuperPortal() {
           date:serverTimestamp(), read:false
         });
       } catch {}
-      // Cinematic animation
       setCinematicGift(gift);
       setCinematicSender(username || 'Anonymous');
-      setVvipAlert({msg:`${gift.icon} ${gift.name} sent! ${creatorShare} Coins credited to creator (40%). Admin share: ${adminShare} (60%).`,icon:gift.icon});
+      setVvipAlert({
+        msg: reward.ok
+          ? `${gift.icon} ${gift.name} sent! Creator +${creatorShare} AJ Coins ($${Number(reward.userUsd||0).toFixed(2)}). Platform $${Number(reward.adminUsd||0).toFixed(2)} of $${Number(reward.totalPoolUsd||0).toFixed(2)} pool.`
+          : `${gift.icon} ${gift.name} sent!`,
+        icon: gift.icon,
+      });
     } catch(e) { console.error('sendGift', e); setVvipAlert({msg:'Gift failed. Please try again.'}); }
   };
 
@@ -4356,8 +4463,7 @@ export function AJSuperPortal() {
   const handleTiktokPost = async () => {
     if (!tiktokPostText.trim() && !tiktokPostImg) return setVvipAlert({msg:"Add caption or image!"});
     try {
-      const videoReward = tiktokPostIsVideo ? 10 : 5;
-      await addDoc(collection(db,"user_posts"), {
+      const postRef = await addDoc(collection(db,"user_posts"), {
         text:tiktokPostText, image:tiktokPostImg, uid:user!.uid,
         username:username||"AJ_Member", photo:user!.photoURL||'',
         likes:0, views:0, isVideo:tiktokPostIsVideo,
@@ -4366,12 +4472,20 @@ export function AJSuperPortal() {
         cssFilter: tikEditorFilter || 'none',
         createdAt:serverTimestamp()
       });
-      await updateDoc(doc(db,"users",user!.uid), { balance: increment(videoReward) });
-      await logAdminRevenue('tiktok_post', videoReward, videoReward);
+      const reward = await earnReward(user, 'tiktok_post', {
+        idempotencyKey: postRef.id,
+        meta: { isVideo: tiktokPostIsVideo, postId: postRef.id },
+      });
       setTiktokPostText(''); setTiktokPostImg(''); setTiktokPostIsVideo(false);
       setTikEditorFilter('none'); setTikEditorTextOverlay(''); setSelectedSound(null);
       setTiktabMode('feed');
-      setVvipAlert({msg:`🎬 Post published! +${videoReward} Coins 🪩`,icon:"🎬"});
+      if (reward.ok && !reward.duplicate) {
+        setVvipAlert({msg: reward.message || `🎬 Post published! +${reward.creditedCoins} AJ Coins`, icon:"🎬"});
+      } else if (reward.error === 'daily_limit') {
+        setVvipAlert({msg:'🎬 Post published! Daily TikReel reward limit reached — try tomorrow.', icon:"🎬"});
+      } else {
+        setVvipAlert({msg:'🎬 Post published!', icon:"🎬"});
+      }
     } catch(e) { console.error('handleTiktokPost', e); setVvipAlert({msg:'Post failed. Please try again.'}); }
   };
 
@@ -4593,16 +4707,23 @@ export function AJSuperPortal() {
   const handleCreatePost = async () => {
     if (!postText.trim() && !tempPhoto) return setVvipAlert({msg:"Empty Post!"});
     try {
-      const photoReward = pulsePostIsVideo ? 10 : 5;
-      await addDoc(collection(db,"pulse_posts"), {
+      const postRef = await addDoc(collection(db,"pulse_posts"), {
         text:postText, image:tempPhoto, uid:user!.uid,
         username:username||"AJ_Member", photo:user!.photoURL||'',
         likes:0, views:0, isVideo:pulsePostIsVideo, createdAt:serverTimestamp()
       });
-      await updateDoc(doc(db,"users",user!.uid), { balance: increment(photoReward) });
-      await logAdminRevenue('pulse_post', photoReward, photoReward);
+      const reward = await earnReward(user, 'pulse_post', {
+        idempotencyKey: postRef.id,
+        meta: { isVideo: pulsePostIsVideo, postId: postRef.id },
+      });
       setPostText(''); setTempPhoto(''); setPulsePostIsVideo(false);
-      setVvipAlert({msg:`🚀 Post Published! +${photoReward} Coins 🪩`,icon:"🚀"});
+      if (reward.ok && !reward.duplicate) {
+        setVvipAlert({msg: reward.message || `🚀 Post published! +${reward.creditedCoins} AJ Coins`, icon:"🚀"});
+      } else if (reward.error === 'daily_limit') {
+        setVvipAlert({msg:'🚀 Post published! Daily Pulse reward limit reached — try tomorrow.', icon:"🚀"});
+      } else {
+        setVvipAlert({msg:'🚀 Post published!', icon:"🚀"});
+      }
     } catch(e) { console.error('handleCreatePost', e); setVvipAlert({msg:'Post failed. Please try again.'}); }
   };
 
@@ -4810,9 +4931,36 @@ export function AJSuperPortal() {
       await updateDoc(doc(db,"users",user!.uid), {
         balance: increment(-cost), botTier:tier, invested:cost, lastSync:serverTimestamp()
       });
-      await logAdminRevenue('ai_bot', cost, cost * USER_EARN_SHARE);
-      setVvipAlert({msg:`${tier.toUpperCase()} BOT ACTIVATED!`});
+      setVisualProfit(0);
+      setVvipAlert({msg:`${tier.toUpperCase()} BOT ACTIVATED! Sync profits to earn $1–$1.50 rewards.`});
     } catch(e) { console.error('activateBot', e); setVvipAlert({msg:'Activation failed. Please try again.'}); }
+  };
+
+  /** Persist AI bot visual profit via unified reward split (not uncapped client fiction). */
+  const syncBotProfits = async () => {
+    if (!user) return;
+    if (!botTier || botTier === 'none' || invested <= 0) {
+      return setVvipAlert({ msg: 'Activate an AI Trading Bot first.', icon: '🤖' });
+    }
+    if (visualProfit < 1) {
+      return setVvipAlert({ msg: 'Not enough accrued profit yet — keep the bot running.', icon: '⏳' });
+    }
+    const day = new Date().toISOString().slice(0, 10);
+    const reward = await earnReward(user, 'ai_bot_sync', {
+      idempotencyKey: `${user.uid}_${botTier}_${day}_${Math.floor(visualProfit)}`,
+      meta: { botTier, invested, visualProfit },
+    });
+    if (reward.ok && !reward.duplicate) {
+      setVisualProfit(0);
+      try {
+        await updateDoc(doc(db, 'users', user.uid), { lastSync: serverTimestamp() });
+      } catch {}
+      setVvipAlert({ msg: reward.message || `Bot sync +${reward.creditedCoins} AJ Coins`, icon: '🤖' });
+    } else if (reward.error === 'daily_limit') {
+      setVvipAlert({ msg: 'Daily AI bot sync limit reached. Try again tomorrow.', icon: '⏳' });
+    } else {
+      setVvipAlert({ msg: reward.error || 'Bot sync failed', icon: '⚠️' });
+    }
   };
 
   // ── WALLET ACTIONS
@@ -4907,21 +5055,34 @@ export function AJSuperPortal() {
 
   const handleApplyReferral = async () => {
     if (!referralCode.trim()) return setVvipAlert({msg:"Enter referral code."});
+    if (!user) return;
     try {
-      const rSnap = await getDoc(doc(db,"users",referralCode.trim()));
+      const referrerId = referralCode.trim();
+      if (referrerId === user.uid) return setVvipAlert({msg:"You can't refer yourself!"});
+      const rSnap = await getDoc(doc(db,"users",referrerId));
       if (!rSnap.exists()) return setVvipAlert({msg:"Referral Code not found."});
-      const totalPool = REFERRAL_COINS;
-      const referrerNet = parseFloat((totalPool * USER_EARN_SHARE).toFixed(4));
-      await updateDoc(doc(db,"users",referralCode.trim()), { balance: increment(referrerNet) });
-      await logAdminRevenue('referral', totalPool, referrerNet);
+      const reward = await earnReward(user, 'referral', {
+        idempotencyKey: `${user.uid}_referred_by_${referrerId}`,
+        beneficiaryUid: referrerId,
+        meta: { inviteeUid: user.uid, referrerId },
+      });
       try {
         await addDoc(collection(db,"notifications"), {
           title:"Referral Claimed",
-          message:`+${referrerNet} Coins reward applied to referrer!`,
+          message: reward.ok
+            ? `+${reward.creditedCoins || 0} AJ Coins ($${Number(reward.userUsd||0).toFixed(2)}) credited to referrer via split engine.`
+            : 'Referral claimed.',
           date:serverTimestamp()
         });
       } catch {}
-      setVvipAlert({msg:`Referral Applied! Referrer received ${referrerNet} Coins (30% share).`});
+      setVvipAlert({
+        msg: reward.ok
+          ? `Referral Applied! Referrer +${reward.creditedCoins || 0} AJ Coins ($${Number(reward.userUsd||0).toFixed(2)} of $${Number(reward.totalPoolUsd||0).toFixed(2)} pool).`
+          : reward.error === 'daily_limit'
+            ? 'Referral recorded — daily referral reward limit reached.'
+            : 'Referral Applied!',
+        icon: '🎉',
+      });
       setReferralCode('');
     } catch(e) { console.error('handleApplyReferral', e); setVvipAlert({msg:'Referral failed. Please try again.'}); }
   };
@@ -5178,37 +5339,29 @@ Wallet → Purchase 💰`,
 • Posts, Followers, Likes`,
     },
     gaming: {
-      en:  `🎮 AJ Gaming Zone — Play for Fun!\\\\\\\\
+      en:  `🎮 AJ Gaming Zone — Install & Level Unlock\\\\\\\\
 \\\\\\\\
-• Access: Tap "Gaming" from the main Hub\\\\\\\\
-• Games: Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape, Ludo Elite Royal\\\\\\\\
-• In-game tokens are LOCAL ONLY — for levels/unlocks inside each game\\\\\\\\
-• Games do NOT credit AJ Coins or cash withdrawal\\\\\\\\
-• Earn real AJ Coins from posts, gifts, live & referrals — not from games`,
-      hin: `🎮 AJ Gaming Zone:\\\\\\\\
+• Tap Gaming → Install a game to unlock play\\\\\\\\
+• Reach milestone levels (e.g. L3 / L5 / L10) to earn $1.00–$1.50 in AJ Coins\\\\\\\\
+• Of each $5–$7 reward pool, the rest is platform revenue\\\\\\\\
+• Offerwall tab: complete verified offers for the same split\\\\\\\\
+• Local in-game tokens stay for fun/unlocks only — no free wallet dumps`,
+      hin: `🎮 Gaming — Install & Level Unlock:\\\\\\\\
 \\\\\\\\
-• Main Hub → "Gaming"\\\\\\\\
-• Rider King, Pulse Racer, Subsea Surge, Neon Strike, Volcano Escape, Ludo Elite Royal\\\\\\\\
-• Local tokens sirf game ke andar (levels/unlocks)\\\\\\\\
-• Games se AJ Coins / cash nahi milta`,
-      ur:  `🎮 Gaming:\\\\\\\\
+• Game install karo, milestone levels clear karo\\\\\\\\
+• Reward: $1.00–$1.50 AJ Coins (pool $5–$7, baaki platform)\\\\\\\\
+• Offerwall bhi same split use karta hai`,
+      ur:  `🎮 Gaming — Install & Level Unlock\\\\\\\\
 \\\\\\\\
-• Main Hub → "Gaming"\\\\\\\\
-• 6 games available + Ludo\\\\\\\\
-• Local tokens صرف گیم کے اندر\\\\\\\\
-• Games سے AJ Coins / cash نہیں`,
-      hi:  `🎮 Gaming:\\\\\\\\
+• گیم انسٹال کریں، لیول مکمل کریں\\\\\\\\
+• انعام: $1.00–$1.50 (پول $5–$7)`,
+      hi:  `🎮 Gaming — Install & Level Unlock\\\\\\\\
 \\\\\\\\
-• Main Hub → "Gaming"\\\\\\\\
-• 6 games + Ludo\\\\\\\\
-• Local tokens केवल गेम के अंदर\\\\\\\\
-• Games से AJ Coins / cash नहीं`,
-      ar:  `🎮 Gaming:\\\\\\\\
+• गेम Install करें, milestone levels पूरे करें\\\\\\\\
+• इनाम: $1.00–$1.50 AJ Coins`,
+      ar:  `🎮 Gaming — تثبيت ومستويات\\\\\\\\
 \\\\\\\\
-• "Gaming" من الرئيسية\\\\\\\\
-• 6 ألعاب + Ludo\\\\\\\\
-• الرموز المحلية داخل اللعبة فقط\\\\\\\\
-• الألعاب لا تمنح AJ Coins أو سحب نقدي`,
+• ثبّت اللعبة ثم أكمل المستويات للحصول على $1.00–$1.50`,
     },
     refer: {
       en:  `👥 Referral System:\\\\\\\\
@@ -5601,16 +5754,16 @@ Tip: Social Hub se copy karo 📤`,
           {/* Quick Nav Grid — 4 Main Cards with Details */}
           <div className="px-4 pt-4 grid grid-cols-2 gap-4">
             {/* GAMES Card */}
-            <button onClick={() => navigateWithAd('games')} className="flex flex-col items-start gap-3 bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-purple-500/50 shadow-[0_0_20px_rgba(147,51,234,0.2)]">
+            <button onClick={() => navigateWithAd('games')} className="flex flex-col items-start gap-3 bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-purple-500/50 shadow-[0_0_20px_rgba(147,51,234,0.2)]" title="Install games, clear milestones, earn via Offerwall">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-[0_0_16px_rgba(147,51,234,0.5)]">
                 <span className="text-2xl">🎮</span>
               </div>
               <div className="text-left">
                 <p className="text-white font-black text-sm">Gaming Zone</p>
-                <p className="text-[10px] text-gray-400 mt-0.5">Play & earn AJ Coins. 5+ games available with auto-score bridge.</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">Install games, clear milestones, earn via Offerwall ($1–$1.50).</p>
               </div>
               <div className="flex items-center gap-1 mt-1">
-                <span className="text-[8px] text-purple-400 font-black bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-full">5+ GAMES</span>
+                <span className="text-[8px] text-purple-400 font-black bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-full">INSTALL · LEVELS</span>
                 <ChevronRight size={12} className="text-purple-400"/>
               </div>
             </button>
@@ -6005,7 +6158,9 @@ Tip: Social Hub se copy karo 📤`,
                       if ((idx + 1) % 4 === 0) {
                         return [contentEl, (
                           <div key={`ad_pixa_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
-                            <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} />
+                            <InFeedAdShell placement="tikreel_infeed" user={user}>
+                              <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} />
+                            </InFeedAdShell>
                           </div>
                         )];
                       }
@@ -6111,7 +6266,9 @@ Tip: Social Hub se copy karo 📤`,
                       if ((idx + 1) % 4 === 0) {
                         return [contentEl, (
                           <div key={`ad_user_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
-                            <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} />
+                            <InFeedAdShell placement="tikreel_infeed" user={user}>
+                              <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} />
+                            </InFeedAdShell>
                           </div>
                         )];
                       }
@@ -6444,7 +6601,9 @@ Tip: Social Hub se copy karo 📤`,
                       if ((idx + 1) % 4 === 0) {
                         return [contentEl, (
                           <div key={`ad_pulse_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
-                            <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} />
+                            <InFeedAdShell placement="pulse_infeed" user={user}>
+                              <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} />
+                            </InFeedAdShell>
                           </div>
                         )];
                       }
@@ -6595,6 +6754,9 @@ Tip: Social Hub se copy karo 📤`,
                     <span className="text-gray-400 text-[9px] font-black">⏱ 2h 15m</span>
                   </div>
                 )}
+              </div>
+              <div className="px-4 pt-3">
+                <BannerAdSlot placement="live_go_banner" user={user} label="Go Live" />
               </div>
               <div className="flex-1 flex flex-col items-center justify-center gap-6 px-4">
                 {/* WebRTC Live Container - local camera preview via getUserMedia (no ZegoCloud) */}
@@ -6849,12 +7011,28 @@ Tip: Social Hub se copy karo 📤`,
                 <button onClick={() => setSocialScreen('hub')} className="p-1.5 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all">
                   <ArrowLeft size={14} className="text-gray-400"/>
                 </button>
-                <span className="text-sm font-black text-white">Join Live</span>
+                <span className="text-sm font-black text-white">Join Live & Matches</span>
               </div>
-              <div className="flex-1 flex flex-col items-center justify-center gap-6 px-4">
+              <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
+                <BannerAdSlot placement="live_join_banner" user={user} label="Join Live" />
+                <BannerAdSlot placement="live_matches_banner" user={user} label="PK Matches" />
+                <LiveMatchesPanel
+                  youtubeApiKey={YOUTUBE_API_KEY}
+                  onAlert={(msg, icon) => setVvipAlert({ msg, icon })}
+                  onWatchEarn={async () => {
+                    const day = new Date().toISOString().slice(0, 10);
+                    const r = await earnReward(user, 'live_view', {
+                      idempotencyKey: `${user?.uid}_match_${day}`,
+                      meta: { channel: 'pakistan_match' },
+                    });
+                    if (r.ok && !r.duplicate && (r.creditedCoins || 0) > 0) {
+                      setVvipAlert({ msg: r.message || `Match watch +${r.creditedCoins} coins`, icon: '🏏' });
+                    }
+                  }}
+                />
                 {liveNowList.length > 0 && (
-                  <div className="w-full max-w-sm">
-                    <p className="text-[10px] text-pink-400 font-black uppercase tracking-widest mb-3">🔴 Live Now</p>
+                  <div className="w-full">
+                    <p className="text-[10px] text-pink-400 font-black uppercase tracking-widest mb-3">🔴 Portal Live Rooms</p>
                     <div className="space-y-3">
                       {liveNowList.map((room:any) => (
                         <button key={room.id} onClick={() => joinLiveByRoomId(room.id)} className="w-full flex items-center gap-3 bg-white/5 border border-red-500/30 rounded-2xl p-3 active:scale-95 transition-all">
@@ -6864,7 +7042,7 @@ Tip: Social Hub se copy karo 📤`,
                           </div>
                           <div className="text-left">
                             <p className="text-xs font-black text-white">@{room.username}</p>
-                            <p className="text-[9px] text-gray-400">Tap to join</p>
+                            <p className="text-[9px] text-gray-400">Tap to join · smoother multi-viewer audio</p>
                           </div>
                           <ChevronRight size={14} className="text-gray-500 ml-auto"/>
                         </button>
@@ -6872,7 +7050,7 @@ Tip: Social Hub se copy karo 📤`,
                     </div>
                   </div>
                 )}
-                <div className="w-full max-w-sm">
+                <div className="w-full">
                   <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2">Or enter Room ID</p>
                   <input value={joinRoomInput} onChange={e => setJoinRoomInput(e.target.value)} placeholder="Paste Room ID here" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-cyan-500/50 mb-3"/>
                   <button onClick={() => joinLiveByRoomId()} className="w-full py-3 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all" style={{background:'linear-gradient(135deg,#0891b2,#0e7490)'}}>
@@ -7293,95 +7471,19 @@ Tip: Social Hub se copy karo 📤`,
 
 
       {/* ══════════════════════════════════════════════════════
-          GAMES SCREEN — FIX #7: card click triggers interstitial
+          GAMES + OFFERWALL — Install & Level Unlock progression
       ══════════════════════════════════════════════════════ */}
       {screen === 'games' && (
-        <div className="flex flex-col min-h-screen bg-[#050505]">
-          <div className="sticky top-0 z-40 bg-[#050505]/95 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center gap-3">
-            <button onClick={() => { setScreen('hub'); setSelectedGame(null); }} className="p-1.5 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all">
-              <ArrowLeft size={14} className="text-gray-400"/>
-            </button>
-            <div style={{ position:'relative', zIndex:50 }}>
-              <img src="/logo.png" alt="AJ" className="w-8 h-8 rounded-xl shadow-[0_0_14px_rgba(236,72,153,0.5)]"/>
-            </div>
-            <h1 className="text-sm font-black bg-gradient-to-r from-pink-500 to-cyan-400 bg-clip-text text-transparent uppercase tracking-widest">Gaming Zone</h1>
-            <button onClick={() => { 
-              const adOk = triggerFreeCoinAd(); 
-              if (adOk) {
-                setVvipAlert({msg:'🎬 Thanks for watching! Games stay free for fun — no wallet coins from Gaming Zone.', icon:'🎮'}); 
-              } else {
-                setVvipAlert({msg:'⏳ Please wait a few minutes before watching another ad.', icon:'⏱️'}); 
-              }
-            }} className="ml-auto bg-gradient-to-r from-yellow-400 to-orange-500 text-black text-[9px] font-black px-3 py-1.5 rounded-xl active:scale-90 transition-all shadow-[0_0_10px_rgba(234,179,8,0.4)]">
-              🎬 Watch Ad
-            </button>
-</div>
-
-          {!selectedGame ? (
-            <div className="px-4 py-4 space-y-3">
-              {/* Video Ad — Games Screen */}
-              {[ { id:'rider',    name:'Rider King',       emoji:'🏍️', desc:'Dodge obstacles — local tokens only', url:'/games/rider-king/index.html' },
-                { id:'racer',    name:'Pulse Racer',      emoji:'🏎️', desc:'Speed racing — entertainment only', url:'/games/pulse-racer/index.html' },
-                { id:'subsea',   name:'Subsea Surge',     emoji:'🐠', desc:'Underwater adventure — local coins', url:'/games/subsea-surge/index.html' },
-                { id:'neon',     name:'Neon Strike',      emoji:'⚡', desc:'Neon arcade — no wallet credit', url:'/games/neon-strike/index.html' },
-                { id:'volcano',  name:'Volcano Escape',   emoji:'🌋', desc:'Escape the eruption — fun only', url:'/games/volcano-escape/index.html' },
-                { id:'ludo',     name:'Ludo Elite Royal', emoji:'🎲', desc:'Board classic with transition ads', url:'/games/ludo-elite-royal/index.html' },
-                { id:'puck',     name:'Puck Pulse Elite', emoji:'🏒', desc:'Air hockey — COMING SOON',    url:'' },
-              ].map(game => (
-                <button
-                  key={game.id}
-                  onClick={() => {
-                    if (!game.url) return setVvipAlert({msg:`${game.name} coming soon! 🔜`});
-                    // Ludo: interstitial/rewarded transition before gameplay (in-game ads handle the rest)
-                    if (game.id === 'ludo') {
-                      navigateWithAdOverlay(() => setSelectedGame(game.url));
-                      return;
-                    }
-                    setSelectedGame(game.url);
-                  }}
-                  className="w-full flex items-center gap-4 bg-white/5 border border-white/10 rounded-2xl p-4 active:scale-95 transition-all hover:border-pink-500/30"
-                >
-                  <span className="text-3xl">{game.emoji}</span>
-                  <div className="text-left flex-1">
-                    <p className="text-sm font-black text-white">{game.name}</p>
-                    <p className="text-[10px] text-gray-400">{game.desc}</p>
-                  </div>
-                  <ChevronRight size={16} className="text-gray-500"/>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="flex-1 flex flex-col">
-              <div className="px-4 py-2 flex items-center gap-3">
-                <button onClick={() => {
-                  cleanupMonetagDom();
-                  setSelectedGame(null);
-                }} className="flex items-center gap-1.5 text-[10px] text-gray-400 font-black active:scale-90 transition-all">
-                  <ArrowLeft size={12}/> Back to Games
-                </button>
-              </div>
-              {/* Game iframe — no wallet score bridge; local tokens stay in-game */}
-              {selectedGame ? (
-                <iframe
-                  key={selectedGame}
-                  src={selectedGame}
-                  className="flex-1 w-full border-0 bg-black"
-                  allow="autoplay; fullscreen; gyroscope; accelerometer; clipboard-write; encrypted-media; picture-in-picture; camera; microphone"
-                  allowFullScreen
-                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-pointer-lock allow-top-navigation-by-user-activation allow-downloads allow-presentation"
-                  referrerPolicy="no-referrer-when-downgrade"
-                  title="Game"
-                  style={{ minHeight: 'calc(100vh - 120px)', display:'block' }}
-                  onError={() => setVvipAlert({msg:'Game failed to load. Try another game.',icon:'⚠️'})}
-                />
-              ) : (
-                <div className="flex-1 flex items-center justify-center">
-                  <p className="text-gray-400">Loading game...</p>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+        <GamingZone
+          user={user}
+          unlockedGames={unlockedGames}
+          gameProgress={gameProgress}
+          onBack={() => { setScreen('hub'); setSelectedGame(null); }}
+          onAlert={(msg, icon) => setVvipAlert({ msg, icon })}
+          onRefreshUser={() => { /* live via onSnapshot */ }}
+          onOpenWithAd={(open) => navigateWithAdOverlay(open)}
+          cleanupAds={cleanupMonetagDom}
+        />
       )}
 
       {/* ══════════════════════════════════════════════════════
@@ -7426,6 +7528,14 @@ Tip: Social Hub se copy karo 📤`,
                 <div className="bg-black/40 rounded-2xl p-3 space-y-1 font-mono text-[9px] text-green-400">
                   {tradeLogs.map((log, i) => <p key={i}>{'>'} {log}</p>)}
                 </div>
+                {botTier !== 'none' && (
+                  <button
+                    onClick={syncBotProfits}
+                    className="mt-3 w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 text-black text-[11px] font-black active:scale-95"
+                  >
+                    Sync Profits → Wallet ($1–$1.50 split)
+                  </button>
+                )}
               </div>
             </div>
 

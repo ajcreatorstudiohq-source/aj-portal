@@ -30,12 +30,28 @@ export default function RootLayout({
               window.AJ_SDK = {
                 showAd: function() { console.log("SDK: showAd (local only)"); },
                 sendScore: function() { console.log("SDK: sendScore ignored — no wallet credit"); },
-                addBalance: function() { console.log("SDK: addBalance ignored — no wallet credit"); }
+                addBalance: function() { console.log("SDK: addBalance ignored — no wallet credit"); },
+                reportLevel: function(gameId, level) {
+                  try {
+                    if (window.parent && window.parent !== window) {
+                      window.parent.postMessage({ type: 'GAME_LEVEL_REACHED', gameId: gameId, level: level }, '*');
+                    }
+                  } catch (e) {}
+                }
               };
             } else {
               // Hard-disable any wallet-credit paths even if an older SDK cached
               window.AJ_SDK.sendScore = function() { console.log("SDK: sendScore ignored — no wallet credit"); };
               window.AJ_SDK.addBalance = function() { console.log("SDK: addBalance ignored — no wallet credit"); };
+              if (typeof window.AJ_SDK.reportLevel !== 'function') {
+                window.AJ_SDK.reportLevel = function(gameId, level) {
+                  try {
+                    if (window.parent && window.parent !== window) {
+                      window.parent.postMessage({ type: 'GAME_LEVEL_REACHED', gameId: gameId, level: level }, '*');
+                    }
+                  } catch (e) {}
+                };
+              }
             }
           `}
         </Script>

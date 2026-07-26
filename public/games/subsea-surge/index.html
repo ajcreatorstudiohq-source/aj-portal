@@ -7,6 +7,7 @@
     
     <!-- AJ SDK CONNECTED (DO NOT REMOVE) -->
     <script src="../../aj-sdk.js"></script>
+    <script src="../aj-progress.js"></script>
 
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
     <style>
@@ -322,6 +323,10 @@
     }
 
     function syncWithPortal() {
+        try {
+          var lvl = Math.max(1, Math.floor((typeof coinsCollected === "number" ? coinsCollected : 0) / 50) + 1);
+          if (window.ajReportLevelOnce) window.ajReportLevelOnce(Math.min(lvl, 10), "subsea");
+        } catch(e) {}
         // LOCAL ONLY — never credit AJ Super Portal wallet / cash-out
         ajSendScore(coinsCollected);
     }
