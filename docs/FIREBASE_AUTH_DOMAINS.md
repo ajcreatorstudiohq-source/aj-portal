@@ -48,7 +48,8 @@ Optional env overrides (see `.env.example`):
 1. `npm run dev` → open `http://localhost:3000`
 2. Confirm `localhost` is authorized in Firebase
 3. Click **Continue with Google** — popup should complete without `auth/unauthorized-domain`
-4. New users get `users/{uid}` with `unlockedGames: []` and `gameProgress: {}`
+4. New users get `users/{uid}` with `unlockedGames: []`, `gameProgress: {}`, and `dailyRewards: {}`
+5. After deploy, add every preview/production hostname before testing OAuth there
 
 ## Production / preview checklist
 
