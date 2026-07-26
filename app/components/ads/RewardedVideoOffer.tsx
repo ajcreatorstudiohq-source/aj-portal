@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Play, Loader2 } from 'lucide-react';
 import {
   MONETAG_INTERSTITIAL_ZONE,
@@ -15,7 +15,7 @@ import {
 import {
   cleanupMonetagDom,
   ensureMonetagSdkLoaded,
-  triggerMonetagInterstitialAd,
+  showRewardedVideoAd,
 } from '../../lib/monetag-client';
 
 type Props = {
@@ -25,13 +25,28 @@ type Props = {
 };
 
 /**
- * Dedicated Offerwall rewarded-video option.
- * prepare → Monetag show → complete → $1–$1.50 split via offerwall_video.
+ * Offerwall rewarded video — Monetag zone 11377822.
+ * Coins credit ONLY after SDK success callback (networkShown).
  */
 export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Props) {
   const [busy, setBusy] = useState(false);
+  const [sdkReady, setSdkReady] = useState(false);
   const [remaining, setRemaining] = useState<number | null>(null);
   const [lastWatchAt, setLastWatchAt] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL_ZONE)
+      .then((ok) => {
+        if (!cancelled) setSdkReady(ok);
+      })
+      .catch(() => {
+        if (!cancelled) setSdkReady(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const watch = useCallback(async () => {
     if (!user) return onAlert('Please sign in to earn from video ads', '🔒');
@@ -66,11 +81,10 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
         user
       );
 
-      ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL_ZONE);
-      // force:true — rewarded path owns its own cooldown (not hub interstitial gate)
-      const shown = await triggerMonetagInterstitialAd(MONETAG_INTERSTITIAL_ZONE, {
-        force: true,
+      const shown = await showRewardedVideoAd({
+        zoneId: MONETAG_INTERSTITIAL_ZONE,
         requestVar: 'offerwall_rewarded',
+        ymid: `${user.uid}_${prep.sessionId}`,
       });
 
       await trackAdEvent(
@@ -83,23 +97,37 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
         user
       );
 
+      if (!shown) {
+        cleanupMonetagDom();
+        setLastWatchAt(Date.now());
+        onAlert(
+          'Video ad did not complete. Watch the full ad to earn coins — no free credit.',
+          '📺'
+        );
+        return;
+      }
+
       const result = await completeRewardedVideo(user, prep.sessionId, {
         placement: 'offerwall_rewarded_video',
-        networkShown: shown,
-        meta: { zoneId: MONETAG_INTERSTITIAL_ZONE },
+        networkShown: true,
+        meta: { zoneId: MONETAG_INTERSTITIAL_ZONE, verified: true },
       });
 
       cleanupMonetagDom();
       setLastWatchAt(Date.now());
 
       if (!result.ok) {
-        onAlert(result.error || 'Reward failed', '⚠️');
+        onAlert(
+          result.error === 'ad_not_verified'
+            ? 'Ad was not verified. No coins credited.'
+            : result.error || 'Reward failed',
+          '⚠️'
+        );
         return;
       }
       if (typeof result.remainingToday === 'number') setRemaining(result.remainingToday);
       onAlert(
-        result.message ||
-          `+${result.creditedCoins || 0} AJ Coins ($${Number(result.userUsd || 0).toFixed(2)})`,
+        result.message || `+${result.creditedCoins || 0} AJ Coins for watching the video!`,
         result.duplicate ? 'ℹ️' : '💰'
       );
       onRefreshUser?.();
@@ -120,14 +148,14 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
         <div className="min-w-0 flex-1">
           <p className="text-sm font-black text-white">Watch Rewarded Video</p>
           <p className="text-[11px] text-gray-300 leading-relaxed mt-0.5">
-            Complete a verified video ad to earn{' '}
-            <span className="text-amber-300 font-bold">$1.00–$1.50</span> in AJ Coins.
-            Of each <span className="text-white font-bold">$5–$7</span> pool, the rest is
-            platform revenue.
+            Watch a full verified video ad to earn{' '}
+            <span className="text-amber-300 font-bold">AJ Coins</span>. No credit until the ad
+            finishes.
           </p>
           <p className="text-[9px] text-gray-500 mt-1">
-            Up to {OFFERWALL_VIDEO_MAX_DAILY}/day
+            Zone {MONETAG_INTERSTITIAL_ZONE} · up to {OFFERWALL_VIDEO_MAX_DAILY}/day
             {remaining != null ? ` · ${remaining} left today` : ''}
+            {!sdkReady ? ' · loading ad SDK…' : ''}
           </p>
         </div>
       </div>

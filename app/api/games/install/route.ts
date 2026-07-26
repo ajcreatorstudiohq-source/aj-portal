@@ -62,7 +62,7 @@ export async function POST(request: Request) {
       message: result.alreadyInstalled
         ? `${game.name} already installed — clear milestones to earn more.`
         : credited > 0
-          ? `${game.name} downloaded! +${credited} AJ Coins ($${Number(reward?.split?.userUsd).toFixed(2)}). Clear levels for more.`
+          ? `${game.name} downloaded! +${credited} AJ Coins. Clear levels for more.`
           : `${game.name} installed. Clear milestone levels to earn wallet rewards.`,
     });
   } catch (e: unknown) {
