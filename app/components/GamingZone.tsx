@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ChevronRight, Lock, Download, Gift, Trophy } from 'lucide-react';
 import {
   GAME_CATALOG,
-  OFFERWALL_PUBLIC,
+  buildOfferwallUrl,
   type GameProgressDoc,
 } from '../lib/economy';
 import BannerAdSlot from './ads/BannerAdSlot';
@@ -197,7 +197,9 @@ export default function GamingZone({
       },
       user
     ).catch(() => {});
-    window.open(OFFERWALL_PUBLIC.wallUrl, '_blank', 'noopener,noreferrer');
+    const url = buildOfferwallUrl(user.uid);
+    window.open('/offerwall', '_blank', 'noopener,noreferrer');
+    window.open(url, '_blank', 'noopener,noreferrer');
     onAlert(
       'Finish the partner offer in the opened tab. Coins credit only after verified completion — no free tap rewards.',
       '🔗'
@@ -309,11 +311,10 @@ export default function GamingZone({
 
           <BannerAdSlot placement="games_banner" user={user} label="Offerwall" />
 
-          <a
-            href={OFFERWALL_PUBLIC.wallUrl}
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
+            type="button"
             onClick={() => {
+              if (!user) return onAlert('Please sign in first', '🔒');
               trackAdEvent(
                 {
                   event: 'click',
@@ -323,11 +324,13 @@ export default function GamingZone({
                 },
                 user
               ).catch(() => {});
+              window.open('/offerwall', '_blank', 'noopener,noreferrer');
+              window.open(buildOfferwallUrl(user.uid), '_blank', 'noopener,noreferrer');
             }}
             className="block w-full text-center bg-white/5 border border-white/10 rounded-2xl p-4 text-sm font-black text-cyan-300 active:scale-95"
           >
             Open Offer Partners ↗
-          </a>
+          </button>
 
           {[
             { id: 'survey_starter', title: 'Starter Survey', note: 'Complete a short partner survey' },

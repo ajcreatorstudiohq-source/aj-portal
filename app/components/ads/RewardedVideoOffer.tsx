@@ -17,6 +17,7 @@ import {
   ensureMonetagSdkLoaded,
   showRewardedVideoAd,
 } from '../../lib/monetag-client';
+import { startIntrusiveAdGuard } from '../../lib/ad-guards';
 
 type Props = {
   user: { uid: string; getIdToken: () => Promise<string> } | null;
@@ -27,6 +28,7 @@ type Props = {
 /**
  * Offerwall rewarded video — Monetag zone 11377822.
  * Coins credit ONLY after SDK success callback (networkShown).
+ * Button spinner always clears (hard timeout).
  */
 export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Props) {
   const [busy, setBusy] = useState(false);
@@ -35,6 +37,7 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
   const [lastWatchAt, setLastWatchAt] = useState(0);
 
   useEffect(() => {
+    startIntrusiveAdGuard();
     let cancelled = false;
     ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL_ZONE)
       .then((ok) => {
@@ -58,6 +61,11 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
     }
 
     setBusy(true);
+    const hardStop = window.setTimeout(() => {
+      setBusy(false);
+      cleanupMonetagDom();
+    }, 35000);
+
     try {
       const prep = await prepareRewardedVideo(user, 'offerwall_rewarded_video');
       if (!prep.ok || !prep.sessionId) {
@@ -135,6 +143,7 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
       cleanupMonetagDom();
       onAlert(e instanceof Error ? e.message : 'Video ad failed', '⚠️');
     } finally {
+      window.clearTimeout(hardStop);
       setBusy(false);
     }
   }, [user, busy, lastWatchAt, onAlert, onRefreshUser]);
@@ -155,7 +164,7 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
           <p className="text-[9px] text-gray-500 mt-1">
             Zone {MONETAG_INTERSTITIAL_ZONE} · up to {OFFERWALL_VIDEO_MAX_DAILY}/day
             {remaining != null ? ` · ${remaining} left today` : ''}
-            {!sdkReady ? ' · loading ad SDK…' : ''}
+            {!sdkReady ? ' · loading ad SDK…' : ' · ready'}
           </p>
         </div>
       </div>

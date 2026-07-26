@@ -22,6 +22,22 @@ export type RewardedVideoResult = {
   remainingToday?: number;
 };
 
+const FETCH_TIMEOUT_MS = 15000;
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  ms = FETCH_TIMEOUT_MS
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function authHeaders(user?: { getIdToken: () => Promise<string> } | null) {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (user) {
@@ -45,7 +61,7 @@ export async function trackAdEvent(
 ): Promise<AdTrackResult> {
   try {
     const headers = await authHeaders(user);
-    const res = await fetch('/api/ads/track', {
+    const res = await fetchWithTimeout('/api/ads/track', {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -70,7 +86,7 @@ export async function prepareRewardedVideo(
   if (!user) return { ok: false, error: 'not_signed_in' };
   try {
     const token = await user.getIdToken();
-    const res = await fetch('/api/ads/rewarded', {
+    const res = await fetchWithTimeout('/api/ads/rewarded', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -97,7 +113,7 @@ export async function completeRewardedVideo(
   if (!sessionId) return { ok: false, error: 'missing_session' };
   try {
     const token = await user.getIdToken();
-    const res = await fetch('/api/ads/rewarded', {
+    const res = await fetchWithTimeout('/api/ads/rewarded', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
