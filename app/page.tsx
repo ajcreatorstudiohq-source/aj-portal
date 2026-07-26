@@ -26,6 +26,7 @@ import { earnReward } from './lib/client-rewards';
 import { trackAdEvent } from './lib/ad-client';
 import { MONETAG_INTERSTITIAL_ZONE } from './lib/ads-config';
 import AdminUsersPanel from './components/AdminUsersPanel';
+import { isPortalAdminUser } from './lib/admin-auth';
 import { BAN_FORBIDDEN_MESSAGE, DEFAULT_ACCOUNT_BAN_FIELDS, isUserBanned } from './lib/user-ban';
 
 // ============================================================
@@ -267,7 +268,6 @@ const YOUTUBE_API_KEY          = "AIzaSyD9vR3hNLt7pBNlm6PMaZWbJOB9QGcrD1Y";
 const NOWPAYMENTS_API_KEY      = "3THXNSZ-AYVMTP6-HQ9KGKK-9J6CQD7";
 const CLOUDINARY_CLOUD_NAME    = "atm28akz";
 const CLOUDINARY_UPLOAD_PRESET = "aj_portal";
-const CEO_EMAIL                = "ajcreatorstudio.hq@gmail.com";
 const CEO_WHATSAPP             = "https://wa.me/96878994093";
 const AGORA_APP_ID             = "7863c5369b3648bf931893a52ebaa6db";
 const AGORA_APP_CERTIFICATE    = "dc66528c5a5646da8e3ce5d2426759af";
@@ -2565,7 +2565,15 @@ export function AJSuperPortal() {
   const totalCoins     = balance + visualProfit;
   const displayBalance = totalCoins.toFixed(2);
   const displayUsdt    = (totalCoins / CASH_RATE).toFixed(2);
-  const isPortalAdmin  = !!user?.email && user.email.toLowerCase() === CEO_EMAIL.toLowerCase();
+  // Admin One-Click Ban — ONLY for configured admin email and/or ADMIN_UIDS
+  const isPortalAdmin = isPortalAdminUser(user);
+
+  // If a non-admin somehow lands on screen='admin', kick back to hub (no 403 UI leak)
+  useEffect(() => {
+    if (screen === 'admin' && !isPortalAdmin) {
+      setScreen('hub');
+    }
+  }, [screen, isPortalAdmin]);
 
   const currentWithdrawMethod = WITHDRAW_METHODS.find(m => m.label === payoutMethod) || WITHDRAW_METHODS[0];
 
@@ -2933,91 +2941,129 @@ export function AJSuperPortal() {
   }, [socialScreen, tiktabMode, user]);
 
   useEffect(() => {
+    let userDocUnsub: (() => void) | null = null;
+
     const kickIfBanned = async (cu: any, data: Record<string, unknown>) => {
       if (!isUserBanned(data) || banKickInProgress.current) return false;
       banKickInProgress.current = true;
       try {
         setBanNotice(BAN_FORBIDDEN_MESSAGE);
         setVvipAlert({ msg: `🚫 ${BAN_FORBIDDEN_MESSAGE}`, icon: '🚫' });
-        try { await setUserOfflineStatus(cu.uid); } catch {}
+        try {
+          await setUserOfflineStatus(cu.uid);
+        } catch {
+          /* ignore offline write errors during ban kick */
+        }
         await signOut(auth);
         setUser(null);
         setScreen('auth');
-      } catch (e) {
-        console.error('kickIfBanned', e);
+      } catch (err) {
+        console.error('kickIfBanned', err);
       } finally {
         banKickInProgress.current = false;
       }
       return true;
     };
 
-    const unsub = onAuthStateChanged(auth, async (cu) => {
-      if (cu) {
-        setUser(cu);
+    const unsubAuth = onAuthStateChanged(auth, async (cu) => {
+      // Clear previous user doc listener on every auth change
+      if (userDocUnsub) {
         try {
-          const userRef  = doc(db,"users",cu.uid);
-          const snap = await getDoc(userRef);
-          if (snap.exists()) {
-            const d = snap.data() as Record<string, unknown>;
-            // Strict ban check on login / session restore — 403 Forbidden equivalent
-            if (await kickIfBanned(cu, d)) return;
-            setBanNotice(null);
-            setHasSocialProfile((d.hasSocialProfile as boolean) ?? true);
-            setUsername((d.username as string)||'');
-            setBio((d.bio as string)||'');
-            setTempPhoto((d.photo as string)||cu.photoURL||'');
-          } else {
-            // NEW USER — just signed up! Camera/mic permission prompt dikhao
-            // BEFORE going to hub, taaki user se pehle permission le lein.
-            // Agar user allow kare toh great, agar deny kare toh bhi hub par bhej do.
-            await setDoc(userRef, {
-              name:cu.displayName, email:cu.email,
-              balance:500, botTier:'none', invested:0,
-              uid:cu.uid, lastSync:serverTimestamp(),
-              hasSocialProfile:true,
-              photo:cu.photoURL||'',
-              followers:0, following:0,
-              postsCount:0, followersCount:0, followingCount:0, totalLikes:0,
-              status:'online', fcmToken:'',
-              // Install & Level Unlock + Offerwall economy fields
-              unlockedGames: [],
-              gameProgress: {},
-              // Ban schema — presence `status` stays online/offline; account ban uses these fields
-              ...DEFAULT_ACCOUNT_BAN_FIELDS,
-            });
-            setHasSocialProfile(true);
-            setBanNotice(null);
-            // FIX: Naye user ke liye camera/mic permission prompt show karo
-            setShowCameraPermissionPrompt(true);
-          }
-          onSnapshot(userRef, s => {
-            if (s.exists()) {
-              const d = s.data();
-              setBalance(d.balance||0);
-              setBotTier(d.botTier||'none');
-              setInvested(d.invested||0);
-              setUnlockedGames(Array.isArray(d.unlockedGames) ? d.unlockedGames : []);
-              setGameProgress((d.gameProgress && typeof d.gameProgress === 'object') ? d.gameProgress : {});
-            }
-          onSnapshot(userRef, async (s) => {
-            if (!s.exists()) return;
-            const data = s.data() as Record<string, unknown>;
-            // Instant session terminate when admin bans an active user
-            if (await kickIfBanned(cu, data)) return;
-            setBalance((data.balance as number)||0);
-            setBotTier((data.botTier as string)||'none');
-            setInvested((data.invested as number)||0);
-          });
-        } catch(e) { console.error('Auth init error', e); }
-        await setUserOnlinePresence(cu);
-        // FIX: Agar permission prompt nahi dikhana (returning user), seedha hub par jao
-        // Naye user ke liye permission prompt pehle handle hoga, phir hub par jayega
-        if (!showCameraPermissionPrompt) {
-          setScreen('hub');
+          userDocUnsub();
+        } catch {
+          /* ignore */
         }
-      } else { setUser(null); setScreen('auth'); }
+        userDocUnsub = null;
+      }
+
+      if (!cu) {
+        setUser(null);
+        setScreen('auth');
+        return;
+      }
+
+      setUser(cu);
+
+      try {
+        const userRef = doc(db, 'users', cu.uid);
+        const snap = await getDoc(userRef);
+
+        if (snap.exists()) {
+          const d = snap.data() as Record<string, unknown>;
+          // Strict ban check on login / session restore
+          if (await kickIfBanned(cu, d)) return;
+          setBanNotice(null);
+          setHasSocialProfile((d.hasSocialProfile as boolean) ?? true);
+          setUsername((d.username as string) || '');
+          setBio((d.bio as string) || '');
+          setTempPhoto((d.photo as string) || cu.photoURL || '');
+        } else {
+          // NEW USER — create profile + show camera permission prompt
+          await setDoc(userRef, {
+            name: cu.displayName,
+            email: cu.email,
+            balance: 500,
+            botTier: 'none',
+            invested: 0,
+            uid: cu.uid,
+            lastSync: serverTimestamp(),
+            hasSocialProfile: true,
+            photo: cu.photoURL || '',
+            followers: 0,
+            following: 0,
+            postsCount: 0,
+            followersCount: 0,
+            followingCount: 0,
+            totalLikes: 0,
+            status: 'online',
+            fcmToken: '',
+            unlockedGames: [],
+            gameProgress: {},
+            ...DEFAULT_ACCOUNT_BAN_FIELDS,
+          });
+          setHasSocialProfile(true);
+          setBanNotice(null);
+          setShowCameraPermissionPrompt(true);
+        }
+
+        userDocUnsub = onSnapshot(userRef, async (s) => {
+          if (!s.exists()) return;
+          const data = s.data() as Record<string, unknown>;
+          // Instant session terminate when admin bans an active user
+          if (await kickIfBanned(cu, data)) return;
+          setBalance((data.balance as number) || 0);
+          setBotTier((data.botTier as string) || 'none');
+          setInvested((data.invested as number) || 0);
+          setUnlockedGames(
+            Array.isArray(data.unlockedGames) ? (data.unlockedGames as string[]) : []
+          );
+          setGameProgress(
+            data.gameProgress && typeof data.gameProgress === 'object'
+              ? (data.gameProgress as Record<string, GameProgressDoc>)
+              : {}
+          );
+        });
+      } catch (err) {
+        console.error('Auth init error', err);
+      }
+
+      await setUserOnlinePresence(cu);
+      // Returning users go to hub; new users stay on permission prompt first
+      if (!showCameraPermissionPrompt) {
+        setScreen('hub');
+      }
     });
-    return () => unsub();
+
+    return () => {
+      if (userDocUnsub) {
+        try {
+          userDocUnsub();
+        } catch {
+          /* ignore */
+        }
+      }
+      unsubAuth();
+    };
   }, []);
 
   // FIX (Hinglish): ZegoCloud cleanup on unmount + pagehide.
@@ -4623,7 +4669,7 @@ export function AJSuperPortal() {
       try {
         await updateDoc(doc(db, "users", user.uid), { photo: url, photoURL: url });
         // Refresh viewProfile state so the profile screen shows the new photo immediately
-        setViewProfile((prev) => prev ? { ...prev, photo: url, photoURL: url } : prev);
+        setViewProfile((prev: any) => prev ? { ...prev, photo: url, photoURL: url } : prev);
       } catch (err) { console.error('handlePhotoUpdate: Firestore update failed', err); }
       setVvipAlert({msg:"✅ Photo updated!",icon:"📷"});
     } else {
@@ -4694,7 +4740,7 @@ export function AJSuperPortal() {
         await updateDoc(doc(db, "users", user.uid), { photo: url, photoURL: url });
         console.log('handleDpUpdate: Firestore updated');
         // Refresh viewProfile state so the profile screen shows the new photo immediately
-        setViewProfile((prev) => prev ? { ...prev, photo: url, photoURL: url } : prev);
+        setViewProfile((prev: any) => prev ? { ...prev, photo: url, photoURL: url } : prev);
       } catch (err) {
         console.error('handleDpUpdate: Firestore update failed (non-fatal)', err);
       }
@@ -5892,26 +5938,15 @@ Tip: Social Hub se copy karo 📤`,
       )}
 
       {/* ══════════════════════════════════════════════════════
-          ADMIN PANEL — One-Click User Ban
+          ADMIN PANEL — One-Click User Ban (admin email/UID only)
       ══════════════════════════════════════════════════════ */}
-      {screen === 'admin' && isPortalAdmin && (
+      {screen === 'admin' && isPortalAdmin && user ? (
         <AdminUsersPanel
+          adminUser={{ uid: user.uid, email: user.email }}
           onBack={() => setScreen('hub')}
           onAlert={(msg, icon) => setVvipAlert({ msg, icon })}
         />
-      )}
-      {screen === 'admin' && !isPortalAdmin && (
-        <div className="fixed inset-0 flex flex-col items-center justify-center bg-[#050505] px-6 gap-4">
-          <p className="text-red-400 font-black text-sm">403 Forbidden — Admin only</p>
-          <button
-            type="button"
-            onClick={() => setScreen('hub')}
-            className="px-6 py-3 rounded-2xl bg-white/10 text-white text-xs font-black"
-          >
-            Back to Hub
-          </button>
-        </div>
-      )}
+      ) : null}
 
 
       {/* ══════════════════════════════════════════════════════

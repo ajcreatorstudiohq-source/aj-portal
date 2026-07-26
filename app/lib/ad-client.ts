@@ -79,7 +79,9 @@ export async function prepareRewardedVideo(
       body: JSON.stringify({ action: 'prepare', placement }),
     });
     const data = (await res.json().catch(() => ({}))) as RewardedVideoResult;
-    if (!res.ok) return { ok: false, error: data.error || `http_${res.status}`, ...data };
+    if (!res.ok) {
+      return { ...data, ok: false, error: data.error || `http_${res.status}` };
+    }
     return data;
   } catch (e: unknown) {
     return { ok: false, error: e instanceof Error ? e.message : 'prepare_failed' };
@@ -110,7 +112,9 @@ export async function completeRewardedVideo(
       }),
     });
     const data = (await res.json().catch(() => ({}))) as RewardedVideoResult;
-    if (!res.ok) return { ok: false, error: data.error || `http_${res.status}`, ...data };
+    if (!res.ok) {
+      return { ...data, ok: false, error: data.error || `http_${res.status}` };
+    }
     return data;
   } catch (e: unknown) {
     return { ok: false, error: e instanceof Error ? e.message : 'complete_failed' };
