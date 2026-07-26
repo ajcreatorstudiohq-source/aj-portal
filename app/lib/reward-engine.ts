@@ -1,5 +1,6 @@
 /**
  * Server-side reward application with idempotency + AdminRevenue logging.
+ * Unified $5–$7 pool / $1–$1.50 user split across all earning channels.
  */
 import {
   collection,
@@ -17,8 +18,12 @@ import {
   type RewardSplit,
   type GameProgressDoc,
 } from './economy';
+import {
+  DAILY_CAPS,
+  type RewardSource,
+} from './reward-sources';
 
-export type RewardSource = 'offerwall' | 'game_milestone' | 'game_install';
+export type { RewardSource };
 
 export type ApplyRewardResult = {
   ok: boolean;
@@ -26,14 +31,15 @@ export type ApplyRewardResult = {
   error?: string;
   split?: RewardSplit;
   balanceCredited?: number;
+  dailyCapHit?: boolean;
 };
+
+function dayKeyUtc() {
+  return new Date().toISOString().slice(0, 10);
+}
 
 /**
  * Credit user wallet + log platform revenue. Idempotent on `txId`.
- * Collections:
- *   - offerwall_ledger/{txId} or reward_ledger/{txId}
- *   - users/{uid}.balance += userCoins
- *   - AdminRevenue (admin share of $5–$7 pool)
  */
 export async function applySplitReward(opts: {
   uid: string;
@@ -42,6 +48,8 @@ export async function applySplitReward(opts: {
   seed: string;
   meta?: Record<string, unknown>;
   ledgerCollection?: string;
+  /** When true, enforce per-source daily caps on users/{uid} */
+  enforceDailyCap?: boolean;
 }): Promise<ApplyRewardResult> {
   const {
     uid,
@@ -50,6 +58,7 @@ export async function applySplitReward(opts: {
     seed,
     meta = {},
     ledgerCollection = 'reward_ledger',
+    enforceDailyCap = true,
   } = opts;
 
   if (!uid || !txId) {
@@ -59,17 +68,33 @@ export async function applySplitReward(opts: {
   const ledgerRef = doc(db, ledgerCollection, txId);
   const userRef = doc(db, 'users', uid);
   const split = computeRewardSplit(seed);
+  const dayKey = dayKeyUtc();
+  const cap = DAILY_CAPS[source] ?? 5;
 
   try {
     const result = await runTransaction(db, async (tx) => {
       const existing = await tx.get(ledgerRef);
       if (existing.exists()) {
-        return { duplicate: true as const, split };
+        return { duplicate: true as const, split, dailyCapHit: false };
       }
 
       const userSnap = await tx.get(userRef);
       if (!userSnap.exists()) {
         throw new Error('user_not_found');
+      }
+
+      const data = userSnap.data() as {
+        dailyRewards?: Record<string, { dayKey?: string; count?: number }>;
+      };
+
+      let nextDailyCount: number | null = null;
+      if (enforceDailyCap) {
+        const slot = data.dailyRewards?.[source];
+        const count = slot?.dayKey === dayKey ? Number(slot.count || 0) : 0;
+        if (count >= cap) {
+          return { duplicate: false as const, split, dailyCapHit: true };
+        }
+        nextDailyCount = count + 1;
       }
 
       tx.set(ledgerRef, {
@@ -78,18 +103,33 @@ export async function applySplitReward(opts: {
         txId,
         ...split,
         meta,
-        dayKey: typeof meta.dayKey === 'string' ? meta.dayKey : null,
+        dayKey: typeof meta.dayKey === 'string' ? meta.dayKey : dayKey,
         createdAt: serverTimestamp(),
       });
 
-      tx.update(userRef, {
+      const userUpdate: Record<string, unknown> = {
         balance: increment(split.userCoins),
         lastRewardAt: serverTimestamp(),
         lastRewardSource: source,
-      });
+      };
+      if (nextDailyCount !== null) {
+        userUpdate[`dailyRewards.${source}.dayKey`] = dayKey;
+        userUpdate[`dailyRewards.${source}.count`] = nextDailyCount;
+      }
+      tx.update(userRef, userUpdate);
 
-      return { duplicate: false as const, split };
+      return { duplicate: false as const, split, dailyCapHit: false };
     });
+
+    if (result.dailyCapHit) {
+      return {
+        ok: false,
+        error: 'daily_limit',
+        dailyCapHit: true,
+        split: result.split,
+        balanceCredited: 0,
+      };
+    }
 
     if (!result.duplicate) {
       try {
@@ -132,7 +172,6 @@ export async function ensureGameProgress(
   if (!snap.exists()) throw new Error('user_not_found');
   const data = snap.data() as {
     gameProgress?: Record<string, GameProgressDoc>;
-    unlockedGames?: string[];
   };
   const progress = data.gameProgress?.[gameId];
   if (progress) return progress as GameProgressDoc;
@@ -166,43 +205,5 @@ export async function markGameInstalled(uid: string, gameId: string) {
       installedAt: serverTimestamp(),
     },
   });
-  return { unlockedGames: unlocked };
-}
-
-export async function updateGameLevel(uid: string, gameId: string, level: number) {
-  const userRef = doc(db, 'users', uid);
-  const snap = await getDoc(userRef);
-  if (!snap.exists()) throw new Error('user_not_found');
-  const data = snap.data() as { gameProgress?: Record<string, GameProgressDoc> };
-  const prev = data.gameProgress?.[gameId];
-  if (!prev?.installed) throw new Error('game_not_installed');
-  const nextLevel = Math.max(prev.level || 0, level);
-  await updateDoc(userRef, {
-    [`gameProgress.${gameId}.level`]: nextLevel,
-    [`gameProgress.${gameId}.lastLevelAt`]: serverTimestamp(),
-  });
-  return nextLevel;
-}
-
-export async function claimMilestoneFields(
-  uid: string,
-  gameId: string,
-  level: number
-) {
-  const userRef = doc(db, 'users', uid);
-  const snap = await getDoc(userRef);
-  if (!snap.exists()) throw new Error('user_not_found');
-  const data = snap.data() as { gameProgress?: Record<string, GameProgressDoc> };
-  const prev = data.gameProgress?.[gameId];
-  if (!prev?.installed) throw new Error('game_not_installed');
-  if ((prev.level || 0) < level) throw new Error('level_not_reached');
-  const claimed = Array.isArray(prev.claimedMilestones)
-    ? [...prev.claimedMilestones]
-    : [];
-  if (claimed.includes(level)) throw new Error('already_claimed');
-  claimed.push(level);
-  await updateDoc(userRef, {
-    [`gameProgress.${gameId}.claimedMilestones`]: claimed,
-  });
-  return claimed;
+  return { unlockedGames: unlocked, alreadyInstalled: !!prev.installed };
 }

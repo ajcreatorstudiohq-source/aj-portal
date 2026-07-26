@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getGameById } from '../../../lib/economy';
-import { markGameInstalled } from '../../../lib/reward-engine';
+import { applySplitReward, markGameInstalled } from '../../../lib/reward-engine';
 import {
   bearerFromRequest,
   verifyFirebaseIdToken,
@@ -11,8 +11,8 @@ import {
  * Body: { gameId: string }
  * Auth: Bearer <Firebase ID token>
  *
- * Marks a game as installed/unlocked for the user. No free wallet earnings —
- * real rewards unlock only via level milestones or offerwall.
+ * Downloads/unlocks a game. First install credits via the unified
+ * $5–$7 / $1–$1.50 split. Further earnings require level milestones.
  */
 export async function POST(request: Request) {
   try {
@@ -33,11 +33,37 @@ export async function POST(request: Request) {
     }
 
     const result = await markGameInstalled(user.uid, gameId);
+
+    let reward: Awaited<ReturnType<typeof applySplitReward>> | null = null;
+    if (!result.alreadyInstalled) {
+      const txId = `earn_game_install_${user.uid}_${gameId}`;
+      reward = await applySplitReward({
+        uid: user.uid,
+        txId,
+        source: 'game_install',
+        seed: txId,
+        meta: { gameId, gameName: game.name },
+        enforceDailyCap: true,
+      });
+    }
+
+    const credited = reward && reward.ok && !reward.duplicate ? reward.balanceCredited || 0 : 0;
+
     return NextResponse.json({
       ok: true,
       gameId,
       unlockedGames: result.unlockedGames,
-      message: `${game.name} installed. Clear milestone levels to earn wallet rewards.`,
+      alreadyInstalled: result.alreadyInstalled,
+      creditedCoins: credited,
+      userUsd: reward?.split?.userUsd,
+      adminUsd: reward?.split?.adminUsd,
+      totalPoolUsd: reward?.split?.totalUsd,
+      downloadUrl: game.url,
+      message: result.alreadyInstalled
+        ? `${game.name} already installed — clear milestones to earn more.`
+        : credited > 0
+          ? `${game.name} downloaded! +${credited} AJ Coins ($${Number(reward?.split?.userUsd).toFixed(2)}). Clear levels for more.`
+          : `${game.name} installed. Clear milestone levels to earn wallet rewards.`,
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'install_failed';

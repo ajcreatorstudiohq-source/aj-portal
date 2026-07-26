@@ -18,7 +18,9 @@ import Script from 'next/script';
 import React, { useState, useEffect, useRef, Component } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import GamingZone from './components/GamingZone';
+import LiveMatchesPanel from './components/LiveMatchesPanel';
 import type { GameProgressDoc } from './lib/economy';
+import { earnReward } from './lib/client-rewards';
 
 // ============================================================
 // GLOBAL ERROR SHIELD (FIX: "Page couldn't load" error)
@@ -476,18 +478,19 @@ const startFrameBroadcast = (roomId: string, stream: MediaStream) => {
     const rtdb = getDatabase();
     const frameRef = ref(rtdb, `live_frames/${roomId}/current`);
 
-    // Capture and push a frame every ~333ms (3fps — low bandwidth, smooth enough)
+    // ~6fps JPEG broadcast — smoother Pakistan/PK match viewing without huge RTDB payloads
+    canvas.width = 480;
+    canvas.height = 360;
     _frameBroadcastInterval = setInterval(() => {
       if (!ctx || !_frameBroadcastVideo || _frameBroadcastVideo.readyState < 2) return;
       try {
-        ctx.drawImage(_frameBroadcastVideo, 0, 0, 320, 240);
-        const dataURL = canvas.toDataURL('image/jpeg', 0.4);
-        // Push frame to RTDB — viewer will pick it up in real-time
+        ctx.drawImage(_frameBroadcastVideo, 0, 0, canvas.width, canvas.height);
+        const dataURL = canvas.toDataURL('image/jpeg', 0.55);
         set(frameRef, { frame: dataURL, ts: Date.now() }).catch(() => {});
       } catch (e) {
         // Frame capture failed — skip, don't crash
       }
-    }, 333);
+    }, 160);
   } catch (e) {
     console.warn('startFrameBroadcast failed:', e);
   }
@@ -527,98 +530,129 @@ const stopFrameBroadcast = (roomId?: string) => {
 //   - Sab kuch try/catch mein hai — kuch fail ho toh live video
 //     frames (RTDB) se continue chalta hai, crash nahi hota.
 // ============================================================
-let _hostAudioPC: RTCPeerConnection | null = null;  // host's peer connection
-let _hostAudioUnsubs: Array<() => void> = [];  // RTDB listeners to clean up
-let _hostAudioRoomId: string | null = null;  // current host audio room ID
+const LIVE_ICE_SERVERS: RTCIceServer[] = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun.cloudflare.com:3478' },
+];
 
-// Start broadcasting host's mic audio to viewers via WebRTC
+// Multi-viewer host audio: one RTCPeerConnection per viewer under peers/{viewerId}
+let _hostAudioPeers: Map<string, RTCPeerConnection> = new Map();
+let _hostAudioUnsubs: Array<() => void> = [];
+let _hostAudioRoomId: string | null = null;
+let _hostAudioStream: MediaStream | null = null;
+
 const startAudioBroadcast = (roomId: string, stream: MediaStream) => {
   if (typeof window === 'undefined' || typeof RTCPeerConnection === 'undefined') return;
   try {
     const rtdb = getDatabase();
     const audioTracks = stream.getAudioTracks();
     if (!audioTracks || audioTracks.length === 0) {
-      console.warn('startAudioBroadcast: no audio tracks in stream — mic may be unavailable');
+      console.warn('startAudioBroadcast: no audio tracks in stream');
       return;
     }
-
-    // Create RTCPeerConnection with Google STUN server
-    const pc = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-    });
-    _hostAudioPC = pc;
     _hostAudioRoomId = roomId;
+    _hostAudioStream = stream;
 
-    // Add all audio tracks to the peer connection
-    audioTracks.forEach(track => {
-      try { pc.addTrack(track, stream); } catch {}
-    });
-
-    // When ICE candidates are generated, push them to RTDB for viewers
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        try {
-          push(ref(rtdb, `live_audio/${roomId}/ice_host`), event.candidate.toJSON()).catch(() => {});
-        } catch {}
-      }
-    };
-
-    // Create SDP offer and write it to RTDB
-    pc.createOffer({ offerToReceiveAudio: false, offerToReceiveVideo: false })
-      .then((offer) => pc.setLocalDescription(offer))
-      .then(() => {
+    const createPeerForViewer = async (viewerId: string) => {
+      if (!viewerId || _hostAudioPeers.has(viewerId)) return;
+      const pc = new RTCPeerConnection({ iceServers: LIVE_ICE_SERVERS });
+      _hostAudioPeers.set(viewerId, pc);
+      audioTracks.forEach((track) => {
+        try { pc.addTrack(track, stream); } catch {}
+      });
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          push(ref(rtdb, `live_audio/${roomId}/peers/${viewerId}/ice_host`), event.candidate.toJSON()).catch(() => {});
+        }
+      };
+      try {
+        const offer = await pc.createOffer({ offerToReceiveAudio: false, offerToReceiveVideo: false });
+        await pc.setLocalDescription(offer);
         if (pc.localDescription) {
-          return set(ref(rtdb, `live_audio/${roomId}/offer`), {
+          await set(ref(rtdb, `live_audio/${roomId}/peers/${viewerId}/offer`), {
             type: pc.localDescription.type,
             sdp: pc.localDescription.sdp,
-            ts: Date.now()
+            ts: Date.now(),
+          });
+        }
+      } catch (e) {
+        console.warn('host peer offer failed', viewerId, e);
+      }
+
+      const unsubAnswer = onValue(ref(rtdb, `live_audio/${roomId}/peers/${viewerId}/answer`), (snap) => {
+        const data = snap.val();
+        if (data?.sdp && data?.type && pc.connectionState !== 'closed' && !pc.currentRemoteDescription) {
+          pc.setRemoteDescription(new RTCSessionDescription({ type: data.type, sdp: data.sdp })).catch(() => {});
+        }
+      });
+      _hostAudioUnsubs.push(unsubAnswer);
+
+      const unsubIce = onChildAdded(ref(rtdb, `live_audio/${roomId}/peers/${viewerId}/ice_viewer`), (snap) => {
+        const candidate = snap.val();
+        if (candidate && pc.connectionState !== 'closed') {
+          pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {});
+        }
+      });
+      _hostAudioUnsubs.push(unsubIce);
+    };
+
+    // Legacy single-offer path (first viewer compatibility) + per-viewer join requests
+    const pcLegacy = new RTCPeerConnection({ iceServers: LIVE_ICE_SERVERS });
+    _hostAudioPeers.set('__legacy__', pcLegacy);
+    audioTracks.forEach((track) => { try { pcLegacy.addTrack(track, stream); } catch {} });
+    pcLegacy.onicecandidate = (event) => {
+      if (event.candidate) {
+        push(ref(rtdb, `live_audio/${roomId}/ice_host`), event.candidate.toJSON()).catch(() => {});
+      }
+    };
+    pcLegacy.createOffer({ offerToReceiveAudio: false, offerToReceiveVideo: false })
+      .then((offer) => pcLegacy.setLocalDescription(offer))
+      .then(() => {
+        if (pcLegacy.localDescription) {
+          return set(ref(rtdb, `live_audio/${roomId}/offer`), {
+            type: pcLegacy.localDescription.type,
+            sdp: pcLegacy.localDescription.sdp,
+            ts: Date.now(),
           });
         }
       })
-      .catch((e) => {
-        console.warn('startAudioBroadcast: createOffer/setLocalDescription failed:', e);
-      });
+      .catch(() => {});
 
-    // Listen for viewer's answer from RTDB
-    const answerRef = ref(rtdb, `live_audio/${roomId}/answer`);
-    const unsubAnswer = onValue(answerRef, (snap) => {
+    const unsubAnswer = onValue(ref(rtdb, `live_audio/${roomId}/answer`), (snap) => {
       const data = snap.val();
-      if (data && data.sdp && data.type && pc.connectionState !== 'closed') {
-        pc.setRemoteDescription(new RTCSessionDescription({ type: data.type, sdp: data.sdp }))
-          .catch((e) => console.warn('startAudioBroadcast: setRemoteDescription (answer) failed:', e));
+      if (data?.sdp && data?.type && pcLegacy.connectionState !== 'closed' && !pcLegacy.currentRemoteDescription) {
+        pcLegacy.setRemoteDescription(new RTCSessionDescription({ type: data.type, sdp: data.sdp })).catch(() => {});
       }
     });
     _hostAudioUnsubs.push(unsubAnswer);
 
-    // Listen for viewer's ICE candidates from RTDB
-    const iceViewerRef = ref(rtdb, `live_audio/${roomId}/ice_viewer`);
-    const unsubIce = onChildAdded(iceViewerRef, (snap) => {
+    const unsubIce = onChildAdded(ref(rtdb, `live_audio/${roomId}/ice_viewer`), (snap) => {
       const candidate = snap.val();
-      if (candidate && pc.connectionState !== 'closed') {
-        pc.addIceCandidate(new RTCIceCandidate(candidate))
-          .catch((e) => console.warn('startAudioBroadcast: addIceCandidate failed:', e));
+      if (candidate && pcLegacy.connectionState !== 'closed') {
+        pcLegacy.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {});
       }
     });
     _hostAudioUnsubs.push(unsubIce);
+
+    // Multi-viewer: each viewer publishes join_requests/{uid}
+    const unsubJoins = onChildAdded(ref(rtdb, `live_audio/${roomId}/join_requests`), (snap) => {
+      const viewerId = snap.key;
+      if (viewerId) createPeerForViewer(viewerId);
+    });
+    _hostAudioUnsubs.push(unsubJoins);
   } catch (e) {
     console.warn('startAudioBroadcast failed:', e);
   }
 };
 
-// Stop broadcasting host's mic audio (called on stopLive)
 const stopAudioBroadcast = (roomId?: string) => {
   try {
-    // Unsubscribe all RTDB listeners
-    _hostAudioUnsubs.forEach(fn => { try { fn(); } catch {} });
+    _hostAudioUnsubs.forEach((fn) => { try { fn(); } catch {} });
     _hostAudioUnsubs = [];
-
-    // Close the peer connection
-    if (_hostAudioPC) {
-      try { _hostAudioPC.close(); } catch {}
-      _hostAudioPC = null;
-    }
-
-    // Clean up RTDB audio data
+    _hostAudioPeers.forEach((pc) => { try { pc.close(); } catch {} });
+    _hostAudioPeers = new Map();
+    _hostAudioStream = null;
     if (roomId || _hostAudioRoomId) {
       const rid = roomId || _hostAudioRoomId;
       try {
@@ -632,93 +666,96 @@ const stopAudioBroadcast = (roomId?: string) => {
   }
 };
 
-// ============================================================
-// VIEWER AUDIO — Join host's WebRTC audio stream via RTDB signaling
-// ============================================================
-let _viewerAudioPC: RTCPeerConnection | null = null;  // viewer's peer connection
-let _viewerAudioUnsubs: Array<() => void> = [];  // RTDB listeners to clean up
-let _viewerAudioRoomId: string | null = null;  // current viewer audio room ID
-let _viewerAudioEl: HTMLAudioElement | null = null;  // audio element to play received audio
+let _viewerAudioPC: RTCPeerConnection | null = null;
+let _viewerAudioUnsubs: Array<() => void> = [];
+let _viewerAudioRoomId: string | null = null;
+let _viewerAudioEl: HTMLAudioElement | null = null;
 
-// Join host's audio stream as a viewer (called from joinLiveByRoomId)
-const joinAudioStream = (roomId: string, onConnected?: () => void) => {
+const joinAudioStream = (roomId: string, onConnected?: () => void, viewerUid?: string) => {
   if (typeof window === 'undefined' || typeof RTCPeerConnection === 'undefined') return;
   try {
     const rtdb = getDatabase();
+    const peerId = viewerUid || `anon_${Date.now()}`;
 
-    // Create RTCPeerConnection with Google STUN server
-    const pc = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-    });
+    // Announce join for multi-viewer host routing
+    set(ref(rtdb, `live_audio/${roomId}/join_requests/${peerId}`), { ts: Date.now() }).catch(() => {});
+
+    const pc = new RTCPeerConnection({ iceServers: LIVE_ICE_SERVERS });
     _viewerAudioPC = pc;
     _viewerAudioRoomId = roomId;
 
-    // Create a hidden audio element to play the received audio
     const audioEl = document.createElement('audio');
     audioEl.autoplay = true;
+    audioEl.setAttribute('playsinline', 'true');
     audioEl.style.display = 'none';
     document.body.appendChild(audioEl);
     _viewerAudioEl = audioEl;
 
-    // When we receive a remote audio track, attach it to the audio element
     pc.ontrack = (event) => {
       try {
-        if (event.streams && event.streams.length > 0) {
-          audioEl.srcObject = event.streams[0];
-        } else if (event.track) {
-          const newStream = new MediaStream([event.track]);
-          audioEl.srcObject = newStream;
-        }
-        audioEl.play().catch((e) => {
-          console.warn('joinAudioStream: audio play() failed (may need user gesture):', e);
-        });
+        if (event.streams?.[0]) audioEl.srcObject = event.streams[0];
+        else if (event.track) audioEl.srcObject = new MediaStream([event.track]);
+        audioEl.play().catch(() => {});
         if (onConnected) onConnected();
+      } catch {}
+    };
+
+    const attachOffer = async (data: { sdp: string; type: RTCSdpType }, icePath: string, answerPath: string, iceHostPath: string) => {
+      if (!data?.sdp || pc.connectionState === 'closed' || pc.currentRemoteDescription) return;
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription({ type: data.type, sdp: data.sdp }));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        if (pc.localDescription) {
+          await set(ref(rtdb, answerPath), {
+            type: pc.localDescription.type,
+            sdp: pc.localDescription.sdp,
+            ts: Date.now(),
+          });
+        }
+        pc.onicecandidate = (event) => {
+          if (event.candidate) {
+            push(ref(rtdb, icePath), event.candidate.toJSON()).catch(() => {});
+          }
+        };
+        const unsubIce = onChildAdded(ref(rtdb, iceHostPath), (snap) => {
+          const candidate = snap.val();
+          if (candidate && pc.connectionState !== 'closed') {
+            pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {});
+          }
+        });
+        _viewerAudioUnsubs.push(unsubIce);
       } catch (e) {
-        console.warn('joinAudioStream: ontrack attach failed:', e);
+        console.warn('joinAudioStream offer attach failed', e);
       }
     };
 
-    // When ICE candidates are generated, push them to RTDB for the host
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        try {
-          push(ref(rtdb, `live_audio/${roomId}/ice_viewer`), event.candidate.toJSON()).catch(() => {});
-        } catch {}
-      }
-    };
-
-    // Listen for host's offer from RTDB
-    const offerRef = ref(rtdb, `live_audio/${roomId}/offer`);
-    const unsubOffer = onValue(offerRef, (snap) => {
+    // Prefer per-viewer peer offer; fall back to legacy shared offer
+    const unsubPeerOffer = onValue(ref(rtdb, `live_audio/${roomId}/peers/${peerId}/offer`), (snap) => {
       const data = snap.val();
-      if (data && data.sdp && data.type && pc.connectionState !== 'closed') {
-        pc.setRemoteDescription(new RTCSessionDescription({ type: data.type, sdp: data.sdp }))
-          .then(() => pc.createAnswer())
-          .then((answer) => pc.setLocalDescription(answer))
-          .then(() => {
-            if (pc.localDescription) {
-              return set(ref(rtdb, `live_audio/${roomId}/answer`), {
-                type: pc.localDescription.type,
-                sdp: pc.localDescription.sdp,
-                ts: Date.now()
-              });
-            }
-          })
-          .catch((e) => console.warn('joinAudioStream: offer/answer exchange failed:', e));
+      if (data?.sdp) {
+        attachOffer(
+          data,
+          `live_audio/${roomId}/peers/${peerId}/ice_viewer`,
+          `live_audio/${roomId}/peers/${peerId}/answer`,
+          `live_audio/${roomId}/peers/${peerId}/ice_host`
+        );
+      }
+    });
+    _viewerAudioUnsubs.push(unsubPeerOffer);
+
+    const unsubOffer = onValue(ref(rtdb, `live_audio/${roomId}/offer`), (snap) => {
+      const data = snap.val();
+      if (data?.sdp && !pc.currentRemoteDescription) {
+        attachOffer(
+          data,
+          `live_audio/${roomId}/ice_viewer`,
+          `live_audio/${roomId}/answer`,
+          `live_audio/${roomId}/ice_host`
+        );
       }
     });
     _viewerAudioUnsubs.push(unsubOffer);
-
-    // Listen for host's ICE candidates from RTDB
-    const iceHostRef = ref(rtdb, `live_audio/${roomId}/ice_host`);
-    const unsubIce = onChildAdded(iceHostRef, (snap) => {
-      const candidate = snap.val();
-      if (candidate && pc.connectionState !== 'closed') {
-        pc.addIceCandidate(new RTCIceCandidate(candidate))
-          .catch((e) => console.warn('joinAudioStream: addIceCandidate failed:', e));
-      }
-    });
-    _viewerAudioUnsubs.push(unsubIce);
   } catch (e) {
     console.warn('joinAudioStream failed:', e);
   }
@@ -3449,6 +3486,19 @@ export function AJSuperPortal() {
     // error aaye (ZegoCloud destroy, Firestore delete, media stop), user HAMESHA
     // Social Hub par wapas aa jaayega. Error se page crash nahi hoga.
     try {
+      // Host live reward once per day when ending a session ($1–$1.50 split)
+      try {
+        if (user && liveRoomId) {
+          const day = new Date().toISOString().slice(0, 10);
+          const reward = await earnReward(user, 'live_host', {
+            idempotencyKey: `${user.uid}_${day}`,
+            meta: { roomId: liveRoomId },
+          });
+          if (reward.ok && !reward.duplicate && (reward.creditedCoins || 0) > 0) {
+            setVvipAlert({ msg: reward.message || `Live host reward +${reward.creditedCoins}`, icon: '🔴' });
+          }
+        }
+      } catch {}
       setZegoAttached(false);
       setCameraReady(false);
       if ((liveStreamRef as any)._heartbeat) {
@@ -3558,12 +3608,23 @@ export function AJSuperPortal() {
       try {
         joinAudioStream(roomSnap.id, () => {
           console.log('joinLiveByRoomId: WebRTC audio connected');
-        });
+        }, user?.uid);
       } catch (audioErr) {
         console.warn('joinLiveByRoomId: audio join failed (non-fatal — video still works)', audioErr);
       }
-      // FIX: ZegoCloud removed — viewer gets room info + live chat via Firestore.
-      // No external SDK needed — no "login room fail" error.
+      // Live view reward after ~60s of uninterrupted watching ($1–$1.50 split)
+      try {
+        if ((liveStreamRef as any)._liveViewTimer) clearTimeout((liveStreamRef as any)._liveViewTimer);
+        (liveStreamRef as any)._liveViewTimer = setTimeout(async () => {
+          const r = await earnReward(user, 'live_view', {
+            idempotencyKey: `${user?.uid}_${roomSnap.id}_${new Date().toISOString().slice(0, 10)}`,
+            meta: { roomId: roomSnap.id },
+          });
+          if (r.ok && !r.duplicate && (r.creditedCoins || 0) > 0) {
+            setVvipAlert({ msg: r.message || `Live view reward +${r.creditedCoins} coins`, icon: '🔴' });
+          }
+        }, 60000);
+      } catch {}
       setZegoAttached(true);
     } catch(e) { console.error('joinLiveByRoomId', e); setVvipAlert({msg:'Could not join room. Please try again.'}); }
   };
@@ -3574,6 +3635,12 @@ export function AJSuperPortal() {
       if (viewerUnsubRef.current) { viewerUnsubRef.current(); viewerUnsubRef.current = null; }
       // FIX ROUND 7: Stop RTDB frame listener
       if (viewerFrameUnsubRef.current) { viewerFrameUnsubRef.current(); viewerFrameUnsubRef.current = null; }
+      try {
+        if ((liveStreamRef as any)._liveViewTimer) {
+          clearTimeout((liveStreamRef as any)._liveViewTimer);
+          (liveStreamRef as any)._liveViewTimer = null;
+        }
+      } catch {}
       // FIX: Stop WebRTC audio stream + clean up
       try { leaveAudioStream(viewerRoomId); } catch {}
       setViewerLiveFrame('');
@@ -4003,20 +4070,16 @@ export function AJSuperPortal() {
       return;
     }
     try {
-      // Deduct from sender
+      // Deduct gift cost from sender (engagement spend)
       await updateDoc(doc(db,"users",user.uid), { balance: increment(-gift.cost) });
-      // GIFTING SPLIT: 60% admin (aap) | 40% creator
-      const creatorShare = gift.cost * GIFT_USER_SHARE;
-      const adminShare   = gift.cost * GIFT_ADMIN_SHARE;
-      await updateDoc(doc(db,"users",creatorId), { balance: increment(creatorShare) });
-      // Admin ledger
-      try {
-        await addDoc(collection(db,"admin_ledger"), {
-          giftName:gift.name, totalCost:gift.cost, adminShare,
-          senderUid:user.uid, creatorUid:creatorId, date:serverTimestamp()
-        });
-      } catch {}
-      // Notification to creator
+      // Creator earns via unified $5–$7 / $1–$1.50 split engine (not flat 40%)
+      const giftKey = `${user.uid}_${creatorId}_${gift.name}_${Date.now()}`;
+      const reward = await earnReward(user, 'live_gift', {
+        idempotencyKey: giftKey,
+        beneficiaryUid: creatorId,
+        meta: { giftName: gift.name, giftCost: gift.cost },
+      });
+      const creatorShare = reward.creditedCoins || 0;
       try {
         await addDoc(collection(db,"users",creatorId,"notifications"), {
           type:'gift', giftName:gift.name, giftIcon:gift.icon,
@@ -4025,10 +4088,14 @@ export function AJSuperPortal() {
           date:serverTimestamp(), read:false
         });
       } catch {}
-      // Cinematic animation
       setCinematicGift(gift);
       setCinematicSender(username || 'Anonymous');
-      setVvipAlert({msg:`${gift.icon} ${gift.name} sent! ${creatorShare} Coins credited to creator (40%). Admin share: ${adminShare} (60%).`,icon:gift.icon});
+      setVvipAlert({
+        msg: reward.ok
+          ? `${gift.icon} ${gift.name} sent! Creator +${creatorShare} AJ Coins ($${Number(reward.userUsd||0).toFixed(2)}). Platform $${Number(reward.adminUsd||0).toFixed(2)} of $${Number(reward.totalPoolUsd||0).toFixed(2)} pool.`
+          : `${gift.icon} ${gift.name} sent!`,
+        icon: gift.icon,
+      });
     } catch(e) { console.error('sendGift', e); setVvipAlert({msg:'Gift failed. Please try again.'}); }
   };
 
@@ -4332,8 +4399,7 @@ export function AJSuperPortal() {
   const handleTiktokPost = async () => {
     if (!tiktokPostText.trim() && !tiktokPostImg) return setVvipAlert({msg:"Add caption or image!"});
     try {
-      const videoReward = tiktokPostIsVideo ? 10 : 5;
-      await addDoc(collection(db,"user_posts"), {
+      const postRef = await addDoc(collection(db,"user_posts"), {
         text:tiktokPostText, image:tiktokPostImg, uid:user!.uid,
         username:username||"AJ_Member", photo:user!.photoURL||'',
         likes:0, views:0, isVideo:tiktokPostIsVideo,
@@ -4342,12 +4408,20 @@ export function AJSuperPortal() {
         cssFilter: tikEditorFilter || 'none',
         createdAt:serverTimestamp()
       });
-      await updateDoc(doc(db,"users",user!.uid), { balance: increment(videoReward) });
-      await logAdminRevenue('tiktok_post', videoReward, videoReward);
+      const reward = await earnReward(user, 'tiktok_post', {
+        idempotencyKey: postRef.id,
+        meta: { isVideo: tiktokPostIsVideo, postId: postRef.id },
+      });
       setTiktokPostText(''); setTiktokPostImg(''); setTiktokPostIsVideo(false);
       setTikEditorFilter('none'); setTikEditorTextOverlay(''); setSelectedSound(null);
       setTiktabMode('feed');
-      setVvipAlert({msg:`🎬 Post published! +${videoReward} Coins 🪩`,icon:"🎬"});
+      if (reward.ok && !reward.duplicate) {
+        setVvipAlert({msg: reward.message || `🎬 Post published! +${reward.creditedCoins} AJ Coins`, icon:"🎬"});
+      } else if (reward.error === 'daily_limit') {
+        setVvipAlert({msg:'🎬 Post published! Daily TikReel reward limit reached — try tomorrow.', icon:"🎬"});
+      } else {
+        setVvipAlert({msg:'🎬 Post published!', icon:"🎬"});
+      }
     } catch(e) { console.error('handleTiktokPost', e); setVvipAlert({msg:'Post failed. Please try again.'}); }
   };
 
@@ -4555,16 +4629,23 @@ export function AJSuperPortal() {
   const handleCreatePost = async () => {
     if (!postText.trim() && !tempPhoto) return setVvipAlert({msg:"Empty Post!"});
     try {
-      const photoReward = pulsePostIsVideo ? 10 : 5;
-      await addDoc(collection(db,"pulse_posts"), {
+      const postRef = await addDoc(collection(db,"pulse_posts"), {
         text:postText, image:tempPhoto, uid:user!.uid,
         username:username||"AJ_Member", photo:user!.photoURL||'',
         likes:0, views:0, isVideo:pulsePostIsVideo, createdAt:serverTimestamp()
       });
-      await updateDoc(doc(db,"users",user!.uid), { balance: increment(photoReward) });
-      await logAdminRevenue('pulse_post', photoReward, photoReward);
+      const reward = await earnReward(user, 'pulse_post', {
+        idempotencyKey: postRef.id,
+        meta: { isVideo: pulsePostIsVideo, postId: postRef.id },
+      });
       setPostText(''); setTempPhoto(''); setPulsePostIsVideo(false);
-      setVvipAlert({msg:`🚀 Post Published! +${photoReward} Coins 🪩`,icon:"🚀"});
+      if (reward.ok && !reward.duplicate) {
+        setVvipAlert({msg: reward.message || `🚀 Post published! +${reward.creditedCoins} AJ Coins`, icon:"🚀"});
+      } else if (reward.error === 'daily_limit') {
+        setVvipAlert({msg:'🚀 Post published! Daily Pulse reward limit reached — try tomorrow.', icon:"🚀"});
+      } else {
+        setVvipAlert({msg:'🚀 Post published!', icon:"🚀"});
+      }
     } catch(e) { console.error('handleCreatePost', e); setVvipAlert({msg:'Post failed. Please try again.'}); }
   };
 
@@ -4772,9 +4853,36 @@ export function AJSuperPortal() {
       await updateDoc(doc(db,"users",user!.uid), {
         balance: increment(-cost), botTier:tier, invested:cost, lastSync:serverTimestamp()
       });
-      await logAdminRevenue('ai_bot', cost, cost * USER_EARN_SHARE);
-      setVvipAlert({msg:`${tier.toUpperCase()} BOT ACTIVATED!`});
+      setVisualProfit(0);
+      setVvipAlert({msg:`${tier.toUpperCase()} BOT ACTIVATED! Sync profits to earn $1–$1.50 rewards.`});
     } catch(e) { console.error('activateBot', e); setVvipAlert({msg:'Activation failed. Please try again.'}); }
+  };
+
+  /** Persist AI bot visual profit via unified reward split (not uncapped client fiction). */
+  const syncBotProfits = async () => {
+    if (!user) return;
+    if (!botTier || botTier === 'none' || invested <= 0) {
+      return setVvipAlert({ msg: 'Activate an AI Trading Bot first.', icon: '🤖' });
+    }
+    if (visualProfit < 1) {
+      return setVvipAlert({ msg: 'Not enough accrued profit yet — keep the bot running.', icon: '⏳' });
+    }
+    const day = new Date().toISOString().slice(0, 10);
+    const reward = await earnReward(user, 'ai_bot_sync', {
+      idempotencyKey: `${user.uid}_${botTier}_${day}_${Math.floor(visualProfit)}`,
+      meta: { botTier, invested, visualProfit },
+    });
+    if (reward.ok && !reward.duplicate) {
+      setVisualProfit(0);
+      try {
+        await updateDoc(doc(db, 'users', user.uid), { lastSync: serverTimestamp() });
+      } catch {}
+      setVvipAlert({ msg: reward.message || `Bot sync +${reward.creditedCoins} AJ Coins`, icon: '🤖' });
+    } else if (reward.error === 'daily_limit') {
+      setVvipAlert({ msg: 'Daily AI bot sync limit reached. Try again tomorrow.', icon: '⏳' });
+    } else {
+      setVvipAlert({ msg: reward.error || 'Bot sync failed', icon: '⚠️' });
+    }
   };
 
   // ── WALLET ACTIONS
@@ -4869,21 +4977,34 @@ export function AJSuperPortal() {
 
   const handleApplyReferral = async () => {
     if (!referralCode.trim()) return setVvipAlert({msg:"Enter referral code."});
+    if (!user) return;
     try {
-      const rSnap = await getDoc(doc(db,"users",referralCode.trim()));
+      const referrerId = referralCode.trim();
+      if (referrerId === user.uid) return setVvipAlert({msg:"You can't refer yourself!"});
+      const rSnap = await getDoc(doc(db,"users",referrerId));
       if (!rSnap.exists()) return setVvipAlert({msg:"Referral Code not found."});
-      const totalPool = REFERRAL_COINS;
-      const referrerNet = parseFloat((totalPool * USER_EARN_SHARE).toFixed(4));
-      await updateDoc(doc(db,"users",referralCode.trim()), { balance: increment(referrerNet) });
-      await logAdminRevenue('referral', totalPool, referrerNet);
+      const reward = await earnReward(user, 'referral', {
+        idempotencyKey: `${user.uid}_referred_by_${referrerId}`,
+        beneficiaryUid: referrerId,
+        meta: { inviteeUid: user.uid, referrerId },
+      });
       try {
         await addDoc(collection(db,"notifications"), {
           title:"Referral Claimed",
-          message:`+${referrerNet} Coins reward applied to referrer!`,
+          message: reward.ok
+            ? `+${reward.creditedCoins || 0} AJ Coins ($${Number(reward.userUsd||0).toFixed(2)}) credited to referrer via split engine.`
+            : 'Referral claimed.',
           date:serverTimestamp()
         });
       } catch {}
-      setVvipAlert({msg:`Referral Applied! Referrer received ${referrerNet} Coins (30% share).`});
+      setVvipAlert({
+        msg: reward.ok
+          ? `Referral Applied! Referrer +${reward.creditedCoins || 0} AJ Coins ($${Number(reward.userUsd||0).toFixed(2)} of $${Number(reward.totalPoolUsd||0).toFixed(2)} pool).`
+          : reward.error === 'daily_limit'
+            ? 'Referral recorded — daily referral reward limit reached.'
+            : 'Referral Applied!',
+        icon: '🎉',
+      });
       setReferralCode('');
     } catch(e) { console.error('handleApplyReferral', e); setVvipAlert({msg:'Referral failed. Please try again.'}); }
   };
@@ -6745,12 +6866,26 @@ Tip: Social Hub se copy karo 📤`,
                 <button onClick={() => setSocialScreen('hub')} className="p-1.5 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all">
                   <ArrowLeft size={14} className="text-gray-400"/>
                 </button>
-                <span className="text-sm font-black text-white">Join Live</span>
+                <span className="text-sm font-black text-white">Join Live & Matches</span>
               </div>
-              <div className="flex-1 flex flex-col items-center justify-center gap-6 px-4">
+              <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
+                <LiveMatchesPanel
+                  youtubeApiKey={YOUTUBE_API_KEY}
+                  onAlert={(msg, icon) => setVvipAlert({ msg, icon })}
+                  onWatchEarn={async () => {
+                    const day = new Date().toISOString().slice(0, 10);
+                    const r = await earnReward(user, 'live_view', {
+                      idempotencyKey: `${user?.uid}_match_${day}`,
+                      meta: { channel: 'pakistan_match' },
+                    });
+                    if (r.ok && !r.duplicate && (r.creditedCoins || 0) > 0) {
+                      setVvipAlert({ msg: r.message || `Match watch +${r.creditedCoins} coins`, icon: '🏏' });
+                    }
+                  }}
+                />
                 {liveNowList.length > 0 && (
-                  <div className="w-full max-w-sm">
-                    <p className="text-[10px] text-pink-400 font-black uppercase tracking-widest mb-3">🔴 Live Now</p>
+                  <div className="w-full">
+                    <p className="text-[10px] text-pink-400 font-black uppercase tracking-widest mb-3">🔴 Portal Live Rooms</p>
                     <div className="space-y-3">
                       {liveNowList.map((room:any) => (
                         <button key={room.id} onClick={() => joinLiveByRoomId(room.id)} className="w-full flex items-center gap-3 bg-white/5 border border-red-500/30 rounded-2xl p-3 active:scale-95 transition-all">
@@ -6760,7 +6895,7 @@ Tip: Social Hub se copy karo 📤`,
                           </div>
                           <div className="text-left">
                             <p className="text-xs font-black text-white">@{room.username}</p>
-                            <p className="text-[9px] text-gray-400">Tap to join</p>
+                            <p className="text-[9px] text-gray-400">Tap to join · smoother multi-viewer audio</p>
                           </div>
                           <ChevronRight size={14} className="text-gray-500 ml-auto"/>
                         </button>
@@ -6768,7 +6903,7 @@ Tip: Social Hub se copy karo 📤`,
                     </div>
                   </div>
                 )}
-                <div className="w-full max-w-sm">
+                <div className="w-full">
                   <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2">Or enter Room ID</p>
                   <input value={joinRoomInput} onChange={e => setJoinRoomInput(e.target.value)} placeholder="Paste Room ID here" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-cyan-500/50 mb-3"/>
                   <button onClick={() => joinLiveByRoomId()} className="w-full py-3 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all" style={{background:'linear-gradient(135deg,#0891b2,#0e7490)'}}>
@@ -7246,6 +7381,14 @@ Tip: Social Hub se copy karo 📤`,
                 <div className="bg-black/40 rounded-2xl p-3 space-y-1 font-mono text-[9px] text-green-400">
                   {tradeLogs.map((log, i) => <p key={i}>{'>'} {log}</p>)}
                 </div>
+                {botTier !== 'none' && (
+                  <button
+                    onClick={syncBotProfits}
+                    className="mt-3 w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 text-black text-[11px] font-black active:scale-95"
+                  >
+                    Sync Profits → Wallet ($1–$1.50 split)
+                  </button>
+                )}
               </div>
             </div>
 

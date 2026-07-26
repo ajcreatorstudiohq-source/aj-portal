@@ -1,72 +1,53 @@
-# AJ Super Portal — Firestore Schema (Games / Offerwall / Revenue)
+# AJ Super Portal — Firestore Schema (Multi-Source Monetization)
+
+## Reward model (all channels)
+
+| Band | USD | Coins (`COIN_RATE=100`) |
+|---|---|---|
+| Provider / activity pool | **$5.00 – $7.00** | ~500–700 |
+| User wallet credit | **$1.00 – $1.50** | ~100–150 |
+| Platform / admin | remainder | logged in `AdminRevenue` |
+
+Engine: `computeRewardSplit(seed)` → `applySplitReward` / `POST /api/rewards/earn`
+
+### Sources (`reward_sources.ts`)
+
+`game_install` · `game_milestone` · `offerwall` · `tiktok_post` · `pulse_post` · `live_view` · `live_host` · `live_gift` · `ai_bot_sync` · `pk_match` · `referral`
 
 ## `users/{uid}`
 
 | Field | Type | Description |
 |---|---|---|
-| `balance` | number | AJ Coins wallet (cash-out eligible) |
-| `unlockedGames` | string[] | Installed game ids (`rider`, `ludo`, …) |
-| `gameProgress` | map | Per-game progress (see below) |
-| `offerwallDayKey` | string | UTC date `YYYY-MM-DD` for daily cap |
-| `offerwallDayCount` | number | Completions today |
-| `lastRewardAt` | timestamp | Last wallet credit from milestone/offerwall |
-| `lastRewardSource` | string | `game_milestone` \| `offerwall` \| … |
-| `lastOfferwallAt` | timestamp | Last offerwall credit |
+| `balance` | number | AJ Coins wallet |
+| `unlockedGames` | string[] | Downloaded/installed game ids |
+| `gameProgress.{gameId}` | map | `{ installed, level, claimedMilestones, … }` |
+| `dailyRewards.{source}` | map | `{ dayKey, count }` per-source daily caps |
+| `offerwallDayKey` / `offerwallDayCount` | string/number | Offerwall daily cap |
+| `botTier` / `invested` / `lastSync` | bot fields | AI Trading Bot |
+| `lastRewardAt` / `lastRewardSource` | audit | Last split credit |
 
-### `gameProgress.{gameId}`
+## Ledgers
 
-```json
-{
-  "installed": true,
-  "installedAt": "<timestamp>",
-  "level": 5,
-  "claimedMilestones": [3, 5],
-  "lastLevelAt": "<timestamp>"
-}
-```
+- `reward_ledger/{txId}` — all unified earn events (idempotent)
+- `offerwall_ledger/{txId}` — offerwall postbacks / completes
+- `AdminRevenue/{autoId}` — platform share of every $5–$7 pool
 
-## `reward_ledger/{txId}`
+## APIs
 
-Idempotent ledger for game milestone rewards.
-
-- `txId` format: `milestone_{uid}_{gameId}_{level}`
-- Fields: `uid`, `source`, `userCoins`, `adminCoins`, `userUsd`, `adminUsd`, `totalUsd`, `meta`, `createdAt`
-
-## `offerwall_ledger/{txId}`
-
-Idempotent ledger for offerwall credits.
-
-- Postback: `offerwall_{providerTxId}`
-- Authenticated UI: `offerwall_auth_{uid}_{offerId}`
-- Fields: same split fields + `dayKey`, `meta.via`
-
-## `AdminRevenue/{autoId}`
-
-Platform revenue log for every split reward:
-
-| Field | Description |
-|---|---|
-| `type` | `game_milestone` \| `offerwall` \| legacy types |
-| `totalPool` | USD pool ($5–$7 band) |
-| `userNet` | USD credited to user ($1–$1.50) |
-| `adminShare` | USD remaining for platform |
-| `userNetCoins` / `adminShareCoins` | Coin equivalents (`COIN_RATE = 100`) |
-| `uid`, `txId`, `date` | Audit |
-
-## Reward math
-
-1. Deterministic split from `seed` via `computeRewardSplit(seed)`
-2. Provider pool ∈ **[$5.00, $7.00]**
-3. User credit ∈ **[$1.00, $1.50]** (AJ Coins = `floor(usd * 100)`)
-4. Admin revenue = pool − user credit (logged, not paid to user)
-
-## API surface
-
-| Method | Path | Auth |
+| Method | Path | Purpose |
 |---|---|---|
-| POST | `/api/games/install` | Bearer Firebase ID token |
-| PATCH | `/api/games/milestone` | Report level |
-| POST | `/api/games/milestone` | Claim milestone reward |
-| GET/POST | `/api/offerwall/callback` | Shared secret / HMAC |
-| POST | `/api/offerwall/complete` | Bearer Firebase ID token |
-| GET | `/api/offerwall/complete` | Public config |
+| POST | `/api/rewards/earn` | Unified multi-channel earn |
+| POST | `/api/games/install` | Download/install + first install reward |
+| PATCH/POST | `/api/games/milestone` | Level progress / claim |
+| GET/POST | `/api/offerwall/callback` | Provider postback |
+| POST | `/api/offerwall/complete` | In-app offer complete |
+| POST | `/api/callback` · `/api/nowpayments-callback` | Purchase IPN |
+
+## Live streaming RTDB
+
+- `live_frames/{roomId}/current` — JPEG frames (~6fps)
+- `live_audio/{roomId}/offer|answer|ice_*` — legacy 1:1 audio
+- `live_audio/{roomId}/join_requests/{uid}` — multi-viewer join
+- `live_audio/{roomId}/peers/{uid}/*` — per-viewer WebRTC
+
+See also: `docs/FIREBASE_AUTH_DOMAINS.md`

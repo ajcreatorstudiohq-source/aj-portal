@@ -4,8 +4,10 @@ Gaming, social, wallet, and offerwall hub built with Next.js.
 
 ## Features
 
-- **Install & Level Unlock** — Games must be installed; wallet rewards unlock only at verified milestones ($1.00–$1.50 of a $5–$7 pool).
-- **Offerwall** — Authenticated completions + provider postbacks with automated validation and admin revenue logging.
+- **Download & Level Unlock** — Download/install games, then clear milestones to earn.
+- **Unified earn engine** — TikReels, Pulse, Live view/host, gifts, AI bot sync, Offerwall, referrals all use **$5–$7 pool → user $1–$1.50**, remainder → `AdminRevenue`.
+- **Live & Pakistan matches** — Multi-viewer WebRTC audio, smoother RTDB frames, YouTube live match panel.
+- **Offerwall** — Postbacks + in-app completes with validation.
 - **Firebase Google Auth** — See [docs/FIREBASE_AUTH_DOMAINS.md](docs/FIREBASE_AUTH_DOMAINS.md).
 - **Schema** — See [docs/SCHEMA.md](docs/SCHEMA.md).
 

@@ -54,6 +54,7 @@ export default function GamingZone({
   const [selectedGameUrl, setSelectedGameUrl] = useState<string | null>(null);
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [downloadPct, setDownloadPct] = useState<Record<string, number>>({});
   const [offerBusy, setOfferBusy] = useState(false);
 
   const catalog = useMemo(() => GAME_CATALOG, []);
@@ -69,16 +70,32 @@ export default function GamingZone({
   const installGame = async (gameId: string) => {
     if (!user) return onAlert('Please sign in first', '🔒');
     setBusyId(gameId);
+    setDownloadPct((p) => ({ ...p, [gameId]: 5 }));
+    // Simulated download progress for local game package install UX
+    let pct = 5;
+    const tick = setInterval(() => {
+      pct = Math.min(92, pct + 8 + Math.floor(Math.random() * 10));
+      setDownloadPct((p) => ({ ...p, [gameId]: pct }));
+    }, 180);
     try {
+      const game = catalog.find((g) => g.id === gameId);
+      // Prefetch game shell so "download" is real network work
+      if (game?.url) {
+        try { await fetch(game.url, { cache: 'force-cache' }); } catch {}
+      }
       const data = await authFetch('/api/games/install', user, {
         method: 'POST',
         body: JSON.stringify({ gameId }),
       });
-      onAlert(data.message || 'Game installed!', '✅');
+      clearInterval(tick);
+      setDownloadPct((p) => ({ ...p, [gameId]: 100 }));
+      onAlert(data.message || 'Game downloaded & unlocked!', '✅');
       onRefreshUser?.();
     } catch (e: unknown) {
+      clearInterval(tick);
       const msg = e instanceof Error ? e.message : 'install_failed';
-      onAlert(`Install failed: ${msg}`, '⚠️');
+      onAlert(`Download failed: ${msg}`, '⚠️');
+      setDownloadPct((p) => ({ ...p, [gameId]: 0 }));
     } finally {
       setBusyId(null);
     }
@@ -307,8 +324,9 @@ export default function GamingZone({
         <div className="px-4 py-4 space-y-3">
           <div className="rounded-2xl border border-pink-500/20 bg-pink-950/20 p-3">
             <p className="text-[11px] text-gray-300 leading-relaxed">
-              <span className="text-pink-300 font-black">Install & Level Unlock:</span> No free game earnings.
-              Install a game, reach milestone levels, then wallet rewards ($1–$1.50) unlock automatically.
+              <span className="text-pink-300 font-black">Download & Level Unlock:</span> No free game dumps.
+              Download/install a game (earns $1–$1.50 once), then clear milestone levels for more rewards.
+              Of each $5–$7 pool, the rest is platform revenue.
             </p>
           </div>
 
@@ -352,14 +370,26 @@ export default function GamingZone({
                       COMING SOON
                     </button>
                   ) : !installed ? (
-                    <button
-                      disabled={busyId === game.id}
-                      onClick={() => installGame(game.id)}
-                      className="flex-1 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 text-black text-[10px] font-black flex items-center justify-center gap-1.5 disabled:opacity-50"
-                    >
-                      <Download size={12} />
-                      {busyId === game.id ? 'Installing…' : 'Install & Unlock'}
-                    </button>
+                    <div className="flex-1 space-y-1.5">
+                      <button
+                        disabled={busyId === game.id}
+                        onClick={() => installGame(game.id)}
+                        className="w-full py-2 rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 text-black text-[10px] font-black flex items-center justify-center gap-1.5 disabled:opacity-50"
+                      >
+                        <Download size={12} />
+                        {busyId === game.id
+                          ? `Downloading ${downloadPct[game.id] || 0}%…`
+                          : 'Download & Install'}
+                      </button>
+                      {(downloadPct[game.id] || 0) > 0 && (downloadPct[game.id] || 0) < 100 && (
+                        <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+                          <div
+                            className="h-full bg-gradient-to-r from-amber-400 to-orange-500 transition-all"
+                            style={{ width: `${downloadPct[game.id]}%` }}
+                          />
+                        </div>
+                      )}
+                    </div>
                   ) : (
                     <>
                       <button
