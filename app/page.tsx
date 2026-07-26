@@ -268,8 +268,6 @@ const YOUTUBE_API_KEY          = "AIzaSyD9vR3hNLt7pBNlm6PMaZWbJOB9QGcrD1Y";
 const NOWPAYMENTS_API_KEY      = "3THXNSZ-AYVMTP6-HQ9KGKK-9J6CQD7";
 const CLOUDINARY_CLOUD_NAME    = "atm28akz";
 const CLOUDINARY_UPLOAD_PRESET = "aj_portal";
-/** @deprecated use isPortalAdminUser — kept only for any legacy string compares */
-const CEO_EMAIL                = "ajcreatorstudio.hq@gmail.com";
 const CEO_WHATSAPP             = "https://wa.me/96878994093";
 const AGORA_APP_ID             = "7863c5369b3648bf931893a52ebaa6db";
 const AGORA_APP_CERTIFICATE    = "dc66528c5a5646da8e3ce5d2426759af";
