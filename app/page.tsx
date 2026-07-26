@@ -17,6 +17,8 @@
 import Script from 'next/script';
 import React, { useState, useEffect, useRef, Component } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import AdminUsersPanel from './components/AdminUsersPanel';
+import { BAN_FORBIDDEN_MESSAGE, DEFAULT_ACCOUNT_BAN_FIELDS, isUserBanned } from './lib/user-ban';
 
 // ============================================================
 // GLOBAL ERROR SHIELD (FIX: "Page couldn't load" error)
@@ -228,7 +230,7 @@ import {
   Settings, Edit3, Mail, DollarSign, Share2, Music, PlusSquare,
   MoreVertical, Search, Phone, Video as VideoIcon, ArrowLeft, Trash2,
   Gift, Radio, UserPlus, UserCheck, Grid, Film, Volume2, VolumeX, Swords, Clock,
-  Plus, Eye, Bookmark
+  Plus, Eye, Bookmark, Shield, Ban
 } from 'lucide-react';
 
 // ── Firebase config ──────────────────────────────────────────
@@ -2267,6 +2269,9 @@ export function AJSuperPortal() {
   const [botTier,  setBotTier]  = useState('none');
   const [invested, setInvested] = useState(0);
   const [loading,  setLoading]  = useState(0);
+  // One-Click Ban: show 403-style message on auth screen after kick
+  const [banNotice, setBanNotice] = useState<string | null>(null);
+  const banKickInProgress = useRef(false);
 
   // FIX: Camera/Mic permission prompt — naye login ke baad user se pehle se
   // permission maangte hain taaki Live stream mein problem na aaye. Agar user
@@ -2525,6 +2530,7 @@ export function AJSuperPortal() {
   const totalCoins     = balance + visualProfit;
   const displayBalance = totalCoins.toFixed(2);
   const displayUsdt    = (totalCoins / CASH_RATE).toFixed(2);
+  const isPortalAdmin  = !!user?.email && user.email.toLowerCase() === CEO_EMAIL.toLowerCase();
 
   const currentWithdrawMethod = WITHDRAW_METHODS.find(m => m.label === payoutMethod) || WITHDRAW_METHODS[0];
 
@@ -2892,6 +2898,24 @@ export function AJSuperPortal() {
   }, [socialScreen, tiktabMode, user]);
 
   useEffect(() => {
+    const kickIfBanned = async (cu: any, data: Record<string, unknown>) => {
+      if (!isUserBanned(data) || banKickInProgress.current) return false;
+      banKickInProgress.current = true;
+      try {
+        setBanNotice(BAN_FORBIDDEN_MESSAGE);
+        setVvipAlert({ msg: `🚫 ${BAN_FORBIDDEN_MESSAGE}`, icon: '🚫' });
+        try { await setUserOfflineStatus(cu.uid); } catch {}
+        await signOut(auth);
+        setUser(null);
+        setScreen('auth');
+      } catch (e) {
+        console.error('kickIfBanned', e);
+      } finally {
+        banKickInProgress.current = false;
+      }
+      return true;
+    };
+
     const unsub = onAuthStateChanged(auth, async (cu) => {
       if (cu) {
         setUser(cu);
@@ -2899,11 +2923,14 @@ export function AJSuperPortal() {
           const userRef  = doc(db,"users",cu.uid);
           const snap = await getDoc(userRef);
           if (snap.exists()) {
-            const d = snap.data();
-            setHasSocialProfile(d.hasSocialProfile ?? true);
-            setUsername(d.username||'');
-            setBio(d.bio||'');
-            setTempPhoto(d.photo||cu.photoURL||'');
+            const d = snap.data() as Record<string, unknown>;
+            // Strict ban check on login / session restore — 403 Forbidden equivalent
+            if (await kickIfBanned(cu, d)) return;
+            setBanNotice(null);
+            setHasSocialProfile((d.hasSocialProfile as boolean) ?? true);
+            setUsername((d.username as string)||'');
+            setBio((d.bio as string)||'');
+            setTempPhoto((d.photo as string)||cu.photoURL||'');
           } else {
             // NEW USER — just signed up! Camera/mic permission prompt dikhao
             // BEFORE going to hub, taaki user se pehle permission le lein.
@@ -2917,17 +2944,22 @@ export function AJSuperPortal() {
               followers:0, following:0,
               postsCount:0, followersCount:0, followingCount:0, totalLikes:0,
               status:'online', fcmToken:'',
+              // Ban schema — presence `status` stays online/offline; account ban uses these fields
+              ...DEFAULT_ACCOUNT_BAN_FIELDS,
             });
             setHasSocialProfile(true);
+            setBanNotice(null);
             // FIX: Naye user ke liye camera/mic permission prompt show karo
             setShowCameraPermissionPrompt(true);
           }
-          onSnapshot(userRef, s => {
-            if (s.exists()) {
-              setBalance(s.data().balance||0);
-              setBotTier(s.data().botTier||'none');
-              setInvested(s.data().invested||0);
-            }
+          onSnapshot(userRef, async (s) => {
+            if (!s.exists()) return;
+            const data = s.data() as Record<string, unknown>;
+            // Instant session terminate when admin bans an active user
+            if (await kickIfBanned(cu, data)) return;
+            setBalance((data.balance as number)||0);
+            setBotTier((data.botTier as string)||'none');
+            setInvested((data.invested as number)||0);
           });
         } catch(e) { console.error('Auth init error', e); }
         await setUserOnlinePresence(cu);
@@ -4516,8 +4548,22 @@ export function AJSuperPortal() {
 
   const handleGoogleLogin = async () => {
     try {
+      setBanNotice(null);
       googleProvider.setCustomParameters({ prompt:'select_account' });
       await signInWithPopup(auth, googleProvider);
+      // Post-login ban gate — if banned, reject immediately (403 equivalent)
+      const cu = auth.currentUser;
+      if (cu) {
+        const snap = await getDoc(doc(db, 'users', cu.uid));
+        if (snap.exists() && isUserBanned(snap.data() as Record<string, unknown>)) {
+          setBanNotice(BAN_FORBIDDEN_MESSAGE);
+          setVvipAlert({ msg: `🚫 ${BAN_FORBIDDEN_MESSAGE}`, icon: '🚫' });
+          try { await setUserOfflineStatus(cu.uid); } catch {}
+          await signOut(auth);
+          setUser(null);
+          setScreen('auth');
+        }
+      }
     } catch(e) { console.error('Google login error', e); }
   };
 
@@ -5604,6 +5650,16 @@ Tip: Social Hub se copy karo 📤`,
             <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
             Continue with Google
           </button>
+          {banNotice && (
+            <div
+              className="mt-6 w-full max-w-xs rounded-2xl px-4 py-3 text-center"
+              style={{ background: 'rgba(220,38,38,0.15)', border: '1px solid rgba(239,68,68,0.45)' }}
+              role="alert"
+            >
+              <p className="text-red-400 text-xs font-black uppercase tracking-widest">403 Forbidden</p>
+              <p className="text-red-300 text-sm font-black mt-1">{banNotice}</p>
+            </div>
+          )}
           <p className="mt-6 text-[10px] text-gray-600 text-center max-w-xs">By continuing you agree to AJ Portal's Terms of Service and Privacy Policy.</p>
         </div>
       )}
@@ -5627,6 +5683,16 @@ Tip: Social Hub se copy karo 📤`,
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {isPortalAdmin && (
+                <button
+                  onClick={() => setScreen('admin')}
+                  className="p-2 rounded-xl bg-red-600/20 border border-red-500/30 active:scale-90 transition-all"
+                  title="Admin Panel"
+                  type="button"
+                >
+                  <Shield size={14} className="text-red-400"/>
+                </button>
+              )}
               <button onClick={() => { setNotifOpen(true); loadNotifications(); }} className="relative p-2 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all">
                 <span className="text-sm">🔔</span>
                 {notifications.length > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-pink-600 rounded-full text-[8px] font-black flex items-center justify-center">{notifications.length > 9 ? '9+' : notifications.length}</span>}
@@ -5742,7 +5808,23 @@ Tip: Social Hub se copy karo 📤`,
           )}
 
           {/* Referral Card */}
-          <div className="px-4 pt-4 pb-4">
+          <div className="px-4 pt-4 pb-4 space-y-3">
+            {isPortalAdmin && (
+              <button
+                type="button"
+                onClick={() => setScreen('admin')}
+                className="w-full flex items-center gap-3 bg-red-600/10 border border-red-500/30 rounded-2xl p-4 active:scale-95 transition-all"
+              >
+                <div className="w-10 h-10 rounded-2xl bg-red-600/30 flex items-center justify-center">
+                  <Ban size={18} className="text-red-400"/>
+                </div>
+                <div className="text-left flex-1">
+                  <p className="text-xs font-black text-white">Admin · One-Click Ban</p>
+                  <p className="text-[9px] text-red-300/80">Manage users · Ban instantly</p>
+                </div>
+                <ChevronRight size={14} className="text-red-400"/>
+              </button>
+            )}
             <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex items-center gap-3">
               <span className="text-2xl">👥</span>
               <div className="flex-1 min-w-0">
@@ -5781,6 +5863,28 @@ Tip: Social Hub se copy karo 📤`,
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════
+          ADMIN PANEL — One-Click User Ban
+      ══════════════════════════════════════════════════════ */}
+      {screen === 'admin' && isPortalAdmin && (
+        <AdminUsersPanel
+          onBack={() => setScreen('hub')}
+          onAlert={(msg, icon) => setVvipAlert({ msg, icon })}
+        />
+      )}
+      {screen === 'admin' && !isPortalAdmin && (
+        <div className="fixed inset-0 flex flex-col items-center justify-center bg-[#050505] px-6 gap-4">
+          <p className="text-red-400 font-black text-sm">403 Forbidden — Admin only</p>
+          <button
+            type="button"
+            onClick={() => setScreen('hub')}
+            className="px-6 py-3 rounded-2xl bg-white/10 text-white text-xs font-black"
+          >
+            Back to Hub
+          </button>
         </div>
       )}
 
