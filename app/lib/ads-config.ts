@@ -16,7 +16,7 @@ export const ADSTERRA_NATIVE_BANNER_SRC =
 export const ADSTERRA_REWARDED_LINK =
   'https://www.effectivecpmnetwork.com/b8jtkn6i4?key=77409a0e0aa4602b6d03798ff53516b3';
 
-export const ADSTERRA_REWARD_COINS = 20;
+export const ADSTERRA_REWARD_COINS = 5;
 
 /** Insert native banner after every N posts */
 export const INFEED_AD_EVERY_N = 4;

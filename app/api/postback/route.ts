@@ -9,7 +9,7 @@ const POSTBACK_SECRET =
 
 /**
  * Profit lock (~80% operator margin):
- * owner $1.00 payout → user gets 200 AJ Coins (not 1000).
+ * provider payout 1.00 → user gets 200 AJ Coins (not 1000).
  */
 const PAYOUT_TO_USER_COINS = 200;
 

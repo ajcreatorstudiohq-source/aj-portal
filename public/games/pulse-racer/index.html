@@ -264,9 +264,9 @@
             <div style="margin: 20px 0;">
                 <p>SCORE: <span id="finalScore" style="color:#fff;">0</span></p>
                 <p>NEW RINGS: <span id="finalSessionRings" style="color:var(--neon-pink);">0</span></p>
-                <p>AJ EARNED: <span id="finalAJ" style="color:var(--neon-gold);">0.000</span></p>
+                <p>RINGS: <span id="finalAJ" style="color:var(--neon-gold);">0.000</span></p>
             </div>
-            <button id="reviveBtn" class="btn" style="border-color:var(--neon-gold); color:var(--neon-gold); width:100%; margin-bottom:10px;" onclick="watchAdToRevive()">REVIVE</button>
+            <button id="reviveBtn" class="btn" style="border-color:var(--neon-gold); color:var(--neon-gold); width:100%; margin-bottom:10px;" onclick="watchAdToRevive()">WATCH AD TO REVIVE</button>
             <button class="btn" style="border-color:var(--neon-pink); color:var(--neon-pink); width:100%;" onclick="initGame()">TRY AGAIN</button>
             <button class="btn" style="width:100%; border-color:#fff; color:#fff;" onclick="goToMenu()">MAIN MENU</button>
         </div>
@@ -286,6 +286,16 @@
     function ajEndGame(s) {
         AJ_GAME_SCORE = typeof s === 'number' ? s : AJ_GAME_SCORE;
         // Intentionally do NOT postMessage GAME_END / GAME_CRASH to parent.
+    }
+    function ajSendGameEnd(s) { try { ajEndGame(s); } catch (e) {} }
+    const ADSTERRA_DIRECT_LINK = "https://www.effectivecpmnetwork.com/b8jtkn6i4?key=77409a0e0aa4602b6d03798ff53516b3";
+    function openAdsterraAd() {
+        try {
+            if (window.AJ_SDK && typeof window.AJ_SDK.showAd === 'function') window.AJ_SDK.showAd();
+            else window.open(ADSTERRA_DIRECT_LINK, '_blank', 'noopener,noreferrer');
+        } catch (e) {
+            try { window.open(ADSTERRA_DIRECT_LINK, '_blank', 'noopener,noreferrer'); } catch (e2) {}
+        }
     }
     window.addEventListener('error', function() { /* local only — no wallet flush */ });
     window.addEventListener('beforeunload', function() { /* local only — no wallet flush */ });
@@ -375,7 +385,7 @@ function startLoading() {
 }
 
 function startEverything() { 
-    if(window.AJ_SDK) window.AJ_SDK.showAd(); 
+    openAdsterraAd(); 
     unlockAudio(); playSfx('click'); 
     document.getElementById('splashScreen').style.display = 'none'; 
     document.getElementById('mainMenu').style.display = 'flex'; 
@@ -408,70 +418,67 @@ function buyOrEquipSkin(skin) {
 function loadProgress() { 
     const sS = localStorage.getItem('pulseRacerBest'), sR = localStorage.getItem('pulseRacerTotalRings'), sSk = localStorage.getItem('pulseRacerSkin'), sO = localStorage.getItem('pulseRacerOwned');
     bestScore = sS ? Number(sS) : 0; totalRings = sR ? Number(sR) : 0; if(sSk) currentSkin = sSk; if(sO) ownedSkins = JSON.parse(sO); 
-    document.getElementById('targetVal').innerText = bestScore; document.getElementById('menuBestScore').innerText = bestScore; document.getElementById('menuTotalRings').innerText = totalRings; document.getElementById('menuAJCoins').innerText = (totalRings * 0.003).toFixed(3);
+    document.getElementById('targetVal').innerText = bestScore; document.getElementById('menuBestScore').innerText = bestScore; document.getElementById('menuTotalRings').innerText = totalRings; document.getElementById('menuAJCoins').innerText = String(totalRings);
 }
 
 function saveProgress() { 
     localStorage.setItem('pulseRacerBest', Number(bestScore)); localStorage.setItem('pulseRacerTotalRings', Number(totalRings)); localStorage.setItem('pulseRacerSkin', currentSkin); localStorage.setItem('pulseRacerOwned', JSON.stringify(ownedSkins)); 
-    document.getElementById('menuBestScore').innerText = bestScore; document.getElementById('menuTotalRings').innerText = totalRings; document.getElementById('menuAJCoins').innerText = (totalRings * 0.003).toFixed(3);
+    document.getElementById('menuBestScore').innerText = bestScore; document.getElementById('menuTotalRings').innerText = totalRings; document.getElementById('menuAJCoins').innerText = String(totalRings);
 }
 
 function resetVariables() {
     score = 0; level = 1; playerX = 0; targetX = 0; speed = 0.08; nextLevelAt = 300; sessionRings = 0; 
     obstacles = []; stars = []; frame = 0; ghostTimer = 0; shieldActive = false;
-    document.getElementById('scoreVal').innerText = "0 / 300"; document.getElementById('ringVal').innerText = "0"; document.getElementById('ajVal').innerText = "0.000";
+    document.getElementById('scoreVal').innerText = "0 / 300"; document.getElementById('ringVal').innerText = "0"; document.getElementById('ajVal').innerText = "0";
     for(let i=0; i<80; i++) stars.push({ x: Math.random() * 120 - 60, y: Math.random() * -35 - 15, z: Math.random() * 60, size: Math.random() * 1.5 + 1.0 });
 }
 
 function goToMenu() { playSfx('click'); sounds.bg.pause(); gameActive = false; isPaused = false; document.getElementById('gameOverScreen').style.display = 'none'; document.getElementById('mainMenu').style.display = 'flex'; loadProgress(); }
 function togglePause() { if(!gameActive) return; playSfx('click'); isPaused = !isPaused; document.getElementById('pauseMenu').style.display = isPaused ? 'flex' : 'none'; }
 
-function initGame() { if(window.AJ_SDK) window.AJ_SDK.showAd(); resetVariables(); gameActive = true; sounds.bg.play().catch(()=>{}); document.getElementById('mainMenu').style.display = 'none'; document.getElementById('gameOverScreen').style.display = 'none'; document.getElementById('pauseBtn').style.display = 'flex'; loadProgress(); }
+function initGame() { openAdsterraAd(); resetVariables(); gameActive = true; isPaused = false; sounds.bg.play().catch(()=>{}); document.getElementById('mainMenu').style.display = 'none'; document.getElementById('gameOverScreen').style.display = 'none'; document.getElementById('pauseMenu').style.display = 'none'; document.getElementById('pauseBtn').style.display = 'flex'; loadProgress(); }
 
 function triggerGameOver() { 
-    playSfx('crash'); gameActive = false; 
-    totalRings = Number(totalRings) + Number(sessionRings);
-    if (Number(score) > Number(bestScore)) { bestScore = Number(score); }
-    saveProgress(); 
-    document.getElementById('finalScore').innerText = score; 
-    document.getElementById('finalSessionRings').innerText = sessionRings; 
-    document.getElementById('finalAJ').innerText = (sessionRings * 0.003).toFixed(3);
+    if (!gameActive) return; // prevent double fire
+    playSfx('crash'); gameActive = false; isPaused = false;
+    try {
+        totalRings = Number(totalRings) + Number(sessionRings);
+        if (Number(score) > Number(bestScore)) { bestScore = Number(score); }
+        saveProgress(); 
+        document.getElementById('finalScore').innerText = score; 
+        document.getElementById('finalSessionRings').innerText = sessionRings; 
+        document.getElementById('finalAJ').innerText = String(sessionRings) + ' 🪙';
+        try { ajSendGameEnd(score); } catch (e) {}
+        try { ajSendScore(score); } catch (e) {}
+    } catch (e) { console.warn('[PulseRacer] gameover stats', e); }
     document.getElementById('gameOverScreen').style.display = 'flex'; 
     document.getElementById('pauseBtn').style.display = 'none';
-    // AJ BRIDGE: send game over score to parent app LOCAL ONLY — no wallet credit
-    ajSendGameEnd(score);
-    ajSendScore(score);
+    document.getElementById('pauseMenu').style.display = 'none';
 }
 
 function watchAdToRevive() {
-    if(window.AJ_SDK) window.AJ_SDK.showAd(); playSfx('click');
+    openAdsterraAd(); playSfx('click');
     document.getElementById('gameOverScreen').style.display = 'none';
+    document.getElementById('pauseMenu').style.display = 'none';
     document.getElementById('pauseBtn').style.display = 'flex';
     gameActive = true; isPaused = false;
-    obstacles = obstacles.filter(o => o.z > 5); ghostTimer = 150; 
+    obstacles = obstacles.filter(o => o.z > 5); ghostTimer = 150;
+    // RAF loop is continuous (update always schedules itself) — ensure state is active
 }
 
 // --- FREE RINGS REWARD LOGIC ADDED ---
 function watchAdForRings() {
     playSfx('click');
-    if (window.AJ_SDK) {
-        window.AJ_SDK.showAd();
-        // Reward adding logic after ad interaction
-        setTimeout(() => {
-            totalRings = Number(totalRings) + 20;
-            saveProgress();
-            
-            // Instantly update UI numbers on screen
-            if (document.getElementById('shopRings')) document.getElementById('shopRings').innerText = totalRings;
-            if (document.getElementById('menuTotalRings')) document.getElementById('menuTotalRings').innerText = totalRings;
-            if (document.getElementById('menuAJCoins')) document.getElementById('menuAJCoins').innerText = (totalRings * 0.003).toFixed(3);
-            
-            renderShop();
-            alert("Congrats! 20 Free Rings added to your total.");
-        }, 2000); // Small delay to let ad show up
-    } else {
-        alert("Ads are currently unavailable.");
-    }
+    openAdsterraAd();
+    setTimeout(() => {
+        totalRings = Number(totalRings) + 20;
+        saveProgress();
+        if (document.getElementById('shopRings')) document.getElementById('shopRings').innerText = totalRings;
+        if (document.getElementById('menuTotalRings')) document.getElementById('menuTotalRings').innerText = totalRings;
+        if (document.getElementById('menuAJCoins')) document.getElementById('menuAJCoins').innerText = String(totalRings);
+        renderShop();
+        alert("Congrats! 20 Free Rings added to your total.");
+    }, 800);
 }
 
 function project(wx, wy, wz) { let p = canvas.width * 0.8; let s = p / (wz + 0.1); return { x: (canvas.width/2) + (wx - playerX * (wy < 0 ? 0.35 : 1)) * s, y: (canvas.height/2) + (wy) * s, s: s }; }
@@ -522,7 +529,7 @@ function update() {
                     if(o.type === 'gem') { 
                         playSfx('collect'); sessionRings += 1; score += 5; obstacles.splice(i, 1); 
                         document.getElementById('ringVal').innerText = sessionRings; 
-                        document.getElementById('ajVal').innerText = (sessionRings * 0.003).toFixed(3);
+                        document.getElementById('ajVal').innerText = String(sessionRings);
                     }
                     else if(o.type === 'shield') { playSfx('collect'); shieldActive = true; obstacles.splice(i, 1); }
                     else { 
