@@ -77,7 +77,9 @@ Deploy rules from repo root: `database.rules.json`
 | `ludo/rooms/{CODE}/chat` | In-match chat / emoji bubbles |
 | `ludo/rooms/{CODE}/meta/boardSkin` | Host board theme index |
 
-Client: `public/games/ludo-elite-royal/index.html` (portal Firebase project `aj-super-portal`).  
+Client: `public/games/ludo-elite-royal/index.html` (portal Firebase project `aj-super-portal`).
+
+**Live friends flow:** Host taps **Create Private Room** → share `AJ####` code / WhatsApp → friend taps **Join & Play Live**. Empty seats can be filled with bots by the host. Ads use **Adsterra** via `AJ_SDK.showAd()` (local Ludo coins only).  
 Iframe query: `?ajGameId=ludo&uid={firebaseUid}&room={CODE}`.
 
 See also: `docs/FIREBASE_AUTH_DOMAINS.md`
