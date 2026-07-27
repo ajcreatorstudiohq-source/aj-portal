@@ -163,6 +163,119 @@ export async function applySplitReward(opts: {
   }
 }
 
+/**
+ * Credit an exact AJ Coin amount (idempotent). Used for fixed post rewards etc.
+ */
+export async function applyFlatCoins(opts: {
+  uid: string;
+  txId: string;
+  source: RewardSource;
+  coins: number;
+  meta?: Record<string, unknown>;
+  ledgerCollection?: string;
+  enforceDailyCap?: boolean;
+  /** Extra user field updates inside the same transaction (e.g. lastBotClaimAt) */
+  userPatch?: Record<string, unknown>;
+}): Promise<ApplyRewardResult> {
+  const {
+    uid,
+    txId,
+    source,
+    coins,
+    meta = {},
+    ledgerCollection = 'reward_ledger',
+    enforceDailyCap = true,
+    userPatch,
+  } = opts;
+
+  if (!uid || !txId) return { ok: false, error: 'missing_uid_or_tx' };
+  const credit = Math.max(0, Math.floor(coins));
+  if (credit <= 0) return { ok: false, error: 'invalid_coins' };
+
+  const ledgerRef = doc(db, ledgerCollection, txId);
+  const userRef = doc(db, 'users', uid);
+  const dayKey = dayKeyUtc();
+  const cap = DAILY_CAPS[source] ?? 5;
+  const split: RewardSplit = {
+    totalUsd: credit / 100,
+    userUsd: credit / 100,
+    adminUsd: 0,
+    userCoins: credit,
+    adminCoins: 0,
+  };
+
+  try {
+    const result = await runTransaction(db, async (tx) => {
+      const existing = await tx.get(ledgerRef);
+      if (existing.exists()) {
+        return { duplicate: true as const, split, dailyCapHit: false };
+      }
+
+      const userSnap = await tx.get(userRef);
+      if (!userSnap.exists()) throw new Error('user_not_found');
+
+      const data = userSnap.data() as {
+        dailyRewards?: Record<string, { dayKey?: string; count?: number }>;
+      };
+
+      let nextDailyCount: number | null = null;
+      if (enforceDailyCap) {
+        const slot = data.dailyRewards?.[source];
+        const count = slot?.dayKey === dayKey ? Number(slot.count || 0) : 0;
+        if (count >= cap) {
+          return { duplicate: false as const, split, dailyCapHit: true };
+        }
+        nextDailyCount = count + 1;
+      }
+
+      tx.set(ledgerRef, {
+        uid,
+        source,
+        txId,
+        ...split,
+        flatCoins: credit,
+        meta,
+        dayKey,
+        createdAt: serverTimestamp(),
+      });
+
+      const userUpdate: Record<string, unknown> = {
+        balance: increment(credit),
+        lastRewardAt: serverTimestamp(),
+        lastRewardSource: source,
+        ...(userPatch || {}),
+      };
+      if (nextDailyCount !== null) {
+        userUpdate[`dailyRewards.${source}.dayKey`] = dayKey;
+        userUpdate[`dailyRewards.${source}.count`] = nextDailyCount;
+      }
+      tx.update(userRef, userUpdate);
+
+      return { duplicate: false as const, split, dailyCapHit: false };
+    });
+
+    if (result.dailyCapHit) {
+      return {
+        ok: false,
+        error: 'daily_limit',
+        dailyCapHit: true,
+        split: result.split,
+        balanceCredited: 0,
+      };
+    }
+
+    return {
+      ok: true,
+      duplicate: result.duplicate,
+      split: result.split,
+      balanceCredited: result.duplicate ? 0 : credit,
+    };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'reward_failed';
+    return { ok: false, error: msg };
+  }
+}
+
 export async function ensureGameProgress(
   uid: string,
   gameId: string

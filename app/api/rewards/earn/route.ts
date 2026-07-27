@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
-import { applySplitReward } from '../../../lib/reward-engine';
+import { doc, getDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { db } from '../../../../firebaseConfig';
+import { applySplitReward, applyFlatCoins } from '../../../lib/reward-engine';
 import {
   isRewardSource,
   SOURCE_LABELS,
@@ -10,17 +12,14 @@ import {
   verifyFirebaseIdToken,
 } from '../../../lib/verify-id-token';
 
+const POST_REWARD_COINS = 5;
+const BOT_CLAIM_LOCK_MS = 24 * 60 * 60 * 1000;
+
 /**
  * POST /api/rewards/earn
- * Auth: Bearer <Firebase ID token>
- * Body: {
- *   source: RewardSource,
- *   idempotencyKey?: string,
- *   beneficiaryUid?: string,  // for live_gift — credit recipient
- *   meta?: object
- * }
- *
- * Unified multi-channel earning. Strict sources require verification meta flags.
+ * Strict verification for ads/offers/installs.
+ * Flat 5 AJ Coins for verified TikReel/Pulse uploads.
+ * AI bot sync locked to serverTimestamp 24h window (anti device-clock cheat).
  */
 export async function POST(request: Request) {
   try {
@@ -44,7 +43,6 @@ export async function POST(request: Request) {
         ? (body.meta as Record<string, unknown>)
         : {};
 
-    // No free coins: ad / offerwall / app-download must prove completion.
     if (source === 'offerwall_video' && meta.networkShown !== true) {
       return NextResponse.json(
         { ok: false, error: 'ad_not_verified', message: 'Rewarded video not verified.' },
@@ -71,8 +69,20 @@ export async function POST(request: Request) {
         { status: 403 }
       );
     }
+    if (
+      (source === 'tiktok_post' || source === 'pulse_post') &&
+      meta.uploadVerified !== true
+    ) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'verification_required',
+          message: 'Upload must succeed in Storage before coins are awarded.',
+        },
+        { status: 403 }
+      );
+    }
 
-    // Optional beneficiary (gifts → creator, referrals → referrer)
     let creditUid = actor.uid;
     const beneficiary = String(body.beneficiaryUid || '').trim();
     if (beneficiary) {
@@ -84,28 +94,107 @@ export async function POST(request: Request) {
       }
     }
 
+    // AI bot — 24h server-time lock (ignores client device clock)
+    if (source === 'ai_bot_sync') {
+      const userSnap = await getDoc(doc(db, 'users', actor.uid));
+      if (!userSnap.exists()) {
+        return NextResponse.json({ ok: false, error: 'user_not_found' }, { status: 404 });
+      }
+      const ud = userSnap.data() as {
+        lastBotClaimAt?: Timestamp | { toMillis?: () => number; seconds?: number };
+        botTier?: string;
+        invested?: number;
+      };
+      if (!ud.botTier || ud.botTier === 'none' || !(Number(ud.invested) > 0)) {
+        return NextResponse.json(
+          { ok: false, error: 'bot_inactive', message: 'Activate an AI Trading Bot first.' },
+          { status: 400 }
+        );
+      }
+      const last = ud.lastBotClaimAt;
+      let lastMs = 0;
+      if (last && typeof (last as Timestamp).toMillis === 'function') {
+        lastMs = (last as Timestamp).toMillis();
+      } else if (last && typeof (last as { seconds?: number }).seconds === 'number') {
+        lastMs = Number((last as { seconds: number }).seconds) * 1000;
+      }
+      if (lastMs > 0 && Date.now() - lastMs < BOT_CLAIM_LOCK_MS) {
+        const waitH = Math.ceil((BOT_CLAIM_LOCK_MS - (Date.now() - lastMs)) / 3600000);
+        return NextResponse.json(
+          {
+            ok: false,
+            error: 'claim_locked',
+            message: `Next bot claim available in ~${waitH}h (server clock).`,
+          },
+          { status: 429 }
+        );
+      }
+    }
+
     const idem =
       String(body.idempotencyKey || '').trim() ||
       `${source}_${creditUid}_${Date.now()}`;
     const txId = `earn_${source}_${idem}`.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 180);
-    const seed = txId;
 
-    const result = await applySplitReward({
-      uid: creditUid,
-      txId,
-      source,
-      seed,
-      meta: {
-        ...meta,
-        actorUid: actor.uid,
-        label: SOURCE_LABELS[source],
-      },
-      ledgerCollection: 'reward_ledger',
-      enforceDailyCap: true,
-    });
+    let result;
+    if (source === 'tiktok_post' || source === 'pulse_post') {
+      result = await applyFlatCoins({
+        uid: creditUid,
+        txId,
+        source,
+        coins: POST_REWARD_COINS,
+        meta: { ...meta, actorUid: actor.uid, label: SOURCE_LABELS[source] },
+        enforceDailyCap: true,
+      });
+    } else if (source === 'ai_bot_sync') {
+      // Credit via split engine, then stamp lastBotClaimAt with serverTimestamp
+      result = await applyFlatCoins({
+        uid: creditUid,
+        txId,
+        source,
+        // Derive claim from invested * daily rate (client may pass visualProfit for display only)
+        coins: Math.max(
+          1,
+          Math.min(
+            500,
+            Math.floor(
+              Number(meta.invested || 0) *
+                (String(meta.botTier) === 'vvip' ? 0.05 : 0.025)
+            )
+          )
+        ),
+        meta: { ...meta, actorUid: actor.uid, label: SOURCE_LABELS[source] },
+        enforceDailyCap: true,
+        userPatch: { lastBotClaimAt: serverTimestamp() },
+      });
+    } else if (source === 'referral') {
+      result = await applyFlatCoins({
+        uid: creditUid,
+        txId,
+        source,
+        coins: 50,
+        meta: { ...meta, actorUid: actor.uid, label: SOURCE_LABELS[source] },
+        enforceDailyCap: true,
+      });
+    } else {
+      result = await applySplitReward({
+        uid: creditUid,
+        txId,
+        source,
+        seed: txId,
+        meta: {
+          ...meta,
+          actorUid: actor.uid,
+          label: SOURCE_LABELS[source],
+        },
+        ledgerCollection: 'reward_ledger',
+        enforceDailyCap: true,
+      });
+    }
 
     if (!result.ok) {
-      const status = result.error === 'daily_limit' ? 429 : 500;
+      const status =
+        result.error === 'daily_limit' || result.error === 'claim_locked' ? 429 : 500;
       return NextResponse.json(
         {
           ok: false,
@@ -125,12 +214,9 @@ export async function POST(request: Request) {
       duplicate: !!result.duplicate,
       source,
       creditedCoins: result.balanceCredited ?? 0,
-      userUsd: result.split?.userUsd,
-      adminUsd: result.split?.adminUsd,
-      totalPoolUsd: result.split?.totalUsd,
       message: result.duplicate
         ? 'Already credited'
-        : `${SOURCE_LABELS[source]}: +${result.balanceCredited} AJ Coins`,
+        : `${SOURCE_LABELS[source]}: +${result.balanceCredited} AJ Coins 🪙`,
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'earn_failed';
@@ -143,5 +229,6 @@ export async function GET() {
     ok: true,
     sources: Object.keys(SOURCE_LABELS),
     labels: SOURCE_LABELS,
+    postRewardCoins: POST_REWARD_COINS,
   });
 }

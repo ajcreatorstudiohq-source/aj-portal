@@ -64,7 +64,8 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
     const hardStop = window.setTimeout(() => {
       setBusy(false);
       cleanupMonetagDom();
-    }, 35000);
+      onAlert('Ad timed out (5s). Try again — no coins without a completed video.', '⏱️');
+    }, 5000);
 
     try {
       const prep = await prepareRewardedVideo(user, 'offerwall_rewarded_video');

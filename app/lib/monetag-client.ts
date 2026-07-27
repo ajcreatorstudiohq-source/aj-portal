@@ -21,9 +21,9 @@ let lastInFeedPopupTime = 0;
 let realAdFiredThisCycle = false;
 let pendingNavAfterAd: (() => void) | null = null;
 
-const SHOW_TIMEOUT_MS = 28000;
-const PRELOAD_TIMEOUT_MS = 10000;
-const SDK_WAIT_MS = 12000;
+const SHOW_TIMEOUT_MS = 5000;
+const PRELOAD_TIMEOUT_MS = 4000;
+const SDK_WAIT_MS = 5000;
 
 export function getLastAnyAdShownTime() {
   return lastAnyAdShownTime;

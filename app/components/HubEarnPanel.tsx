@@ -6,10 +6,10 @@ import RewardedVideoOffer from './ads/RewardedVideoOffer';
 import BannerAdSlot from './ads/BannerAdSlot';
 import {
   GAME_CATALOG,
-  buildOfferwallUrl,
   type GameCatalogItem,
   type GameProgressDoc,
 } from '../lib/economy';
+import { openCpaGripOfferWall } from '../lib/cpagrip';
 import {
   MONETAG_INTERSTITIAL_ZONE,
   AD_COOLDOWN_MS,
@@ -178,7 +178,8 @@ export default function HubEarnPanel({
     const hardStop = window.setTimeout(() => {
       setAdBusy(false);
       cleanupMonetagDom();
-    }, 32000);
+      onAlert('Ad timed out (5s). Try again.', '⏱️');
+    }, 5000);
     try {
       const sdkOk = await ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL_ZONE);
       if (!sdkOk) {
@@ -226,23 +227,25 @@ export default function HubEarnPanel({
   };
 
   const openOfferPartners = () => {
-    const url = buildOfferwallUrl(user?.uid || null);
+    if (!user) return onAlert('Please sign in first', '🔒');
     trackAdEvent(
       {
         event: 'click',
         placement: 'offerwall_rewarded_video',
         zoneId: MONETAG_INTERSTITIAL_ZONE,
-        meta: { action: 'open_offer_partners_hub' },
+        meta: { action: 'open_offer_partners_hub', provider: 'cpagrip' },
       },
       user
     ).catch(() => {});
-    // In-app offerwall page + external partner wall (no free coins on open)
-    window.open('/offerwall', '_blank', 'noopener,noreferrer');
-    window.open(url, '_blank', 'noopener,noreferrer');
-    onAlert(
-      'Offer Partners opened. Finish a real survey/trial — coins credit only after verified postback.',
-      '🔗'
-    );
+    const result = openCpaGripOfferWall(user.uid);
+    if (result.ok) {
+      onAlert(
+        'CPAGrip offer wall opened. Complete a lead — AJ Coins credit only after verified postback.',
+        '🔗'
+      );
+    } else {
+      onAlert(result.error || 'Could not open offer partners.', '⚠️');
+    }
   };
 
   const downloadableGames = GAME_CATALOG.filter((g) => !g.comingSoon).slice(0, 4);
@@ -337,7 +340,7 @@ export default function HubEarnPanel({
         <div className="text-left flex-1 min-w-0">
           <p className="text-sm font-black text-white">Open Offer Partners</p>
           <p className="text-[10px] text-gray-400">
-            Real surveys · app trials · partner offerwall (verified only)
+            CPAGrip wall · surveys · app trials · AJ Coins via postback only
           </p>
         </div>
         <ExternalLink size={14} className="text-gray-500 shrink-0" />

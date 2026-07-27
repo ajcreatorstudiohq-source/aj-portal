@@ -4,9 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ChevronRight, Lock, Download, Gift, Trophy } from 'lucide-react';
 import {
   GAME_CATALOG,
-  buildOfferwallUrl,
   type GameProgressDoc,
 } from '../lib/economy';
+import { openCpaGripOfferWall } from '../lib/cpagrip';
 import BannerAdSlot from './ads/BannerAdSlot';
 import RewardedVideoOffer from './ads/RewardedVideoOffer';
 import { trackAdEvent } from '../lib/ad-client';
@@ -193,17 +193,19 @@ export default function GamingZone({
         event: 'click',
         placement: 'offerwall_rewarded_video',
         zoneId: MONETAG_INTERSTITIAL_ZONE,
-        meta: { action: 'open_partner_offer', offerId },
+        meta: { action: 'open_partner_offer', offerId, provider: 'cpagrip' },
       },
       user
     ).catch(() => {});
-    const url = buildOfferwallUrl(user.uid);
-    window.open('/offerwall', '_blank', 'noopener,noreferrer');
-    window.open(url, '_blank', 'noopener,noreferrer');
-    onAlert(
-      'Finish the partner offer in the opened tab. Coins credit only after verified completion — no free tap rewards.',
-      '🔗'
-    );
+    const result = openCpaGripOfferWall(user.uid);
+    if (result.ok) {
+      onAlert(
+        'CPAGrip wall opened. Finish a real lead — AJ Coins credit only after verified postback.',
+        '🔗'
+      );
+    } else {
+      onAlert(result.error || 'Could not open offer partners.', '⚠️');
+    }
   };
 
   return (
@@ -320,12 +322,19 @@ export default function GamingZone({
                   event: 'click',
                   placement: 'offerwall_rewarded_video',
                   zoneId: MONETAG_INTERSTITIAL_ZONE,
-                  meta: { action: 'open_partners' },
+                  meta: { action: 'open_partners', provider: 'cpagrip' },
                 },
                 user
               ).catch(() => {});
-              window.open('/offerwall', '_blank', 'noopener,noreferrer');
-              window.open(buildOfferwallUrl(user.uid), '_blank', 'noopener,noreferrer');
+              const result = openCpaGripOfferWall(user.uid);
+              if (result.ok) {
+                onAlert(
+                  'CPAGrip offer wall opened. AJ Coins credit only after lead/success postback.',
+                  '🔗'
+                );
+              } else {
+                onAlert(result.error || 'Could not open offer partners.', '⚠️');
+              }
             }}
             className="block w-full text-center bg-white/5 border border-white/10 rounded-2xl p-4 text-sm font-black text-cyan-300 active:scale-95"
           >
@@ -353,7 +362,7 @@ export default function GamingZone({
 
           <p className="text-[9px] text-gray-500 text-center px-2">
             Video ads credit via <code className="text-gray-400">/api/ads/rewarded</code>.
-            Partner postbacks: <code className="text-gray-400">/api/offerwall/callback</code>.
+            CPAGrip postbacks: <code className="text-gray-400">/api/postback</code>.
           </p>
         </div>
       ) : (
