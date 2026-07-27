@@ -17,7 +17,6 @@
 import Script from 'next/script';
 import React, { useState, useEffect, useRef, Component } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import GamingZone from './components/GamingZone';
 import LiveMatchesPanel from './components/LiveMatchesPanel';
 import HubEarnPanel from './components/HubEarnPanel';
 import BannerAdSlot from './components/ads/BannerAdSlot';
@@ -26,7 +25,6 @@ import AdsterraNativeBanner from './components/ads/AdsterraNativeBanner';
 import {
   SIGNUP_BONUS_COINS,
   REFERRAL_BONUS_COINS,
-  type GameProgressDoc,
 } from './lib/economy';
 import { earnReward } from './lib/client-rewards';
 import { trackAdEvent } from './lib/ad-client';
@@ -1663,9 +1661,6 @@ export function AJSuperPortal() {
   const [screen,       setScreen]       = useState('splash');
   const [walletTab,   setWalletTab]    = useState('main');
   const [socialScreen, setSocialScreen] = useState('hub');
-  const [selectedGame, setSelectedGame] = useState<string|null>(null);
-  const [unlockedGames, setUnlockedGames] = useState<string[]>([]);
-  const [gameProgress, setGameProgress] = useState<Record<string, GameProgressDoc>>({});
 
   // ── AUTH
   const [user,     setUser]     = useState<any>(null);
@@ -1768,7 +1763,7 @@ export function AJSuperPortal() {
   const [botOpen,     setBotOpen]     = useState(false);
   const [botMessages, setBotMessages] = useState([{
     from:'bot',
-    text:`Hi! I am AJ AI Assistant 🤖. I'm here to provide A to Z details about AJ Super Portal — Coins, TikReels, Pulse, Live, Games, Wallet, Withdrawals & more. How can I assist you today?`
+    text:`Hi! I am AJ AI Assistant 🤖. I'm here to provide A to Z details about AJ Super Portal — Coins, TikReels, Pulse, Live, Wallet, Ads, Surveys, Withdrawals & more. How can I assist you today?`
   }]);
   const [botInput,       setBotInput]       = useState('');
   const lastBotTopicRef  = useRef<string>('greeting');
@@ -2379,8 +2374,6 @@ export function AJSuperPortal() {
             totalLikes: 0,
             status: 'online',
             fcmToken: '',
-            unlockedGames: [],
-            gameProgress: {},
             ...DEFAULT_ACCOUNT_BAN_FIELDS,
           });
           setHasSocialProfile(true);
@@ -2396,14 +2389,6 @@ export function AJSuperPortal() {
           setBalance((data.balance as number) || 0);
           setBotTier((data.botTier as string) || 'none');
           setInvested((data.invested as number) || 0);
-          setUnlockedGames(
-            Array.isArray(data.unlockedGames) ? (data.unlockedGames as string[]) : []
-          );
-          setGameProgress(
-            data.gameProgress && typeof data.gameProgress === 'object'
-              ? (data.gameProgress as Record<string, GameProgressDoc>)
-              : {}
-          );
         });
       } catch (err) {
         console.error('Auth init error', err);
@@ -2530,25 +2515,6 @@ export function AJSuperPortal() {
 
   // FIX: REMOVED duplicate reels/posts subscription — main listeners at socialScreen change handle this correctly.
 
-  // ── GAME BRIDGE: raw scores never credit wallet.
-  // Level milestones are handled by GamingZone → /api/games/milestone (Install & Level Unlock).
-  useEffect(() => {
-    if (!user) return;
-    const handleGameMessage = (e: MessageEvent) => {
-      if (!e.data || typeof e.data !== 'object') return;
-      if (
-        e.data.type === "GAME_SCORE" || e.data.type === "game_score" ||
-        e.data.type === "SCORE" || e.data.type === "SCORE_UPDATE" ||
-        e.data.type === "GAME_END" || e.data.type === "game_end" ||
-        e.data.type === "GAME_CRASH" || e.data.type === "game_crash"
-      ) {
-        // No free game earnings — wallet credits only via milestone/offerwall APIs.
-        return;
-      }
-    };
-    window.addEventListener("message", handleGameMessage);
-    return () => { window.removeEventListener("message", handleGameMessage); };
-  }, [user]);
 
   // PK Timer
   useEffect(() => {
@@ -4868,23 +4834,23 @@ export function AJSuperPortal() {
   const BOT_KB: Record<string, Record<BotLang|string, string>> = {
     greeting: {
       en:  `Welcome back! 😊 I can help you with:\\\\\\\\
-🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\\\\\\\
+🎬 TikReels • 📡 AJ Pulse • 💰 Wallet\\\\\\\\
 🪙 Coins & Earning • 💸 Withdraw • 🎁 Gifts • ⚔️ PK Battle\\\\\\\\
 Just ask me anything!`,
       hin: `Bhai, kya scene hai! 😄 Main yahan hoon:\\\\\\\\
-🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\\\\\\\
+🎬 TikReels • 📡 AJ Pulse • 💰 Wallet\\\\\\\\
 🪙 Coins earning • 💸 Withdraw • 🎁 Gifts • ⚔️ PK Battle\\\\\\\\
 Kuch bhi poocho, seedha batata hoon! 🔥`,
       ur:  `خوش آمدید! 😊 میں ان چیزوں میں مدد کر سکتا ہوں:\\\\\\\\
-🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\\\\\\\
+🎬 TikReels • 📡 AJ Pulse • 💰 Wallet\\\\\\\\
 🪙 Coins • 💸 نکاسی • 🎁 تحفے • ⚔️ PK Battle\\\\\\\\
 کچھ بھی پوچھیں!`,
       hi:  `स्वागत है! 😊 मैं इनमें मदद कर सकता हूं:\\\\\\\\
-🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\\\\\\\
+🎬 TikReels • 📡 AJ Pulse • 💰 Wallet\\\\\\\\
 🪙 Coins • 💸 Withdrawal • 🎁 Gifts • ⚔️ PK\\\\\\\\
 कुछ भी पूछो!`,
       ar:  `مرحباً! 😊 يمكنني مساعدتك في:\\\\\\\\
-🎬 TikReels • 📡 AJ Pulse • 🎮 Gaming\\\\\\\\
+🎬 TikReels • 📡 AJ Pulse • 💰 Wallet\\\\\\\\
 🪙 الكوينز • 💸 السحب • 🎁 الهدايا • ⚔️ PK\\\\\\\\
 اسألني أي شيء!`,
     },
@@ -5073,30 +5039,6 @@ Wallet → Purchase 💰`,
 • Follow/Unfollow\\\\\\\\
 • DM + WeChat calls 🔥\\\\\\\\
 • Posts, Followers, Likes`,
-    },
-    gaming: {
-      en:  `🎮 AJ Gaming Zone — Install & Level Unlock\\\\\\\\
-\\\\\\\\
-• Tap Gaming → Install a game to unlock play\\\\\\\\
-• Reach milestone levels (e.g. L3 / L5 / L10) to earn AJ Coins\\\\\\\\
-• Offerwall tab: complete verified offers / watch full rewarded videos\\\\\\\\
-• Local in-game tokens stay for fun/unlocks only — no free wallet dumps`,
-      hin: `🎮 Gaming — Install & Level Unlock:\\\\\\\\
-\\\\\\\\
-• Game install karo, milestone levels clear karo\\\\\\\\
-• Reward: AJ Coins (sirf verified tasks)\\\\\\\\
-• Offerwall / rewarded video complete karo`,
-      ur:  `🎮 Gaming — Install & Level Unlock\\\\\\\\
-\\\\\\\\
-• گیم انسٹال کریں، لیول مکمل کریں\\\\\\\\
-• انعام: AJ Coins (صرف verified tasks)`,
-      hi:  `🎮 Gaming — Install & Level Unlock\\\\\\\\
-\\\\\\\\
-• गेम Install करें, milestone levels पूरे करें\\\\\\\\
-• इनाम: AJ Coins`,
-      ar:  `🎮 Gaming — تثبيت ومستويات\\\\\\\\
-\\\\\\\\
-• ثبّت اللعبة ثم أكمل المستويات للحصول على AJ Coins`,
     },
     refer: {
       en:  `👥 Referral System:\\\\\\\\
@@ -5488,95 +5430,72 @@ Tip: Social Hub se copy karo 📤`,
             </div>
           </div>
 
-          {/* FireFaucet-style Offer Hub — BitLabs, CPAGrip, Daily Faucet, Premium Videos */}
+          {/* Offer Hub — Surveys, Math, Ads */}
           <HubEarnPanel
             user={user}
-            unlockedGames={unlockedGames}
-            gameProgress={gameProgress}
             onAlert={(msg, icon) => setVvipAlert({ msg, icon: icon || '💰' })}
             onRefreshUser={async () => {
-              // Force-refresh balance from Firestore if snapshot is slow
               if (!user?.uid) return;
               try {
                 const snap = await getDoc(doc(db, 'users', user.uid));
                 if (snap.exists()) {
                   const d = snap.data() as Record<string, unknown>;
                   setBalance((d.balance as number) || 0);
-                  setUnlockedGames(Array.isArray(d.unlockedGames) ? (d.unlockedGames as string[]) : []);
-                  setGameProgress(
-                    d.gameProgress && typeof d.gameProgress === 'object'
-                      ? (d.gameProgress as Record<string, GameProgressDoc>)
-                      : {}
-                  );
                 }
               } catch {
                 /* live onSnapshot remains source of truth */
               }
             }}
-            onOpenGames={() => navigateWithAd('games')}
           />
 
-          {/* Quick Nav Grid — 4 Main Cards with Details */}
-          <div className="px-4 pt-4 grid grid-cols-2 gap-4">
-            {/* GAMES Card */}
-            <button onClick={() => navigateWithAd('games')} className="flex flex-col items-start gap-3 bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-purple-500/50 shadow-[0_0_20px_rgba(147,51,234,0.2)]" title="Install games, clear milestones, earn via Offerwall">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-[0_0_16px_rgba(147,51,234,0.5)]">
-                <span className="text-2xl">🎮</span>
-              </div>
-              <div className="text-left">
-                <p className="text-white font-black text-sm">Gaming Zone</p>
-                <p className="text-[10px] text-gray-400 mt-0.5">Install games, clear milestones, earn via Offerwall.</p>
-              </div>
-              <div className="flex items-center gap-1 mt-1">
-                <span className="text-[8px] text-purple-400 font-black bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-full">INSTALL · LEVELS</span>
-                <ChevronRight size={12} className="text-purple-400"/>
-              </div>
-            </button>
-
-            {/* SOCIAL Card */}
-            <button onClick={() => navigateWithAd('social')} className="flex flex-col items-start gap-3 bg-gradient-to-br from-cyan-900/40 to-blue-900/40 border border-cyan-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-cyan-500/50 shadow-[0_0_20px_rgba(6,182,212,0.2)]">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center shadow-[0_0_16px_rgba(6,182,212,0.5)]">
+          {/* Quick Nav — Social, Wallet, AI Bot */}
+          <div className="px-4 pt-5 space-y-3">
+            <button
+              onClick={() => navigateWithAd('social')}
+              className="w-full flex items-center gap-4 bg-gradient-to-br from-cyan-900/45 to-blue-900/35 border border-cyan-500/35 rounded-3xl p-5 active:scale-[0.99] transition-all hover:border-cyan-400/55 shadow-[0_0_24px_rgba(6,182,212,0.18)]"
+            >
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center shadow-[0_0_16px_rgba(6,182,212,0.5)] shrink-0">
                 <span className="text-2xl">📡</span>
               </div>
-              <div className="text-left">
-                <p className="text-white font-black text-sm">Social Hub</p>
-                <p className="text-[10px] text-gray-400 mt-0.5">TikReels, Pulse, WeChat, Live Streaming & DMs.</p>
+              <div className="text-left flex-1 min-w-0">
+                <p className="text-white font-black text-base">Social Hub</p>
+                <p className="text-[11px] text-gray-400 mt-0.5">TikReels · Pulse · Live · DMs · WeChat</p>
+                <span className="inline-block mt-2 text-[8px] text-cyan-300 font-black bg-cyan-500/10 border border-cyan-500/25 px-2 py-0.5 rounded-full">
+                  ALL SOCIAL FEATURES
+                </span>
               </div>
-              <div className="flex items-center gap-1 mt-1">
-                <span className="text-[8px] text-cyan-400 font-black bg-cyan-500/10 border border-cyan-500/20 px-2 py-0.5 rounded-full">ALL FEATURES</span>
-                <ChevronRight size={12} className="text-cyan-400"/>
-              </div>
+              <ChevronRight size={18} className="text-cyan-400 shrink-0"/>
             </button>
 
-            {/* WALLET Card */}
-            <button onClick={() => navigateWithAd('wallet')} className="flex flex-col items-start gap-3 bg-gradient-to-br from-yellow-900/40 to-orange-900/40 border border-yellow-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-yellow-500/50 shadow-[0_0_20px_rgba(234,179,8,0.2)]">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-yellow-500 to-orange-500 flex items-center justify-center shadow-[0_0_16px_rgba(234,179,8,0.5)]">
-                <span className="text-2xl">💰</span>
-              </div>
-              <div className="text-left">
-                <p className="text-white font-black text-sm">Wallet</p>
-                <p className="text-[10px] text-gray-400 mt-0.5">Buy, Transfer, Withdraw & Referral Coins.</p>
-              </div>
-              <div className="flex items-center gap-1 mt-1">
-                <span className="text-[8px] text-yellow-400 font-black bg-yellow-500/10 border border-yellow-500/20 px-2 py-0.5 rounded-full">{parseFloat(displayBalance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} 🪙</span>
-                <ChevronRight size={12} className="text-yellow-400"/>
-              </div>
-            </button>
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={() => navigateWithAd('wallet')} className="flex flex-col items-start gap-3 bg-gradient-to-br from-yellow-900/40 to-orange-900/40 border border-yellow-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-yellow-500/50 shadow-[0_0_20px_rgba(234,179,8,0.2)]">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-yellow-500 to-orange-500 flex items-center justify-center shadow-[0_0_16px_rgba(234,179,8,0.5)]">
+                  <span className="text-2xl">💰</span>
+                </div>
+                <div className="text-left">
+                  <p className="text-white font-black text-sm">Wallet</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">Buy · Transfer · Withdraw</p>
+                </div>
+                <div className="flex items-center gap-1 mt-1">
+                  <span className="text-[8px] text-yellow-400 font-black bg-yellow-500/10 border border-yellow-500/20 px-2 py-0.5 rounded-full">{parseFloat(displayBalance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} 🪙</span>
+                  <ChevronRight size={12} className="text-yellow-400"/>
+                </div>
+              </button>
 
-            {/* AI TRADING BOT Card */}
-            <button onClick={() => navigateWithAd('aibot')} className="flex flex-col items-start gap-3 bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.2)]">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center shadow-[0_0_16px_rgba(34,197,94,0.5)]">
-                <span className="text-2xl">🤖</span>
-              </div>
-              <div className="text-left">
-                <p className="text-white font-black text-sm">AI Trading Bot</p>
-                <p className="text-[10px] text-gray-400 mt-0.5">2-5% daily profit. Activate & earn passively.</p>
-              </div>
-              <div className="flex items-center gap-1 mt-1">
-                <span className={`text-[8px] font-black px-2 py-0.5 rounded-full ${botTier!=='none' ? 'text-green-400 bg-green-500/10 border border-green-500/20' : 'text-gray-400 bg-white/5 border border-white/10'}`}>{botTier!=='none' ? '● ACTIVE' : '○ INACTIVE'}</span>
-                <ChevronRight size={12} className={botTier!=='none' ? 'text-green-400' : 'text-gray-500'}/>
-              </div>
-            </button>
+              <button onClick={() => navigateWithAd('aibot')} className="flex flex-col items-start gap-3 bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500/30 rounded-3xl p-5 active:scale-95 transition-all hover:border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.2)]">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center shadow-[0_0_16px_rgba(34,197,94,0.5)]">
+                  <span className="text-2xl">🤖</span>
+                </div>
+                <div className="text-left">
+                  <p className="text-white font-black text-sm">AI Trading Bot</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">Passive AJ Coins 🪙</p>
+                </div>
+                <div className="flex items-center gap-1 mt-1">
+                  <span className={`text-[8px] font-black px-2 py-0.5 rounded-full ${botTier!=='none' ? 'text-green-400 bg-green-500/10 border border-green-500/20' : 'text-gray-400 bg-white/5 border border-white/10'}`}>{botTier!=='none' ? '● ACTIVE' : '○ INACTIVE'}</span>
+                  <ChevronRight size={12} className={botTier!=='none' ? 'text-green-400' : 'text-gray-500'}/>
+                </div>
+              </button>
+            </div>
           </div>
 
           {/* Live Now */}
@@ -5909,7 +5828,7 @@ Tip: Social Hub se copy karo 📤`,
                         return [contentEl, (
                           <div key={`ad_pixa_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
                             <InFeedAdShell placement="tikreel_infeed" user={user}>
-                              <AdsterraNativeBanner slotKey={`infeed_${idx}`} />
+                              <AdsterraNativeBanner slotKey={`tik_pixa_${idx}`} />
                             </InFeedAdShell>
                           </div>
                         )];
@@ -6353,7 +6272,7 @@ Tip: Social Hub se copy karo 📤`,
                         return [contentEl, (
                           <div key={`ad_pulse_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
                             <InFeedAdShell placement="pulse_infeed" user={user}>
-                              <AdsterraNativeBanner slotKey={`infeed_${idx}`} />
+                              <AdsterraNativeBanner slotKey={`pulse_${idx}`} />
                             </InFeedAdShell>
                           </div>
                         )];
@@ -7291,39 +7210,6 @@ Tip: Social Hub se copy karo 📤`,
         </div>
       )}
 
-
-      {/* ══════════════════════════════════════════════════════
-          GAMES + OFFERWALL — Install & Level Unlock progression
-      ══════════════════════════════════════════════════════ */}
-      {screen === 'games' && (
-        <GamingZone
-          user={user}
-          unlockedGames={unlockedGames}
-          gameProgress={gameProgress}
-          onBack={() => { setScreen('hub'); setSelectedGame(null); }}
-          onAlert={(msg, icon) => setVvipAlert({ msg, icon })}
-          onRefreshUser={async () => {
-            if (!user?.uid) return;
-            try {
-              const snap = await getDoc(doc(db, 'users', user.uid));
-              if (snap.exists()) {
-                const d = snap.data() as Record<string, unknown>;
-                setBalance((d.balance as number) || 0);
-                setUnlockedGames(Array.isArray(d.unlockedGames) ? (d.unlockedGames as string[]) : []);
-                setGameProgress(
-                  d.gameProgress && typeof d.gameProgress === 'object'
-                    ? (d.gameProgress as Record<string, GameProgressDoc>)
-                    : {}
-                );
-              }
-            } catch {
-              /* onSnapshot fallback */
-            }
-          }}
-          onOpenWithAd={(open) => navigateWithAdOverlay(open)}
-          cleanupAds={cleanupMonetagDom}
-        />
-      )}
 
       {/* ══════════════════════════════════════════════════════
           AI BOT SCREEN — FIX #7: card click triggers interstitial

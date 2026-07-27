@@ -11,7 +11,6 @@ import {
 import DailyMathChallenge from './DailyMathChallenge';
 import AlphaCaptchaChallenge from './AlphaCaptchaChallenge';
 import RewardedVideoOffer from './ads/RewardedVideoOffer';
-import { type GameProgressDoc } from '../lib/economy';
 import { openCpaGripOfferWall } from '../lib/cpagrip';
 import { openBitLabsSurveys } from '../lib/offer-hub';
 import { trackAdEvent } from '../lib/ad-client';
@@ -21,22 +20,14 @@ type UserLike = { uid: string; getIdToken: () => Promise<string>; email?: string
 
 type Props = {
   user: UserLike;
-  unlockedGames: string[];
-  gameProgress: Record<string, GameProgressDoc>;
   onAlert: (msg: string, icon?: string) => void;
   onRefreshUser?: () => void;
-  onOpenGames?: () => void;
 };
 
 type HubPanel = 'none' | 'faucet' | 'videos';
 
-/** FireFaucet Offer Hub — Adsterra Watch & Earn (Monetag removed). */
-export default function HubEarnPanel({
-  user,
-  onAlert,
-  onRefreshUser,
-  onOpenGames,
-}: Props) {
+/** Offer Hub — Surveys, Math/Captcha, Watch Ads (no games). */
+export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
   const [panel, setPanel] = useState<HubPanel>('none');
 
   useEffect(() => {
@@ -81,7 +72,7 @@ export default function HubEarnPanel({
     const result = openCpaGripOfferWall(user.uid);
     if (result.ok) {
       onAlert(
-        'CPAGrip app installs opened. AJ Coins 🪙 credit automatically after verified install/completion.',
+        'CPAGrip tasks opened. AJ Coins 🪙 credit automatically after verified completion.',
         '📱'
       );
     } else {
@@ -96,34 +87,20 @@ export default function HubEarnPanel({
   };
 
   return (
-    <div className="px-4 pt-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <div>
-          <p
-            className="text-[11px] font-black uppercase tracking-[0.2em] text-transparent bg-clip-text"
-            style={{
-              backgroundImage: 'linear-gradient(90deg,#22d3ee,#a78bfa,#f59e0b)',
-              fontFamily: 'var(--font-aj-display), sans-serif',
-            }}
-          >
-            Offer Hub
-          </p>
-          <p className="text-[10px] text-zinc-400 font-bold mt-0.5">
-            Earn AJ Coins 🪙 · FireFaucet style
-          </p>
-        </div>
-        {onOpenGames ? (
-          <button
-            type="button"
-            onClick={(e) => {
-              guardClick(e);
-              onOpenGames();
-            }}
-            className="text-[9px] font-black text-pink-400 active:scale-90"
-          >
-            Gaming Zone →
-          </button>
-        ) : null}
+    <div className="px-4 pt-5 space-y-3">
+      <div>
+        <p
+          className="text-[11px] font-black uppercase tracking-[0.22em] text-transparent bg-clip-text"
+          style={{
+            backgroundImage: 'linear-gradient(90deg,#22d3ee,#a78bfa,#f59e0b)',
+            fontFamily: 'var(--font-aj-display), sans-serif',
+          }}
+        >
+          Offer Hub
+        </p>
+        <p className="text-[10px] text-zinc-400 font-bold mt-0.5">
+          Surveys · Math · Ads · Earn AJ Coins 🪙
+        </p>
       </div>
 
       <div className="grid grid-cols-2 gap-2.5">
@@ -160,11 +137,11 @@ export default function HubEarnPanel({
             <div>
               <p className="text-[12px] font-black text-white leading-tight">CPAGrip Tasks</p>
               <p className="text-[9px] font-black uppercase tracking-wider text-amber-300 mt-1">
-                App Installs
+                Offers & Installs
               </p>
             </div>
             <span className="mt-auto inline-flex items-center gap-1 text-[8px] font-bold text-zinc-500">
-              200–1000+ 🪙 <ExternalLink size={9} />
+              Earn AJ Coins 🪙 <ExternalLink size={9} />
             </span>
           </div>
         </button>
@@ -208,9 +185,9 @@ export default function HubEarnPanel({
               <Play size={16} className="text-rose-300" />
             </div>
             <div>
-              <p className="text-[12px] font-black text-white leading-tight">Premium Videos</p>
+              <p className="text-[12px] font-black text-white leading-tight">Watch Ads</p>
               <p className="text-[9px] font-black uppercase tracking-wider text-rose-300 mt-1">
-                Watch & Earn
+                Verified Earn
               </p>
             </div>
             <span className="mt-auto text-[8px] font-bold text-zinc-500">+5 AJ Coins 🪙</span>
