@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ExternalLink, Gift, Loader2 } from 'lucide-react';
 import { getAuth, onAuthStateChanged, type User } from 'firebase/auth';
 import { getApps, initializeApp } from 'firebase/app';
-import { useSearchParams } from 'next/navigation';
 import { OFFERWALL_PUBLIC } from '../lib/economy';
 import { buildCpaGripWallUrl, CPAGRIP_WALL_ID } from '../lib/cpagrip';
 
@@ -20,25 +19,33 @@ function getClientAuth() {
   return getAuth(app);
 }
 
+function readQueryUid(): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    const q = new URLSearchParams(window.location.search);
+    return q.get('uid') || q.get('userId') || '';
+  } catch {
+    return '';
+  }
+}
+
 /**
  * CPAGrip Offer Partners host page.
  * Layout loads script_include.php?id=1906642; scrubber is skipped on /offerwall
  * so the wall can mount here. Coins credit only via /api/postback.
  */
 export default function OfferwallPage() {
-  const searchParams = useSearchParams();
   const [user, setUser] = useState<User | null>(null);
+  const [queryUid, setQueryUid] = useState('');
   const [launching, setLaunching] = useState(false);
 
   useEffect(() => {
+    setQueryUid(readQueryUid());
     const auth = getClientAuth();
     return onAuthStateChanged(auth, setUser);
   }, []);
 
-  const trackingUid = useMemo(() => {
-    const q = searchParams?.get('uid') || searchParams?.get('userId') || '';
-    return user?.uid || q || '';
-  }, [user?.uid, searchParams]);
+  const trackingUid = useMemo(() => user?.uid || queryUid || '', [user?.uid, queryUid]);
 
   const wallUrl = useMemo(() => buildCpaGripWallUrl(trackingUid || null), [trackingUid]);
 
@@ -54,10 +61,9 @@ export default function OfferwallPage() {
   function launchWall() {
     setLaunching(true);
     try {
-      // Prefer in-page CPAGrip locker if already injected by layout script
       const grip = document.getElementById('grip_wall');
       if (grip) {
-        grip.style.display = 'block';
+        (grip as HTMLElement).style.display = 'block';
         setLaunching(false);
         return;
       }
@@ -89,7 +95,10 @@ export default function OfferwallPage() {
           <ArrowLeft size={16} />
         </a>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-black truncate" style={{ fontFamily: 'var(--font-aj-display), sans-serif' }}>
+          <p
+            className="text-sm font-black truncate"
+            style={{ fontFamily: 'var(--font-aj-display), sans-serif' }}
+          >
             AJ · Offer Partners
           </p>
           <p className="text-[10px] text-gray-400 truncate">CPAGrip wall · id {CPAGRIP_WALL_ID}</p>
