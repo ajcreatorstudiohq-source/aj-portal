@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <style>
+    .h{transform-origin:60px 60px;animation:beat .7s ease-in-out infinite}
+    @keyframes beat{0%,100%{transform:scale(1)}50%{transform:scale(1.18)}}
+  </style>
+  <path class="h" d="M60 98C20 70 10 48 28 30c10-10 24-6 32 4 8-10 22-14 32-4 18 18 8 40-32 68z" fill="#f43f5e"/>
+</svg>

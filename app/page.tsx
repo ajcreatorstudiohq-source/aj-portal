@@ -974,13 +974,14 @@ const stopLocalWebRTC = () => {
 // ============================================================
 // GIFT ITEMS
 // ============================================================
+/** PK / Live gifts — mediaUrl syncs SVG/GIF animation to Gifter, Host, and Guest */
 const giftItems = [
-  { id:1, name:'Coffee',      cost:500,   icon:'☕'  },
-  { id:2, name:'Pizza Party', cost:1000,  icon:'🍕'  },
-  { id:3, name:'Mega Heart',  cost:2500,  icon:'❤️'  },
-  { id:4, name:'Super Car',   cost:5000,  icon:'🏎️'  },
-  { id:5, name:'Private Jet', cost:8000,  icon:'🛩️'  },
-  { id:6, name:'AJ Mansion',  cost:10000, icon:'🏰'  },
+  { id:1, name:'Coffee',      cost:500,   icon:'☕',  mediaUrl:'/gifts/coffee.svg' },
+  { id:2, name:'Pizza Party', cost:1000,  icon:'🍕',  mediaUrl:'/gifts/pizza.svg' },
+  { id:3, name:'Mega Heart',  cost:2500,  icon:'❤️',  mediaUrl:'/gifts/heart.svg' },
+  { id:4, name:'Super Car',   cost:5000,  icon:'🏎️', mediaUrl:'/gifts/car.svg' },
+  { id:5, name:'Private Jet', cost:8000,  icon:'🛩️', mediaUrl:'/gifts/jet.svg' },
+  { id:6, name:'AJ Mansion',  cost:10000, icon:'🏰', mediaUrl:'/gifts/mansion.svg' },
 ];
 
 const WITHDRAW_METHODS = [
@@ -1734,6 +1735,8 @@ function CinematicGiftOverlay({ gift, sender, onDone }: { gift: any; sender: str
   const giftIcon = gift.icon || '🎁';
   const giftName = gift.name || 'Gift';
   const giftCost = typeof gift.cost === 'number' ? gift.cost : 0;
+  // Synced GIF / Lottie-style media URL (host, guest, gifter all see same asset)
+  const giftMedia = typeof gift.mediaUrl === 'string' && gift.mediaUrl ? gift.mediaUrl : '';
 
   return (
     <div
@@ -1755,8 +1758,8 @@ function CinematicGiftOverlay({ gift, sender, onDone }: { gift: any; sender: str
             className="absolute text-2xl"
             style={{
               left: `${(i * 8.3) % 100}%`,
-              top: `${Math.random() * 80}%`,
-              animation: `confettiFall ${2 + Math.random() * 2}s ease-in ${i * 0.15}s infinite`,
+              top: `${(i * 17) % 80}%`,
+              animation: `confettiFall ${2 + (i % 3) * 0.4}s ease-in ${i * 0.15}s infinite`,
             }}
           >{emoji}</span>
         ))}
@@ -1778,13 +1781,25 @@ function CinematicGiftOverlay({ gift, sender, onDone }: { gift: any; sender: str
               animation: 'giftGlow 1.5s ease-in-out infinite',
             }}
           />
-          <div
-            className="relative text-[8rem] leading-none"
-            style={{
-              animation: 'giftBounce 0.8s ease-in-out infinite',
-              filter: 'drop-shadow(0 0 40px rgba(250,204,21,0.9)) drop-shadow(0 0 80px rgba(245,158,11,0.5))',
-            }}
-          >{giftIcon}</div>
+          {giftMedia ? (
+            <img
+              src={giftMedia}
+              alt={giftName}
+              className="relative w-40 h-40 object-contain"
+              style={{
+                animation: 'giftBounce 0.8s ease-in-out infinite',
+                filter: 'drop-shadow(0 0 40px rgba(250,204,21,0.9))',
+              }}
+            />
+          ) : (
+            <div
+              className="relative text-[8rem] leading-none"
+              style={{
+                animation: 'giftBounce 0.8s ease-in-out infinite',
+                filter: 'drop-shadow(0 0 40px rgba(250,204,21,0.9)) drop-shadow(0 0 80px rgba(245,158,11,0.5))',
+              }}
+            >{giftIcon}</div>
+          )}
         </div>
         <p
           className="text-3xl font-black uppercase tracking-widest text-center"
@@ -1805,7 +1820,7 @@ function CinematicGiftOverlay({ gift, sender, onDone }: { gift: any; sender: str
           }}
         >
           <span className="text-yellow-300 font-black text-xl">{giftCost.toLocaleString()}</span>
-          <span className="text-yellow-400 text-lg">🧹</span>
+          <span className="text-yellow-400 text-lg">AJ Coins 🪙</span>
         </div>
         <p className="text-white font-bold text-sm" style={{ opacity: 0.9 }}>
           from <span className="text-pink-400 font-black">@{sender || 'Someone'}</span>
@@ -3236,11 +3251,14 @@ export function AJSuperPortal() {
       const d = snap.data() as {
         scoreHost?: number;
         scoreGuest?: number;
-        challengerUid?: string;
         hostUid?: string;
+        hostId?: string;
         rivalUid?: string;
+        challengerId?: string;
       };
-      const iAmHost = d.challengerUid === user.uid || d.hostUid === user.uid;
+      // Host is the original challenger (hostUid). challengerId = accepting guest.
+      const hostId = d.hostUid || d.hostId || '';
+      const iAmHost = hostId === user.uid;
       const hostScore = Number(d.scoreHost || 0);
       const guestScore = Number(d.scoreGuest || 0);
       setPkScore(
@@ -3258,6 +3276,7 @@ export function AJSuperPortal() {
             giftName?: string;
             giftIcon?: string;
             giftCost?: number;
+            giftMediaUrl?: string;
             senderUid?: string;
             senderName?: string;
             createdAtMs?: number;
@@ -3268,6 +3287,7 @@ export function AJSuperPortal() {
             name: g.giftName || 'Gift',
             icon: g.giftIcon || '🎁',
             cost: Number(g.giftCost || 0),
+            mediaUrl: g.giftMediaUrl || '',
           });
           setCinematicSender(g.senderName || 'Viewer');
         });
@@ -3901,6 +3921,8 @@ export function AJSuperPortal() {
           matchStatus: 'pending',        // FIX: PK match status field for live_rooms sync
           isPkActive: false,             // FIX: PK active flag — true when rival joins
           challengerId: '',              // FIX: Khali jab tak rival accept na kare
+          scoreHost: 0,
+          scoreGuest: 0,
           entryCoins: PK_ENTRY_COINS,
           duration: PK_DURATION,
           createdAt: serverTimestamp(),
@@ -3956,30 +3978,47 @@ export function AJSuperPortal() {
     } catch(e) { console.error('sendPkChallenge', e); setVvipAlert({msg:'Error sending challenge. Please try again.'}); }
   };
 
-  const sendPkGift = async (creatorId:string, gift:{name:string,cost:number,icon:string}, isMe:boolean) => {
+  const sendPkGift = async (
+    creatorId: string,
+    gift: { name: string; cost: number; icon: string; mediaUrl?: string }
+  ) => {
     if (!user) return;
     await sendGift(creatorId, gift);
-    const nextMe = isMe ? gift.cost : 0;
-    const nextRival = isMe ? 0 : gift.cost;
-    setPkScore(s => ({ me: s.me + nextMe, rival: s.rival + nextRival }));
 
-    // Real-time sync — all PK participants see gift overlay + score
+    // Real-time sync — Gifter, Host, and Guest all see the same overlay + score
     if (pkRoomId) {
       try {
+        const sessionSnap = await getDoc(doc(db, 'pk_sessions', pkRoomId));
+        const session = sessionSnap.exists()
+          ? (sessionSnap.data() as { hostUid?: string; hostId?: string })
+          : {};
+        const hostId = session.hostUid || session.hostId || '';
+        const iAmHost = hostId === user.uid;
+        // Gift boosts the sender's own team (standard PK battle)
+        const creditHost = iAmHost;
         const giftEvent = {
           giftName: gift.name,
           giftIcon: gift.icon,
           giftCost: gift.cost,
+          giftMediaUrl: gift.mediaUrl || '',
           senderUid: user.uid,
           senderName: username || 'Anonymous',
-          toHost: isMe,
+          toHost: creditHost,
           createdAt: serverTimestamp(),
           createdAtMs: Date.now(),
         };
+        // Instant overlay for gifter (host/guest receive via onSnapshot)
+        setCinematicGift({
+          name: gift.name,
+          icon: gift.icon,
+          cost: gift.cost,
+          mediaUrl: gift.mediaUrl || '',
+        });
+        setCinematicSender(username || 'You');
         await addDoc(collection(db, 'pk_sessions', pkRoomId, 'gifts'), giftEvent);
         await updateDoc(doc(db, 'pk_sessions', pkRoomId), {
-          scoreHost: increment(isMe ? gift.cost : 0),
-          scoreGuest: increment(isMe ? 0 : gift.cost),
+          scoreHost: increment(creditHost ? gift.cost : 0),
+          scoreGuest: increment(creditHost ? 0 : gift.cost),
           lastGift: giftEvent,
         });
       } catch (e) {
@@ -4251,9 +4290,12 @@ export function AJSuperPortal() {
   };
 
   // ==========================================================
-  // GIFTING — 60% admin (aap) | 40% creator (uses GIFT_ADMIN_SHARE / GIFT_USER_SHARE)
+  // GIFTING — sender spends AJ Coins; creator credit via server reward engine
   // ==========================================================
-  const sendGift = async (creatorId:string, gift:{name:string,cost:number,icon:string}) => {
+  const sendGift = async (
+    creatorId: string,
+    gift: { name: string; cost: number; icon: string; mediaUrl?: string }
+  ) => {
     if (!user || creatorId === user.uid) {
       // Self-gift: only deduct and add (no split)
       if (creatorId === user.uid) {
@@ -5175,7 +5217,8 @@ export function AJSuperPortal() {
     }
   };
 
-  const handleTransfer = async () => {
+  /** Atomic coin transfer — Admin API preferred; client runTransaction fallback. Blocks self-transfer. */
+  const transferCoins = async () => {
     if (transferAmount<=0 || !transferId.trim()) return setVvipAlert({msg:"Fill all fields!"});
     if (!user) return setVvipAlert({msg:"Please log in first."});
     const toUid = transferId.trim();
@@ -5226,6 +5269,7 @@ export function AJSuperPortal() {
       await runTransaction(db, async (tx) => {
         const senderRef = doc(db, 'users', user.uid);
         const receiverRef = doc(db, 'users', toUid);
+        if (senderRef.id === receiverRef.id) throw new Error('self_transfer');
         const [senderSnap, receiverSnap] = await Promise.all([
           tx.get(senderRef),
           tx.get(receiverRef),
@@ -5249,12 +5293,14 @@ export function AJSuperPortal() {
       setTransferAmount(0); setTransferId(''); setWalletTab('main');
     } catch(e: unknown) {
       const msg = e instanceof Error ? e.message : 'transfer_failed';
-      console.error('handleTransfer', e);
+      console.error('transferCoins', e);
       if (msg === 'insufficient_balance') setVvipAlert({msg:'Insufficient balance!'});
       else if (msg === 'recipient_not_found') setVvipAlert({msg:'Recipient not found!'});
+      else if (msg === 'self_transfer') setVvipAlert({msg:'Cannot transfer to yourself.'});
       else setVvipAlert({msg:'Transfer failed. Please try again.'});
     }
   };
+  const handleTransfer = transferCoins;
 
   const handleWithdraw = async () => {
     if (balance < WITHDRAW_MIN)
@@ -5996,7 +6042,7 @@ Tip: Social Hub se copy karo 📤`,
             </div>
           </div>
 
-          {/* Earn hub — rewarded video, Monetag, offerwall, game unlocks */}
+          {/* FireFaucet-style Offer Hub — BitLabs, CPAGrip, Daily Faucet, Premium Videos */}
           <HubEarnPanel
             user={user}
             unlockedGames={unlockedGames}
@@ -7092,9 +7138,9 @@ Tip: Social Hub se copy karo 📤`,
                       const rivalPct = 100 - mePct;
                       return (
                         <div className="rounded-xl overflow-hidden border border-white/10">
-                          <div className="flex h-3 w-full">
+                          <div className="flex h-3.5 w-full">
                             <div
-                              className="h-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all duration-500"
+                              className="h-full bg-gradient-to-r from-blue-600 to-cyan-400 transition-all duration-500"
                               style={{ width: `${mePct}%` }}
                             />
                             <div
@@ -7102,7 +7148,7 @@ Tip: Social Hub se copy karo 📤`,
                               style={{ width: `${rivalPct}%` }}
                             />
                           </div>
-                          <div className="flex justify-between px-2 py-1 bg-black/50 text-[9px] font-black">
+                          <div className="flex justify-between px-2 py-1.5 bg-black/60 text-[9px] font-black">
                             <span className="text-cyan-300">YOU {pkScore.me.toLocaleString()}🪙</span>
                             <span className="text-gray-400">{formatPkTime(pkTimer)}</span>
                             <span className="text-rose-300">{pkScore.rival.toLocaleString()}🪙 RIVAL</span>
@@ -7110,9 +7156,12 @@ Tip: Social Hub se copy karo 📤`,
                         </div>
                       );
                     })()}
-                    {/* TikTok-style 50/50 vertical split — Host vs Guest */}
-                    <div className="flex flex-col gap-1 rounded-2xl overflow-hidden border border-orange-500/30" style={{ height: 320 }}>
-                      <div className="flex-1 relative bg-black overflow-hidden border-b border-white/10">
+                    {/* Official 50/50 horizontal split-screen — Host (Blue) | Guest (Red) */}
+                    <div
+                      className="flex flex-row gap-0.5 rounded-2xl overflow-hidden border border-orange-500/30"
+                      style={{ height: 280 }}
+                    >
+                      <div className="w-1/2 relative bg-black overflow-hidden border-r border-blue-500/40">
                         {cameraReady && liveVideoRef.current?.srcObject ? (
                           <video ref={liveVideoRef} autoPlay muted playsInline className="absolute inset-0 w-full h-full object-cover" style={{ objectFit: 'cover' }}/>
                         ) : (
@@ -7121,11 +7170,11 @@ Tip: Social Hub se copy karo 📤`,
                             <span className="text-white text-[9px] font-black">@{username||'You'}</span>
                           </div>
                         )}
-                        <div className="absolute top-1 left-1 bg-cyan-600/80 text-white text-[8px] font-black px-2 py-0.5 rounded-full">
-                          HOST · {pkScore.me.toLocaleString()}🪙
+                        <div className="absolute top-1 left-1 bg-blue-600/85 text-white text-[8px] font-black px-2 py-0.5 rounded-full">
+                          YOU · {pkScore.me.toLocaleString()}🪙
                         </div>
                       </div>
-                      <div className="flex-1 relative bg-black overflow-hidden">
+                      <div className="w-1/2 relative bg-black overflow-hidden border-l border-rose-500/40">
                         {pkRivalFrame ? (
                           <img src={pkRivalFrame} className="absolute inset-0 w-full h-full object-cover" alt="PK Opponent"/>
                         ) : pkHostFrame ? (
@@ -7137,8 +7186,8 @@ Tip: Social Hub se copy karo 📤`,
                             <span className="text-gray-400 text-[7px] animate-pulse">Connecting…</span>
                           </div>
                         )}
-                        <div className="absolute top-1 left-1 bg-rose-600/80 text-white text-[8px] font-black px-2 py-0.5 rounded-full">
-                          GUEST · {pkScore.rival.toLocaleString()}🪙
+                        <div className="absolute top-1 right-1 bg-rose-600/85 text-white text-[8px] font-black px-2 py-0.5 rounded-full">
+                          RIVAL · {pkScore.rival.toLocaleString()}🪙
                         </div>
                       </div>
                     </div>
@@ -7165,9 +7214,16 @@ Tip: Social Hub se copy karo 📤`,
                       <Volume2 size={12} className="text-orange-400"/>
                       Tap to Enable Rival Sound
                     </button>
+                    <p className="text-[9px] text-zinc-500 font-bold text-center uppercase tracking-wider">
+                      Sync gifts · boost your score
+                    </p>
                     <div className="grid grid-cols-3 gap-2">
-                      {giftItems.slice(0,3).map(g => (
-                        <button key={g.id} onClick={() => sendPkGift(user!.uid, g, true)} className="flex flex-col items-center gap-1 bg-white/5 border border-white/10 rounded-xl p-2 active:scale-90 transition-all">
+                      {giftItems.slice(0,6).map(g => (
+                        <button
+                          key={g.id}
+                          onClick={() => sendPkGift(user!.uid, g)}
+                          className="flex flex-col items-center gap-1 bg-white/5 border border-white/10 rounded-xl p-2 active:scale-90 transition-all"
+                        >
                           <span className="text-xl">{g.icon}</span>
                           <span className="text-yellow-400 text-[8px] font-black">{g.cost}🪙</span>
                         </button>

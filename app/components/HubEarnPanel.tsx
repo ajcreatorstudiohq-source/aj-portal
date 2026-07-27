@@ -1,14 +1,19 @@
 'use client';
 
-import { useEffect, type MouseEvent } from 'react';
-import { ExternalLink, Gift } from 'lucide-react';
+import { useEffect, useState, type MouseEvent } from 'react';
+import {
+  ClipboardCheck,
+  ExternalLink,
+  Gift,
+  Play,
+  Sparkles,
+} from 'lucide-react';
 import DailyMathChallenge from './DailyMathChallenge';
 import AlphaCaptchaChallenge from './AlphaCaptchaChallenge';
 import RewardedVideoOffer from './ads/RewardedVideoOffer';
-import {
-  type GameProgressDoc,
-} from '../lib/economy';
+import { type GameProgressDoc } from '../lib/economy';
 import { openCpaGripOfferWall } from '../lib/cpagrip';
+import { openBitLabsSurveys } from '../lib/offer-hub';
 import { MONETAG_INTERSTITIAL_ZONE } from '../lib/ads-config';
 import { trackAdEvent } from '../lib/ad-client';
 import { ensureMonetagSdkLoaded } from '../lib/monetag-client';
@@ -25,12 +30,14 @@ type Props = {
   onOpenGames?: () => void;
 };
 
+type HubPanel = 'none' | 'faucet' | 'videos';
+
 /**
- * Tasks dashboard — four earn cards only:
- * 1) Rewarded Video (+20)
- * 2) Math Challenge (+5, 5/day)
- * 3) Alphanumeric Captcha (+10, 5/day)
- * 4) CPAGrip Offerwall (postback only)
+ * FireFaucet-inspired Offer Hub — premium 2×2 grid:
+ * A) BitLabs Surveys · Highest Payout
+ * B) CPAGrip Tasks · App Installs
+ * C) Math & Captcha · Daily Faucet
+ * D) Premium Videos · Watch & Earn
  */
 export default function HubEarnPanel({
   user,
@@ -38,12 +45,14 @@ export default function HubEarnPanel({
   onRefreshUser,
   onOpenGames,
 }: Props) {
+  const [panel, setPanel] = useState<HubPanel>('none');
+
   useEffect(() => {
     startIntrusiveAdGuard();
     ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL_ZONE).catch(() => {});
   }, []);
 
-  const openOfferPartners = (e: MouseEvent) => {
+  const openBitLabs = (e: MouseEvent) => {
     guardClick(e);
     if (!user) return onAlert('Please sign in first', '🔒');
     trackAdEvent(
@@ -51,27 +60,67 @@ export default function HubEarnPanel({
         event: 'click',
         placement: 'offerwall_rewarded_video',
         zoneId: MONETAG_INTERSTITIAL_ZONE,
-        meta: { action: 'open_offer_partners_hub', provider: 'cpagrip' },
+        meta: { action: 'open_bitlabs', provider: 'bitlabs' },
+      },
+      user
+    ).catch(() => {});
+    const result = openBitLabsSurveys();
+    if (result.ok) {
+      onAlert(
+        'BitLabs opened. Highest-payout surveys — AJ Coins 🪙 credit after verified completion.',
+        '🧠'
+      );
+    } else {
+      onAlert(result.error || 'Could not open BitLabs.', '⚠️');
+    }
+  };
+
+  const openCpaGrip = (e: MouseEvent) => {
+    guardClick(e);
+    if (!user) return onAlert('Please sign in first', '🔒');
+    trackAdEvent(
+      {
+        event: 'click',
+        placement: 'offerwall_rewarded_video',
+        zoneId: MONETAG_INTERSTITIAL_ZONE,
+        meta: { action: 'open_cpagrip_hub', provider: 'cpagrip' },
       },
       user
     ).catch(() => {});
     const result = openCpaGripOfferWall(user.uid);
     if (result.ok) {
       onAlert(
-        'High payout tasks opened. AJ Coins 🪙 credit automatically after verified install/completion.',
-        '🔗'
+        'CPAGrip app installs opened. AJ Coins 🪙 credit automatically after verified install/completion.',
+        '📱'
       );
     } else {
-      onAlert(result.error || 'Could not open offer partners.', '⚠️');
+      onAlert(result.error || 'Could not open CPAGrip tasks.', '⚠️');
     }
+  };
+
+  const togglePanel = (e: MouseEvent, next: HubPanel) => {
+    guardClick(e);
+    if (!user) return onAlert('Please sign in first', '🔒');
+    setPanel((cur) => (cur === next ? 'none' : next));
   };
 
   return (
     <div className="px-4 pt-4 space-y-3">
       <div className="flex items-center justify-between">
-        <p className="text-[10px] text-cyan-400 font-black uppercase tracking-widest">
-          Tasks · Earn AJ Coins 🪙
-        </p>
+        <div>
+          <p
+            className="text-[11px] font-black uppercase tracking-[0.2em] text-transparent bg-clip-text"
+            style={{
+              backgroundImage: 'linear-gradient(90deg,#22d3ee,#a78bfa,#f59e0b)',
+              fontFamily: 'var(--font-aj-display), sans-serif',
+            }}
+          >
+            Offer Hub
+          </p>
+          <p className="text-[10px] text-zinc-400 font-bold mt-0.5">
+            Earn AJ Coins 🪙 · FireFaucet style
+          </p>
+        </div>
         {onOpenGames ? (
           <button
             type="button"
@@ -86,47 +135,137 @@ export default function HubEarnPanel({
         ) : null}
       </div>
 
-      {/* CARD 1 — Watch Rewarded Video (+20) */}
-      <RewardedVideoOffer
-        user={user}
-        onAlert={onAlert}
-        onRefreshUser={onRefreshUser}
-      />
+      {/* Premium 2×2 offer grid */}
+      <div className="grid grid-cols-2 gap-2.5">
+        {/* CARD A — BitLabs */}
+        <button
+          type="button"
+          onClick={openBitLabs}
+          className="group relative overflow-hidden rounded-2xl border border-violet-500/35 bg-gradient-to-br from-[#1a1028] via-[#120a1c] to-[#0a0a0a] p-3.5 text-left active:scale-[0.98] transition-transform min-h-[118px]"
+        >
+          <div className="absolute inset-0 opacity-40 bg-[radial-gradient(circle_at_20%_0%,rgba(167,139,250,0.35),transparent_55%)] pointer-events-none" />
+          <div className="relative flex flex-col h-full gap-2">
+            <div className="w-9 h-9 rounded-xl bg-violet-500/20 border border-violet-400/30 flex items-center justify-center">
+              <ClipboardCheck size={16} className="text-violet-300" />
+            </div>
+            <div>
+              <p className="text-[12px] font-black text-white leading-tight">BitLabs Surveys</p>
+              <p className="text-[9px] font-black uppercase tracking-wider text-violet-300 mt-1">
+                Highest Payout
+              </p>
+            </div>
+            <span className="mt-auto inline-flex items-center gap-1 text-[8px] font-bold text-zinc-500">
+              Open <ExternalLink size={9} />
+            </span>
+          </div>
+        </button>
 
-      {/* CARD 2 — Math Challenge (+5) */}
-      <DailyMathChallenge
-        user={user}
-        onAlert={onAlert}
-        onRefreshUser={onRefreshUser}
-      />
+        {/* CARD B — CPAGrip */}
+        <button
+          type="button"
+          onClick={openCpaGrip}
+          className="group relative overflow-hidden rounded-2xl border border-amber-500/35 bg-gradient-to-br from-[#2a1a08] via-[#1a1006] to-[#0a0a0a] p-3.5 text-left active:scale-[0.98] transition-transform min-h-[118px]"
+        >
+          <div className="absolute inset-0 opacity-40 bg-[radial-gradient(circle_at_80%_0%,rgba(245,158,11,0.35),transparent_55%)] pointer-events-none" />
+          <div className="relative flex flex-col h-full gap-2">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-400/30 flex items-center justify-center">
+              <Gift size={16} className="text-amber-300" />
+            </div>
+            <div>
+              <p className="text-[12px] font-black text-white leading-tight">CPAGrip Tasks</p>
+              <p className="text-[9px] font-black uppercase tracking-wider text-amber-300 mt-1">
+                App Installs
+              </p>
+            </div>
+            <span className="mt-auto inline-flex items-center gap-1 text-[8px] font-bold text-zinc-500">
+              200–1000+ 🪙 <ExternalLink size={9} />
+            </span>
+          </div>
+        </button>
 
-      {/* CARD 3 — Premium Alphanumeric Captcha (+10) */}
-      <AlphaCaptchaChallenge
-        user={user}
-        onAlert={onAlert}
-        onRefreshUser={onRefreshUser}
-      />
+        {/* CARD C — Math & Captcha */}
+        <button
+          type="button"
+          onClick={(e) => togglePanel(e, 'faucet')}
+          className={`group relative overflow-hidden rounded-2xl border p-3.5 text-left active:scale-[0.98] transition-transform min-h-[118px] ${
+            panel === 'faucet'
+              ? 'border-cyan-400/50 bg-gradient-to-br from-[#06252a] to-[#0a0a0a]'
+              : 'border-cyan-500/30 bg-gradient-to-br from-[#0a1f24] via-[#071416] to-[#0a0a0a]'
+          }`}
+        >
+          <div className="absolute inset-0 opacity-35 bg-[radial-gradient(circle_at_20%_100%,rgba(34,211,238,0.3),transparent_55%)] pointer-events-none" />
+          <div className="relative flex flex-col h-full gap-2">
+            <div className="w-9 h-9 rounded-xl bg-cyan-500/20 border border-cyan-400/30 flex items-center justify-center">
+              <Sparkles size={16} className="text-cyan-300" />
+            </div>
+            <div>
+              <p className="text-[12px] font-black text-white leading-tight">Math & Captcha</p>
+              <p className="text-[9px] font-black uppercase tracking-wider text-cyan-300 mt-1">
+                Daily Faucet
+              </p>
+            </div>
+            <span className="mt-auto text-[8px] font-bold text-zinc-500">
+              +5 / +10 🪙 · 5/day each
+            </span>
+          </div>
+        </button>
 
-      {/* CARD 4 — Apps & Surveys (Offerwall) */}
-      <button
-        type="button"
-        onClick={openOfferPartners}
-        className="flex items-center gap-3 w-full rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-950/40 to-orange-950/30 p-4 active:scale-[0.99] text-left"
-      >
-        <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-400/30 flex items-center justify-center shrink-0">
-          <Gift size={18} className="text-amber-300" />
-        </div>
-        <div className="text-left flex-1 min-w-0">
-          <p className="text-sm font-black text-white">Apps & Surveys (Offerwall)</p>
-          <p className="text-[11px] text-amber-200/90 font-bold mt-0.5">
-            High Payout Tasks (200 - 1000+ Coins)
+        {/* CARD D — Premium Videos */}
+        <button
+          type="button"
+          onClick={(e) => togglePanel(e, 'videos')}
+          className={`group relative overflow-hidden rounded-2xl border p-3.5 text-left active:scale-[0.98] transition-transform min-h-[118px] ${
+            panel === 'videos'
+              ? 'border-rose-400/50 bg-gradient-to-br from-[#2a0a14] to-[#0a0a0a]'
+              : 'border-rose-500/30 bg-gradient-to-br from-[#1f0a12] via-[#14060c] to-[#0a0a0a]'
+          }`}
+        >
+          <div className="absolute inset-0 opacity-35 bg-[radial-gradient(circle_at_80%_100%,rgba(244,63,94,0.3),transparent_55%)] pointer-events-none" />
+          <div className="relative flex flex-col h-full gap-2">
+            <div className="w-9 h-9 rounded-xl bg-rose-500/20 border border-rose-400/30 flex items-center justify-center">
+              <Play size={16} className="text-rose-300" />
+            </div>
+            <div>
+              <p className="text-[12px] font-black text-white leading-tight">Premium Videos</p>
+              <p className="text-[9px] font-black uppercase tracking-wider text-rose-300 mt-1">
+                Watch & Earn
+              </p>
+            </div>
+            <span className="mt-auto text-[8px] font-bold text-zinc-500">+20 AJ Coins 🪙</span>
+          </div>
+        </button>
+      </div>
+
+      {panel === 'faucet' ? (
+        <div className="space-y-3 rounded-2xl border border-cyan-500/20 bg-black/40 p-3">
+          <p className="text-[9px] font-black uppercase tracking-widest text-cyan-400">
+            Daily Faucet · Math + Captcha
           </p>
-          <p className="text-[10px] text-gray-400 mt-0.5">
-            Coins added automatically after install/completion.
-          </p>
+          <DailyMathChallenge
+            user={user}
+            onAlert={onAlert}
+            onRefreshUser={onRefreshUser}
+          />
+          <AlphaCaptchaChallenge
+            user={user}
+            onAlert={onAlert}
+            onRefreshUser={onRefreshUser}
+          />
         </div>
-        <ExternalLink size={14} className="text-gray-500 shrink-0" />
-      </button>
+      ) : null}
+
+      {panel === 'videos' ? (
+        <div className="rounded-2xl border border-rose-500/20 bg-black/40 p-3 space-y-2">
+          <p className="text-[9px] font-black uppercase tracking-widest text-rose-400">
+            Watch & Earn · Zone 11377822
+          </p>
+          <RewardedVideoOffer
+            user={user}
+            onAlert={onAlert}
+            onRefreshUser={onRefreshUser}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

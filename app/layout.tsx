@@ -13,7 +13,7 @@ const displayFont = Syne({
 
 export const metadata = {
   title: 'AJ Super Portal',
-  description: 'Gaming, Social and AI Hub',
+  description: 'Offer Hub · Earn AJ Coins · Live PK · Premium Dark GPT Hub',
 }
 
 /**
