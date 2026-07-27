@@ -1,0 +1,2 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 80"><style>.j{animation:fly 1s ease-in-out infinite}@keyframes fly{0%,100%{transform:translate(0,2px)}50%{transform:translate(8px,-4px)}}</style>
+<path class="j" d="M10 45h70l30-18v10l-18 12 18 8v8L80 55H10z" fill="#94a3b8"/><circle cx="40" cy="48" r="3" fill="#38bdf8"/></svg>

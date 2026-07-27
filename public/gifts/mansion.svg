@@ -1,0 +1,2 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><style>.m{animation:glow 1.4s ease-in-out infinite}@keyframes glow{0%,100%{filter:brightness(1)}50%{filter:brightness(1.25)}}</style>
+<g class="m"><rect x="20" y="50" width="80" height="50" fill="#a78bfa"/><polygon points="20,50 60,20 100,50" fill="#c4b5fd"/><rect x="52" y="70" width="16" height="30" fill="#1e1b4b"/><rect x="32" y="60" width="14" height="14" fill="#fde68a"/><rect x="74" y="60" width="14" height="14" fill="#fde68a"/></g></svg>

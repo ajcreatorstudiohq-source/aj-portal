@@ -7,7 +7,10 @@ const POSTBACK_SECRET =
   process.env.AJ_POSTBACK_SECRET ||
   'AJ_SUPER_SECURE_786_PORTAL';
 
-/** Platform keeps ~80%: $1.00 payout → user gets 200 AJ Coins */
+/**
+ * Profit lock (~80% operator margin):
+ * owner $1.00 payout → user gets 200 AJ Coins (not 1000).
+ */
 const PAYOUT_TO_USER_COINS = 200;
 
 /**
