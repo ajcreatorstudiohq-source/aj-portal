@@ -11,7 +11,7 @@
 // 1. Ads Fix: "Page could not load" error ko cleanup logic se solve kiya gaya hai.
 // 2. Pulse Comments: Pulse posts par comment nahi ho rahe thay kyunki wo 'user_posts' mein dhoond raha tha, ab fixed hai.
 // 3. Video Thumbnails: Profile mein videos ke thumbnails ab #t=0.1 trick se better load honge.
-// 4. Real Ads: TikReels aur Pulse dono mein real Monetag ads integrate hain.
+// 4. Real Ads: TikReels / Pulse use Adsterra Native Banner every 4th post.
 // ============================================================
 
 import Script from 'next/script';
@@ -22,6 +22,7 @@ import LiveMatchesPanel from './components/LiveMatchesPanel';
 import HubEarnPanel from './components/HubEarnPanel';
 import BannerAdSlot from './components/ads/BannerAdSlot';
 import InFeedAdShell from './components/ads/InFeedAdShell';
+import AdsterraNativeBanner from './components/ads/AdsterraNativeBanner';
 import {
   SIGNUP_BONUS_COINS,
   REFERRAL_BONUS_COINS,
@@ -29,7 +30,7 @@ import {
 } from './lib/economy';
 import { earnReward } from './lib/client-rewards';
 import { trackAdEvent } from './lib/ad-client';
-import { MONETAG_INTERSTITIAL_ZONE } from './lib/ads-config';
+import { INFEED_AD_EVERY_N } from './lib/ads-config';
 import AdminUsersPanel from './components/AdminUsersPanel';
 import { isPortalAdminUser } from './lib/admin-auth';
 import { BAN_FORBIDDEN_MESSAGE, DEFAULT_ACCOUNT_BAN_FIELDS, isUserBanned } from './lib/user-ban';
@@ -289,19 +290,6 @@ const CEO_WHATSAPP             = "https://wa.me/96878994093";
 const AGORA_APP_ID             = "7863c5369b3648bf931893a52ebaa6db";
 const AGORA_APP_CERTIFICATE    = "dc66528c5a5646da8e3ce5d2426759af";
 const VAPID_KEY                = "BMaPMtGtA2VtDsj_JH_yv5dOv66Mpguf9v4TkqY96dcS-gwqgs-r5OlqRJQmZbNkaj-7_iMFbGGN0Qc4xH0qvKg";
-// ============================================================
-// 🔑 MONETAG REAL AD ZONE IDs — Sirf VIDEO ADS (Interstitial)
-// BANNER, PUSH, VIGNETTE ads HATA diye gaye — UX ke liye.
-// Sirf in-feed video ads TikReel aur Pulse mein chalenge.
-// ============================================================
-// Interstitial Ad (full-screen video ad — TikReels & Pulse feed mein har 6th post par)
-const MONETAG_INTERSTITIAL     = 11377822;   // Real zone ID — https://nap5k.com/tag.min.js
-// Tag URLs per zone (Monetag SDK loads from these)
-const MONETAG_TAG_URLS: Record<number, string> = {
-  11377822: 'https://nap5k.com/tag.min.js',    // Interstitial (Video Ad only)
-};
-// Default tag URL (fallback)
-const MONETAG_TAG_URL = 'https://nap5k.com/tag.min.js';
 const PULSE_AD_VIDEO_ID        = 'aqz-KE-bpKQ';
 const NOWPAYMENTS_IPN_SECRET   = '9eeeBo6K1ljJSQtUCb1Up88Gv6n1AreU';
 
@@ -323,29 +311,16 @@ const PK_ENTRY_COINS = 100;
 const PK_DURATION    = 300;
 
 // ============================================================
-// ADS POLICY — Rewarded Video ONLY (Zone 11377822)
+// ADS POLICY — Adsterra only (Monetag / gozen / sunny-sprout removed)
 // ============================================================
-// NO automatic interstitial / popunder / push / navigation ads.
-// Monetag SDK loads ONLY when the user taps Watch & Earn.
-// gozen / sunny-sprout / alwingulla scripts are blocked in layout + ad-guards.
 const AD_COOLDOWN_MS = 5 * 60 * 1000;
-const INFEED_POPUP_COOLDOWN_MS = 5 * 60 * 1000;
-const FREE_COIN_AD_COOLDOWN_MS = 5 * 60 * 1000;
 let lastAnyAdShownTime = 0;
 let lastInterstitialAdTime = 0;
-let lastFreeCoinAdTime = 0;
-let lastInFeedPopupTime = 0;
 let pendingNavAfterAd: (() => void) | null = null;
 
-/** Disabled — never auto-fire Monetag on hub clicks / navigation. */
-const triggerInterstitialAd = (_force = false) => {
-  /* no-op: intrusive auto-ads removed */
-};
-
-/** Games "Watch Ad" — no portal wallet credit; also no auto Monetag fire. */
+/** Disabled — no auto interstitial ads. */
+const triggerInterstitialAd = (_force = false) => {};
 const triggerFreeCoinAd = () => false;
-
-/** Navigate immediately — never inject interstitial overlays or redirects. */
 const navigateWithAdOverlay = (navFn: () => void) => {
   try {
     pendingNavAfterAd = null;
@@ -354,6 +329,36 @@ const navigateWithAdOverlay = (navFn: () => void) => {
     /* ignore */
   }
 };
+
+/** Strip leftover Monetag / popunder DOM if any still injects */
+function cleanupMonetagDom(): void {
+  if (typeof document === 'undefined') return;
+  try {
+    document
+      .querySelectorAll(
+        'iframe[src*="nap5k"],iframe[src*="monetag"],iframe[src*="gozen"],iframe[src*="alwingulla"],iframe[src*="sunny-sprout"],script[src*="nap5k"],script[src*="monetag"]'
+      )
+      .forEach((n) => {
+        try {
+          n.remove();
+        } catch {
+          /* ignore */
+        }
+      });
+    stripIntrusiveAdNodes();
+  } catch {
+    /* ignore */
+  }
+}
+function ensureMonetagSdkLoaded(_zoneId?: number): void {
+  /* Monetag removed — no-op */
+}
+function waitForMonetagShowFn(_zoneId?: number, _ms?: number): Promise<null> {
+  return Promise.resolve(null);
+}
+function triggerMonetagInterstitialAd(_zoneId?: number): Promise<boolean> {
+  return Promise.resolve(false);
+}
 
 // ============================================================
 // LIVE STREAMING + CALL HANDLERS (Pure WebRTC - No ZegoCloud)
@@ -1170,462 +1175,7 @@ const AD_FALLBACK_POSTERS = [
   'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=400&h=800&fit=crop',
 ];
 
-// Track which zones have had their SDK loaded (prevent duplicate script injection)
-const monetagSdkLoadedZones: Set<number> = new Set();
-
-// FIX (Hinglish): SESSION-LEVEL ad fire flag — real Monetag full-screen popup SIRF
-// ek baar fire hoga jab tak cooldown (5 min) khatam nahi hota. Har MonetagVideoAd
-// mount pe yeh flag check hota hai. Agar pehle hi is session mein ad fire ho chuka
-// hai aur cooldown active hai, toh sirf in-feed fallback video chalegi — koi full-
-// screen popup NAHI aayega. Isse feed scroll karne pe "har millisecond ad" wala
-// issue bilkul khatam ho jaayega. Flag cooldown ke saath reset hota hai.
-let realAdFiredThisCycle = false;
-
-// Tear down Monetag leftover iframes/overlays so they cannot leave a black freeze layer.
-function cleanupMonetagDom(): void {
-  if (typeof document === 'undefined') return;
-  try {
-    document.querySelectorAll(
-      'iframe[src*="nap5k"],iframe[src*="monetag"],iframe[src*="mdn201"],iframe[id*="google_ads"],div[id*="ad_iframe"]'
-    ).forEach((node) => {
-      try { node.remove(); } catch {}
-    });
-    stripIntrusiveAdNodes();
-    document.documentElement.style.overflow = '';
-    document.body.style.overflow = '';
-    document.body.style.pointerEvents = '';
-  } catch {}
-}
-
-// Load the Monetag SDK once per zone — uses data-sdk attribute so show_XXX() becomes available
-function ensureMonetagSdkLoaded(zoneId: number): void {
-  if (typeof window === 'undefined') return;
-  if (monetagSdkLoadedZones.has(zoneId)) return;
-
-  // Check if SDK script already exists in DOM
-  const existing = document.querySelector(`script[data-zone="${zoneId}"][data-sdk]`);
-  if (existing) {
-    monetagSdkLoadedZones.add(zoneId);
-    return;
-  }
-
-  try {
-    const sdkScript = document.createElement('script');
-    sdkScript.async = true;
-    sdkScript.setAttribute('data-zone', String(zoneId));
-    sdkScript.setAttribute('data-sdk', `show_${zoneId}`);
-    // FIX ROUND 5: Per-zone tag URL use karo (har zone ka apna URL hai)
-    sdkScript.src = MONETAG_TAG_URLS[zoneId] || MONETAG_TAG_URL;
-    // FIX (Hinglish): agar Monetag CDN script load fail ho jaye toh "page
-    // couldn't load" error aa sakta hai. Hum onerror listener lagate hain jo
-    // silently handle karta hai — show_XXX() function available nahi hoga,
-    // lekin page crash nahi hoga (fallback in-feed video chal jayega).
-    sdkScript.onerror = () => {
-      console.warn(`[Monetag] SDK script failed to load for zone ${zoneId} — using fallback video.`);
-    };
-    // FIX: crossOrigin ko 'anonymous' set karte hain taaki CORS errors handle
-    // ho sakein aur script load na hone par bhi page stable rahe.
-    document.head.appendChild(sdkScript);
-    monetagSdkLoadedZones.add(zoneId);
-  } catch (e) {
-    console.warn('[Monetag] ensureMonetagSdkLoaded error:', e);
-  }
-}
-
-// Wait for the Monetag SDK's show_XXX() function to become available on window.
-// SDK script is async so it may take a moment to load & execute.
-// Retries every 300ms up to maxWaitMs, then resolves with the function or null.
-function waitForMonetagShowFn(zoneId: number, maxWaitMs = 15000): Promise<Function | null> {
-  return new Promise((resolve) => {
-    if (typeof window === 'undefined') {
-      resolve(null);
-      return;
-    }
-
-    // Check immediately
-    const fnName = `show_${zoneId}`;
-    if (typeof (window as any)[fnName] === 'function') {
-      resolve((window as any)[fnName]);
-      return;
-    }
-
-    // Poll for availability
-    let elapsed = 0;
-    const intervalMs = 300;
-    const timer = setInterval(() => {
-      elapsed += intervalMs;
-      if (typeof (window as any)[fnName] === 'function') {
-        clearInterval(timer);
-        resolve((window as any)[fnName]);
-      } else if (elapsed >= maxWaitMs) {
-        clearInterval(timer);
-        resolve(null);
-      }
-    }, intervalMs);
-  });
-}
-
-// Trigger the Monetag interstitial ad using the Promise-based SDK API.
-// This WAITS for the SDK to load, then preloads the ad, then shows it (type: 'end').
-// The 'end' type shows a full-screen Rewarded Interstitial — revenue-generating ad.
-// catchIfNoFeed: true ensures the promise rejects if no ad feed is available
-//   (so we can distinguish "ad failed" from "ad succeeded" for revenue tracking).
-// Returns a Promise that resolves true if the ad was shown, false otherwise.
-function triggerMonetagInterstitialAd(zoneId: number): Promise<boolean> {
-  // 5s = SDK must trigger after show call; up to 120s wait for onReward (full video).
-  // Opening alone = false (no coins).
-  const TRIGGER_MS = 5000;
-  const REWARD_MS = 120000;
-  return new Promise((resolve) => {
-    let settled = false;
-    let triggered = false;
-    let hardTimer: ReturnType<typeof setTimeout> | null = null;
-    let rewardHardTimer: ReturnType<typeof setTimeout> | null = null;
-    const done = (v: boolean) => {
-      if (settled) return;
-      settled = true;
-      if (hardTimer) clearTimeout(hardTimer);
-      if (rewardHardTimer) clearTimeout(rewardHardTimer);
-      resolve(v);
-    };
-
-    (async () => {
-      try {
-        if (typeof window === 'undefined') {
-          done(false);
-          return;
-        }
-
-        startIntrusiveAdGuard();
-        ensureMonetagSdkLoaded(zoneId);
-
-        const nowGate = Date.now();
-        if ((nowGate - lastAnyAdShownTime) < AD_COOLDOWN_MS) {
-          done(false);
-          return;
-        }
-        realAdFiredThisCycle = false;
-
-        // Zone 11377822 only — never legacy push/popunder zones
-        const showFn = await waitForMonetagShowFn(zoneId, 5000);
-        if (typeof showFn !== 'function') {
-          done(false);
-          return;
-        }
-
-        try {
-          await Promise.race([
-            Promise.resolve(showFn({ type: 'preload', requestVar: 'infeed_ad', timeout: 5 })).catch(() => null),
-            new Promise((r) => setTimeout(r, 2500)),
-          ]);
-        } catch {
-          /* preload optional */
-        }
-
-        if ((Date.now() - lastAnyAdShownTime) < AD_COOLDOWN_MS) {
-          done(false);
-          return;
-        }
-
-        // Start 5s trigger clock only when we attempt to open the ad
-        hardTimer = setTimeout(() => {
-          if (!triggered) {
-            cleanupMonetagDom();
-            done(false);
-          }
-        }, TRIGGER_MS);
-        rewardHardTimer = setTimeout(() => {
-          cleanupMonetagDom();
-          done(false);
-        }, TRIGGER_MS + REWARD_MS);
-
-        // Only type:'end' rewarded interstitial — never pop / inApp / push
-        // Promise resolve = onReward (video finished 100%). Opening alone = 0 coins.
-        try {
-          const showResult = showFn({ type: 'end', requestVar: 'infeed_ad' });
-          triggered = true;
-          if (hardTimer) clearTimeout(hardTimer);
-          if (showResult && typeof (showResult as Promise<unknown>).then === 'function') {
-            const shown = await Promise.race([
-              (showResult as Promise<unknown>).then(() => true).catch(() => false),
-              new Promise<boolean>((r) => setTimeout(() => r(false), REWARD_MS)),
-            ]);
-            if (shown) {
-              lastAnyAdShownTime = Date.now();
-              stripIntrusiveAdNodes();
-              try {
-                trackAdEvent({
-                  event: 'complete',
-                  placement: 'hub_nav_interstitial',
-                  zoneId: MONETAG_INTERSTITIAL_ZONE,
-                  meta: { network: 'monetag', zoneId },
-                }).catch(() => {});
-              } catch {}
-              done(true);
-            } else {
-              lastAnyAdShownTime = Date.now() - (AD_COOLDOWN_MS - 30000);
-              cleanupMonetagDom();
-              try {
-                trackAdEvent({
-                  event: 'fail',
-                  placement: 'hub_nav_interstitial',
-                  zoneId: MONETAG_INTERSTITIAL_ZONE,
-                }).catch(() => {});
-              } catch {}
-              done(false);
-            }
-          } else {
-            // Non-promise = not a verified completion
-            cleanupMonetagDom();
-            done(false);
-          }
-        } catch {
-          lastAnyAdShownTime = Date.now() - (AD_COOLDOWN_MS - 30000);
-          cleanupMonetagDom();
-          done(false);
-        }
-      } catch (e) {
-        console.warn('[Monetag] triggerMonetagInterstitialAd error:', e);
-        cleanupMonetagDom();
-        done(false);
-      }
-    })();
-  });
-}
-
-function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: number; type?: 'interstitial' }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [adReady, setAdReady] = useState(false);
-  const [adFailed, setAdFailed] = useState(false); // FIX: track if ad failed to load (3s timeout)
-  const [countdown, setCountdown] = useState(5);
-  const [canSkip, setCanSkip] = useState(false);
-  const [adFinished, setAdFinished] = useState(false);
-  const [adTriggered, setAdTriggered] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const adTriggeredRef = useRef(false);
-  const [videoError, setVideoError] = useState(false);
-  const [currentVideoIdx, setCurrentVideoIdx] = useState(0);
-  const [currentPoster] = useState(() => AD_FALLBACK_POSTERS[Math.floor(Math.random() * AD_FALLBACK_POSTERS.length)]);
-
-  // Pick a random fallback video on mount (stable per instance)
-  const [fallbackVideo] = useState(() => AD_FALLBACK_VIDEOS[Math.floor(Math.random() * AD_FALLBACK_VIDEOS.length)]);
-
-  // 5-second countdown — after this, user can skip (just like TikTok)
-  useEffect(() => {
-    if (adFinished) return;
-    const interval = setInterval(() => {
-      setCountdown(c => {
-        if (c <= 1) {
-          setCanSkip(true);
-          clearInterval(interval);
-          return 0;
-        }
-        return c - 1;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [adFinished]);
-
-  // FIX (Hinglish): BLACK SCREEN FIX — Pehle video "loading" par atak jaata tha
-  // kyunki hum onLoadedData ka wait karte the aur agar video slow/block ho toh
-  // spinner hamesha reh jaata tha aur screen black dikhti thi.
-  // Ab hum:
-  // 1. Poster image FORAN set karte hain (CSS background) taaki screen black na ho
-  // 2. Video ko FORAN play karte hain (muted autoplay allowed by all browsers)
-  // 3. Agar video error aaye toh poster image show karte hain (no black screen)
-  // 4. adReady ko 1.5s baad FORAN true karte hain taaki loading spinner hat jaaye
-  useEffect(() => {
-    // Set poster as background on the container immediately (prevents black screen)
-    if (containerRef.current) {
-      containerRef.current.style.background = `#0a0a1a url('${currentPoster}') center/cover no-repeat`;
-    }
-    // Force-play the in-feed video immediately (same behaviour as regular feed videos)
-    const v = videoRef.current;
-    if (v) {
-      v.muted = true; // Ensure muted for autoplay policy
-      v.play().catch(() => {
-        // If autoplay fails, try once more after a short delay
-        setTimeout(() => {
-          v.play().catch(() => {
-            // Still failed — show poster (no black screen, but ad UI stays visible)
-            setVideoError(true);
-            setAdReady(true);
-          });
-        }, 300);
-      });
-    }
-  }, [currentPoster]);
-
-  // In-feed slots: sponsored fallback video ONLY — never load or fire Monetag SDK.
-  useEffect(() => {
-    if (adTriggeredRef.current) return;
-    adTriggeredRef.current = true;
-    setAdTriggered(true);
-  }, [publisherId]);
-
-  // Auto-hide the loading shimmer after 1s max even if onLoadedData never fires
-  // (so the ad never gets "stuck on loading" like the user reported — NO BLACK SCREEN)
-  useEffect(() => {
-    if (adReady) return;
-    const t = setTimeout(() => setAdReady(true), 1000);
-    return () => clearTimeout(t);
-  }, [adReady]);
-
-  // All fallback videos failed — keep a poster surface (never collapse to null/black gap)
-  useEffect(() => {
-    if (!videoError) return;
-    const t = setTimeout(() => setAdFailed(true), 800);
-    return () => clearTimeout(t);
-  }, [videoError]);
-
-  // Secondary guard: force poster-ready state if media never starts
-  useEffect(() => {
-    const t = setTimeout(() => {
-      if (adFailed) return;
-      setAdReady(true);
-      const c = containerRef.current;
-      if (c) {
-        const vid = c.querySelector('video') as HTMLVideoElement | null;
-        if (vid && vid.error && !vid.readyState) {
-          setAdFailed(true);
-          setVideoError(true);
-        }
-      }
-    }, 5000);
-    return () => clearTimeout(t);
-  }, [adFailed]);
-
-  // FIX: Try next fallback video if current one fails — cycle through ALL videos
-  const handleVideoError = () => {
-    if (currentVideoIdx < AD_FALLBACK_VIDEOS.length - 1) {
-      setCurrentVideoIdx(idx => idx + 1);
-      setVideoError(false);
-    } else {
-      setVideoError(true);
-      setAdReady(true);
-    }
-  };
-
-  const skipAd = () => {
-    setAdFinished(true);
-    setCanSkip(true);
-    cleanupMonetagDom();
-  };
-
-  // NEVER return null — a null in-feed ad slot collapses into a black gap/freeze.
-  // Finished / failed slots keep a non-black sponsored poster surface.
-  if (adFinished || adFailed) {
-    return (
-      <div className="absolute inset-0 w-full h-full overflow-hidden z-[100]" style={{ background: `#0a0a1a url('${currentPoster}') center/cover no-repeat` }}>
-        <img src={currentPoster} className="w-full h-full object-cover" alt="Sponsored" onError={() => {}} />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/20 pointer-events-none" />
-        <div className="absolute bottom-6 left-4 right-16 z-10">
-          <p className="text-white font-black text-xs truncate">@AJ_Super_Portal</p>
-          <p className="text-gray-300 text-[10px] mt-0.5">Sponsored · Thanks for watching</p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="absolute inset-0 w-full h-full overflow-hidden z-[100]" style={{ background: `#0a0a1a url('${currentPoster}') center/cover no-repeat` }}>
-      {/* Visual host only — no fullscreen Monetag fire from in-feed */}
-      <div ref={containerRef} className="absolute inset-0 w-full h-full" style={{ zIndex: 1, pointerEvents: 'none', width: '100%', height: '100%', minHeight: '250px', background: `#0a0a1a url('${currentPoster}') center/cover no-repeat`, overflow: 'hidden' }} />
-
-      {/* Seamless in-feed video — looks exactly like a regular TikTok/Pulse video and plays immediately */}
-      <div className="absolute inset-0 w-full h-full" style={{ zIndex: 2, background: `#0a0a1a url('${currentPoster}') center/cover no-repeat` }}>
-        {/* FIX: If video has errors, show poster image as background — NO BLACK SCREEN */}
-        {!videoError && (
-          <video
-            key={currentVideoIdx}
-            ref={videoRef}
-            src={AD_FALLBACK_VIDEOS[currentVideoIdx] || fallbackVideo}
-            poster={currentPoster}
-            className="w-full h-full object-cover"
-            autoPlay
-            muted
-            loop
-            playsInline
-            preload="auto"
-            onLoadedData={() => { setAdReady(true); const v = videoRef.current; if (v) { v.play().catch(() => {}); } }}
-            onCanPlay={() => { setAdReady(true); const v = videoRef.current; if (v) { v.play().catch(() => {}); } }}
-            onPlaying={() => setAdReady(true)}
-            onError={handleVideoError}
-            onClick={(e) => e.preventDefault()}
-          />
-        )}
-        {/* FIX: If video fails, show a static poster image with "Sponsored" text — NO BLACK SCREEN */}
-        {videoError && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <img src={currentPoster} className="w-full h-full object-cover" alt="Sponsored content" onError={() => {}}/>
-          </div>
-        )}
-
-        {/* Subtle gradient overlay — same as regular TikReels/Pulse videos */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/20 pointer-events-none" />
-
-        {/* Right-side action buttons — mimics the real TikReels UI so it blends in seamlessly */}
-        <div className="absolute right-3 bottom-28 flex flex-col items-center gap-5 z-[110]">
-          <div className="flex flex-col items-center gap-1">
-            <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
-              <Heart size={18} className="text-white" />
-            </div>
-            <span className="text-white text-[9px] font-black">Sponsored</span>
-          </div>
-          <div className="flex flex-col items-center gap-1">
-            <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
-              <Share2 size={18} className="text-white" />
-            </div>
-            <span className="text-white text-[9px] font-black">Share</span>
-          </div>
-        </div>
-
-        {/* Bottom info — looks like a regular TikReels/Pulse post caption */}
-        <div className="absolute bottom-6 left-4 right-16 z-10">
-          <p className="text-white font-black text-xs truncate">@AJ_Super_Portal</p>
-          <p className="text-gray-300 text-[10px] mt-0.5 line-clamp-2">
-            🎮 Play games · 📱 Watch reels · 🩹 Earn coins — Join AJ Super Portal today! #AJ #SuperPortal #Gaming
-          </p>
-          {/* Tiny "Sponsored" tag — minimal, just like TikTok's sponsored content label */}
-          <div className="inline-flex items-center gap-1 mt-1.5 bg-white/10 backdrop-blur-sm rounded-full px-2 py-0.5">
-            <span className="text-gray-300 text-[7px] font-bold uppercase tracking-wider">Sponsored</span>
-          </div>
-        </div>
-
-        {/* Skip button — appears after 5 seconds, TikTok-style (small, bottom-right) */}
-        {canSkip && (
-          <button
-            onClick={skipAd}
-            className="absolute bottom-24 right-3 z-30 bg-white/15 backdrop-blur-md text-white text-[10px] font-black px-4 py-2 rounded-full active:scale-90 transition-all border border-white/20"
-          >
-            Skip →
-          </button>
-        )}
-
-        {/* Countdown timer — small, top-right, TikTok-style */}
-        <div className="absolute top-3 right-3 z-20">
-          <div className="bg-black/40 backdrop-blur-sm rounded-full px-2.5 py-1 flex items-center gap-1.5">
-            {!canSkip ? (
-              <span className="text-white text-[9px] font-bold flex items-center gap-1">
-                <span className="w-3.5 h-3.5 rounded-full border border-white/60 flex items-center justify-center text-[7px]">{countdown}</span>
-              </span>
-            ) : (
-              <span className="text-white/60 text-[8px] font-bold">Ad</span>
-            )}
-          </div>
-        </div>
-
-        {/* Subtle loading shimmer (only for first ~1.2s, NON-BLOCKING) — fades quickly so ad never gets stuck */}
-        {!adReady && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#050505] z-30 opacity-80 transition-opacity">
-            <div className="w-10 h-10 rounded-full border-2 border-white/20 border-t-white/60 animate-spin" />
-            <span className="text-white/60 text-[8px] font-black mt-3 uppercase tracking-widest">Sponsored</span>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
+// Monetag SDK / MonetagVideoAd removed — Adsterra Native Banner used in feeds.
 
 // ============================================================
 // CINEMATIC GIFT OVERLAY
@@ -6448,11 +5998,11 @@ Tip: Social Hub se copy karo 📤`,
                       // Cooldown (5 min global gate) ensure karta hai ki REAL Monetag popup
                       // sirf 5 min mein ek baar fire ho — baqi slots mein in-feed fallback
                       // video chalega (revenue + smooth UX, bilkul TikTok jaisa).
-                      if ((idx + 1) % 4 === 0) {
+                      if ((idx + 1) % INFEED_AD_EVERY_N === 0) {
                         return [contentEl, (
                           <div key={`ad_pixa_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
                             <InFeedAdShell placement="tikreel_infeed" user={user}>
-                              <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} />
+                              <AdsterraNativeBanner slotKey={`feed_${idx}`} />
                             </InFeedAdShell>
                           </div>
                         )];
@@ -6556,11 +6106,11 @@ Tip: Social Hub se copy karo 📤`,
                       </div>
                     );
                       // FIX ROUND 8: Har 4 user-uploaded videos ke baad ek REAL video ad.
-                      if ((idx + 1) % 4 === 0) {
+                      if ((idx + 1) % INFEED_AD_EVERY_N === 0) {
                         return [contentEl, (
                           <div key={`ad_user_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
                             <InFeedAdShell placement="tikreel_infeed" user={user}>
-                              <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} />
+                              <AdsterraNativeBanner slotKey={`feed_${idx}`} />
                             </InFeedAdShell>
                           </div>
                         )];
@@ -6891,11 +6441,11 @@ Tip: Social Hub se copy karo 📤`,
                       </div>
                     );
                       // FIX ROUND 8: Har 4 Pulse posts ke baad ek REAL video ad.
-                      if ((idx + 1) % 4 === 0) {
+                      if ((idx + 1) % INFEED_AD_EVERY_N === 0) {
                         return [contentEl, (
                           <div key={`ad_pulse_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
                             <InFeedAdShell placement="pulse_infeed" user={user}>
-                              <MonetagVideoAd publisherId={MONETAG_INTERSTITIAL} />
+                              <AdsterraNativeBanner slotKey={`feed_${idx}`} />
                             </InFeedAdShell>
                           </div>
                         )];
@@ -8046,15 +7596,15 @@ Tip: Social Hub se copy karo 📤`,
                   <div className="flex gap-2 flex-wrap mb-3">
                     {[20,50,100,250,500].map(amt => (
                       <button key={amt} onClick={() => setPurchaseAmount(amt)} className={`px-3 py-1.5 rounded-xl text-[10px] font-black transition-all ${purchaseAmount===amt ? 'bg-pink-600 text-white' : 'bg-white/5 border border-white/10 text-gray-400'}`}>
-                        ${amt}
+                        {(amt * COIN_RATE).toLocaleString()} 🪙
                       </button>
                     ))}
                   </div>
                   <input type="number" value={purchaseAmount} onChange={e => setPurchaseAmount(Number(e.target.value))} min={MIN_PURCHASE} className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50 mb-2"/>
-                  <p className="text-[10px] text-gray-400">= {(purchaseAmount * COIN_RATE).toLocaleString()} 🪙 AJ Coins</p>
+                  <p className="text-[10px] text-gray-400">= {(purchaseAmount * COIN_RATE).toLocaleString()} AJ Coins 🪙</p>
                 </div>
                 <button onClick={handlePurchase} className="w-full py-4 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all shadow-[0_0_24px_rgba(236,72,153,0.4)]" style={{background:'linear-gradient(135deg,#ec4899,#8b5cf6)'}}>
-                  🛒 Buy ${purchaseAmount} = {(purchaseAmount * COIN_RATE).toLocaleString()} Coins
+                  🛒 Buy {(purchaseAmount * COIN_RATE).toLocaleString()} AJ Coins 🪙
                 </button>
                 <p className="text-[9px] text-gray-500 text-center">Powered by NOWPayments · USDT BSC · Secure</p>
               </div>

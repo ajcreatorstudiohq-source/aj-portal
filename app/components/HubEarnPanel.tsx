@@ -14,9 +14,7 @@ import RewardedVideoOffer from './ads/RewardedVideoOffer';
 import { type GameProgressDoc } from '../lib/economy';
 import { openCpaGripOfferWall } from '../lib/cpagrip';
 import { openBitLabsSurveys } from '../lib/offer-hub';
-import { MONETAG_INTERSTITIAL_ZONE } from '../lib/ads-config';
 import { trackAdEvent } from '../lib/ad-client';
-import { ensureMonetagSdkLoaded } from '../lib/monetag-client';
 import { guardClick, startIntrusiveAdGuard } from '../lib/ad-guards';
 
 type UserLike = { uid: string; getIdToken: () => Promise<string>; email?: string | null } | null;
@@ -32,13 +30,7 @@ type Props = {
 
 type HubPanel = 'none' | 'faucet' | 'videos';
 
-/**
- * FireFaucet-inspired Offer Hub — premium 2×2 grid:
- * A) BitLabs Surveys · Highest Payout
- * B) CPAGrip Tasks · App Installs
- * C) Math & Captcha · Daily Faucet
- * D) Premium Videos · Watch & Earn
- */
+/** FireFaucet Offer Hub — Adsterra Watch & Earn (Monetag removed). */
 export default function HubEarnPanel({
   user,
   onAlert,
@@ -49,13 +41,7 @@ export default function HubEarnPanel({
 
   useEffect(() => {
     startIntrusiveAdGuard();
-    // Monetag SDK loads ONLY when user opens Watch & Earn (not on hub mount).
   }, []);
-
-  useEffect(() => {
-    if (panel !== 'videos') return;
-    ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL_ZONE).catch(() => {});
-  }, [panel]);
 
   const openBitLabs = (e: MouseEvent) => {
     guardClick(e);
@@ -64,7 +50,7 @@ export default function HubEarnPanel({
       {
         event: 'click',
         placement: 'offerwall_rewarded_video',
-        zoneId: MONETAG_INTERSTITIAL_ZONE,
+        zoneId: 0,
         meta: { action: 'open_bitlabs', provider: 'bitlabs' },
       },
       user
@@ -87,7 +73,7 @@ export default function HubEarnPanel({
       {
         event: 'click',
         placement: 'offerwall_rewarded_video',
-        zoneId: MONETAG_INTERSTITIAL_ZONE,
+        zoneId: 0,
         meta: { action: 'open_cpagrip_hub', provider: 'cpagrip' },
       },
       user
@@ -140,15 +126,12 @@ export default function HubEarnPanel({
         ) : null}
       </div>
 
-      {/* Premium 2×2 offer grid */}
       <div className="grid grid-cols-2 gap-2.5">
-        {/* CARD A — BitLabs */}
         <button
           type="button"
           onClick={openBitLabs}
-          className="group relative overflow-hidden rounded-2xl border border-violet-500/35 bg-gradient-to-br from-[#1a1028] via-[#120a1c] to-[#0a0a0a] p-3.5 text-left active:scale-[0.98] transition-transform min-h-[118px]"
+          className="relative overflow-hidden rounded-2xl border border-violet-500/35 bg-gradient-to-br from-[#1a1028] via-[#120a1c] to-[#0a0a0a] p-3.5 text-left active:scale-[0.98] min-h-[118px]"
         >
-          <div className="absolute inset-0 opacity-40 bg-[radial-gradient(circle_at_20%_0%,rgba(167,139,250,0.35),transparent_55%)] pointer-events-none" />
           <div className="relative flex flex-col h-full gap-2">
             <div className="w-9 h-9 rounded-xl bg-violet-500/20 border border-violet-400/30 flex items-center justify-center">
               <ClipboardCheck size={16} className="text-violet-300" />
@@ -165,13 +148,11 @@ export default function HubEarnPanel({
           </div>
         </button>
 
-        {/* CARD B — CPAGrip */}
         <button
           type="button"
           onClick={openCpaGrip}
-          className="group relative overflow-hidden rounded-2xl border border-amber-500/35 bg-gradient-to-br from-[#2a1a08] via-[#1a1006] to-[#0a0a0a] p-3.5 text-left active:scale-[0.98] transition-transform min-h-[118px]"
+          className="relative overflow-hidden rounded-2xl border border-amber-500/35 bg-gradient-to-br from-[#2a1a08] via-[#1a1006] to-[#0a0a0a] p-3.5 text-left active:scale-[0.98] min-h-[118px]"
         >
-          <div className="absolute inset-0 opacity-40 bg-[radial-gradient(circle_at_80%_0%,rgba(245,158,11,0.35),transparent_55%)] pointer-events-none" />
           <div className="relative flex flex-col h-full gap-2">
             <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-400/30 flex items-center justify-center">
               <Gift size={16} className="text-amber-300" />
@@ -188,17 +169,15 @@ export default function HubEarnPanel({
           </div>
         </button>
 
-        {/* CARD C — Math & Captcha */}
         <button
           type="button"
           onClick={(e) => togglePanel(e, 'faucet')}
-          className={`group relative overflow-hidden rounded-2xl border p-3.5 text-left active:scale-[0.98] transition-transform min-h-[118px] ${
+          className={`relative overflow-hidden rounded-2xl border p-3.5 text-left active:scale-[0.98] min-h-[118px] ${
             panel === 'faucet'
               ? 'border-cyan-400/50 bg-gradient-to-br from-[#06252a] to-[#0a0a0a]'
               : 'border-cyan-500/30 bg-gradient-to-br from-[#0a1f24] via-[#071416] to-[#0a0a0a]'
           }`}
         >
-          <div className="absolute inset-0 opacity-35 bg-[radial-gradient(circle_at_20%_100%,rgba(34,211,238,0.3),transparent_55%)] pointer-events-none" />
           <div className="relative flex flex-col h-full gap-2">
             <div className="w-9 h-9 rounded-xl bg-cyan-500/20 border border-cyan-400/30 flex items-center justify-center">
               <Sparkles size={16} className="text-cyan-300" />
@@ -215,17 +194,15 @@ export default function HubEarnPanel({
           </div>
         </button>
 
-        {/* CARD D — Premium Videos */}
         <button
           type="button"
           onClick={(e) => togglePanel(e, 'videos')}
-          className={`group relative overflow-hidden rounded-2xl border p-3.5 text-left active:scale-[0.98] transition-transform min-h-[118px] ${
+          className={`relative overflow-hidden rounded-2xl border p-3.5 text-left active:scale-[0.98] min-h-[118px] ${
             panel === 'videos'
               ? 'border-rose-400/50 bg-gradient-to-br from-[#2a0a14] to-[#0a0a0a]'
               : 'border-rose-500/30 bg-gradient-to-br from-[#1f0a12] via-[#14060c] to-[#0a0a0a]'
           }`}
         >
-          <div className="absolute inset-0 opacity-35 bg-[radial-gradient(circle_at_80%_100%,rgba(244,63,94,0.3),transparent_55%)] pointer-events-none" />
           <div className="relative flex flex-col h-full gap-2">
             <div className="w-9 h-9 rounded-xl bg-rose-500/20 border border-rose-400/30 flex items-center justify-center">
               <Play size={16} className="text-rose-300" />
@@ -246,29 +223,17 @@ export default function HubEarnPanel({
           <p className="text-[9px] font-black uppercase tracking-widest text-cyan-400">
             Daily Faucet · Math + Captcha
           </p>
-          <DailyMathChallenge
-            user={user}
-            onAlert={onAlert}
-            onRefreshUser={onRefreshUser}
-          />
-          <AlphaCaptchaChallenge
-            user={user}
-            onAlert={onAlert}
-            onRefreshUser={onRefreshUser}
-          />
+          <DailyMathChallenge user={user} onAlert={onAlert} onRefreshUser={onRefreshUser} />
+          <AlphaCaptchaChallenge user={user} onAlert={onAlert} onRefreshUser={onRefreshUser} />
         </div>
       ) : null}
 
       {panel === 'videos' ? (
         <div className="rounded-2xl border border-rose-500/20 bg-black/40 p-3 space-y-2">
           <p className="text-[9px] font-black uppercase tracking-widest text-rose-400">
-            Watch & Earn · Zone 11377822
+            Watch & Earn · Adsterra
           </p>
-          <RewardedVideoOffer
-            user={user}
-            onAlert={onAlert}
-            onRefreshUser={onRefreshUser}
-          />
+          <RewardedVideoOffer user={user} onAlert={onAlert} onRefreshUser={onRefreshUser} />
         </div>
       ) : null}
     </div>

@@ -1,13 +1,8 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import {
-  AD_FALLBACK_POSTERS,
-  MONETAG_INTERSTITIAL_ZONE,
-  type AdPlacement,
-} from '../../lib/ads-config';
+import { type AdPlacement } from '../../lib/ads-config';
 import { trackAdEvent } from '../../lib/ad-client';
-import { ensureMonetagSdkLoaded } from '../../lib/monetag-client';
 
 type Props = {
   placement: AdPlacement;
@@ -16,9 +11,13 @@ type Props = {
   className?: string;
 };
 
+const BANNER_POSTERS = [
+  'https://images.unsplash.com/photo-1550745165-9bc0b252726c?w=400&h=800&fit=crop',
+  'https://images.unsplash.com/photo-1611162617474-5b21e879e872?w=400&h=800&fit=crop',
+];
+
 /**
- * Non-intrusive banner strip — soft-loads Monetag SDK and logs impression revenue.
- * Does not fire fullscreen interstitials (those stay on hub / rewarded flows).
+ * Non-intrusive banner strip — impression tracking only (no Monetag).
  */
 export default function BannerAdSlot({
   placement,
@@ -27,23 +26,17 @@ export default function BannerAdSlot({
   className = '',
 }: Props) {
   const tracked = useRef(false);
-  const poster =
-    AD_FALLBACK_POSTERS[Math.abs(placement.length) % AD_FALLBACK_POSTERS.length];
+  const poster = BANNER_POSTERS[Math.abs(placement.length) % BANNER_POSTERS.length];
 
   useEffect(() => {
-    try {
-      ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL_ZONE);
-    } catch {
-      /* ignore */
-    }
     if (tracked.current) return;
     tracked.current = true;
     trackAdEvent(
       {
         event: 'impression',
         placement,
-        zoneId: MONETAG_INTERSTITIAL_ZONE,
-        meta: { format: 'banner' },
+        zoneId: 0,
+        meta: { format: 'banner', network: 'adsterra' },
       },
       user
     ).catch(() => {});
@@ -57,8 +50,8 @@ export default function BannerAdSlot({
           {
             event: 'click',
             placement,
-            zoneId: MONETAG_INTERSTITIAL_ZONE,
-            meta: { format: 'banner' },
+            zoneId: 0,
+            meta: { format: 'banner', network: 'adsterra' },
           },
           user
         ).catch(() => {});
@@ -74,9 +67,7 @@ export default function BannerAdSlot({
         />
         <div className="min-w-0 flex-1">
           <p className="text-[10px] font-black text-white truncate">AJ Super Portal · {label}</p>
-          <p className="text-[9px] text-gray-400 truncate">
-            Watch · Play · Earn · Partner placement
-          </p>
+          <p className="text-[9px] text-gray-400 truncate">Watch · Play · Earn AJ Coins 🪙</p>
         </div>
         <span className="text-[8px] font-bold uppercase tracking-wider text-gray-500 shrink-0">
           Ad

@@ -544,14 +544,14 @@
 <script>
 "use strict";
 
+
 // ===================================================================
-//  MONETAG INTERSTITIAL AD SDK (iframe-isolated — no black-screen freeze)
-//  Zone: 11377822  | Tag: https://nap5k.com/tag.min.js
+//  ADS DISABLED — Monetag / nap5k removed (Adsterra handled by portal shell)
 // ===================================================================
-const MONETAG_ZONE_ID = 11377822;
-const MONETAG_TAG_URL = 'https://nap5k.com/tag.min.js';
-const MONETAG_SDK_VAR = 'show_' + MONETAG_ZONE_ID;
-const AD_COOLDOWN_MS = 90 * 1000; // 90s between real Monetag popups in Ludo
+const MONETAG_ZONE_ID = 0;
+const MONETAG_TAG_URL = '';
+const MONETAG_SDK_VAR = '';
+const AD_COOLDOWN_MS = 90 * 1000;
 let lastAnyAdShownTime = 0;
 let lastInterstitialAdTime = 0;
 let monetagHostIframe = null;
@@ -559,136 +559,22 @@ let monetagTeardownTimer = null;
 
 function destroyMonetagHost() {
     try {
-        if (monetagTeardownTimer) { clearTimeout(monetagTeardownTimer); monetagTeardownTimer = null; }
-        if (monetagHostIframe && monetagHostIframe.parentNode) {
-            monetagHostIframe.parentNode.removeChild(monetagHostIframe);
-        }
-    } catch (e) {}
-    monetagHostIframe = null;
-    // Also strip any Monetag leftovers injected onto the main document
-    try {
-        document.querySelectorAll('iframe[src*="nap5k"], iframe[src*="al5sm"], iframe[src*="n6wxm"], iframe[src*="quge5"], iframe[src*="monetag"]').forEach(function(el) {
+        document.querySelectorAll('iframe[src*="nap5k"], iframe[src*="al5sm"], iframe[src*="n6wxm"], iframe[src*="quge5"], iframe[src*="monetag"], iframe[src*="gozen"]').forEach(function(el) {
             try { el.remove(); } catch (e) {}
         });
     } catch (e) {}
+    monetagHostIframe = null;
 }
 
-function ensureMonetagHostIframe() {
-    if (monetagHostIframe && document.body.contains(monetagHostIframe)) return monetagHostIframe;
-    destroyMonetagHost();
-    const iframe = document.createElement('iframe');
-    iframe.id = 'aj-ludo-monetag-host';
-    iframe.setAttribute('title', 'Ad');
-    iframe.setAttribute('allow', 'autoplay; fullscreen');
-    // Isolated: scripts run inside iframe so SDK crashes cannot freeze Ludo UI
-    iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms');
-    iframe.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;border:0;z-index:10000;background:#0a0a12;opacity:0;pointer-events:none;transition:opacity .2s ease;';
-    document.body.appendChild(iframe);
-    const doc = iframe.contentDocument || iframe.contentWindow.document;
-    doc.open();
-    doc.write('<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:#0a0a12;width:100%;height:100%;overflow:hidden}</style></head><body></body></html>');
-    doc.close();
-    monetagHostIframe = iframe;
-    return iframe;
-}
-
-function ensureMonetagSdkLoaded(zoneId) {
-    return new Promise(function(resolve) {
-        try {
-            const iframe = ensureMonetagHostIframe();
-            const win = iframe.contentWindow;
-            const doc = iframe.contentDocument || win.document;
-            if (typeof win[MONETAG_SDK_VAR] === 'function') { resolve(true); return; }
-            const existing = doc.querySelector('script[data-zone="' + zoneId + '"]');
-            if (existing) {
-                // Wait briefly for global
-                var waited = 0;
-                var iv = setInterval(function() {
-                    waited += 200;
-                    if (typeof win[MONETAG_SDK_VAR] === 'function') { clearInterval(iv); resolve(true); }
-                    else if (waited >= 5000) { clearInterval(iv); resolve(false); }
-                }, 200);
-                return;
-            }
-            const s = doc.createElement('script');
-            s.async = true;
-            s.src = MONETAG_TAG_URL;
-            s.setAttribute('data-zone', String(zoneId));
-            s.setAttribute('data-sdk', 'show_' + zoneId);
-            s.onload = function() { resolve(typeof win[MONETAG_SDK_VAR] === 'function'); };
-            s.onerror = function() { resolve(false); };
-            doc.head.appendChild(s);
-            setTimeout(function() {
-                if (typeof win[MONETAG_SDK_VAR] === 'function') resolve(true);
-            }, 6000);
-        } catch (e) {
-            console.warn('[Monetag] ensure load failed', e);
-            resolve(false);
-        }
-    });
-}
-
-async function triggerMonetagInterstitialAd(zoneId) {
-    const now = Date.now();
-    if (now - lastAnyAdShownTime < AD_COOLDOWN_MS) {
-        console.log('[Monetag] Skipped — within cooldown');
-        return false;
-    }
-    try {
-        const ok = await ensureMonetagSdkLoaded(zoneId);
-        const iframe = monetagHostIframe;
-        if (!ok || !iframe || !iframe.contentWindow) return false;
-        const fn = iframe.contentWindow[MONETAG_SDK_VAR];
-        if (typeof fn !== 'function') return false;
-
-        // Reveal host only while ad may paint — never leave a permanent black layer
-        iframe.style.opacity = '1';
-        iframe.style.pointerEvents = 'auto';
-        iframe.style.background = '#0a0a12';
-
-        try { fn({ type: 'preload' }); } catch (e) {}
-        await new Promise(function(r) { setTimeout(r, 200); });
-
-        let fired = false;
-        try {
-            const result = fn({ type: 'end', catchIfNoFeed: true });
-            fired = true;
-            lastAnyAdShownTime = Date.now();
-            lastInterstitialAdTime = Date.now();
-            if (result && typeof result.then === 'function') {
-                result.catch(function() { /* no feed */ });
-            }
-        } catch (e) {
-            console.warn('[Monetag] show error', e);
-            fired = false;
-        }
-
-        // Hard teardown — prevents black/freeze leftover overlays
-        if (monetagTeardownTimer) clearTimeout(monetagTeardownTimer);
-        monetagTeardownTimer = setTimeout(function() {
-            try {
-                if (monetagHostIframe) {
-                    monetagHostIframe.style.opacity = '0';
-                    monetagHostIframe.style.pointerEvents = 'none';
-                    monetagHostIframe.style.background = 'transparent';
-                }
-            } catch (e) {}
-        }, fired ? 8000 : 400);
-
-        return fired;
-    } catch (e) {
-        console.warn('[Monetag] trigger error', e);
-        destroyMonetagHost();
-        return false;
-    }
-}
+function ensureMonetagHostIframe() { return null; }
+function ensureMonetagSdkLoaded(_zoneId) { return Promise.resolve(false); }
+function triggerMonetagInterstitialAd(_zoneId) { return Promise.resolve(false); }
 
 (function preloadMonetagOnLoad() {
     if (typeof window === 'undefined') return;
-    window.addEventListener('load', function() {
-        setTimeout(function() { ensureMonetagSdkLoaded(MONETAG_ZONE_ID); }, 800);
-    });
     window.addEventListener('pagehide', destroyMonetagHost);
+    // Strip any leftover Monetag nodes; never load nap5k
+    window.addEventListener('load', function() { destroyMonetagHost(); });
 })();
 
 // ===================================================================
@@ -1225,7 +1111,7 @@ function showAdOverlay(rewardAmount, callback) {
         }
     };
 
-    // Fire REAL Monetag interstitial inside isolated iframe (non-blocking)
+    // Monetag disabled — local countdown overlay only
     triggerMonetagInterstitialAd(MONETAG_ZONE_ID).then(function(fired) {
         console.log('[Monetag] ad fired in showAdOverlay:', fired);
     }).catch(function(e) { console.warn('[Monetag] overlay ad error', e); });

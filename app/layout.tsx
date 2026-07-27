@@ -1,6 +1,7 @@
 import './globals.css'
 import { Space_Grotesk, Syne } from 'next/font/google'
 import Script from 'next/script'
+import { ADSTERRA_SOCIAL_BAR_SRC } from './lib/ads-config'
 
 const bodyFont = Space_Grotesk({
   subsets: ['latin'],
@@ -18,9 +19,8 @@ export const metadata = {
 
 /**
  * Root layout — premium dark shell.
- * ONLY allowed ad SDK: Monetag zone 11377822 (loaded on demand with data-sdk).
- * Deletes/blocks sunny-sprout / gozen / alwingulla / popunder / push / omg10.
- * No automatic redirects from intrusive ad networks.
+ * Ads: Adsterra Social Bar only (body end).
+ * Blocks Monetag / gozen / sunny-sprout / alwingulla / fake $ toasts permanently.
  */
 export default function RootLayout({
   children,
@@ -36,52 +36,68 @@ export default function RootLayout({
             (function () {
               var BLOCKED_SRC = [
                 'tag.gozen.com','gozen.com','alwingulla.com','sunny-sprout.org','sunnysprout',
-                'omg10.com','push.min.js','push.js','in-page-push','inpagepush','popunder',
+                'nap5k.com','monetag','al5sm.com','n6wxm.com','quge5.com','omg10.com',
+                'push.min.js','push.js','in-page-push','inpagepush','popunder',
                 'multi-tag','multitag','smartlink','smart-tag','propeller','notification.js','onclicka'
               ];
               var BLOCKED_OPEN = [
-                'tag.gozen.com','gozen.com','alwingulla.com','sunny-sprout.org','sunnysprout','omg10.com'
+                'tag.gozen.com','gozen.com','alwingulla.com','sunny-sprout.org','sunnysprout',
+                'nap5k.com','monetag','omg10.com'
+              ];
+              var FAKE_TOAST = [
+                'you have 1 new message','new message!','demo account','$50,000',
+                '50000 credited','50,000 credited','credited to your demo','$50k'
               ];
               function isBlockedSrc(src) {
                 src = (src || '').toLowerCase();
                 for (var i = 0; i < BLOCKED_SRC.length; i++) {
                   if (src.indexOf(BLOCKED_SRC[i]) !== -1) return true;
                 }
-                if (src.indexOf('nap5k.com') !== -1) return true; // bare Monetag checked with attrs below
                 return false;
               }
-              function allowMonetag(el, src) {
-                var zone = el.getAttribute('data-zone') || '';
-                return el.hasAttribute('data-sdk') && src.indexOf('nap5k.com') !== -1 && zone === '11377822';
+              function allowAdsterra(src) {
+                return (src || '').toLowerCase().indexOf('effectivecpmnetwork.com') !== -1;
               }
               function scrubScripts() {
                 try {
                   document.querySelectorAll('script[src]').forEach(function (el) {
                     var src = (el.getAttribute('src') || '').toLowerCase();
-                    if (allowMonetag(el, src)) return;
-                    if (isBlockedSrc(src) || (src.indexOf('nap5k.com') !== -1 && !el.hasAttribute('data-sdk'))) {
+                    if (allowAdsterra(src)) return;
+                    if (isBlockedSrc(src)) {
                       try { el.remove(); } catch (e) {}
                     }
                   });
                 } catch (e2) {}
               }
-              function scrubIframes() {
+              function scrubFakeToasts() {
                 try {
-                  document.querySelectorAll('iframe[src]').forEach(function (el) {
-                    var src = (el.getAttribute('src') || '').toLowerCase();
-                    for (var i = 0; i < BLOCKED_OPEN.length; i++) {
-                      if (src.indexOf(BLOCKED_OPEN[i]) !== -1) {
-                        try { el.remove(); } catch (e) {}
-                        return;
+                  if (!document.body) return;
+                  var nodes = document.body.querySelectorAll('div,aside,section,span,p');
+                  for (var i = 0; i < nodes.length; i++) {
+                    var el = nodes[i];
+                    if (!(el instanceof HTMLElement)) continue;
+                    var t = (el.textContent || '').toLowerCase();
+                    if (!t || t.length > 420) continue;
+                    for (var j = 0; j < FAKE_TOAST.length; j++) {
+                      if (t.indexOf(FAKE_TOAST[j]) !== -1) {
+                        try { el.remove(); } catch (e3) {}
+                        break;
                       }
                     }
+                  }
+                  document.querySelectorAll('#grip_wall,#InlineBoxMainOuterLayer,#main_back,#main_div').forEach(function (n) {
+                    try { n.remove(); } catch (e4) {}
                   });
-                } catch (e3) {}
+                  try { window.onbeforeunload = null; } catch (e5) {}
+                } catch (e6) {}
               }
               try {
                 var _open = window.open;
                 window.open = function (url, name, specs) {
                   var href = String(url || '').toLowerCase();
+                  if (allowAdsterra(href) || href.indexOf('ridefiles.net') !== -1 || href.indexOf('bitlabs') !== -1) {
+                    return _open.call(window, url, name, specs);
+                  }
                   for (var i = 0; i < BLOCKED_OPEN.length; i++) {
                     if (href.indexOf(BLOCKED_OPEN[i]) !== -1) {
                       console.warn('[AJ] blocked popunder', href.slice(0, 100));
@@ -90,8 +106,7 @@ export default function RootLayout({
                   }
                   return _open.call(window, url, name, specs);
                 };
-              } catch (e4) {}
-              try { window.onbeforeunload = null; } catch (e5) {}
+              } catch (e7) {}
               if (!document.getElementById('aj-kill-intrusive-css')) {
                 var style = document.createElement('style');
                 style.id = 'aj-kill-intrusive-css';
@@ -100,18 +115,18 @@ export default function RootLayout({
                   '[class*="inpagepush"],[id*="push-notification"],[id*="in-page-push"],',
                   'iframe[src*="push"],iframe[src*="inpage"],iframe[src*="ipp"],',
                   'iframe[src*="gozen"],iframe[src*="alwingulla"],iframe[src*="sunny-sprout"],',
-                  'iframe[src*="omg10"]{display:none!important;visibility:hidden!important;',
-                  'pointer-events:none!important;opacity:0!important;}'
+                  'iframe[src*="nap5k"],iframe[src*="monetag"],iframe[src*="omg10"]{',
+                  'display:none!important;visibility:hidden!important;pointer-events:none!important;opacity:0!important;}'
                 ].join('');
                 (document.head || document.documentElement).appendChild(style);
               }
-              function scrub() { scrubScripts(); scrubIframes(); try { window.onbeforeunload = null; } catch (e6) {} }
+              function scrub() { scrubScripts(); scrubFakeToasts(); }
               scrub();
-              setInterval(scrub, 600);
+              setInterval(scrub, 700);
               document.addEventListener('DOMContentLoaded', scrub);
               try {
                 new MutationObserver(scrub).observe(document.documentElement, { childList: true, subtree: true });
-              } catch (e7) {}
+              } catch (e8) {}
             })();
           `}
         </Script>
@@ -135,49 +150,7 @@ export default function RootLayout({
               window.AJ_SDK.directLink = '';
               window.AJ_SDK.sendScore = function() { console.log("SDK: sendScore ignored — no wallet credit"); };
               window.AJ_SDK.addBalance = function() { console.log("SDK: addBalance ignored — no wallet credit"); };
-              if (typeof window.AJ_SDK.reportLevel !== 'function') {
-                window.AJ_SDK.reportLevel = function(gameId, level) {
-                  try {
-                    if (window.parent && window.parent !== window) {
-                      window.parent.postMessage({ type: 'GAME_LEVEL_REACHED', gameId: gameId, level: level }, '*');
-                    }
-                  } catch (e) {}
-                };
-              }
             }
-            (function () {
-              var FAKE_TOAST = [
-                'you have 1 new message','new message!','demo account','$50,000',
-                '50000 credited','50,000 credited','credited to your demo'
-              ];
-              function scrubFakeToasts() {
-                try {
-                  if (!document.body) return;
-                  var nodes = document.body.querySelectorAll('div,aside,section,span,p');
-                  for (var i = 0; i < nodes.length; i++) {
-                    var el = nodes[i];
-                    if (!(el instanceof HTMLElement)) continue;
-                    var t = (el.textContent || '').toLowerCase();
-                    if (!t || t.length > 420) continue;
-                    var hit = false;
-                    for (var j = 0; j < FAKE_TOAST.length; j++) {
-                      if (t.indexOf(FAKE_TOAST[j]) !== -1) { hit = true; break; }
-                    }
-                    if (!hit) continue;
-                    try { el.remove(); } catch (e3) {}
-                  }
-                  document.querySelectorAll('#grip_wall,#InlineBoxMainOuterLayer,#main_back,#main_div').forEach(function (n) {
-                    try { n.remove(); } catch (e4) {}
-                  });
-                  try { window.onbeforeunload = null; } catch (e5) {}
-                } catch (e6) {}
-              }
-              scrubFakeToasts();
-              setInterval(scrubFakeToasts, 700);
-              try {
-                new MutationObserver(scrubFakeToasts).observe(document.documentElement, { childList: true, subtree: true });
-              } catch (e7) {}
-            })();
           `}
         </Script>
       </head>
@@ -186,6 +159,12 @@ export default function RootLayout({
         style={{ fontFamily: 'var(--font-aj-body), system-ui, sans-serif' }}
       >
         {children}
+        {/* Adsterra Social Bar — end of body only */}
+        <Script
+          src={ADSTERRA_SOCIAL_BAR_SRC}
+          strategy="afterInteractive"
+          data-adsterra="social-bar"
+        />
       </body>
     </html>
   )
