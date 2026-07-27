@@ -19,6 +19,7 @@ import React, { useState, useEffect, useRef, Component } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import LiveMatchesPanel from './components/LiveMatchesPanel';
 import HubEarnPanel from './components/HubEarnPanel';
+import PremiumGamesHub from './components/PremiumGamesHub';
 import BannerAdSlot from './components/ads/BannerAdSlot';
 import InFeedAdShell from './components/ads/InFeedAdShell';
 import AdsterraNativeBanner from './components/ads/AdsterraNativeBanner';
@@ -1089,43 +1090,56 @@ const formatViews = (v: number): string => {
 };
 
 // ============================================================
-// VVIP NEON GLASSMORPHISM ALERT MODAL
+// PREMIUM GLASSMORPHISM ALERT MODAL
+// Dark glass, backdrop-blur, gold icons, neon borders — replaces browser alert()
 // ============================================================
 function VVIPAlert({ msg, icon, onClose }: { msg: string; icon?: string; onClose: () => void }) {
   useEffect(() => {
-    const t = setTimeout(onClose, 5000);
+    const t = setTimeout(onClose, 5500);
     return () => clearTimeout(t);
   }, [onClose]);
   return (
     <div
-      className="fixed inset-0 z-[9999] flex items-end justify-center pb-12 px-4 pointer-events-none"
-      style={{ backdropFilter:'blur(3px)' }}
+      className="fixed inset-0 z-[9999] flex items-center justify-center px-4 pointer-events-auto"
+      style={{ background: 'rgba(0,0,0,0.62)', backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)' }}
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
     >
       <div
-        className="pointer-events-auto w-full max-w-sm rounded-3xl overflow-hidden shadow-[0_0_80px_rgba(236,72,153,0.5),0_0_40px_rgba(34,211,238,0.25)]"
+        className="pointer-events-auto w-full max-w-sm rounded-3xl overflow-hidden shadow-[0_0_60px_rgba(251,191,36,0.22),0_0_40px_rgba(34,211,238,0.18)]"
         style={{
-          background: 'linear-gradient(135deg,rgba(5,5,5,0.97) 0%,rgba(20,5,35,0.97) 100%)',
-          border: '1px solid rgba(236,72,153,0.4)',
+          background: 'linear-gradient(160deg, rgba(18,16,28,0.92) 0%, rgba(8,8,14,0.94) 100%)',
+          border: '1px solid rgba(251,191,36,0.55)',
+          backdropFilter: 'blur(16px)',
+          WebkitBackdropFilter: 'blur(16px)',
         }}
+        onClick={(e) => e.stopPropagation()}
       >
-        <div className="h-[2px] w-full bg-gradient-to-r from-pink-500 via-cyan-400 to-purple-500"/>
+        <div className="h-[2px] w-full bg-gradient-to-r from-amber-400 via-cyan-400 to-fuchsia-500"/>
         <div className="p-6 flex flex-col items-center gap-4 text-center">
-          {icon && (
-            <div className="text-5xl leading-none" style={{ filter:'drop-shadow(0 0 18px rgba(236,72,153,0.9))' }}>
-              {icon}
-            </div>
-          )}
-          <div className="w-20 h-[1.5px] bg-gradient-to-r from-pink-500 via-cyan-400 to-purple-500 rounded-full opacity-80"/>
+          <div
+            className="w-16 h-16 rounded-2xl flex items-center justify-center border border-amber-400/50 bg-amber-500/10"
+            style={{ boxShadow: '0 0 28px rgba(251,191,36,0.45), inset 0 0 18px rgba(251,191,36,0.12)' }}
+          >
+            <span
+              className="text-4xl leading-none"
+              style={{ filter: 'drop-shadow(0 0 12px rgba(251,191,36,0.95))' }}
+            >
+              {icon || '✨'}
+            </span>
+          </div>
+          <div className="w-24 h-[1.5px] bg-gradient-to-r from-amber-400 via-cyan-400 to-fuchsia-500 rounded-full opacity-90"/>
           <p className="text-white font-black text-sm leading-relaxed whitespace-pre-wrap tracking-wide">{msg}</p>
           <button
             onClick={onClose}
-            className="mt-1 px-8 py-2.5 rounded-full text-white text-[11px] font-black uppercase tracking-[0.2em] transition-all hover:scale-105 active:scale-95 shadow-[0_0_22px_rgba(236,72,153,0.55)]"
-            style={{ background: 'linear-gradient(135deg,#ec4899 0%,#8b5cf6 100%)' }}
+            className="mt-1 px-8 py-2.5 rounded-full text-black text-[11px] font-black uppercase tracking-[0.2em] transition-all hover:scale-105 active:scale-95 shadow-[0_0_22px_rgba(251,191,36,0.45)]"
+            style={{ background: 'linear-gradient(135deg,#fbbf24 0%,#f59e0b 55%,#22d3ee 100%)' }}
           >
             OK ✓
           </button>
         </div>
-        <div className="h-[1px] w-full bg-gradient-to-r from-purple-500/40 via-pink-500/40 to-cyan-400/40"/>
+        <div className="h-[1px] w-full bg-gradient-to-r from-amber-400/40 via-cyan-400/40 to-fuchsia-500/40"/>
       </div>
     </div>
   );
@@ -2262,22 +2276,89 @@ export function AJSuperPortal() {
     return () => {};
   }, [socialScreen]);
 
-  // FIX: When TikReels profile tab is opened, fetch ALL of the current user's posts
-  // (not just the latest 20 from the global user_posts feed — those might not include the user's posts)
+  // FIX: When TikReels profile tab is opened, fetch ONLY this user's videos
+  // Primary: videos where userId matches; fallback: user_posts for same uid
   useEffect(() => {
     if (socialScreen !== 'tikreels' || tiktabMode !== 'profile') return;
     if (!user) return;
     const fetchMyPosts = async () => {
       try {
-        // Fetch from user_posts where uid === user.uid (up to 60 posts)
-        const q1 = query(collection(db, 'user_posts'), orderBy('createdAt', 'desc'), limit(60));
-        const snap1 = await getDocs(q1);
-        const myPosts = snap1.docs
-          .map(d => ({ id: d.id, ...d.data() as any }))
-          .filter((p: any) => p.uid === user.uid);
-        setTikProfileMyPosts(myPosts);
-      } catch(e) { console.error('fetchTikProfileMyPosts', e); }
-      // Fetch followers count
+        const seen = new Set<string>();
+        const merged: any[] = [];
+
+        // Primary: top-level videos filtered by userId === current user
+        try {
+          const videosQ = query(
+            collection(db, 'videos'),
+            where('userId', '==', user.uid),
+            limit(60)
+          );
+          const videosSnap = await getDocs(videosQ);
+          for (const d of videosSnap.docs) {
+            const data = d.data() as Record<string, unknown>;
+            if (String(data.userId || data.uid || '') !== user.uid) continue;
+            const videoUrl = String(
+              data.videoUrl || data.url || data.src || data.image || data.mediaUrl || ''
+            );
+            const thumbnail = String(
+              data.thumbnail || data.thumb || data.poster || data.cover || videoUrl || ''
+            );
+            const row = {
+              id: d.id,
+              ...data,
+              uid: user.uid,
+              userId: user.uid,
+              videoUrl,
+              image: videoUrl || thumbnail,
+              thumbnail,
+              isVideo: true,
+              views: Number(data.views || 0),
+              text: data.text || data.caption || data.textOverlay || '',
+            };
+            if (!seen.has(d.id)) {
+              seen.add(d.id);
+              merged.push(row);
+            }
+          }
+        } catch (ve) {
+          console.warn('tikProfile videos query', ve);
+        }
+
+        // Fallback: user_posts belonging to this user only
+        try {
+          const q1 = query(collection(db, 'user_posts'), orderBy('createdAt', 'desc'), limit(60));
+          const snap1 = await getDocs(q1);
+          for (const d of snap1.docs) {
+            const p = { id: d.id, ...(d.data() as any) };
+            if (p.uid !== user.uid && p.userId !== user.uid) continue;
+            if (seen.has(d.id)) continue;
+            seen.add(d.id);
+            merged.push({
+              ...p,
+              userId: p.userId || p.uid || user.uid,
+              videoUrl: p.videoUrl || p.image || p.url || '',
+              thumbnail: p.thumbnail || p.image || p.videoUrl || '',
+            });
+          }
+        } catch (e) {
+          console.error('fetchTikProfileMyPosts', e);
+        }
+
+        merged.sort((a, b) => {
+          const am =
+            typeof a.createdAt?.toMillis === 'function'
+              ? a.createdAt.toMillis()
+              : Number(a.createdAtMs || a.createdAt || 0);
+          const bm =
+            typeof b.createdAt?.toMillis === 'function'
+              ? b.createdAt.toMillis()
+              : Number(b.createdAtMs || b.createdAt || 0);
+          return bm - am;
+        });
+        setTikProfileMyPosts(merged);
+      } catch (e) {
+        console.error('fetchTikProfileMyPosts', e);
+      }
       try {
         const userSnap = await getDoc(doc(db, 'users', user.uid));
         if (userSnap.exists()) {
@@ -2285,7 +2366,6 @@ export function AJSuperPortal() {
           setTikProfileFollowers(data.followersCount || 0);
         }
       } catch {}
-      // Also load following list
       loadFollowingList();
     };
     fetchMyPosts();
@@ -3191,7 +3271,14 @@ export function AJSuperPortal() {
       const rivalUid = pkTargetId.trim();
       const rivalSnap = await getDoc(doc(db,"users",rivalUid));
       if (!rivalSnap.exists()) return setVvipAlert({msg:"Rival not found! Check User ID."});
-      await updateDoc(doc(db,"users",user.uid), { balance: increment(-PK_ENTRY_COINS) });
+      await runTransaction(db, async (tx) => {
+        const uref = doc(db, 'users', user.uid);
+        const snap = await tx.get(uref);
+        if (!snap.exists()) throw new Error('user_not_found');
+        const bal = Number((snap.data() as { balance?: number }).balance || 0);
+        if (bal < PK_ENTRY_COINS) throw new Error('insufficient_balance');
+        tx.update(uref, { balance: increment(-PK_ENTRY_COINS) });
+      });
       try {
         await addDoc(collection(db,"AdminRevenue"), {
           type:'pk_match', totalDeducted: PK_ENTRY_COINS * 2,
@@ -3611,8 +3698,15 @@ export function AJSuperPortal() {
       return;
     }
     try {
-      // Deduct gift cost from sender (engagement spend)
-      await updateDoc(doc(db,"users",user.uid), { balance: increment(-gift.cost) });
+      // Deduct gift cost from sender via atomic transaction
+      await runTransaction(db, async (tx) => {
+        const uref = doc(db, 'users', user.uid);
+        const snap = await tx.get(uref);
+        if (!snap.exists()) throw new Error('user_not_found');
+        const bal = Number((snap.data() as { balance?: number }).balance || 0);
+        if (bal < gift.cost) throw new Error('insufficient_balance');
+        tx.update(uref, { balance: increment(-gift.cost) });
+      });
       // Creator earns AJ Coins via verified server reward engine
       const giftKey = `${user.uid}_${creatorId}_${gift.name}_${Date.now()}`;
       const reward = await earnReward(user, 'live_gift', {
@@ -3882,11 +3976,20 @@ export function AJSuperPortal() {
         const seen = new Set<string>();
         const merged: any[] = [];
         for (const v of [...fromVideosCol, ...feedVideos, ...subVideos]) {
+          const owner = String(v.userId || v.uid || '');
+          // Strict friend-profile filter: only videos owned by this profile uid
+          if (owner !== uid) continue;
           const key = String(v.id || v.videoUrl || '');
           if (!key || seen.has(key)) continue;
           if (!v.videoUrl && !v.thumbnail && !v.image) continue;
           seen.add(key);
-          merged.push(v);
+          merged.push({
+            ...v,
+            userId: uid,
+            videoUrl: v.videoUrl || v.image || v.url || '',
+            thumbnail: v.thumbnail || v.image || v.videoUrl || '',
+            isVideo: true,
+          });
         }
         setProfileVideos(merged);
       } catch (e) {
@@ -4557,9 +4660,20 @@ export function AJSuperPortal() {
 
   const activateBot = async (tier:string, cost:number) => {
     if (balance<cost) return setVvipAlert({msg:"Insufficient Balance!"});
+    if (!user) return setVvipAlert({msg:"Please log in first."});
     try {
-      await updateDoc(doc(db,"users",user!.uid), {
-        balance: increment(-cost), botTier:tier, invested:cost, lastSync:serverTimestamp()
+      await runTransaction(db, async (tx) => {
+        const uref = doc(db, 'users', user.uid);
+        const snap = await tx.get(uref);
+        if (!snap.exists()) throw new Error('user_not_found');
+        const bal = Number((snap.data() as { balance?: number }).balance || 0);
+        if (bal < cost) throw new Error('insufficient_balance');
+        tx.update(uref, {
+          balance: increment(-cost),
+          botTier: tier,
+          invested: cost,
+          lastSync: serverTimestamp(),
+        });
       });
       setVisualProfit(0);
       setVvipAlert({msg:`${tier.toUpperCase()} BOT ACTIVATED! Sync profits to earn AJ Coin rewards.`});
@@ -4714,8 +4828,8 @@ export function AJSuperPortal() {
 
   const handleWithdraw = async () => {
     const userCoins = balance;
-    if (userCoins < 20000) {
-      alert('Minimum 20,000 Coins required!');
+    if (userCoins < WITHDRAW_MIN || userCoins < 20000) {
+      setVvipAlert({ msg: 'Minimum 20,000 AJ Coins 🪙 required!', icon: '⚠️' });
       return;
     }
     // Validate based on method type
@@ -4738,16 +4852,24 @@ export function AJSuperPortal() {
         cardBank,
         cardCountry,
       };
-      await updateDoc(doc(db,"users",user!.uid), { balance:0 });
+      const withdrawCoins = balance;
+      await runTransaction(db, async (tx) => {
+        const uref = doc(db, 'users', user!.uid);
+        const snap = await tx.get(uref);
+        if (!snap.exists()) throw new Error('user_not_found');
+        const bal = Number((snap.data() as { balance?: number }).balance || 0);
+        if (bal < WITHDRAW_MIN || bal < 20000) throw new Error('below_minimum');
+        tx.update(uref, { balance: 0 });
+      });
       await addDoc(collection(db,"manual_withdrawals"), {
-        uid:user!.uid, email:user!.email, coins:balance,
+        uid:user!.uid, email:user!.email, coins:withdrawCoins,
         method:payoutMethod, payoutDetails,
         status:"pending", date:serverTimestamp()
       });
       try {
         await addDoc(collection(db,"notifications"), {
           title:"Withdrawal Requested",
-          message:`${balance} AJ Coins 🪙 via ${payoutMethod} submitted for review.`,
+          message:`${withdrawCoins} AJ Coins 🪙 via ${payoutMethod} submitted for review.`,
           date:serverTimestamp()
         });
       } catch {}
@@ -4755,7 +4877,15 @@ export function AJSuperPortal() {
       setPayoutId(''); setCardHolder(''); setCardNumber(''); setCardExpiry('');
       setCardCVV(''); setCardBank(''); setCardCountry('');
       setWalletTab('main');
-    } catch(e) { console.error('handleWithdraw', e); setVvipAlert({msg:'Withdrawal request failed. Please try again.'}); }
+    } catch(e) {
+      console.error('handleWithdraw', e);
+      const msg = e instanceof Error ? e.message : '';
+      if (msg === 'below_minimum') {
+        setVvipAlert({ msg: 'Minimum 20,000 AJ Coins 🪙 required!', icon: '⚠️' });
+      } else {
+        setVvipAlert({msg:'Withdrawal request failed. Please try again.'});
+      }
+    }
   };
 
   const handleApplyReferral = async () => {
@@ -4860,7 +4990,7 @@ Kuch bhi poocho, seedha batata hoon! 🔥`,
     coin: {
       en:  `🪙 AJ Coins — Full Breakdown:\\\\\\\\
 \\\\\\\\
-• Rate: ${COIN_RATE} AJ Coins 🪙 per purchase unit | Min withdraw ${WITHDRAW_MIN.toLocaleString()} 🪙 ($20)\\\\\\\\
+• Rate: ${COIN_RATE} AJ Coins 🪙 per purchase unit | Min withdraw ${WITHDRAW_MIN.toLocaleString()} AJ Coins 🪙\\\\\\\\
 • Starting balance: 0 AJ Coins 🪙 (no signup bonus)\\\\\\\\
 • Referral Bonus: +${REFERRAL_COINS} AJ Coins 🪙 per friend referred\\\\\\\\
 • Video Post (TikReel): +5 AJ Coins 🪙 per verified upload (max 5/day)\\\\\\\\
@@ -4872,7 +5002,7 @@ Kuch bhi poocho, seedha batata hoon! 🔥`,
 Go to Wallet → Purchase to top up anytime. 💰`,
       hin: `Bhai, yeh lo puri detail! 🪙\\\\\\\\
 \\\\\\\\
-• Rate: ${COIN_RATE} AJ Coins 🪙 | Min withdraw ${WITHDRAW_MIN.toLocaleString()} 🪙 ($20)\\\\\\\\
+• Rate: ${COIN_RATE} AJ Coins 🪙 | Min withdraw ${WITHDRAW_MIN.toLocaleString()} AJ Coins 🪙\\\\\\\\
 • Starting balance: 0 AJ Coins 🪙 (no signup bonus)\\\\\\\\
 • Referral: +${REFERRAL_COINS} AJ Coins 🪙 har dost ke liye\\\\\\\\
 • TikReel video upload: +5 AJ Coins 🪙\\\\\\\\
@@ -4884,7 +5014,7 @@ Go to Wallet → Purchase to top up anytime. 💰`,
 Wallet → Purchase se recharge karo, dost! 💰`,
       ur:  `🪙 AJ Coins — مکمل تفصیل:\\\\\\\\
 \\\\\\\\
-• شرح: ${COIN_RATE} AJ Coins 🪙 | Min withdraw ${WITHDRAW_MIN.toLocaleString()} ($20)\\\\\\\\
+• شرح: ${COIN_RATE} AJ Coins 🪙 | Min withdraw ${WITHDRAW_MIN.toLocaleString()} AJ Coins 🪙\\\\\\\\
 • Starting balance: 0 AJ Coins 🪙 (no signup bonus)\\\\\\\\
 • ریفرل: +${REFERRAL_COINS} AJ Coins 🪙\\\\\\\\
 • TikReel ویڈیو: +5 Coins 🪙\\\\\\\\
@@ -4896,7 +5026,7 @@ Wallet → Purchase se recharge karo, dost! 💰`,
 Wallet → Purchase 💰`,
       hi:  `🪙 AJ Coins:\\\\\\\\
 \\\\\\\\
-• ${COIN_RATE} AJ Coins 🪙 | Min withdraw ${WITHDRAW_MIN.toLocaleString()} ($20)\\\\\\\\
+• ${COIN_RATE} AJ Coins 🪙 | Min withdraw ${WITHDRAW_MIN.toLocaleString()} AJ Coins 🪙\\\\\\\\
 • Starting balance: 0 AJ Coins 🪙 (no signup bonus)\\\\\\\\
 • Referral: +${REFERRAL_COINS} AJ Coins 🪙\\\\\\\\
 • TikReel Video: +5 Coins 🪙\\\\\\\\
@@ -4907,7 +5037,7 @@ Wallet → Purchase 💰`,
 Wallet → Purchase 💰`,
       ar:  `🪙 AJ Coins:\\\\\\\\
 \\\\\\\\
-• ${COIN_RATE} AJ Coins 🪙 | Min ${WITHDRAW_MIN.toLocaleString()} ($20)\\\\\\\\
+• ${COIN_RATE} AJ Coins 🪙 | Min ${WITHDRAW_MIN.toLocaleString()} AJ Coins 🪙\\\\\\\\
 • Starting balance: 0 AJ Coins 🪙 (no signup bonus)\\\\\\\\
 • Referral: +${REFERRAL_COINS} AJ Coins 🪙\\\\\\\\
 • TikReel Video: +5\\\\\\\\
@@ -5418,7 +5548,7 @@ Tip: Social Hub se copy karo 📤`,
                 <p className="text-[10px] text-gray-400 uppercase tracking-widest font-black">Total Balance · AJ Coins</p>
                 <p className="text-4xl font-black bg-gradient-to-r from-yellow-300 to-yellow-500 bg-clip-text text-transparent mt-1">{parseFloat(displayBalance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} <span className="text-lg text-yellow-400/70">AJ Coins 🪙</span></p>
                 <p className="text-xs text-gray-400 mt-1">
-                  Min withdraw 20,000 Coins ($20) · 1,000 Coins = $1.00
+                  Min withdraw 20,000 AJ Coins 🪙
                 </p>
                 {botTier !== 'none' && (
                   <div className="mt-3 flex items-center gap-2 bg-green-500/10 border border-green-500/20 rounded-2xl px-3 py-2">
@@ -5451,6 +5581,12 @@ Tip: Social Hub se copy karo 📤`,
                 /* live onSnapshot remains source of truth */
               }
             }}
+          />
+
+          {/* Premium Games — CPA unlock links, 0 portal coin credit */}
+          <PremiumGamesHub
+            user={user}
+            onAlert={(msg, icon) => setVvipAlert({ msg, icon: icon || '🎮' })}
           />
 
           {/* Quick Nav — Social, Wallet, AI Bot */}
@@ -5831,7 +5967,7 @@ Tip: Social Hub se copy karo 📤`,
                       // Every 4th post: Adsterra Native Banner (dark Sponsored card).
                       if ((idx + 1) % INFEED_AD_EVERY_N === 0) {
                         return [contentEl, (
-                          <div key={`ad_pixa_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
+                          <div key={`ad_pixa_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden" style={{ scrollSnapAlign:'start', background: 'radial-gradient(ellipse at 50% 30%, #1c1a28 0%, #0a0a10 100%)' }}>
                             <InFeedAdShell placement="tikreel_infeed" user={user}>
                               <AdsterraNativeBanner slotKey={`tik_pixa_${idx}`} />
                             </InFeedAdShell>
@@ -5940,7 +6076,7 @@ Tip: Social Hub se copy karo 📤`,
                       // Every 4th post: Adsterra Native Banner (dark Sponsored card).
                       if ((idx + 1) % INFEED_AD_EVERY_N === 0) {
                         return [contentEl, (
-                          <div key={`ad_user_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
+                          <div key={`ad_user_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden" style={{ scrollSnapAlign:'start', background: 'radial-gradient(ellipse at 50% 30%, #1c1a28 0%, #0a0a10 100%)' }}>
                             <InFeedAdShell placement="tikreel_infeed" user={user}>
                               <AdsterraNativeBanner slotKey={`tik_user_${idx}`} />
                             </InFeedAdShell>
@@ -6055,28 +6191,46 @@ Tip: Social Hub se copy karo 📤`,
                           <p className="text-gray-500 text-sm">No posts yet. Upload your first TikReel!</p>
                         </div>
                       )}
-                      {tikProfileMyPosts.map((post:any) => (
+                      {tikProfileMyPosts.map((post:any) => {
+                        const playUrl = String(
+                          post.videoUrl || post.image || post.url || post.mediaUrl || ''
+                        );
+                        const thumb = String(
+                          post.thumbnail || post.thumb || post.poster || playUrl || ''
+                        );
+                        return (
                         <div
                           key={post.id}
+                          role="button"
+                          tabIndex={0}
                           className="relative aspect-square bg-white/5 overflow-hidden cursor-pointer active:scale-95 transition-all"
                           onClick={() => {
-                            // FIX (Hinglish): Profile post par click karne se video open ho.
-                            // Agar video post hai toh full-screen video viewer khulta hai.
-                            const url = post.videoUrl || post.image;
-                            if (post.isVideo && url) {
-                              setProfileVideoViewer({ url, text: post.text || post.textOverlay });
+                            const url = playUrl || thumb;
+                            if (!url) {
+                              setVvipAlert({ msg: 'Video URL missing for this post.', icon: '⚠️' });
+                              return;
+                            }
+                            setProfileVideoViewer({
+                              url,
+                              text: post.text || post.textOverlay || post.caption || '',
+                            });
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              if (playUrl || thumb) {
+                                setProfileVideoViewer({
+                                  url: playUrl || thumb,
+                                  text: post.text || post.textOverlay || post.caption || '',
+                                });
+                              }
                             }
                           }}
                         >
-                          {/* FIX (Hinglish): Pehle thumbnail ke liye <img> use hota tha jismein
-                              video URL di jaati thi — <img> video frame render nahi kar sakta,
-                              isliye thumbnail blank / dikhta hi nahi tha. Ab video posts ke
-                              liye hum <video> element use karte hain jisse pehla frame as
-                              poster bilkul TikTok ki tarah dikhta hai. */}
-                          {post.isVideo ? (
-                            (post.thumbnail || post.videoUrl || post.image) ? (
+                          {post.isVideo || /\.(mp4|webm|mov)(\?|$)/i.test(thumb || playUrl) ? (
+                            (thumb || playUrl) ? (
                               <video
-                                src={post.thumbnail || post.videoUrl || post.image}
+                                src={thumb || playUrl}
                                 className="w-full h-full object-cover pointer-events-none"
                                 muted
                                 playsInline
@@ -6086,26 +6240,25 @@ Tip: Social Hub se copy karo 📤`,
                               <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">🎬</span></div>
                             )
                           ) : (
-                            (post.thumbnail || post.image || post.videoUrl)
-                              ? <img src={post.thumbnail || post.image || post.videoUrl} className="w-full h-full object-cover pointer-events-none" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}/>
+                            (thumb || playUrl)
+                              ? <img src={thumb || playUrl} className="w-full h-full object-cover pointer-events-none" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}/>
                               : <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">🎬</span></div>
                           )}
-                          {/* Play icon overlay for video posts — makes it obvious it's a tap-to-open video */}
-                          {post.isVideo && (
+                          {(post.isVideo || playUrl) && (
                             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                               <div className="w-9 h-9 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center">
                                 <span className="text-white text-sm ml-0.5">▶</span>
                               </div>
                             </div>
                           )}
-                          {post.isVideo && <div className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5"><Film size={10} className="text-white"/></div>}
-                          {/* Views count overlay — bottom left like TikTok */}
+                          {(post.isVideo || playUrl) && <div className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5"><Film size={10} className="text-white"/></div>}
                           <div className="absolute bottom-1 left-1 bg-black/60 rounded-full px-1.5 py-0.5 flex items-center gap-0.5">
                             <Eye size={8} className="text-white"/>
                             <span className="text-white text-[8px] font-black">{formatViews(post.views||0)}</span>
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                   {tikProfileSubTab === 'following' && (
@@ -6275,7 +6428,7 @@ Tip: Social Hub se copy karo 📤`,
                       // FIX ROUND 8: Har 4 Pulse posts ke baad ek REAL video ad.
                       if ((idx + 1) % INFEED_AD_EVERY_N === 0) {
                         return [contentEl, (
-                          <div key={`ad_pulse_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
+                          <div key={`ad_pulse_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden" style={{ scrollSnapAlign:'start', background: 'radial-gradient(ellipse at 50% 30%, #1c1a28 0%, #0a0a10 100%)' }}>
                             <InFeedAdShell placement="pulse_infeed" user={user}>
                               <AdsterraNativeBanner slotKey={`pulse_${idx}`} />
                             </InFeedAdShell>
@@ -7360,7 +7513,7 @@ Tip: Social Hub se copy karo 📤`,
                     <p className="text-[10px] text-gray-400 uppercase tracking-widest font-black">Total Balance · AJ Coins</p>
                     <p className="text-4xl font-black bg-gradient-to-r from-yellow-300 to-yellow-500 bg-clip-text text-transparent mt-1">{parseFloat(displayBalance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} <span className="text-lg text-yellow-400/70">AJ Coins 🪙</span></p>
                     <p className="text-xs text-gray-400 mt-1">
-                  Min withdraw 20,000 Coins ($20) · 1,000 Coins = $1.00
+                  Min withdraw 20,000 AJ Coins 🪙
                 </p>
                     <div className="mt-4 grid grid-cols-2 gap-2">
                       <div className="bg-white/5 rounded-2xl p-3 text-center">
@@ -7369,7 +7522,7 @@ Tip: Social Hub se copy karo 📤`,
                       </div>
                       <div className="bg-white/5 rounded-2xl p-3 text-center">
                         <p className="text-[9px] text-gray-400 font-black uppercase">Cash Out</p>
-                        <p className="text-white font-black text-xs mt-1">1,000 Coins = $1.00</p>
+                        <p className="text-white font-black text-xs mt-1">Min 20,000 AJ Coins 🪙</p>
                       </div>
                     </div>
                   </div>
@@ -7407,7 +7560,7 @@ Tip: Social Hub se copy karo 📤`,
                 <button onClick={handlePurchase} className="w-full py-4 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all shadow-[0_0_24px_rgba(236,72,153,0.4)]" style={{background:'linear-gradient(135deg,#ec4899,#8b5cf6)'}}>
                   🛒 Buy {(purchaseAmount * COIN_RATE).toLocaleString()} AJ Coins 🪙
                 </button>
-                <p className="text-[9px] text-gray-500 text-center">Powered by NOWPayments · USDT BSC · Secure</p>
+                <p className="text-[9px] text-gray-500 text-center">Powered by NOWPayments · Secure AJ Coins 🪙</p>
               </div>
             )}
 
@@ -7419,10 +7572,10 @@ Tip: Social Hub se copy karo 📤`,
                   <p className="text-2xl font-black text-yellow-400">{balance.toFixed(0)} 🪙</p>
                   <p className="text-[10px] text-gray-400 mt-1">AJ Coins 🪙 balance</p>
                   <p className="text-[9px] text-orange-400 mt-2 font-black">
-                    Min withdraw 20,000 Coins ($20)
+                    Min withdraw 20,000 AJ Coins 🪙
                   </p>
                   <p className="text-[9px] text-gray-500 mt-1 font-bold">
-                    1,000 Coins = $1.00
+                    Withdraw in AJ Coins only
                   </p>
                 </div>
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3">
