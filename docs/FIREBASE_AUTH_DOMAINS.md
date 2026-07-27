@@ -43,9 +43,19 @@ Optional env overrides (see `.env.example`):
 - `NEXT_PUBLIC_FIREBASE_PROJECT_ID`
 - …
 
-## Local checklist
+## Ludo Star (in-game) Google + Facebook
 
-1. `npm run dev` → open `http://localhost:3000`
+`public/games/ludo-elite-royal/index.html` uses Firebase Auth compat:
+
+- **Gmail** → `GoogleAuthProvider` (`signInWithPopup`, fallback `signInWithRedirect`)
+- **Facebook** → `FacebookAuthProvider` (same flow)
+
+Enable providers in Firebase Console → **Authentication** → **Sign-in method**:
+
+1. Google — enable (already used by portal)
+2. Facebook — enable + add Facebook App ID / App Secret from [Meta developers](https://developers.facebook.com/)
+
+Authorized domains must include every host that serves the game (same table above).
 2. Confirm `localhost` is authorized in Firebase
 3. Click **Continue with Google** — popup should complete without `auth/unauthorized-domain`
 4. New users get `users/{uid}` with `unlockedGames: []`, `gameProgress: {}`, and `dailyRewards: {}`
