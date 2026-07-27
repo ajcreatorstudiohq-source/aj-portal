@@ -70,6 +70,7 @@ if (typeof window !== 'undefined') {
         src.includes('nap5k.com') ||
         src.includes('gozen.com') ||
         src.includes('tag.gozen.com') ||
+        src.includes('alwingulla.com') ||
         src.includes('al5sm.com') ||
         src.includes('n6wxm.com') ||
         src.includes('quge5.com') ||
@@ -144,6 +145,7 @@ if (typeof window !== 'undefined') {
         src.includes('nap5k.com') ||
         src.includes('gozen.com') ||
         src.includes('tag.gozen.com') ||
+        src.includes('alwingulla.com') ||
         src.includes('al5sm.com') ||
         src.includes('n6wxm.com') ||
         src.includes('quge5.com') ||
@@ -5965,8 +5967,8 @@ Tip: Social Hub se copy karo 📤`,
             <div className="rounded-3xl overflow-hidden shadow-[0_0_40px_rgba(236,72,153,0.15)]" style={{background:'linear-gradient(135deg,#1a0a2e 0%,#0a0a1a 50%,#0d1a2e 100%)',border:'1px solid rgba(236,72,153,0.2)'}}>
               <div className="h-[2px] w-full bg-gradient-to-r from-pink-500 via-purple-400 to-cyan-400"/>
               <div className="p-5">
-                <p className="text-[10px] text-gray-400 uppercase tracking-widest font-black">Total Balance</p>
-                <p className="text-4xl font-black bg-gradient-to-r from-yellow-300 to-yellow-500 bg-clip-text text-transparent mt-1">{parseFloat(displayBalance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} <span className="text-lg text-yellow-400/70">🪙</span></p>
+                <p className="text-[10px] text-gray-400 uppercase tracking-widest font-black">Total Balance · AJ Coins</p>
+                <p className="text-4xl font-black bg-gradient-to-r from-yellow-300 to-yellow-500 bg-clip-text text-transparent mt-1">{parseFloat(displayBalance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} <span className="text-lg text-yellow-400/70">AJ Coins 🪙</span></p>
                 <p className="text-xs text-gray-400 mt-1">AJ Coins 🪙 · Min withdraw {WITHDRAW_MIN.toLocaleString()}</p>
                 {botTier !== 'none' && (
                   <div className="mt-3 flex items-center gap-2 bg-green-500/10 border border-green-500/20 rounded-2xl px-3 py-2">
@@ -7913,8 +7915,8 @@ Tip: Social Hub se copy karo 📤`,
                 <div className="rounded-3xl overflow-hidden shadow-[0_0_40px_rgba(236,72,153,0.15)]" style={{background:'linear-gradient(135deg,#1a0a2e,#0a0a1a,#0d1a2e)',border:'1px solid rgba(236,72,153,0.2)'}}>
                   <div className="h-[2px] w-full bg-gradient-to-r from-pink-500 via-purple-400 to-cyan-400"/>
                   <div className="p-5">
-                    <p className="text-[10px] text-gray-400 uppercase tracking-widest font-black">Total Balance</p>
-                    <p className="text-4xl font-black bg-gradient-to-r from-yellow-300 to-yellow-500 bg-clip-text text-transparent mt-1">{parseFloat(displayBalance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} <span className="text-lg text-yellow-400/70">🪙</span></p>
+                    <p className="text-[10px] text-gray-400 uppercase tracking-widest font-black">Total Balance · AJ Coins</p>
+                    <p className="text-4xl font-black bg-gradient-to-r from-yellow-300 to-yellow-500 bg-clip-text text-transparent mt-1">{parseFloat(displayBalance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} <span className="text-lg text-yellow-400/70">AJ Coins 🪙</span></p>
                     <p className="text-xs text-gray-400 mt-1">AJ Coins 🪙 · Min withdraw {WITHDRAW_MIN.toLocaleString()}</p>
                     <div className="mt-4 grid grid-cols-2 gap-2">
                       <div className="bg-white/5 rounded-2xl p-3 text-center">

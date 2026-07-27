@@ -18,8 +18,8 @@ export const metadata = {
 
 /**
  * Root layout — premium dark shell.
- * Games bridge only. No CPAGrip script_include, no Monetag push/popunder/gozen.
- * Fake “$50,000 credited / demo account” floating toasts are scrubbed on sight.
+ * Games bridge only. No push/popunder/gozen/alwingulla scripts.
+ * Fake “$50,000 credited / new message” floating toasts are deleted on sight.
  */
 export default function RootLayout({
   children,
@@ -58,15 +58,15 @@ export default function RootLayout({
                 };
               }
             }
-            // Hard-kill fake credit / push / floating notification widgets (never load push SDKs)
             (function () {
               var BLOCKED_SRC = [
-                'tag.gozen.com','gozen.com','push.min.js','push.js','in-page-push','inpagepush',
-                'popunder','multi-tag','multitag','propeller','notification.js'
+                'tag.gozen.com','gozen.com','alwingulla.com','push.min.js','push.js',
+                'in-page-push','inpagepush','popunder','multi-tag','multitag',
+                'propeller','notification.js','onclicka'
               ];
               var FAKE_TOAST = [
-                'you have 1 new message','demo account','$50,000','50000 credited',
-                'credited to your demo','new message!'
+                'you have 1 new message','new message!','demo account','$50,000',
+                '50000 credited','50,000 credited','credited to your demo'
               ];
               function scrubScripts() {
                 try {
@@ -84,12 +84,13 @@ export default function RootLayout({
               }
               function scrubFakeToasts() {
                 try {
-                  var nodes = document.body ? document.body.querySelectorAll('div,aside,section,span') : [];
+                  if (!document.body) return;
+                  var nodes = document.body.querySelectorAll('div,aside,section,span,p');
                   for (var i = 0; i < nodes.length; i++) {
                     var el = nodes[i];
                     if (!(el instanceof HTMLElement)) continue;
                     var t = (el.textContent || '').toLowerCase();
-                    if (!t || t.length > 400) continue;
+                    if (!t || t.length > 420) continue;
                     var hit = false;
                     for (var j = 0; j < FAKE_TOAST.length; j++) {
                       if (t.indexOf(FAKE_TOAST[j]) !== -1) { hit = true; break; }
@@ -110,13 +111,14 @@ export default function RootLayout({
                 style.textContent = [
                   '[class*="push-notification"],[class*="push_notification"],[class*="in-page-push"],',
                   '[class*="inpagepush"],[id*="push-notification"],[id*="in-page-push"],',
-                  'iframe[src*="push"],iframe[src*="inpage"],iframe[src*="ipp"],iframe[src*="gozen"]{',
+                  'iframe[src*="push"],iframe[src*="inpage"],iframe[src*="ipp"],',
+                  'iframe[src*="gozen"],iframe[src*="alwingulla"]{',
                   'display:none!important;visibility:hidden!important;pointer-events:none!important;opacity:0!important;}'
                 ].join('');
                 document.head.appendChild(style);
               }
               scrub();
-              setInterval(scrub, 800);
+              setInterval(scrub, 700);
               document.addEventListener('DOMContentLoaded', scrub);
               try {
                 new MutationObserver(scrub).observe(document.documentElement, { childList: true, subtree: true });

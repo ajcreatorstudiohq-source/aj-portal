@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ExternalLink, Play, Loader2, Gift, Clock } from 'lucide-react';
+import { ExternalLink, Play, Loader2, Gift } from 'lucide-react';
 import RewardedVideoOffer from './ads/RewardedVideoOffer';
 import BannerAdSlot from './ads/BannerAdSlot';
 import {
@@ -33,18 +33,11 @@ type Props = {
   onAlert: (msg: string, icon?: string) => void;
   onRefreshUser?: () => void;
   onOpenGames?: () => void;
-  /** Optional portal APK / PWA install URL */
-  apkUrl?: string;
 };
 
-const PORTAL_APK_URL =
-  typeof process !== 'undefined'
-    ? process.env.NEXT_PUBLIC_APP_APK_URL || '/manifest.json'
-    : '/manifest.json';
-
 /**
- * Hub dashboard earn module — rewarded video, app downloads, Monetag interstitial, offerwall.
- * Balance updates flow through Firebase onSnapshot after /api/ads/rewarded or /api/games/install.
+ * Hub dashboard earn module — rewarded video, Monetag interstitial, offerwall, game unlocks.
+ * Portal APK "Download App" section intentionally removed.
  */
 export default function HubEarnPanel({
   user,
@@ -53,10 +46,8 @@ export default function HubEarnPanel({
   onAlert,
   onRefreshUser,
   onOpenGames,
-  apkUrl = PORTAL_APK_URL,
 }: Props) {
   const [installBusy, setInstallBusy] = useState<string | null>(null);
-  const [apkBusy, setApkBusy] = useState(false);
   const [adBusy, setAdBusy] = useState(false);
   const [downloadPct, setDownloadPct] = useState<Record<string, number>>({});
   const interstitialTriggeredRef = useRef(false);
@@ -123,10 +114,8 @@ export default function HubEarnPanel({
       }
       onAlert(
         data.message ||
-          (data.creditedCoins > 0
-            ? `Downloaded! +${data.creditedCoins} AJ Coins 🪙`
-            : `${game.name} unlocked — Pending Verification. AJ Coins credit only after verified offer/install postback.`),
-        data.creditedCoins > 0 ? '💰' : '⏳'
+          `${game.name} unlocked — AJ Coins 🪙 credit only after verified offer/postback.`,
+        '⏳'
       );
       await trackAdEvent(
         {
@@ -143,34 +132,6 @@ export default function HubEarnPanel({
       onAlert(e instanceof Error ? e.message : 'Download failed', '⚠️');
     } finally {
       setInstallBusy(null);
-    }
-  };
-
-  const downloadPortalApp = async () => {
-    if (!user) return onAlert('Please sign in first', '🔒');
-    setApkBusy(true);
-    try {
-      await trackAdEvent(
-        {
-          event: 'click',
-          placement: 'hub_nav_interstitial',
-          zoneId: MONETAG_INTERSTITIAL_ZONE,
-          meta: { action: 'portal_apk_download_pending' },
-        },
-        user
-      );
-
-      // Opening a download link MUST NOT credit coins.
-      // Mark Pending Verification — coins only via CPAGrip /api/postback after install confirm.
-      window.open(apkUrl, '_blank', 'noopener,noreferrer');
-      onAlert(
-        'App Install Verification Pending... Install link opened. AJ Coins 🪙 credit only after CPAGrip postback — click alone = 0 coins.',
-        '⏳'
-      );
-    } catch (e: unknown) {
-      onAlert(e instanceof Error ? e.message : 'Download failed', '⚠️');
-    } finally {
-      setApkBusy(false);
     }
   };
 
@@ -224,7 +185,6 @@ export default function HubEarnPanel({
         user
       );
       if (!result.triggered) cleanupMonetagDom();
-      // Interstitial watch = no wallet credit (use Rewarded Video for coins)
       onAlert(
         result.rewarded
           ? 'Thanks for watching! Earn AJ Coins 🪙 via Watch Rewarded Video.'
@@ -253,10 +213,11 @@ export default function HubEarnPanel({
       },
       user
     ).catch(() => {});
+    // Direct public wall: ridefiles show.php + Firebase uid (new tab)
     const result = openCpaGripOfferWall(user.uid);
     if (result.ok) {
       onAlert(
-        'CPAGrip offer wall opened. Complete a lead — AJ Coins credit only after verified postback.',
+        'Offer Partners opened in a new tab. AJ Coins 🪙 credit only after verified postback.',
         '🔗'
       );
     } else {
@@ -270,7 +231,7 @@ export default function HubEarnPanel({
     <div className="px-4 pt-4 space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-[10px] text-cyan-400 font-black uppercase tracking-widest">
-          Earn · Ads · Downloads
+          Earn · Ads · Offers
         </p>
         <button
           type="button"
@@ -283,14 +244,12 @@ export default function HubEarnPanel({
 
       <BannerAdSlot placement="hub_nav_interstitial" user={user} label="Hub Sponsored" />
 
-      {/* 1) Rewarded video — primary earn CTA */}
       <RewardedVideoOffer
         user={user}
         onAlert={onAlert}
         onRefreshUser={onRefreshUser}
       />
 
-      {/* Monetag interstitial (non-rewarded inventory) */}
       <button
         type="button"
         disabled={adBusy}
@@ -312,40 +271,6 @@ export default function HubEarnPanel({
         </div>
       </button>
 
-      {/* 2) Portal APK / App download — dark pending verification (never credits on click) */}
-      <div className="rounded-2xl border border-gray-700 bg-gray-800/50 p-4 space-y-3">
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gray-900/80 border border-gray-700 flex items-center justify-center shrink-0">
-            <Clock size={18} className="text-gray-300" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-black text-white">Download AJ Super Portal App</p>
-            <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">
-              Opens the install link only. AJ Coins 🪙 credit only after CPAGrip confirms a successful
-              install via postback — click alone = 0 coins.
-            </p>
-          </div>
-        </div>
-        <button
-          type="button"
-          disabled={apkBusy || !user}
-          onClick={downloadPortalApp}
-          className="w-full py-3 rounded-xl bg-gray-800/50 border border-gray-700 text-gray-200 text-xs font-black flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98] hover:bg-gray-800/80 transition-colors"
-        >
-          {apkBusy ? (
-            <>
-              <Loader2 size={14} className="animate-spin text-gray-300" /> Opening…
-            </>
-          ) : (
-            <>
-              <Clock size={14} className="text-gray-300" />
-              App Install Verification Pending...
-            </>
-          )}
-        </button>
-      </div>
-
-      {/* Partner offerwall — real external surveys/trials */}
       <button
         type="button"
         onClick={openOfferPartners}
@@ -357,16 +282,15 @@ export default function HubEarnPanel({
         <div className="text-left flex-1 min-w-0">
           <p className="text-sm font-black text-white">Open Offer Partners</p>
           <p className="text-[10px] text-gray-400">
-            CPAGrip wall · surveys · app trials · AJ Coins via postback only
+            CPAGrip · surveys · app trials · AJ Coins 🪙 via postback only
           </p>
         </div>
         <ExternalLink size={14} className="text-gray-500 shrink-0" />
       </button>
 
-      {/* 3) In-portal game APK / package downloads */}
       <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 space-y-2">
         <p className="text-[10px] text-purple-300 font-black uppercase tracking-widest px-1">
-          Download Games · Install & Earn
+          Download Games · Unlock Play
         </p>
         {downloadableGames.map((game) => {
           const installed = isInstalled(game.id);
@@ -386,7 +310,7 @@ export default function HubEarnPanel({
                 <p className="text-[9px] text-gray-400 truncate">
                   {installed
                     ? `Installed · Lv ${gameProgress[game.id]?.level || 0}`
-                    : 'Download & unlock play (0 coins on click)'}
+                    : 'Unlock play (0 AJ Coins on click)'}
                 </p>
                 {busy && pct > 0 && pct < 100 && (
                   <div className="mt-1.5 h-1 rounded-full bg-white/10 overflow-hidden">

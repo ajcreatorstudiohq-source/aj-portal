@@ -165,7 +165,7 @@ export const OFFERWALL_PUBLIC = {
   /** CPAGrip show.php wall — override via NEXT_PUBLIC_OFFERWALL_URL */
   wallUrl:
     process.env.NEXT_PUBLIC_OFFERWALL_URL ||
-    'https://www.cpagrip.com/view.php?id=1906642',
+    'https://ridefiles.net/show.php?l=1&u=1906642&id=63969',
   wallId: '1906642',
   provider: 'CPAGrip' as const,
 };
