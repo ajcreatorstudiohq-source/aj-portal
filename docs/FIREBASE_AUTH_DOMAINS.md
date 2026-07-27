@@ -56,6 +56,10 @@ Enable providers in Firebase Console → **Authentication** → **Sign-in method
 2. Facebook — enable + add Facebook App ID / App Secret from [Meta developers](https://developers.facebook.com/)
 
 Authorized domains must include every host that serves the game (same table above).
+
+## Local checklist
+
+1. `npm run dev` → open `http://localhost:3000`
 2. Confirm `localhost` is authorized in Firebase
 3. Click **Continue with Google** — popup should complete without `auth/unauthorized-domain`
 4. New users get `users/{uid}` with `unlockedGames: []`, `gameProgress: {}`, and `dailyRewards: {}`
