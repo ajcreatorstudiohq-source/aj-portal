@@ -1145,36 +1145,6 @@ function VVIPAlert({ msg, icon, onClose }: { msg: string; icon?: string; onClose
 // 6. Skip button 5 second baad available hota hai — bilkul TikTok ke ads ki tarah.
 // ============================================================
 
-// Fallback ad videos — TikTok-style short vertical clips (rotated for full-screen)
-// FIX ROUND 3: Pehle commondatastorage.googleapis.com ke URLs use hote the
-// jo mobile pe slow/blocked hone ki wajah se BLACK SCREEN dete the.
-// Ab reliable CDN (mix of sources) use kiya gaya hai + ek poster image
-// taaki ad area blank na rahe.
-//
-// FIX BLACK SCREEN 100% (Hinglish): Pichle URLs (pixabay CDN) ab 403 Forbidden
-// return kar rahe the — bilkul BLACK SCREEN ka asli kaaran. Ab sirf VERIFIED
-// working URLs use kiye hain (test-videos.co.uk + media.w3.org — dono 200 OK
-// return karte hain aur CORS-friendly hain). Agar inme se bhi koi fail ho toh
-// poster image hamesha background mein dikhegi — kabhi BLACK NAHI.
-const AD_FALLBACK_VIDEOS = [
-  // Verified working (HTTP 200) — tested CDN sources, no 403, no black screen
-  'https://test-videos.co.uk/vids/jellyfish/mp4/h264/720/Jellyfish_720_10s_1MB.mp4',
-  'https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_1MB.mp4',
-  'https://test-videos.co.uk/vids/sintel/mp4/h264/720/Sintel_720_10s_1MB.mp4',
-  'https://media.w3.org/2010/05/sintel/trailer.mp4',
-  'https://media.w3.org/2010/05/video/movie_300.mp4',
-  'https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4',
-];
-// Fallback poster image (shown while video loads — prevents black screen)
-// FIX: Multiple poster images for redundancy + reliable Unsplash CDN
-const AD_FALLBACK_POSTERS = [
-  'https://images.unsplash.com/photo-1550745165-9bc0b252726c?w=400&h=800&fit=crop',
-  'https://images.unsplash.com/photo-1611162617474-5b21e879e872?w=400&h=800&fit=crop',
-  'https://images.unsplash.com/photo-1598899134739-24c46f58b8c0?w=400&h=800&fit=crop',
-  'https://images.unsplash.com/photo-1633618451480-89e6c3c5c3c3?w=400&h=800&fit=crop',
-  'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=400&h=800&fit=crop',
-];
-
 // Monetag SDK / MonetagVideoAd removed — Adsterra Native Banner used in feeds.
 
 // ============================================================
@@ -1325,27 +1295,24 @@ function CinematicGiftOverlay({ gift, sender, onDone }: { gift: any; sender: str
 }
 
 // ============================================================
-// INTERSTITIAL AD OVERLAY (Hub card clicks)
+// INTERSTITIAL AD OVERLAY — Adsterra Direct Link (no video black screen)
 // ============================================================
-// FIX (Hinglish): Hub card click pe yeh full-screen overlay dikhta hai jisme
-// ek real Monetag video ad chalti hai (5-second skip ke saath). Agar Monetag
-// ad load nahi hua toh fallback video chalti hai. Ad close hone ke baad
-// pendingNavAfterAd call hota hai (actual navigation).
 function InterstitialAdOverlay({ onClose }: { onClose: () => void }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
   const [countdown, setCountdown] = useState(5);
   const [canSkip, setCanSkip] = useState(false);
   const [closed, setClosed] = useState(false);
-  const [videoError, setVideoError] = useState(false);
-  const [adShown, setAdShown] = useState(false);
-  const [currentVideoIdx] = useState(() => Math.floor(Math.random() * AD_FALLBACK_VIDEOS.length));
-  const [poster] = useState(() => AD_FALLBACK_POSTERS[Math.floor(Math.random() * AD_FALLBACK_POSTERS.length)]);
 
-  // 5-second countdown — after this user can skip
   useEffect(() => {
     if (closed) return;
+    try {
+      window.open(
+        'https://www.effectivecpmnetwork.com/b8jtkn6i4?key=77409a0e0aa4602b6d03798ff53516b3',
+        '_blank',
+        'noopener,noreferrer'
+      );
+    } catch {}
     const interval = setInterval(() => {
-      setCountdown(c => {
+      setCountdown((c) => {
         if (c <= 1) {
           setCanSkip(true);
           clearInterval(interval);
@@ -1357,31 +1324,9 @@ function InterstitialAdOverlay({ onClose }: { onClose: () => void }) {
     return () => clearInterval(interval);
   }, [closed]);
 
-  // Play the fallback video immediately (muted autoplay)
   useEffect(() => {
     if (closed) return;
-    const v = videoRef.current;
-    if (v) {
-      v.muted = true;
-      v.play().catch(() => {
-        setTimeout(() => { v.play().catch(() => setVideoError(true)); }, 300);
-      });
-    }
-  }, [closed]);
-
-  // Intrusive auto-interstitials disabled — never fire Monetag from this overlay.
-  useEffect(() => {
-    if (closed || adShown) return;
-    setAdShown(true);
-    cleanupMonetagDom();
-  }, [closed, adShown]);
-
-  // Auto-dismiss after 8 seconds even if user doesn't skip
-  useEffect(() => {
-    if (closed) return;
-    const t = setTimeout(() => {
-      handleClose();
-    }, 8000);
+    const t = setTimeout(() => handleClose(), 8000);
     return () => clearTimeout(t);
   }, [closed]);
 
@@ -1390,12 +1335,10 @@ function InterstitialAdOverlay({ onClose }: { onClose: () => void }) {
     setClosed(true);
     setCanSkip(true);
     cleanupMonetagDom();
-    // Run pending navigation if stored
     if (pendingNavAfterAd) {
       try { pendingNavAfterAd(); } catch {}
       pendingNavAfterAd = null;
     }
-    // Reset the interstitial flag
     if (typeof window !== 'undefined') {
       try { (window as any).__AJ_SHOW_INTERSTITIAL = false; } catch {}
     }
@@ -1405,63 +1348,31 @@ function InterstitialAdOverlay({ onClose }: { onClose: () => void }) {
   if (closed) return null;
 
   return (
-    <div className="fixed inset-0 z-[9995] flex flex-col items-center justify-center" style={{ background: `#0a0a1a url('${poster}') center/cover no-repeat` }}>
-      <div className="relative w-full h-full overflow-hidden">
-        {/* Background poster (prevents black screen) */}
-        <div className="absolute inset-0" style={{ background: `#0a0a1a url('${poster}') center/cover no-repeat` }} />
-
-        {/* Isolated Monetag host — sized + painted before SDK fire */}
-        <div id="aj-interstitial-monetag-host" className="absolute inset-0 w-full h-full" style={{ zIndex: 3, pointerEvents: 'auto' }} />
-
-        {/* Fallback video */}
-        {!videoError && (
-          <video
-            ref={videoRef}
-            src={AD_FALLBACK_VIDEOS[currentVideoIdx]}
-            poster={poster}
-            className="absolute inset-0 w-full h-full object-cover"
-            autoPlay
-            muted
-            loop
-            playsInline
-            preload="auto"
-            onPlaying={() => {}}
-            onError={() => setVideoError(true)}
-          />
+    <div
+      className="fixed inset-0 z-[9995] flex flex-col items-center justify-center px-6"
+      style={{ background: 'radial-gradient(ellipse at 50% 30%, #14141f 0%, #08080c 50%, #050505 100%)' }}
+    >
+      <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 mb-4">
+        <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+        <span className="text-[9px] font-black uppercase tracking-[0.22em] text-zinc-300">Sponsored</span>
+      </div>
+      <p className="text-white font-black text-lg mb-1">AJ Super Portal</p>
+      <p className="text-zinc-400 text-xs text-center mb-6 max-w-xs">
+        Partner offer opened in a new tab · Earn AJ Coins 🪙
+      </p>
+      <div className="absolute top-4 right-4 z-10">
+        {canSkip ? (
+          <button
+            onClick={handleClose}
+            className="bg-white/90 text-black font-black text-sm px-5 py-2 rounded-full active:scale-90 transition-all"
+          >
+            Continue
+          </button>
+        ) : (
+          <div className="bg-black/60 backdrop-blur-sm text-white text-sm font-black px-4 py-2 rounded-full">
+            {countdown}s
+          </div>
         )}
-
-        {/* Gradient overlay */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/30 pointer-events-none" />
-
-        {/* Sponsored label */}
-        <div className="absolute top-4 left-4 z-10">
-          <span className="bg-black/60 backdrop-blur-sm text-white text-xs font-black px-3 py-1.5 rounded-full">
-            Sponsored
-          </span>
-        </div>
-
-        {/* Skip button / countdown */}
-        <div className="absolute top-4 right-4 z-10">
-          {canSkip ? (
-            <button
-              onClick={handleClose}
-              className="bg-white/90 text-black font-black text-sm px-5 py-2 rounded-full active:scale-90 transition-all"
-            >
-              Skip
-            </button>
-          ) : (
-            <div className="bg-black/60 backdrop-blur-sm text-white text-sm font-black px-4 py-2 rounded-full flex items-center gap-2">
-              <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              {countdown}s
-            </div>
-          )}
-        </div>
-
-        {/* Bottom info */}
-        <div className="absolute bottom-8 left-0 right-0 flex flex-col items-center gap-2 z-10 pointer-events-none">
-          <p className="text-white/80 text-sm font-black uppercase tracking-widest">AJ Super Portal</p>
-          <p className="text-white/40 text-xs">Your ad helps keep AJ free</p>
-        </div>
       </div>
     </div>
   );
@@ -5891,7 +5802,7 @@ Tip: Social Hub se copy karo 📤`,
                       vid[0], vid[1], vid[2], vid[3], AD, vid[4], vid[5], vid[6], vid[7], AD ...
                       — har 4 REAL videos ke baad ek ad, bilkul jaise user ne maanga. */}
                   {(() => {
-                    // FIX ROUND 6: Full-screen MonetagVideoAd feed se HATA diya — user ko
+                    // In-feed ads use Adsterra Native Banner (no black video surface).
                     // har 8 post pe full-screen ad block karna padta tha jo UX kharab
                     // karta tha. Ab feed mein SIRF content videos hain, koi ad slot nahi.
                     // Real Monetag popup ad still fires once per 5-min cycle via navigation
@@ -5993,16 +5904,12 @@ Tip: Social Hub se copy karo 📤`,
                         </div>
                       </div>
                     );
-                      // FIX ROUND 8: Har 4 content videos ke baad ek REAL video ad insert karo.
-                      // Pattern: vid0,vid1,vid2,vid3, AD, vid4,vid5,vid6,vid7, AD ...
-                      // Cooldown (5 min global gate) ensure karta hai ki REAL Monetag popup
-                      // sirf 5 min mein ek baar fire ho — baqi slots mein in-feed fallback
-                      // video chalega (revenue + smooth UX, bilkul TikTok jaisa).
+                      // Every 4th post: Adsterra Native Banner (dark Sponsored card).
                       if ((idx + 1) % INFEED_AD_EVERY_N === 0) {
                         return [contentEl, (
                           <div key={`ad_pixa_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
                             <InFeedAdShell placement="tikreel_infeed" user={user}>
-                              <AdsterraNativeBanner slotKey={`feed_${idx}`} />
+                              <AdsterraNativeBanner slotKey={`infeed_${idx}`} />
                             </InFeedAdShell>
                           </div>
                         )];
@@ -6106,11 +6013,12 @@ Tip: Social Hub se copy karo 📤`,
                       </div>
                     );
                       // FIX ROUND 8: Har 4 user-uploaded videos ke baad ek REAL video ad.
+                      // Every 4th post: Adsterra Native Banner (dark Sponsored card).
                       if ((idx + 1) % INFEED_AD_EVERY_N === 0) {
                         return [contentEl, (
                           <div key={`ad_user_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
                             <InFeedAdShell placement="tikreel_infeed" user={user}>
-                              <AdsterraNativeBanner slotKey={`feed_${idx}`} />
+                              <AdsterraNativeBanner slotKey={`tik_user_${idx}`} />
                             </InFeedAdShell>
                           </div>
                         )];
@@ -6335,7 +6243,7 @@ Tip: Social Hub se copy karo 📤`,
                       post[0], post[1], post[2], post[3], AD, post[4], post[5], post[6], post[7], AD ...
                       — har 4 REAL posts ke baad ek ad, bilkul jaise user ne maanga. */}
                   {(() => {
-                    // FIX ROUND 6: Full-screen MonetagVideoAd feed se HATA diya — user ko
+                    // In-feed ads use Adsterra Native Banner (no black video surface).
                     // har 8 post pe full-screen ad block karna padta tha jo UX kharab
                     // karta tha. Ab feed mein SIRF content posts hain, koi ad slot nahi.
                     // Real Monetag popup ad still fires once per 5-min cycle via navigation
@@ -6445,7 +6353,7 @@ Tip: Social Hub se copy karo 📤`,
                         return [contentEl, (
                           <div key={`ad_pulse_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505]" style={{ scrollSnapAlign:'start' }}>
                             <InFeedAdShell placement="pulse_infeed" user={user}>
-                              <AdsterraNativeBanner slotKey={`feed_${idx}`} />
+                              <AdsterraNativeBanner slotKey={`infeed_${idx}`} />
                             </InFeedAdShell>
                           </div>
                         )];
