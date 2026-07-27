@@ -1,15 +1,16 @@
 /**
  * AJ Super Portal — economy & games catalog.
- * User-facing currency is strictly AJ Coins 🪙 (never show $ / USD / pool split in UI).
+ * User-facing currency is AJ Coins 🪙.
+ * Withdrawal UI may show the cash equivalent ($20 min) for clarity only.
  */
 
 /** Purchase rate: 1 purchase unit → COIN_RATE AJ Coins */
 export const COIN_RATE = 100;
-/** Cash-out display unit in AJ Coins */
-export const CASH_RATE = 500;
+/** Cash-out rate: CASH_RATE AJ Coins = 1.00 cash unit (1,000 Coins = $1.00) */
+export const CASH_RATE = 1000;
 
-/** New-user wallet credit on first profile create */
-export const SIGNUP_BONUS_COINS = 100;
+/** New-user wallet credit on first profile create — strictly zero */
+export const SIGNUP_BONUS_COINS = 0;
 /** Coins credited to the referrer per successful referral */
 export const REFERRAL_BONUS_COINS = 50;
 
@@ -170,8 +171,8 @@ export const OFFERWALL_PUBLIC = {
   provider: 'CPAGrip' as const,
 };
 
-/** Minimum AJ Coins required to request a withdrawal */
-export const MIN_WITHDRAW_COINS = 10000;
+/** Minimum AJ Coins required to request a withdrawal (20,000 = $20) */
+export const MIN_WITHDRAW_COINS = 20000;
 
 /**
  * Build partner offerwall URL with user id for postback attribution.

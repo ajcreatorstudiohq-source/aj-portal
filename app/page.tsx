@@ -25,6 +25,8 @@ import AdsterraNativeBanner from './components/ads/AdsterraNativeBanner';
 import {
   SIGNUP_BONUS_COINS,
   REFERRAL_BONUS_COINS,
+  MIN_WITHDRAW_COINS,
+  COIN_RATE as ECONOMY_COIN_RATE,
 } from './lib/economy';
 import { earnReward } from './lib/client-rewards';
 import { trackAdEvent } from './lib/ad-client';
@@ -294,10 +296,9 @@ const NOWPAYMENTS_IPN_SECRET   = '9eeeBo6K1ljJSQtUCb1Up88Gv6n1AreU';
 // ============================================================
 // ECONOMY RATES
 // ============================================================
-const COIN_RATE      = 100;
-const CASH_RATE      = 500;
+const COIN_RATE      = ECONOMY_COIN_RATE;
 const MIN_PURCHASE   = 20;
-const WITHDRAW_MIN   = 10000;
+const WITHDRAW_MIN   = MIN_WITHDRAW_COINS;
 const REFERRAL_COINS = REFERRAL_BONUS_COINS;
 
 const ADMIN_EARN_SHARE = 0.70;  // Admin (aap) gets 70% of revenue
@@ -1758,7 +1759,7 @@ export function AJSuperPortal() {
   const [tradeLogs,    setTradeLogs]    = useState([
     "Initialising Neural Link...",
     "Analysing Market Volatility...",
-    "Connecting to AJ liquidity pool..."
+    "Connecting to AJ trading network..."
   ]);
   const [botOpen,     setBotOpen]     = useState(false);
   const [botMessages, setBotMessages] = useState([{
@@ -1928,7 +1929,6 @@ export function AJSuperPortal() {
   // ── COMPUTED
   const totalCoins     = balance + visualProfit;
   const displayBalance = totalCoins.toFixed(2);
-  const displayUsdt    = (totalCoins / CASH_RATE).toFixed(2);
   // Admin One-Click Ban — ONLY for configured admin email and/or ADMIN_UIDS
   const isPortalAdmin = isPortalAdminUser(user);
 
@@ -4713,8 +4713,11 @@ export function AJSuperPortal() {
   const handleTransfer = transferCoins;
 
   const handleWithdraw = async () => {
-    if (balance < WITHDRAW_MIN)
-      return setVvipAlert({msg:`Minimum withdrawal is ${WITHDRAW_MIN.toLocaleString()} AJ Coins 🪙. Current: ${balance.toFixed(0)} 🪙`});
+    const userCoins = balance;
+    if (userCoins < 20000) {
+      alert('Minimum 20,000 Coins required!');
+      return;
+    }
     // Validate based on method type
     if (currentWithdrawMethod.type === 'simple') {
       if (!payoutId.trim()) return setVvipAlert({msg:`Enter your ${currentWithdrawMethod.field}.`});
@@ -4857,9 +4860,9 @@ Kuch bhi poocho, seedha batata hoon! 🔥`,
     coin: {
       en:  `🪙 AJ Coins — Full Breakdown:\\\\\\\\
 \\\\\\\\
-• Rate: ${COIN_RATE} AJ Coins 🪙 per purchase unit | Cash-out from ${WITHDRAW_MIN.toLocaleString()} 🪙\\\\\\\\
-• Welcome Bonus: ${SIGNUP_BONUS_COINS} Coins on signup 🎉\\\\\\\\
-• Referral Bonus: +${REFERRAL_COINS} Coins per friend referred\\\\\\\\
+• Rate: ${COIN_RATE} AJ Coins 🪙 per purchase unit | Min withdraw ${WITHDRAW_MIN.toLocaleString()} 🪙 ($20)\\\\\\\\
+• Starting balance: 0 AJ Coins 🪙 (no signup bonus)\\\\\\\\
+• Referral Bonus: +${REFERRAL_COINS} AJ Coins 🪙 per friend referred\\\\\\\\
 • Video Post (TikReel): +5 AJ Coins 🪙 per verified upload (max 5/day)\\\\\\\\
 • Photo Post (Pulse): +5 AJ Coins 🪙 per verified upload (max 5/day)\\\\\\\\
 • AI Bot (Basic): 2.5% daily on invested coins (24h server lock)\\\\\\\\
@@ -4869,9 +4872,9 @@ Kuch bhi poocho, seedha batata hoon! 🔥`,
 Go to Wallet → Purchase to top up anytime. 💰`,
       hin: `Bhai, yeh lo puri detail! 🪙\\\\\\\\
 \\\\\\\\
-• Rate: ${COIN_RATE} AJ Coins 🪙 | Min withdraw ${WITHDRAW_MIN.toLocaleString()} 🪙\\\\\\\\
-• Signup bonus: ${SIGNUP_BONUS_COINS} Coins FREE 🎉\\\\\\\\
-• Referral: +${REFERRAL_COINS} Coins har dost ke liye\\\\\\\\
+• Rate: ${COIN_RATE} AJ Coins 🪙 | Min withdraw ${WITHDRAW_MIN.toLocaleString()} 🪙 ($20)\\\\\\\\
+• Starting balance: 0 AJ Coins 🪙 (no signup bonus)\\\\\\\\
+• Referral: +${REFERRAL_COINS} AJ Coins 🪙 har dost ke liye\\\\\\\\
 • TikReel video upload: +5 AJ Coins 🪙\\\\\\\\
 • Pulse photo post: +5 AJ Coins 🪙\\\\\\\\
 • AI Bot Basic: 2.5% daily profit (24h server lock)\\\\\\\\
@@ -4881,9 +4884,9 @@ Go to Wallet → Purchase to top up anytime. 💰`,
 Wallet → Purchase se recharge karo, dost! 💰`,
       ur:  `🪙 AJ Coins — مکمل تفصیل:\\\\\\\\
 \\\\\\\\
-• شرح: ${COIN_RATE} AJ Coins 🪙 | Min withdraw ${WITHDRAW_MIN.toLocaleString()}\\\\\\\\
-• Signup بونس: ${SIGNUP_BONUS_COINS} Coins مفت 🎉\\\\\\\\
-• ریفرل: +${REFERRAL_COINS} Coins\\\\\\\\
+• شرح: ${COIN_RATE} AJ Coins 🪙 | Min withdraw ${WITHDRAW_MIN.toLocaleString()} ($20)\\\\\\\\
+• Starting balance: 0 AJ Coins 🪙 (no signup bonus)\\\\\\\\
+• ریفرل: +${REFERRAL_COINS} AJ Coins 🪙\\\\\\\\
 • TikReel ویڈیو: +5 Coins 🪙\\\\\\\\
 • Pulse فوٹو: +5 Coins 🪙\\\\\\\\
 • AI Bot Basic: 2.5% روزانہ\\\\\\\\
@@ -4893,9 +4896,9 @@ Wallet → Purchase se recharge karo, dost! 💰`,
 Wallet → Purchase 💰`,
       hi:  `🪙 AJ Coins:\\\\\\\\
 \\\\\\\\
-• ${COIN_RATE} AJ Coins 🪙 | Min withdraw ${WITHDRAW_MIN.toLocaleString()}\\\\\\\\
-• Signup: ${SIGNUP_BONUS_COINS} Coins 🎉\\\\\\\\
-• Referral: +${REFERRAL_COINS} Coins\\\\\\\\
+• ${COIN_RATE} AJ Coins 🪙 | Min withdraw ${WITHDRAW_MIN.toLocaleString()} ($20)\\\\\\\\
+• Starting balance: 0 AJ Coins 🪙 (no signup bonus)\\\\\\\\
+• Referral: +${REFERRAL_COINS} AJ Coins 🪙\\\\\\\\
 • TikReel Video: +5 Coins 🪙\\\\\\\\
 • Pulse Photo: +5 Coins 🪙\\\\\\\\
 • AI Bot Basic: 2.5% | VVIP: 5% 🔥\\\\\\\\
@@ -4904,9 +4907,9 @@ Wallet → Purchase 💰`,
 Wallet → Purchase 💰`,
       ar:  `🪙 AJ Coins:\\\\\\\\
 \\\\\\\\
-• ${COIN_RATE} AJ Coins 🪙 | Min ${WITHDRAW_MIN.toLocaleString()}\\\\\\\\
-• Signup: ${SIGNUP_BONUS_COINS} 🎉\\\\\\\\
-• Referral: +${REFERRAL_COINS}\\\\\\\\
+• ${COIN_RATE} AJ Coins 🪙 | Min ${WITHDRAW_MIN.toLocaleString()} ($20)\\\\\\\\
+• Starting balance: 0 AJ Coins 🪙 (no signup bonus)\\\\\\\\
+• Referral: +${REFERRAL_COINS} AJ Coins 🪙\\\\\\\\
 • TikReel Video: +5\\\\\\\\
 • Pulse Photo: +5\\\\\\\\
 • AI Bot: 2-5% 🔥\\\\\\\\
@@ -5095,7 +5098,7 @@ Tip: Social Hub se copy karo 📤`,
     else if (/game|gaming|play|rider|racer|neon|volcano|ludo/.test(q)) topic = 'gaming';
     else if (/refer|referral|invite|friend/.test(q)) topic = 'refer';
     const kb = BOT_KB[topic];
-    const reply = kb?.[lang] || kb?.['en'] || `I'm here to help! Ask me about Coins, TikReels, Pulse, Gaming, Wallet, or Referrals.`;
+    const reply = kb?.[lang] || kb?.['en'] || `I'm here to help! Ask me about Coins, TikReels, Pulse, Ads, Wallet, or Referrals.`;
     setTimeout(() => {
       setBotMessages(m => [...m, { from:'bot', text:reply, topic }]);
     }, 600);
@@ -5346,7 +5349,7 @@ Tip: Social Hub se copy karo 📤`,
             <img src="/logo.png" alt="AJ" className="w-20 h-20 rounded-2xl shadow-[0_0_40px_rgba(236,72,153,0.5)]"/>
           </div>
           <h1 className="mt-5 text-2xl font-black bg-gradient-to-r from-pink-500 to-cyan-400 bg-clip-text text-transparent uppercase tracking-widest">AJ SUPER PORTAL</h1>
-          <p className="mt-2 text-xs text-gray-400 text-center">TikReels • Pulse • Live • Gaming • Wallet</p>
+          <p className="mt-2 text-xs text-gray-400 text-center">TikReels • Pulse • Live • Ads • Wallet</p>
           <button
             onClick={handleGoogleLogin}
             className="mt-10 w-full max-w-xs flex items-center justify-center gap-3 bg-white text-gray-900 font-black rounded-2xl py-4 shadow-[0_0_30px_rgba(255,255,255,0.15)] active:scale-95 transition-all"
@@ -5414,7 +5417,9 @@ Tip: Social Hub se copy karo 📤`,
               <div className="p-5">
                 <p className="text-[10px] text-gray-400 uppercase tracking-widest font-black">Total Balance · AJ Coins</p>
                 <p className="text-4xl font-black bg-gradient-to-r from-yellow-300 to-yellow-500 bg-clip-text text-transparent mt-1">{parseFloat(displayBalance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} <span className="text-lg text-yellow-400/70">AJ Coins 🪙</span></p>
-                <p className="text-xs text-gray-400 mt-1">AJ Coins 🪙 · Min withdraw {WITHDRAW_MIN.toLocaleString()}</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  Min withdraw 20,000 Coins ($20) · 1,000 Coins = $1.00
+                </p>
                 {botTier !== 'none' && (
                   <div className="mt-3 flex items-center gap-2 bg-green-500/10 border border-green-500/20 rounded-2xl px-3 py-2">
                     <span className="text-green-400 text-xs font-black animate-pulse">● LIVE</span>
@@ -7354,7 +7359,9 @@ Tip: Social Hub se copy karo 📤`,
                   <div className="p-5">
                     <p className="text-[10px] text-gray-400 uppercase tracking-widest font-black">Total Balance · AJ Coins</p>
                     <p className="text-4xl font-black bg-gradient-to-r from-yellow-300 to-yellow-500 bg-clip-text text-transparent mt-1">{parseFloat(displayBalance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} <span className="text-lg text-yellow-400/70">AJ Coins 🪙</span></p>
-                    <p className="text-xs text-gray-400 mt-1">AJ Coins 🪙 · Min withdraw {WITHDRAW_MIN.toLocaleString()}</p>
+                    <p className="text-xs text-gray-400 mt-1">
+                  Min withdraw 20,000 Coins ($20) · 1,000 Coins = $1.00
+                </p>
                     <div className="mt-4 grid grid-cols-2 gap-2">
                       <div className="bg-white/5 rounded-2xl p-3 text-center">
                         <p className="text-[9px] text-gray-400 font-black uppercase">Rate</p>
@@ -7362,7 +7369,7 @@ Tip: Social Hub se copy karo 📤`,
                       </div>
                       <div className="bg-white/5 rounded-2xl p-3 text-center">
                         <p className="text-[9px] text-gray-400 font-black uppercase">Cash Out</p>
-                        <p className="text-white font-black text-xs mt-1">{CASH_RATE} AJ Coins 🪙 per cash-out unit</p>
+                        <p className="text-white font-black text-xs mt-1">1,000 Coins = $1.00</p>
                       </div>
                     </div>
                   </div>
@@ -7411,7 +7418,12 @@ Tip: Social Hub se copy karo 📤`,
                   <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">Available Balance</p>
                   <p className="text-2xl font-black text-yellow-400">{balance.toFixed(0)} 🪙</p>
                   <p className="text-[10px] text-gray-400 mt-1">AJ Coins 🪙 balance</p>
-                  <p className="text-[9px] text-orange-400 mt-2 font-black">Min withdrawal: {WITHDRAW_MIN.toLocaleString()} AJ Coins 🪙</p>
+                  <p className="text-[9px] text-orange-400 mt-2 font-black">
+                    Min withdraw 20,000 Coins ($20)
+                  </p>
+                  <p className="text-[9px] text-gray-500 mt-1 font-bold">
+                    1,000 Coins = $1.00
+                  </p>
                 </div>
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3">
                   <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Payment Method</p>
