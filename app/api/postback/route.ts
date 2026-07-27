@@ -7,17 +7,17 @@ const POSTBACK_SECRET =
   process.env.AJ_POSTBACK_SECRET ||
   'AJ_SUPER_SECURE_786_PORTAL';
 
+/** Platform keeps ~80%: $1.00 payout → user gets 200 AJ Coins */
+const PAYOUT_TO_USER_COINS = 200;
+
 /**
  * GET|POST /api/postback
- * CPAGrip (and compatible networks) S2S postback.
+ * CPAGrip S2S postback with profit-margin multiplier.
  *
  * Recommended CPAGrip Global Postback:
- *   https://YOUR_DOMAIN/api/postback?userId={tracking_id}&points={points}&txid={offer_id}&status={status}&secret=AJ_SUPER_SECURE_786_PORTAL
+ *   https://YOUR_DOMAIN/api/postback?userId={tracking_id}&payout={payout}&txid={offer_id}&status={status}&secret=AJ_SUPER_SECURE_786_PORTAL
  *
- * Credits only when:
- *   - secret matches
- *   - status is lead | success | completed | 1 | approved
- *   - points > 0 (or payout > 0 fallback)
+ * userReward = Math.floor(parseFloat(payout) * 200)
  */
 function readParams(url: URL, body: Record<string, unknown>) {
   const g = (k: string) => String(url.searchParams.get(k) || body[k] || '');
@@ -40,7 +40,7 @@ function readParams(url: URL, body: Record<string, unknown>) {
       g('lead_id') ||
       '',
     points: Math.floor(Number(g('points') || g('coins') || g('reward') || 0)) || 0,
-    amount: parseFloat(g('amount') || g('payout') || g('revenue') || '0') || 0,
+    payout: parseFloat(g('payout') || g('amount') || g('revenue') || '0') || 0,
     secret: g('secret') || g('key') || g('token') || g('password'),
     sig: g('sig') || g('signature'),
     status: (g('status') || g('event') || g('state') || 'completed').toLowerCase(),
@@ -70,6 +70,16 @@ function verifySecret(params: ReturnType<typeof readParams>): boolean {
 
 function isSuccessStatus(status: string): boolean {
   return /^(lead|success|completed|complete|approved|ok|1|true)$/i.test(status.trim());
+}
+
+function computeUserReward(payout: number, legacyPoints: number): number {
+  // Primary: profit lock — floor(payoutUSD * 200)
+  if (Number.isFinite(payout) && payout > 0) {
+    return Math.floor(parseFloat(String(payout)) * PAYOUT_TO_USER_COINS);
+  }
+  // Legacy fallback if network only sends pre-scaled user points
+  if (legacyPoints > 0) return Math.floor(legacyPoints);
+  return 0;
 }
 
 async function handle(request: Request) {
@@ -109,40 +119,38 @@ async function handle(request: Request) {
       );
     }
 
-    // Prefer explicit points from CPAGrip; else require positive payout
-    const coins =
-      params.points > 0
-        ? params.points
-        : params.amount > 0
-          ? Math.max(1, Math.floor(params.amount * 100))
-          : 0;
-
-    if (coins <= 0) {
+    const userReward = computeUserReward(params.payout, params.points);
+    if (userReward <= 0) {
       return NextResponse.json(
-        { ok: false, error: 'invalid_points', message: 'points must be > 0' },
+        {
+          ok: false,
+          error: 'invalid_payout',
+          message: 'payout must be > 0 (userReward = floor(payout * 200))',
+        },
         { status: 400 }
       );
     }
 
     const txRaw =
       params.txId ||
-      `${params.uid}_${params.status}_${coins}_${url.searchParams.get('offer_id') || Date.now()}`;
+      `${params.uid}_${params.status}_${userReward}_${url.searchParams.get('offer_id') || Date.now()}`;
     const txId = `cpagrip_${txRaw}`.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 180);
 
     const result = await applyFlatCoins({
       uid: params.uid,
       txId,
       source: 'offerwall',
-      coins,
+      coins: userReward,
       meta: {
-        providerAmount: params.amount,
-        points: coins,
+        providerPayout: params.payout,
+        multiplier: PAYOUT_TO_USER_COINS,
+        userReward,
         status: params.status,
         via: 'cpagrip_postback',
         fromPostback: true,
       },
       ledgerCollection: 'offerwall_ledger',
-      enforceDailyCap: false, // network postbacks are authoritative; ledger idempotency still applies
+      enforceDailyCap: false,
     });
 
     if (!result.ok) {
@@ -152,7 +160,6 @@ async function handle(request: Request) {
       );
     }
 
-    // CPAGrip often expects plain OK
     const accept = request.headers.get('accept') || '';
     if (accept.includes('text/plain') || url.searchParams.get('format') === 'text') {
       return new NextResponse(result.duplicate ? 'DUPLICATE' : 'OK', {
@@ -165,6 +172,8 @@ async function handle(request: Request) {
       ok: true,
       duplicate: !!result.duplicate,
       userId: params.uid,
+      providerPayout: params.payout,
+      multiplier: PAYOUT_TO_USER_COINS,
       creditedCoins: result.balanceCredited ?? 0,
       message: result.duplicate
         ? 'Already credited'

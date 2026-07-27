@@ -18,8 +18,8 @@ export const metadata = {
 
 /**
  * Root layout — premium dark shell.
- * Games bridge only. No push/popunder/gozen/alwingulla scripts.
- * Fake “$50,000 credited / new message” floating toasts are deleted on sight.
+ * ONLY allowed ad SDK: Monetag zone 11377822 (loaded on demand with data-sdk).
+ * Blocks sunny-sprout / gozen / alwingulla / popunder / fake credit toasts.
  */
 export default function RootLayout({
   children,
@@ -60,9 +60,9 @@ export default function RootLayout({
             }
             (function () {
               var BLOCKED_SRC = [
-                'tag.gozen.com','gozen.com','alwingulla.com','push.min.js','push.js',
-                'in-page-push','inpagepush','popunder','multi-tag','multitag',
-                'propeller','notification.js','onclicka'
+                'tag.gozen.com','gozen.com','alwingulla.com','sunny-sprout.org','sunnysprout',
+                'push.min.js','push.js','in-page-push','inpagepush','popunder','multi-tag',
+                'multitag','smartlink','smart-tag','propeller','notification.js','onclicka'
               ];
               var FAKE_TOAST = [
                 'you have 1 new message','new message!','demo account','$50,000',
@@ -72,12 +72,17 @@ export default function RootLayout({
                 try {
                   document.querySelectorAll('script[src]').forEach(function (el) {
                     var src = (el.getAttribute('src') || '').toLowerCase();
-                    if (el.hasAttribute('data-sdk') && src.indexOf('nap5k.com') !== -1) return;
+                    var zone = el.getAttribute('data-zone') || '';
+                    if (el.hasAttribute('data-sdk') && src.indexOf('nap5k.com') !== -1 && zone === '11377822') return;
                     for (var i = 0; i < BLOCKED_SRC.length; i++) {
                       if (src.indexOf(BLOCKED_SRC[i]) !== -1) {
                         try { el.remove(); } catch (e) {}
                         return;
                       }
+                    }
+                    // Block bare Monetag tags without our zone data-sdk
+                    if (src.indexOf('nap5k.com') !== -1 && !el.hasAttribute('data-sdk')) {
+                      try { el.remove(); } catch (e0) {}
                     }
                   });
                 } catch (e2) {}
@@ -112,7 +117,7 @@ export default function RootLayout({
                   '[class*="push-notification"],[class*="push_notification"],[class*="in-page-push"],',
                   '[class*="inpagepush"],[id*="push-notification"],[id*="in-page-push"],',
                   'iframe[src*="push"],iframe[src*="inpage"],iframe[src*="ipp"],',
-                  'iframe[src*="gozen"],iframe[src*="alwingulla"]{',
+                  'iframe[src*="gozen"],iframe[src*="alwingulla"],iframe[src*="sunny-sprout"]{',
                   'display:none!important;visibility:hidden!important;pointer-events:none!important;opacity:0!important;}'
                 ].join('');
                 document.head.appendChild(style);

@@ -3,6 +3,7 @@
 import { useCallback, useState } from 'react';
 import { Calculator, Loader2 } from 'lucide-react';
 import { MATH_CHALLENGE_COINS } from '../lib/reward-sources';
+import { guardClick } from '../lib/ad-guards';
 
 type Props = {
   user: { uid: string; getIdToken: () => Promise<string> } | null;
@@ -55,7 +56,8 @@ export default function DailyMathChallenge({ user, onAlert, onRefreshUser }: Pro
     [user]
   );
 
-  const startChallenge = async () => {
+  const startChallenge = async (e?: { preventDefault?: () => void; stopPropagation?: () => void }) => {
+    guardClick(e);
     if (!user) return onAlert('Please sign in first', '🔒');
     if (busy) return;
     setBusy(true);
@@ -80,7 +82,8 @@ export default function DailyMathChallenge({ user, onAlert, onRefreshUser }: Pro
     }
   };
 
-  const submitAnswer = async () => {
+  const submitAnswer = async (e?: { preventDefault?: () => void; stopPropagation?: () => void }) => {
+    guardClick(e);
     if (!user || !sessionId) return;
     if (busy) return;
     const n = Math.floor(Number(answer));
@@ -155,7 +158,7 @@ export default function DailyMathChallenge({ user, onAlert, onRefreshUser }: Pro
           <button
             type="button"
             disabled={busy || !user}
-            onClick={() => void submitAnswer()}
+            onClick={(e) => void submitAnswer(e)}
             className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-500 text-black text-xs font-black flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]"
           >
             {busy ? (
@@ -171,7 +174,7 @@ export default function DailyMathChallenge({ user, onAlert, onRefreshUser }: Pro
         <button
           type="button"
           disabled={busy || !user}
-          onClick={() => void startChallenge()}
+          onClick={(e) => void startChallenge(e)}
           className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-500 text-black text-xs font-black flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]"
         >
           {busy ? (

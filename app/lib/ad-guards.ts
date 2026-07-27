@@ -1,6 +1,6 @@
 /**
  * Block Monetag push / in-page-push / popunder / floating notification ads.
- * Only rewarded interstitial (show_{zone} type:end) is allowed via monetag-client.
+ * Only rewarded interstitial (show_11377822 type:end) is allowed via monetag-client.
  */
 
 const BLOCKED_SCRIPT_SNIPPETS = [
@@ -14,11 +14,16 @@ const BLOCKED_SCRIPT_SNIPPETS = [
   'onclick',
   'multi-tag',
   'multitag',
+  'smartlink',
+  'smart-tag',
+  'smarttag',
   'notification',
   'tag.gozen.com',
   'gozen.com',
   'alwingulla.com',
   'alwingulla',
+  'sunny-sprout.org',
+  'sunnysprout',
 ];
 
 const BLOCKED_HOST_SNIPPETS = [
@@ -28,6 +33,8 @@ const BLOCKED_HOST_SNIPPETS = [
   'gozen.',
   'tag.gozen',
   'alwingulla.',
+  'sunny-sprout',
+  'sunnysprout',
 ];
 
 /** DOM selectors for Monetag / Propeller in-page push notification widgets */
@@ -46,6 +53,9 @@ const INTRUSIVE_AD_SELECTORS = [
   'iframe[src*="notification"]',
   'iframe[src*="inpage"]',
   'iframe[src*="ipp"]',
+  'iframe[src*="gozen"]',
+  'iframe[src*="alwingulla"]',
+  'iframe[src*="sunny-sprout"]',
   'div[style*="z-index: 214748"]',
   'div[style*="z-index:214748"]',
 ].join(',');
@@ -53,9 +63,12 @@ const INTRUSIVE_AD_SELECTORS = [
 function scriptLooksBlocked(src: string, text = ''): boolean {
   const hay = `${src} ${text}`.toLowerCase();
   if (!hay.trim()) return false;
-  if (hay.includes('data-sdk') || hay.includes('show_11377822')) return false;
-  // Allow our interstitial SDK tag only
-  if (hay.includes('nap5k.com/tag.min.js') && hay.includes('data-sdk')) return false;
+  if (hay.includes('data-sdk') && hay.includes('show_11377822')) return false;
+  // Allow ONLY zone 11377822 interstitial SDK tag with data-sdk
+  if (hay.includes('nap5k.com/tag.min.js') && hay.includes('data-sdk') && hay.includes('11377822')) {
+    return false;
+  }
+  if (hay.includes('nap5k.com') && !hay.includes('data-sdk')) return true;
   return (
     BLOCKED_SCRIPT_SNIPPETS.some((s) => hay.includes(s)) ||
     BLOCKED_HOST_SNIPPETS.some((s) => hay.includes(s))
@@ -83,7 +96,6 @@ function nodeLooksLikeFloatingNotif(el: Element): boolean {
     const z = Number.parseInt(style.zIndex || '0', 10) || 0;
     if ((pos === 'fixed' || pos === 'sticky') && z >= 99990) {
       const rect = el.getBoundingClientRect();
-      // Small floating toast / notification shape (not full-screen interstitial)
       if (rect.width > 0 && rect.width < 420 && rect.height > 0 && rect.height < 220) {
         const cls = `${el.className || ''} ${el.id || ''}`.toLowerCase();
         if (
@@ -117,7 +129,6 @@ export function stripIntrusiveAdNodes(root: ParentNode = document): number {
         /* ignore */
       }
     });
-    // Scan fixed widgets for demo-account style notification ads
     document.querySelectorAll('body *').forEach((el) => {
       if (!(el instanceof HTMLElement)) return;
       if (nodeLooksLikeFloatingNotif(el)) {
@@ -142,7 +153,8 @@ export function blockIntrusiveAdScripts(): void {
       const src = script.getAttribute('src') || '';
       const text = script.textContent || '';
       const hasSdk = script.hasAttribute('data-sdk');
-      if (hasSdk && src.includes('nap5k.com')) return;
+      const zone = script.getAttribute('data-zone') || '';
+      if (hasSdk && src.includes('nap5k.com') && zone === '11377822') return;
       if (scriptLooksBlocked(src, text)) {
         try {
           script.remove();
@@ -156,11 +168,23 @@ export function blockIntrusiveAdScripts(): void {
   }
 }
 
+/**
+ * Stop popunder / hijack scripts from capturing button clicks.
+ * Call at the start of every earn / nav button handler.
+ */
+export function guardClick(e?: { preventDefault?: () => void; stopPropagation?: () => void } | null) {
+  try {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+  } catch {
+    /* ignore */
+  }
+}
+
 let guardStarted = false;
 
 /**
  * Install MutationObserver + interval to keep push/popunder/IPP ads off the page.
- * Safe to call multiple times.
  */
 export function startIntrusiveAdGuard(): () => void {
   if (typeof window === 'undefined' || typeof document === 'undefined') {
@@ -183,7 +207,15 @@ export function startIntrusiveAdGuard(): () => void {
         if (node instanceof HTMLScriptElement) {
           const src = node.getAttribute('src') || '';
           const text = node.textContent || '';
-          if (!node.hasAttribute('data-sdk') && scriptLooksBlocked(src, text)) {
+          const zone = node.getAttribute('data-zone') || '';
+          if (
+            node.hasAttribute('data-sdk') &&
+            src.includes('nap5k.com') &&
+            zone === '11377822'
+          ) {
+            return;
+          }
+          if (scriptLooksBlocked(src, text)) {
             try {
               node.remove();
             } catch {
@@ -225,9 +257,8 @@ export function startIntrusiveAdGuard(): () => void {
   const interval = window.setInterval(() => {
     blockIntrusiveAdScripts();
     stripIntrusiveAdNodes();
-  }, 2000);
+  }, 1500);
 
-  // Inject CSS kill-switch for common IPP / push skins
   try {
     if (!document.getElementById('aj-block-intrusive-ads')) {
       const style = document.createElement('style');
@@ -241,7 +272,10 @@ export function startIntrusiveAdGuard(): () => void {
         [id*="in-page-push"],
         iframe[src*="push"],
         iframe[src*="inpage"],
-        iframe[src*="ipp"] {
+        iframe[src*="ipp"],
+        iframe[src*="gozen"],
+        iframe[src*="alwingulla"],
+        iframe[src*="sunny-sprout"] {
           display: none !important;
           visibility: hidden !important;
           pointer-events: none !important;

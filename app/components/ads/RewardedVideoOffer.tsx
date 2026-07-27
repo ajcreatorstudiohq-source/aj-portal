@@ -18,7 +18,7 @@ import {
   showMonetagRewarded,
   SDK_TRIGGER_TIMEOUT_MS,
 } from '../../lib/monetag-client';
-import { startIntrusiveAdGuard } from '../../lib/ad-guards';
+import { guardClick, startIntrusiveAdGuard } from '../../lib/ad-guards';
 
 type Props = {
   user: { uid: string; getIdToken: () => Promise<string> } | null;
@@ -55,7 +55,8 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
     };
   }, []);
 
-  const watch = useCallback(async () => {
+  const watch = useCallback(async (e?: { preventDefault?: () => void; stopPropagation?: () => void }) => {
+    guardClick(e);
     if (!user) return onAlert('Please sign in to earn from video ads', '🔒');
     if (busy) return;
     const now = Date.now();
@@ -211,7 +212,7 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
       <button
         type="button"
         disabled={busy || !user || phase === 'watching'}
-        onClick={() => void watch()}
+        onClick={(e) => void watch(e)}
         className="w-full py-3 rounded-xl bg-gradient-to-r from-cyan-400 to-blue-500 text-black text-xs font-black flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]"
       >
         {busy || phase === 'loading' ? (
