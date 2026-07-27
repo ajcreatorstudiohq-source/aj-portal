@@ -11,18 +11,28 @@
     
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;900&family=Audiowide&display=swap" rel="stylesheet">
 
-    <!-- AJ SDK + progress — inlined (single-file game, DO NOT REMOVE) -->
+    <!-- AJ SDK + Adsterra + progress — FULLY INLINED (single file) -->
     <script>
     window.AJ_SDK = {
         directLink: 'https://www.effectivecpmnetwork.com/b8jtkn6i4?key=77409a0e0aa4602b6d03798ff53516b3',
+        network: 'adsterra',
         showAd: function () {
             try {
                 var url = this.directLink;
-                window.open(url, '_blank', 'noopener,noreferrer');
-                if (window.parent && window.parent !== window) {
-                    window.parent.postMessage({ type: 'GAME_SHOW_AD', network: 'adsterra' }, '*');
+                var win = null;
+                try { win = window.open(url, '_blank', 'noopener,noreferrer'); } catch (e1) {}
+                if (!win) {
+                    // Mobile / popup blocked → navigate (user can back)
+                    try { window.location.href = url; } catch (e2) {}
                 }
-            } catch (e) { console.log('SDK: showAd failed', e); }
+                if (window.parent && window.parent !== window) {
+                    window.parent.postMessage({ type: 'GAME_SHOW_AD', network: 'adsterra', placement: 'games_interstitial' }, '*');
+                }
+                return true;
+            } catch (e) {
+                console.log('SDK: Adsterra showAd failed', e);
+                return false;
+            }
         },
         sendScore: function () {},
         addBalance: function () {},
