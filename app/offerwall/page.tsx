@@ -29,7 +29,7 @@ function readQueryUid(): string {
 }
 
 /**
- * Offer Partners bridge — opens CPAGrip view.php with Firebase uid as tracking_id.
+ * Offer Partners bridge — opens CPAGrip ridefiles show.php with Firebase uid as tracking_id.
  * Credits only via /api/postback.
  */
 export default function OfferwallPage() {

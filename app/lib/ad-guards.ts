@@ -17,6 +17,8 @@ const BLOCKED_SCRIPT_SNIPPETS = [
   'notification',
   'tag.gozen.com',
   'gozen.com',
+  'alwingulla.com',
+  'alwingulla',
 ];
 
 const BLOCKED_HOST_SNIPPETS = [
@@ -25,6 +27,7 @@ const BLOCKED_HOST_SNIPPETS = [
   'notif.',
   'gozen.',
   'tag.gozen',
+  'alwingulla.',
 ];
 
 /** DOM selectors for Monetag / Propeller in-page push notification widgets */
