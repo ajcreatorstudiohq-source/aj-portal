@@ -18,6 +18,9 @@ export const ADSTERRA_REWARDED_LINK =
 
 export const ADSTERRA_REWARD_COINS = 5;
 
+/** Watch-ad verification timer before Claim unlocks (high-quality visit) */
+export const ADSTERRA_VERIFY_SECONDS = 30;
+
 /** Insert native banner after every N posts */
 export const INFEED_AD_EVERY_N = 4;
 

@@ -2,7 +2,6 @@ import './globals.css'
 import { Space_Grotesk, Syne } from 'next/font/google'
 import Script from 'next/script'
 import {
-  ADSTERRA_NATIVE_BANNER_ID,
   ADSTERRA_NATIVE_BANNER_SRC,
   ADSTERRA_REWARDED_LINK,
   ADSTERRA_SOCIAL_BAR_SRC,
@@ -168,12 +167,7 @@ export default function RootLayout({
         style={{ fontFamily: 'var(--font-aj-body), system-ui, sans-serif' }}
       >
         {children}
-        {/* Adsterra Native Banner host (layout) */}
-        <div
-          id={ADSTERRA_NATIVE_BANNER_ID}
-          className="sr-only"
-          aria-hidden="true"
-        />
+        {/* Adsterra Native Banner invoke.js — container lives in TikReel/Pulse slots */}
         <Script
           src={ADSTERRA_NATIVE_BANNER_SRC}
           strategy="afterInteractive"
