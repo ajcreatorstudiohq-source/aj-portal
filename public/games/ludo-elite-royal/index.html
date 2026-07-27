@@ -20,16 +20,13 @@
         showAd: function () {
             try {
                 var url = this.directLink;
+                // Never navigate away from the game tab (breaks lobby / join)
                 var win = null;
                 try { win = window.open(url, '_blank', 'noopener,noreferrer'); } catch (e1) {}
-                if (!win) {
-                    // Mobile / popup blocked → navigate (user can back)
-                    try { window.location.href = url; } catch (e2) {}
-                }
                 if (window.parent && window.parent !== window) {
                     window.parent.postMessage({ type: 'GAME_SHOW_AD', network: 'adsterra', placement: 'games_interstitial' }, '*');
                 }
-                return true;
+                return !!win || true;
             } catch (e) {
                 console.log('SDK: Adsterra showAd failed', e);
                 return false;
@@ -663,26 +660,19 @@ let adTimerId = null;
 function triggerAdsterraAd(force) {
     const mustFire = force !== false;
     const now = Date.now();
-    // Only block accidental double-taps within 1.5s unless forced gate
     if (!mustFire && now - lastAnyAdShownTime < 1500) {
         console.log('[Adsterra] debounce skip');
         return false;
     }
 
     let fired = false;
-    const openLink = function () {
-        try {
-            if (typeof AJ_SDK !== 'undefined' && typeof AJ_SDK.showAd === 'function') {
-                AJ_SDK.showAd();
-                return true;
-            }
-        } catch (e) {}
-        try {
+    try {
+        if (typeof AJ_SDK !== 'undefined' && typeof AJ_SDK.showAd === 'function') {
+            AJ_SDK.showAd();
+            fired = true;
+        } else {
             var win = window.open(ADSTERRA_DIRECT_LINK, '_blank', 'noopener,noreferrer');
-            if (!win) {
-                // Mobile popup blocked → same-tab fallback
-                try { window.location.assign(ADSTERRA_DIRECT_LINK); } catch (e2) {}
-            }
+            // Do NOT location.assign — that kills lobby/join on mobile
             if (typeof window.parent !== 'undefined' && window.parent !== window) {
                 try {
                     window.parent.postMessage({
@@ -692,14 +682,13 @@ function triggerAdsterraAd(force) {
                     }, '*');
                 } catch (e3) {}
             }
-            return true;
-        } catch (e) {
-            console.warn('[Adsterra] open failed', e);
-            return false;
+            fired = true;
+            void win;
         }
-    };
-
-    fired = openLink();
+    } catch (e) {
+        console.warn('[Adsterra] open failed', e);
+        fired = false;
+    }
     if (fired) {
         lastAnyAdShownTime = Date.now();
         lastInterstitialAdTime = Date.now();
@@ -1274,15 +1263,32 @@ function genRoomCode() {
     for (let i = 0; i < 4; i++) code += alphabet[Math.floor(Math.random() * alphabet.length)];
     return code;
 }
-function roomPath(code) { return ROOM_ROOT + '/' + code; }
+function normalizeRoomCode(raw) {
+    let id = String(raw || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!id) return '';
+    // Friends often type only the 4 chars after AJ
+    if (id.length === 4 && id.indexOf('AJ') !== 0) id = 'AJ' + id;
+    return id;
+}
+function roomPath(code) { return ROOM_ROOT + '/' + normalizeRoomCode(code); }
 function myPlayerPayload(ready) {
+    const nameEl = document.getElementById('user-name-input');
+    const rawName = (nameEl && nameEl.value) ? nameEl.value : (isHost ? 'HOST' : 'GUEST');
     return {
-        name: (document.getElementById('user-name-input').value || (isHost ? 'HOST' : 'GUEST')).slice(0, 12),
-        avatar: myAvatarIdx,
+        name: String(rawName).replace(/[^\w\s]/g, '').trim().slice(0, 12) || (isHost ? 'HOST' : 'GUEST'),
+        avatar: Number(myAvatarIdx) || 0,
         ready: !!ready,
-        uid: portalUid || resolvePortalUid(),
+        uid: String(portalUid || resolvePortalUid()),
         joinedAt: Date.now()
     };
+}
+function firebaseErrText(err) {
+    const code = (err && err.code) || '';
+    const msg = (err && err.message) || String(err || 'error');
+    if (code.indexOf('permission_denied') >= 0 || msg.indexOf('PERMISSION_DENIED') >= 0) {
+        return 'Firebase RTDB rules block lobbies — deploy database.rules.json';
+    }
+    return msg.slice(0, 90);
 }
 function detachRoomListeners() {
     try { if (myRoomRef) myRoomRef.off(); } catch (e) {}
@@ -1450,128 +1456,167 @@ async function initHostRoom() {
     roomPlayers[mySlot] = myPlayerPayload(true);
 
     let code = genRoomCode();
-    if (rtdb) {
-        for (let attempt = 0; attempt < 6; attempt++) {
-            const exists = await rtdb.ref(roomPath(code)).once('value');
-            if (!exists.val()) break;
-            code = genRoomCode();
-        }
-    }
-    roomCode = code;
-
     document.getElementById('id-display-box').style.display = 'block';
-    document.getElementById('my-peer-id').innerText = roomCode;
+    document.getElementById('my-peer-id').innerText = '….';
     document.getElementById('whatsapp-share-btn').style.display = 'block';
-    document.getElementById('player-status').innerText = 'Waiting for friends… (1/' + playerCount + ')';
+    document.getElementById('player-status').innerText = 'Creating private room…';
     document.getElementById('start-game-btn').style.display = 'none';
     const readyBtn = document.getElementById('ready-btn');
     if (readyBtn) readyBtn.style.display = 'none';
 
     if (!rtdb) {
+        roomCode = code;
+        document.getElementById('my-peer-id').innerText = roomCode;
         document.getElementById('player-status').innerText = 'Offline — Firebase unavailable';
         document.getElementById('start-game-btn').style.display = 'block';
         renderLobbyPlayers();
         return;
     }
 
-    detachRoomListeners();
-    const roomRef = rtdb.ref(roomPath(roomCode));
-    const payload = {
-        meta: {
-            hostUid: portalUid,
-            count: playerCount,
-            mode: gameMode,
-            level: selectedLevel.name,
-            boardSkin: inventory.selectedBoard || 0,
-            created: Date.now(),
-            version: 2
-        },
-        seats: { 2: roomPlayers[mySlot] },
-        started: false,
-        chat: null,
-        gameState: null
-    };
-    await roomRef.set(payload);
-    await rtdb.ref(CODE_ROOT + '/' + roomCode).set({ path: roomPath(roomCode), created: Date.now() });
     try {
-        roomRef.onDisconnect().remove();
-        rtdb.ref(CODE_ROOT + '/' + roomCode).onDisconnect().remove();
-    } catch (e) {}
-    bindLobbyRoom(roomRef);
-    attachChatListener();
-    renderLobbyPlayers();
+        for (let attempt = 0; attempt < 8; attempt++) {
+            const exists = await rtdb.ref(roomPath(code)).once('value');
+            if (!exists.val()) break;
+            code = genRoomCode();
+        }
+        roomCode = code;
+        document.getElementById('my-peer-id').innerText = roomCode;
+
+        detachRoomListeners();
+        const roomRef = rtdb.ref(roomPath(roomCode));
+        const payload = {
+            meta: {
+                hostUid: String(portalUid),
+                count: Number(playerCount) || 2,
+                mode: String(gameMode || 'classic'),
+                level: (selectedLevel && selectedLevel.name) ? selectedLevel.name : 'Street Play',
+                boardSkin: Number(inventory.selectedBoard) || 0,
+                created: Date.now(),
+                version: 3
+            },
+            seats: {},
+            started: false
+        };
+        payload.seats[String(mySlot)] = myPlayerPayload(true);
+
+        await roomRef.set(payload);
+        await rtdb.ref(CODE_ROOT + '/' + roomCode).set({
+            path: roomPath(roomCode),
+            created: Date.now()
+        });
+
+        // Only clear MY seat on disconnect — do NOT delete whole room
+        // (mobile background used to wipe lobby ID for friends)
+        try {
+            roomRef.child('seats/' + mySlot).onDisconnect().remove();
+        } catch (e) {}
+
+        bindLobbyRoom(roomRef);
+        attachChatListener();
+        renderLobbyPlayers();
+        document.getElementById('player-status').innerText =
+            'Room LIVE — share code ' + roomCode + ' (1/' + playerCount + ')';
+        showAlert('Room code: ' + roomCode);
+        console.log('[Lobby] host room ready', roomCode, roomPath(roomCode));
+    } catch (err) {
+        console.error('[Lobby] create failed', err);
+        document.getElementById('my-peer-id').innerText = roomCode || 'ERR';
+        document.getElementById('player-status').innerText = 'Create failed: ' + firebaseErrText(err);
+        showAlert(firebaseErrText(err));
+    }
 }
 
 function joinFriendFromHome() {
-    const id = (document.getElementById('home-join-id').value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const id = normalizeRoomCode(document.getElementById('home-join-id').value);
     if (!id) return showAlert('Enter Room Code!');
     joinRoomByCode(id);
 }
 
-function joinRoomByCode(id) {
+function enterLobbyAsGuest(roomRef, slot) {
+    detachRoomListeners();
+    mySlot = slot;
+    const myData = myPlayerPayload(true);
+    return roomRef.child('seats/' + slot).set(myData).then(() => {
+        try { roomRef.child('seats/' + slot).onDisconnect().remove(); } catch (e) {}
+        bindLobbyRoom(roomRef);
+        attachChatListener();
+        switchScreen('lobby-screen');
+        document.getElementById('id-display-box').style.display = 'block';
+        document.getElementById('my-peer-id').innerText = roomCode;
+        document.getElementById('whatsapp-share-btn').style.display = 'block';
+        document.getElementById('start-game-btn').style.display = 'none';
+        document.getElementById('player-status').innerText = 'Joined ' + roomCode + ' — waiting for host…';
+        const readyBtn = document.getElementById('ready-btn');
+        if (readyBtn) { readyBtn.style.display = 'block'; readyBtn.innerText = 'READY ✓'; }
+        renderLobbyPlayers();
+        showAlert('Joined live room ' + roomCode);
+        // Optional ad AFTER join succeeds (does not navigate away)
+        try { triggerAdsterraAd(true); } catch (e) {}
+    });
+}
+
+function joinRoomByCode(rawId) {
     portalUid = resolvePortalUid();
+    const id = normalizeRoomCode(rawId);
+    if (!id) return showAlert('Enter Room Code!');
     roomCode = id;
     isHost = false;
     isBotMode = false;
     onlineMatchLive = false;
     if (!rtdb) { showAlert('Online needs Firebase!'); return; }
 
-    const roomRef = rtdb.ref(roomPath(roomCode));
-    roomRef.once('value').then((snap) => {
-        let data = snap.val();
-        const finishJoin = (roomData) => {
-            if (!roomData) { showAlert('Room not found!'); return; }
-            if (roomData.started === true) { showAlert('Match already started!'); return; }
-            playerCount = (roomData.meta && roomData.meta.count) || roomData.count || 2;
-            gameMode = (roomData.meta && roomData.meta.mode) || roomData.mode || 'classic';
-            const tName = (roomData.meta && roomData.meta.level) || roomData.level;
-            selectedLevel = tables.find((t) => t.name === tName) || tables[0];
-            if (roomData.meta && typeof roomData.meta.boardSkin === 'number') {
-                inventory.selectedBoard = roomData.meta.boardSkin;
-            }
-            const seats = seatMapFromRoom(roomData);
-            const taken = Object.keys(seats).map((k) => parseInt(k, 10));
-            // Rejoin same uid seat if reconnecting
-            let slot = -1;
-            Object.keys(seats).forEach((k) => {
-                const si = parseInt(k, 10);
-                if (seats[k] && seats[k].uid && seats[k].uid === portalUid) slot = si;
-            });
-            if (slot === -1) {
-                const order = [0, 1, 3];
-                for (let i = 0; i < order.length; i++) {
-                    if (!taken.includes(order[i])) { slot = order[i]; break; }
-                }
-            }
-            if (slot === -1 || (taken.length >= playerCount && !seats[slot])) { showAlert('Room full!'); return; }
-            mySlot = slot;
-            const myData = myPlayerPayload(true);
-            showAdOverlay(0, function () {
-                roomRef.child('seats/' + slot).set(myData).then(() => {
-                    try { roomRef.child('seats/' + slot).onDisconnect().remove(); } catch (e) {}
-                    detachRoomListeners();
-                    bindLobbyRoom(roomRef);
-                    attachChatListener();
-                    switchScreen('lobby-screen');
-                    document.getElementById('id-display-box').style.display = 'block';
-                    document.getElementById('my-peer-id').innerText = roomCode;
-                    document.getElementById('whatsapp-share-btn').style.display = 'block';
-                    document.getElementById('start-game-btn').style.display = 'none';
-                    document.getElementById('player-status').innerText = 'Joined! Waiting for host…';
-                    const readyBtn = document.getElementById('ready-btn');
-                    if (readyBtn) { readyBtn.style.display = 'block'; readyBtn.innerText = 'READY ✓'; }
-                    renderLobbyPlayers();
-                    showAlert('Joined live room ' + roomCode);
-                }).catch(() => showAlert('Join failed'));
-            });
-        };
-        if (data) return finishJoin(data);
-        return rtdb.ref(CODE_ROOT + '/' + roomCode).once('value').then((cSnap) => {
-            const idx = cSnap.val();
-            if (!idx || !idx.path) { showAlert('Room not found!'); return; }
-            return rtdb.ref(idx.path).once('value').then((r2) => finishJoin(r2.val()));
+    showAlert('Joining ' + id + '…');
+    const tryPaths = [roomPath(id)];
+    // Also try code index
+    const finishJoin = (roomRef, roomData) => {
+        if (!roomData) { showAlert('Room not found: ' + id); return Promise.reject(new Error('missing')); }
+        if (roomData.started === true) { showAlert('Match already started!'); return Promise.reject(new Error('started')); }
+        playerCount = (roomData.meta && roomData.meta.count) || roomData.count || 2;
+        gameMode = (roomData.meta && roomData.meta.mode) || roomData.mode || 'classic';
+        const tName = (roomData.meta && roomData.meta.level) || roomData.level;
+        selectedLevel = tables.find((t) => t.name === tName) || tables[0];
+        if (roomData.meta && typeof roomData.meta.boardSkin === 'number') {
+            inventory.selectedBoard = roomData.meta.boardSkin;
+        }
+        const seats = seatMapFromRoom(roomData);
+        const taken = Object.keys(seats).map((k) => parseInt(k, 10));
+        let slot = -1;
+        Object.keys(seats).forEach((k) => {
+            const si = parseInt(k, 10);
+            if (seats[k] && seats[k].uid && String(seats[k].uid) === String(portalUid)) slot = si;
         });
-    }).catch(() => { showAlert('Connection error!'); showHome(); });
+        if (slot === -1) {
+            const order = [0, 1, 3];
+            for (let i = 0; i < order.length; i++) {
+                if (!taken.includes(order[i])) { slot = order[i]; break; }
+            }
+        }
+        if (slot === -1 || (taken.length >= playerCount && seats[slot] && String(seats[slot].uid) !== String(portalUid))) {
+            showAlert('Room full!');
+            return Promise.reject(new Error('full'));
+        }
+        // Join immediately — NO ad gate before seat write (ads used to cancel join)
+        return enterLobbyAsGuest(roomRef, slot);
+    };
+
+    const roomRef = rtdb.ref(tryPaths[0]);
+    roomRef.once('value').then((snap) => {
+        const data = snap.val();
+        if (data) return finishJoin(roomRef, data);
+        return rtdb.ref(CODE_ROOT + '/' + id).once('value').then((cSnap) => {
+            const idx = cSnap.val();
+            if (!idx || !idx.path) {
+                showAlert('Room not found: ' + id);
+                return;
+            }
+            const altRef = rtdb.ref(idx.path);
+            return altRef.once('value').then((r2) => finishJoin(altRef, r2.val()));
+        });
+    }).catch((err) => {
+        if (err && (err.message === 'missing' || err.message === 'started' || err.message === 'full')) return;
+        console.error('[Lobby] join failed', err);
+        showAlert(firebaseErrText(err));
+    });
 }
 
 function applySeatCosmetics() {
