@@ -337,13 +337,13 @@ export function showMonetagRewarded(
             }
           }, SDK_TRIGGER_TIMEOUT_MS);
 
+          // Official Rewarded Interstitial ONLY — never pop / inApp / push
           let showResult: unknown;
           try {
             showResult = showFn({
               type: 'end',
               ...common,
             });
-            // Calling showFn without throw = SDK accepted the request (triggered)
             triggered = true;
             window.clearTimeout(triggerWatch);
             try {
