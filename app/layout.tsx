@@ -18,10 +18,9 @@ export const metadata = {
 
 /**
  * Root layout — premium dark shell.
- * - Games bridge (aj-sdk.js) only on every page
- * - CPAGrip offerwall script is registered here (id=1906642) but the intrusive
- *   locker UI is hosted on /offerwall so it does not hijack hub/live screens.
- * - Monetag push/popunder are NOT loaded globally (rewarded interstitial on demand).
+ * - Games bridge (aj-sdk.js) only
+ * - NO CPAGrip script_include (offer wall opens via direct show.php URL)
+ * - NO Monetag push/popunder/gozen scripts (rewarded interstitial loaded on demand only)
  */
 export default function RootLayout({
   children,
@@ -32,13 +31,6 @@ export default function RootLayout({
     <html lang="en" className={`${bodyFont.variable} ${displayFont.variable}`}>
       <head>
         <Script src="/aj-sdk.js" strategy="beforeInteractive" />
-        {/* CPAGrip Offer Wall — script_include id 1906642 */}
-        <Script
-          id="cpagrip-script-include"
-          src="https://ridefiles.net/script_include.php?id=1906642"
-          strategy="lazyOnload"
-          data-cpagrip-wall="1906642"
-        />
         <Script id="aj-sdk-init" strategy="afterInteractive">
           {`
             if (!window.AJ_SDK) {
@@ -67,29 +59,36 @@ export default function RootLayout({
                 };
               }
             }
-            // Soft-guard: if CPAGrip content locker mounts on non-offerwall routes, remove it.
+            // Kill intrusive Monetag push / popunder / gozen / floating fake-credit widgets
             (function () {
-              function scrubCpaGripLocker() {
-                try {
-                  var path = (window.location && window.location.pathname) || '';
-                  if (path.indexOf('/offerwall') === 0) return;
-                  var wall = document.getElementById('grip_wall');
-                  if (wall && wall.parentNode) wall.parentNode.removeChild(wall);
-                  var inlineBox = document.getElementById('InlineBoxMainOuterLayer');
-                  if (inlineBox && inlineBox.parentNode) inlineBox.parentNode.removeChild(inlineBox);
-                  var mainBack = document.getElementById('main_back');
-                  if (mainBack && mainBack.parentNode) mainBack.parentNode.removeChild(mainBack);
-                  var mainDiv = document.getElementById('main_div');
-                  if (mainDiv && mainDiv.parentNode) mainDiv.parentNode.removeChild(mainDiv);
-                  if (typeof window.grip_wall_forceclose === 'function') {
-                    try { window.grip_wall_forceclose(); } catch (e) {}
-                  }
-                  try { window.onbeforeunload = null; } catch (e2) {}
-                } catch (e3) {}
+              var BLOCKED = ['tag.gozen.com','gozen.com','push.min.js','in-page-push','inpagepush','popunder','multi-tag','notification'];
+              function isBlockedSrc(src) {
+                if (!src) return false;
+                var s = String(src).toLowerCase();
+                if (s.indexOf('nap5k.com/tag.min.js') !== -1) return false; // allowed interstitial SDK only when data-sdk
+                for (var i = 0; i < BLOCKED.length; i++) {
+                  if (s.indexOf(BLOCKED[i]) !== -1) return true;
+                }
+                return false;
               }
-              scrubCpaGripLocker();
-              setInterval(scrubCpaGripLocker, 1500);
-              document.addEventListener('DOMContentLoaded', scrubCpaGripLocker);
+              function scrub() {
+                try {
+                  document.querySelectorAll('script[src]').forEach(function (el) {
+                    var src = el.getAttribute('src') || '';
+                    if (el.hasAttribute('data-sdk') && src.indexOf('nap5k.com') !== -1) return;
+                    if (isBlockedSrc(src) || src.toLowerCase().indexOf('gozen') !== -1) {
+                      try { el.remove(); } catch (e) {}
+                    }
+                  });
+                  document.querySelectorAll('#grip_wall,#InlineBoxMainOuterLayer,#main_back,#main_div').forEach(function (n) {
+                    try { n.remove(); } catch (e2) {}
+                  });
+                  try { window.onbeforeunload = null; } catch (e3) {}
+                } catch (e4) {}
+              }
+              scrub();
+              setInterval(scrub, 2000);
+              document.addEventListener('DOMContentLoaded', scrub);
             })();
           `}
         </Script>

@@ -15,12 +15,16 @@ const BLOCKED_SCRIPT_SNIPPETS = [
   'multi-tag',
   'multitag',
   'notification',
+  'tag.gozen.com',
+  'gozen.com',
 ];
 
 const BLOCKED_HOST_SNIPPETS = [
   'push.',
   'ipp.',
   'notif.',
+  'gozen.',
+  'tag.gozen',
 ];
 
 /** DOM selectors for Monetag / Propeller in-page push notification widgets */

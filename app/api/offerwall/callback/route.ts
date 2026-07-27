@@ -7,12 +7,12 @@ import { applySplitReward } from '../../../lib/reward-engine';
  * GET|POST /api/offerwall/callback
  *
  * Provider postback endpoint. Validates shared secret / signature, then
- * credits the user $1–$1.50 of a $5–$7 pool and logs admin revenue.
+ * credits AJ Coins 🪙 to the user wallet and logs admin revenue.
  *
  * Query / body params (common offerwall style):
  *   uid | user_id  — Firebase uid
  *   txid | transaction_id — unique completion id
- *   amount — optional provider payout USD (informational)
+ *   amount — optional provider payout (informational)
  *   secret | key — shared secret (or HMAC via `sig`)
  *   sig — optional hex HMAC-SHA256 of `${uid}:${txid}:${secret}`
  */

@@ -4,8 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ExternalLink, Gift, Loader2 } from 'lucide-react';
 import { getAuth, onAuthStateChanged, type User } from 'firebase/auth';
 import { getApps, initializeApp } from 'firebase/app';
-import { OFFERWALL_PUBLIC } from '../lib/economy';
-import { buildCpaGripWallUrl, CPAGRIP_WALL_ID } from '../lib/cpagrip';
+import { buildCpaGripWallUrl, CPAGRIP_WALL_ID, openCpaGripOfferWall } from '../lib/cpagrip';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyDp2od-lrfAhEHV5oAIqBW5rWjaRbnAdFM',
@@ -23,21 +22,20 @@ function readQueryUid(): string {
   if (typeof window === 'undefined') return '';
   try {
     const q = new URLSearchParams(window.location.search);
-    return q.get('uid') || q.get('userId') || '';
+    return q.get('uid') || q.get('userId') || q.get('tracking_id') || '';
   } catch {
     return '';
   }
 }
 
 /**
- * CPAGrip Offer Partners host page.
- * Layout loads script_include.php?id=1906642; scrubber is skipped on /offerwall
- * so the wall can mount here. Coins credit only via /api/postback.
+ * Offer Partners bridge — immediately opens CPAGrip direct show.php URL
+ * (no script_include / raw locker UI). Credits only via /api/postback.
  */
 export default function OfferwallPage() {
   const [user, setUser] = useState<User | null>(null);
   const [queryUid, setQueryUid] = useState('');
-  const [launching, setLaunching] = useState(false);
+  const [opened, setOpened] = useState(false);
 
   useEffect(() => {
     setQueryUid(readQueryUid());
@@ -46,35 +44,20 @@ export default function OfferwallPage() {
   }, []);
 
   const trackingUid = useMemo(() => user?.uid || queryUid || '', [user?.uid, queryUid]);
-
   const wallUrl = useMemo(() => buildCpaGripWallUrl(trackingUid || null), [trackingUid]);
 
   useEffect(() => {
-    if (!trackingUid || typeof window === 'undefined') return;
-    try {
-      window.sessionStorage.setItem('aj_cpagrip_uid', trackingUid);
-    } catch {
-      /* ignore */
-    }
-  }, [trackingUid]);
-
-  function launchWall() {
-    setLaunching(true);
-    try {
-      const grip = document.getElementById('grip_wall');
-      if (grip) {
-        (grip as HTMLElement).style.display = 'block';
-        setLaunching(false);
-        return;
+    if (!trackingUid || opened) return;
+    const result = openCpaGripOfferWall(trackingUid);
+    setOpened(true);
+    if (!result.ok && wallUrl) {
+      try {
+        window.location.replace(wallUrl);
+      } catch {
+        /* ignore */
       }
-      const win = window.open(wallUrl, '_blank', 'noopener,noreferrer');
-      if (!win) {
-        window.location.assign(wallUrl);
-      }
-    } finally {
-      window.setTimeout(() => setLaunching(false), 800);
     }
-  }
+  }, [trackingUid, opened, wallUrl]);
 
   return (
     <div className="min-h-screen bg-[#050505] text-white flex flex-col">
@@ -101,70 +84,46 @@ export default function OfferwallPage() {
           >
             AJ · Offer Partners
           </p>
-          <p className="text-[10px] text-gray-400 truncate">CPAGrip wall · id {CPAGRIP_WALL_ID}</p>
+          <p className="text-[10px] text-gray-400 truncate">CPAGrip · wall {CPAGRIP_WALL_ID}</p>
         </div>
+      </header>
+
+      <main className="flex-1 flex flex-col items-center justify-center gap-5 px-6 py-12 text-center">
+        <Gift size={28} className="text-pink-300" />
+        <h1
+          className="text-xl font-black"
+          style={{ fontFamily: 'var(--font-aj-display), sans-serif' }}
+        >
+          Opening CPAGrip…
+        </h1>
+        <p className="text-[12px] text-gray-400 max-w-sm leading-relaxed">
+          Direct offer wall opens in a new tab. AJ Coins 🪙 credit only after a verified{' '}
+          <code className="text-amber-200">lead</code>/<code className="text-amber-200">success</code>{' '}
+          postback — never from opening the link.
+        </p>
+        {!trackingUid ? (
+          <p className="text-[10px] text-amber-300">Sign in on the hub so credits bind to your wallet.</p>
+        ) : (
+          <p className="text-[10px] text-cyan-400/80 font-mono truncate max-w-xs">
+            tracking_id · {trackingUid}
+          </p>
+        )}
         <a
           href={wallUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-pink-500 to-orange-400 text-black text-[10px] font-black"
+          className="inline-flex items-center gap-2 px-5 py-3 rounded-2xl bg-gradient-to-r from-cyan-400 to-blue-500 text-black text-xs font-black"
         >
-          Direct link <ExternalLink size={12} />
-        </a>
-      </header>
-
-      <div className="px-4 py-3 border-b border-white/5">
-        <div className="flex items-start gap-3 rounded-2xl border border-amber-500/20 bg-amber-950/20 p-3">
-          <Gift size={16} className="text-amber-300 shrink-0 mt-0.5" />
-          <p className="text-[11px] text-gray-300 leading-relaxed">
-            Complete a real CPAGrip offer. AJ Coins 🪙 credit only after a verified{' '}
-            <code className="text-amber-200">lead</code>/<code className="text-amber-200">success</code>{' '}
-            postback to <code className="text-cyan-300">/api/postback</code> — opening this page never
-            adds coins.
-          </p>
-        </div>
-      </div>
-
-      <main className="flex-1 flex flex-col items-center justify-center gap-6 px-6 py-12 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-pink-500/30 to-cyan-400/20 border border-white/10 flex items-center justify-center">
-          <Gift size={28} className="text-pink-300" />
-        </div>
-        <div className="space-y-2 max-w-sm">
-          <h1
-            className="text-2xl font-black tracking-tight"
-            style={{ fontFamily: 'var(--font-aj-display), sans-serif' }}
-          >
-            CPAGrip Offer Wall
-          </h1>
-          <p className="text-[12px] text-gray-400 leading-relaxed">
-            Surveys, app trials, and partner tasks. Your Firebase uid is sent as{' '}
-            <code className="text-gray-300">tracking_id</code> for secure attribution.
-          </p>
-          {trackingUid ? (
-            <p className="text-[10px] text-cyan-400/80 font-mono truncate">uid · {trackingUid}</p>
-          ) : (
-            <p className="text-[10px] text-amber-300">Sign in on the hub so credits bind to your wallet.</p>
-          )}
-        </div>
-
-        <button
-          type="button"
-          onClick={launchWall}
-          disabled={launching}
-          className="w-full max-w-xs py-3.5 rounded-2xl bg-gradient-to-r from-cyan-400 to-blue-500 text-black text-sm font-black active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-2"
-        >
-          {launching ? (
+          {opened ? (
             <>
-              <Loader2 size={16} className="animate-spin" /> Opening…
+              Open again <ExternalLink size={14} />
             </>
           ) : (
-            'Launch Offer Partners'
+            <>
+              <Loader2 size={14} className="animate-spin" /> Launching…
+            </>
           )}
-        </button>
-
-        <p className="text-[9px] text-gray-600 max-w-xs">
-          Provider · {OFFERWALL_PUBLIC.provider} · wall {OFFERWALL_PUBLIC.wallId}
-        </p>
+        </a>
       </main>
     </div>
   );

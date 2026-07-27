@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getGameById } from '../../../lib/economy';
-import { applySplitReward, markGameInstalled } from '../../../lib/reward-engine';
+import { markGameInstalled } from '../../../lib/reward-engine';
 import {
   bearerFromRequest,
   verifyFirebaseIdToken,
@@ -11,8 +11,8 @@ import {
  * Body: { gameId: string }
  * Auth: Bearer <Firebase ID token>
  *
- * Downloads/unlocks a game. First install credits via the unified
- * $5–$7 / $1–$1.50 split. Further earnings require level milestones.
+ * Unlocks a game package for play. Opening/download MUST NOT credit AJ Coins.
+ * Wallet credits only via verified CPAGrip /api/postback or milestone APIs.
  */
 export async function POST(request: Request) {
   try {
@@ -34,36 +34,17 @@ export async function POST(request: Request) {
 
     const result = await markGameInstalled(user.uid, gameId);
 
-    let reward: Awaited<ReturnType<typeof applySplitReward>> | null = null;
-    if (!result.alreadyInstalled) {
-      const txId = `earn_game_install_${user.uid}_${gameId}`;
-      reward = await applySplitReward({
-        uid: user.uid,
-        txId,
-        source: 'game_install',
-        seed: txId,
-        meta: { gameId, gameName: game.name },
-        enforceDailyCap: true,
-      });
-    }
-
-    const credited = reward && reward.ok && !reward.duplicate ? reward.balanceCredited || 0 : 0;
-
     return NextResponse.json({
       ok: true,
       gameId,
       unlockedGames: result.unlockedGames,
       alreadyInstalled: result.alreadyInstalled,
-      creditedCoins: credited,
-      userUsd: reward?.split?.userUsd,
-      adminUsd: reward?.split?.adminUsd,
-      totalPoolUsd: reward?.split?.totalUsd,
+      creditedCoins: 0,
+      pendingVerification: !result.alreadyInstalled,
       downloadUrl: game.url,
       message: result.alreadyInstalled
-        ? `${game.name} already installed — clear milestones to earn more.`
-        : credited > 0
-          ? `${game.name} downloaded! +${credited} AJ Coins. Clear levels for more.`
-          : `${game.name} installed. Clear milestone levels to earn wallet rewards.`,
+        ? `${game.name} already unlocked — clear milestones or complete CPAGrip offers for AJ Coins 🪙.`
+        : `${game.name} unlocked — Pending Verification ⏳. AJ Coins credit only after verified CPAGrip install/offer postback (click alone = 0 coins).`,
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'install_failed';

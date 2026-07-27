@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Download, ExternalLink, Play, Loader2, Gift } from 'lucide-react';
 import RewardedVideoOffer from './ads/RewardedVideoOffer';
 import BannerAdSlot from './ads/BannerAdSlot';
@@ -19,7 +19,8 @@ import {
   cleanupMonetagDom,
   ensureMonetagSdkLoaded,
   isAdCooldownActive,
-  triggerMonetagInterstitialAd,
+  showMonetagRewarded,
+  SDK_TRIGGER_TIMEOUT_MS,
 } from '../lib/monetag-client';
 import { startIntrusiveAdGuard } from '../lib/ad-guards';
 
@@ -56,8 +57,10 @@ export default function HubEarnPanel({
 }: Props) {
   const [installBusy, setInstallBusy] = useState<string | null>(null);
   const [apkBusy, setApkBusy] = useState(false);
+  const [apkPending, setApkPending] = useState(false);
   const [adBusy, setAdBusy] = useState(false);
   const [downloadPct, setDownloadPct] = useState<Record<string, number>>({});
+  const interstitialTriggeredRef = useRef(false);
 
   useEffect(() => {
     startIntrusiveAdGuard();
@@ -120,8 +123,11 @@ export default function HubEarnPanel({
         return;
       }
       onAlert(
-        data.message || `Downloaded! +${data.creditedCoins || 0} AJ Coins`,
-        '💰'
+        data.message ||
+          (data.creditedCoins > 0
+            ? `Downloaded! +${data.creditedCoins} AJ Coins 🪙`
+            : `${game.name} unlocked — Pending Verification. AJ Coins credit only after verified offer/install postback.`),
+        data.creditedCoins > 0 ? '💰' : '⏳'
       );
       await trackAdEvent(
         {
@@ -150,18 +156,19 @@ export default function HubEarnPanel({
           event: 'click',
           placement: 'hub_nav_interstitial',
           zoneId: MONETAG_INTERSTITIAL_ZONE,
-          meta: { action: 'portal_apk_download' },
+          meta: { action: 'portal_apk_download_pending' },
         },
         user
       );
 
-      // Open install target only — no free coins on click (install must be verified).
+      // Opening a download link MUST NOT credit coins.
+      // Mark Pending Verification — coins only via CPAGrip /api/postback after install confirm.
       window.open(apkUrl, '_blank', 'noopener,noreferrer');
+      setApkPending(true);
       onAlert(
-        'Install started. Coins unlock after a verified install or completed offer — not from a click alone.',
+        'Pending Verification ⏳ — Install opened. AJ Coins 🪙 credit only when CPAGrip confirms a successful install via postback. Click alone = 0 coins.',
         '📲'
       );
-      onRefreshUser?.();
     } catch (e: unknown) {
       onAlert(e instanceof Error ? e.message : 'Download failed', '⚠️');
     } finally {
@@ -175,11 +182,14 @@ export default function HubEarnPanel({
       return onAlert('Ad cooldown active — try again in a few minutes', '⏱️');
     }
     setAdBusy(true);
+    interstitialTriggeredRef.current = false;
     const hardStop = window.setTimeout(() => {
-      setAdBusy(false);
-      cleanupMonetagDom();
-      onAlert('Ad timed out (5s). Try again.', '⏱️');
-    }, 5000);
+      if (!interstitialTriggeredRef.current) {
+        setAdBusy(false);
+        cleanupMonetagDom();
+        onAlert('Ad timed out (5s). Try again.', '⏱️');
+      }
+    }, SDK_TRIGGER_TIMEOUT_MS);
     try {
       const sdkOk = await ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL_ZONE);
       if (!sdkOk) {
@@ -195,27 +205,35 @@ export default function HubEarnPanel({
         },
         user
       );
-      // force:true — user tapped Watch Interstitial intentionally (own button cooldown above)
-      const shown = await triggerMonetagInterstitialAd(MONETAG_INTERSTITIAL_ZONE, {
+      const result = await showMonetagRewarded(MONETAG_INTERSTITIAL_ZONE, {
         force: true,
         requestVar: 'hub_interstitial',
         ymid: user?.uid ? `hub_${user.uid}_${Date.now()}` : undefined,
+        onTriggered: () => {
+          interstitialTriggeredRef.current = true;
+          window.clearTimeout(hardStop);
+          setAdBusy(false);
+        },
       });
+      window.clearTimeout(hardStop);
       await trackAdEvent(
         {
-          event: shown ? 'complete' : 'fail',
+          event: result.rewarded ? 'complete' : 'fail',
           placement: 'hub_nav_interstitial',
           zoneId: MONETAG_INTERSTITIAL_ZONE,
-          meta: { networkShown: shown },
+          meta: { networkShown: result.rewarded, triggered: result.triggered },
         },
         user
       );
-      if (!shown) cleanupMonetagDom();
+      if (!result.triggered) cleanupMonetagDom();
+      // Interstitial watch = no wallet credit (use Rewarded Video for coins)
       onAlert(
-        shown
-          ? 'Thanks for watching! Earn coins via Watch Rewarded Video below.'
-          : 'No ad inventory right now — try Watch Rewarded Video.',
-        shown ? '📺' : 'ℹ️'
+        result.rewarded
+          ? 'Thanks for watching! Earn AJ Coins 🪙 via Watch Rewarded Video.'
+          : result.triggered
+            ? 'Ad closed early — no coins (use Watch Rewarded Video and finish 100%).'
+            : 'No ad inventory right now — try Watch Rewarded Video.',
+        result.rewarded ? '📺' : 'ℹ️'
       );
     } catch {
       cleanupMonetagDom();
@@ -305,8 +323,9 @@ export default function HubEarnPanel({
           <div className="min-w-0 flex-1">
             <p className="text-sm font-black text-white">Download AJ Super Portal App</p>
             <p className="text-[11px] text-gray-300 mt-0.5 leading-relaxed">
-              Install the app / PWA. Coin rewards unlock only after a verified install — opening the
-              link alone does not credit coins.
+              Opens the install link only. Status becomes{' '}
+              <span className="text-amber-300 font-bold">Pending Verification</span> — AJ Coins 🪙
+              credit only after CPAGrip confirms a successful install via postback.
             </p>
           </div>
         </div>
@@ -320,9 +339,13 @@ export default function HubEarnPanel({
             <>
               <Loader2 size={14} className="animate-spin" /> Opening…
             </>
+          ) : apkPending ? (
+            <>
+              <Download size={14} /> Pending Verification ⏳
+            </>
           ) : (
             <>
-              <Download size={14} /> Download App & Earn
+              <Download size={14} /> Download App
             </>
           )}
         </button>
@@ -369,7 +392,7 @@ export default function HubEarnPanel({
                 <p className="text-[9px] text-gray-400 truncate">
                   {installed
                     ? `Installed · Lv ${gameProgress[game.id]?.level || 0}`
-                    : 'Download & install → unlock coin reward'}
+                    : 'Download & unlock play (0 coins on click)'}
                 </p>
                 {busy && pct > 0 && pct < 100 && (
                   <div className="mt-1.5 h-1 rounded-full bg-white/10 overflow-hidden">

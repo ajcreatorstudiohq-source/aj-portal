@@ -1,6 +1,6 @@
 /**
  * Canonical multi-source earning channels for AJ Super Portal.
- * Every channel uses the same $5–$7 pool / $1–$1.50 user split.
+ * Every channel credits AJ Coins 🪙 via verified server paths only.
  */
 
 export const REWARD_SOURCES = [

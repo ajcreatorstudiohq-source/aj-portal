@@ -1,6 +1,6 @@
 /**
  * Server-side reward application with idempotency + AdminRevenue logging.
- * Unified $5–$7 pool / $1–$1.50 user split across all earning channels.
+ * Credits AJ Coins 🪙 to user wallets (UI never shows currency as USD).
  */
 import {
   collection,
