@@ -5266,11 +5266,18 @@ export function AJSuperPortal() {
         return setVvipAlert({msg:"Please fill all Card Details fields."});
     }
     try {
-      const usdVal = balance / CASH_RATE;
-      const payoutDetails: any = { payoutAddress: payoutId, cardHolder, cardNumber, cardExpiry, cardCVV, cardBank, cardCountry };
+      const payoutDetails: Record<string, string> = {
+        payoutAddress: payoutId,
+        cardHolder,
+        cardNumber,
+        cardExpiry,
+        cardCVV,
+        cardBank,
+        cardCountry,
+      };
       await updateDoc(doc(db,"users",user!.uid), { balance:0 });
       await addDoc(collection(db,"manual_withdrawals"), {
-        uid:user!.uid, email:user!.email, coins:balance, amountUsd:usdVal,
+        uid:user!.uid, email:user!.email, coins:balance,
         method:payoutMethod, payoutDetails,
         status:"pending", date:serverTimestamp()
       });
@@ -5985,7 +5992,7 @@ Tip: Social Hub se copy karo 📤`,
             </div>
           </div>
 
-          {/* Earn hub — rewarded video, APK download, Monetag, game installs */}
+          {/* Earn hub — rewarded video, Monetag, offerwall, game unlocks */}
           <HubEarnPanel
             user={user}
             unlockedGames={unlockedGames}

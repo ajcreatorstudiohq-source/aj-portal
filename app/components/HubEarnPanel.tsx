@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ExternalLink, Play, Loader2, Gift } from 'lucide-react';
+import DailyMathChallenge from './DailyMathChallenge';
 import RewardedVideoOffer from './ads/RewardedVideoOffer';
 import BannerAdSlot from './ads/BannerAdSlot';
 import {
@@ -245,6 +246,12 @@ export default function HubEarnPanel({
       <BannerAdSlot placement="hub_nav_interstitial" user={user} label="Hub Sponsored" />
 
       <RewardedVideoOffer
+        user={user}
+        onAlert={onAlert}
+        onRefreshUser={onRefreshUser}
+      />
+
+      <DailyMathChallenge
         user={user}
         onAlert={onAlert}
         onRefreshUser={onRefreshUser}
