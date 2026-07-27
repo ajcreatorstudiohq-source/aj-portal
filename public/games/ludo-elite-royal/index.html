@@ -5,15 +5,56 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Ludo Star Elite - Play with Friends</title>
     
-    <!-- AJ SDK CONNECTED (DO NOT REMOVE) -->
-    <script src="../../aj-sdk.js"></script>
-    <script src="../aj-progress.js"></script>
-    
     <!-- Firebase RTDB for online multiplayer + voice signaling -->
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
     
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;900&family=Audiowide&display=swap" rel="stylesheet">
+
+    <!-- AJ SDK + progress — inlined (single-file game, DO NOT REMOVE) -->
+    <script>
+    window.AJ_SDK = {
+        directLink: 'https://www.effectivecpmnetwork.com/b8jtkn6i4?key=77409a0e0aa4602b6d03798ff53516b3',
+        showAd: function () {
+            try {
+                var url = this.directLink;
+                window.open(url, '_blank', 'noopener,noreferrer');
+                if (window.parent && window.parent !== window) {
+                    window.parent.postMessage({ type: 'GAME_SHOW_AD', network: 'adsterra' }, '*');
+                }
+            } catch (e) { console.log('SDK: showAd failed', e); }
+        },
+        sendScore: function () {},
+        addBalance: function () {},
+        reportLevel: function (gameId, level) {
+            try {
+                var id = gameId || (new URLSearchParams(window.location.search).get('ajGameId')) || '';
+                var lvl = Math.floor(Number(level) || 0);
+                if (!id || lvl < 1) return;
+                if (window.parent && window.parent !== window) {
+                    window.parent.postMessage({ type: 'GAME_LEVEL_REACHED', gameId: id, level: lvl }, '*');
+                }
+            } catch (e) {}
+        }
+    };
+    window.ajReportLevel = function (level, gameId) {
+        if (window.AJ_SDK && window.AJ_SDK.reportLevel) window.AJ_SDK.reportLevel(gameId, level);
+    };
+    (function () {
+        function gameIdFromQuery() {
+            try { return new URLSearchParams(window.location.search).get('ajGameId') || ''; } catch (e) { return ''; }
+        }
+        var last = { id: '', lvl: 0, t: 0 };
+        window.ajReportLevelOnce = function (level, gameId) {
+            var id = gameId || gameIdFromQuery();
+            var lvl = Math.floor(Number(level) || 0);
+            var now = Date.now();
+            if (id === last.id && lvl === last.lvl && now - last.t < 2000) return;
+            last = { id: id, lvl: lvl, t: now };
+            window.ajReportLevel(lvl, id);
+        };
+    })();
+    </script>
 
     <style>
         :root {
