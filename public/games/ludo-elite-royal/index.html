@@ -581,7 +581,7 @@ function ensureMonetagHostIframe() {
     iframe.setAttribute('title', 'Ad');
     iframe.setAttribute('allow', 'autoplay; fullscreen');
     // Isolated: scripts run inside iframe so SDK crashes cannot freeze Ludo UI
-    iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms');
+    iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms');
     iframe.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;border:0;z-index:10000;background:#0a0a12;opacity:0;pointer-events:none;transition:opacity .2s ease;';
     document.body.appendChild(iframe);
     const doc = iframe.contentDocument || iframe.contentWindow.document;

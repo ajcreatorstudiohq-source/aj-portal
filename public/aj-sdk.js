@@ -1,9 +1,12 @@
 // AJ SUPER PORTAL SDK — Games bridge
 // Local tokens stay in-game. Wallet credits ONLY via verified milestones / offerwall APIs.
+// NO popunder / push / gozen / sunny-sprout / alwingulla / omg10 redirects.
 window.AJ_SDK = {
-    directLink: "https://omg10.com/4/11280173",
+    // Intentionally empty — never open third-party popunder/CPA direct links from games.
+    directLink: '',
 
     showAd: function() {
+        // Portal parent may show rewarded video; games must NOT open external ad URLs.
         try {
             if (typeof window.parent !== 'undefined' && window.parent !== window) {
                 window.parent.postMessage({ type: 'GAME_SHOW_AD' }, '*');
