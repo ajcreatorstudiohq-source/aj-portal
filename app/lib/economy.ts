@@ -49,6 +49,12 @@ export const PREMIUM_DIRECT_GAMES = [
     emoji: '🌋',
     downloadUrl: '/games/volcano-escape/index.html',
   },
+  {
+    id: 'ludo',
+    name: 'Ludo Elite Royal',
+    emoji: '🎲',
+    downloadUrl: 'https://ludoeliteroyal.netlify.app',
+  },
 ] as const;
 
 /** @deprecated use PREMIUM_DIRECT_GAMES */

@@ -64,6 +64,8 @@ const ALLOWED_AD_HOSTS = [
   'bitlabs.ai',
   'monlix.com',
   'offers.monlix.com',
+  'netlify.app',
+  'ludoeliteroyal.netlify.app',
 ];
 
 const INTRUSIVE_AD_SELECTORS = [
