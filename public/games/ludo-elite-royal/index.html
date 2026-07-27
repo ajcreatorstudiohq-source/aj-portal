@@ -5,9 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Ludo Star Elite - Play with Friends</title>
     
-    <!-- Firebase RTDB for online multiplayer + voice signaling -->
+    <!-- Firebase RTDB + Auth (real Google / Facebook login) -->
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
     
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;900&family=Audiowide&display=swap" rel="stylesheet">
 
@@ -89,6 +90,7 @@
             align-items: center;
             justify-content: center;
             min-height: 100vh;
+            min-height: 100dvh;
             color: white;
             touch-action: manipulation;
             user-select: none;
@@ -100,13 +102,27 @@
             display: none;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
+            justify-content: flex-start;
             z-index: 1000;
             background: radial-gradient(circle at 50% 30%, var(--bg2), var(--bg1) 70%, #000);
             text-align: center;
-            padding: 20px;
+            padding: 56px 14px 28px;
+            overflow-x: hidden;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior: contain;
         }
         .screen.active { display: flex; }
+        .screen-inner {
+            width: 100%;
+            max-width: 420px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding-bottom: 32px;
+            flex-shrink: 0;
+        }
 
         /* === Top-left wallet bar === */
         .top-left-bar { position: fixed; top: 12px; left: 12px; z-index: 5000; display: flex; flex-direction: column; gap: 8px; }
@@ -145,20 +161,22 @@
 
         .logo-text {
             font-family: 'Audiowide', cursive;
-            font-size: 52px; color: var(--yellow);
+            font-size: clamp(28px, 9vw, 48px); color: var(--yellow);
             text-shadow: 0 0 20px var(--yellow), 0 0 40px rgba(255,215,0,0.5);
-            margin-bottom: 10px; letter-spacing: 2px;
+            margin: 0 0 6px 0; letter-spacing: 2px;
+            line-height: 1.1;
         }
         .dev-tag { position: absolute; bottom: 15px; left: 50%; transform: translateX(-50%); font-family: 'Audiowide'; font-size: 12px; color: var(--gold); opacity: 0.7; }
 
         .btn {
-            padding: 15px 30px; margin: 7px;
+            padding: 13px 24px; margin: 5px;
             background: linear-gradient(135deg, var(--yellow), #f39c12);
             color: #000; border: none; border-radius: 16px;
-            font-weight: 900; cursor: pointer; font-size: 16px;
-            width: 270px; max-width: 85vw;
+            font-weight: 900; cursor: pointer; font-size: 15px;
+            width: min(270px, 92vw); max-width: 92vw;
             transition: 0.25s; box-shadow: 0 6px 18px rgba(241,196,15,0.4);
             text-transform: uppercase; font-family: 'Poppins';
+            flex-shrink: 0;
         }
         .btn:hover { transform: translateY(-3px); box-shadow: 0 10px 28px rgba(241,196,15,0.6); filter: brightness(1.1); }
         .btn:active { transform: translateY(0); }
@@ -348,10 +366,33 @@
         .frame-preview-inner { width: 38px; height: 38px; border-radius: 50%; background: #333; border: 2px solid #555; }
 
         /* === PROFILE BAR ON HOME === */
-        .home-profile { display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.05); padding: 8px 18px; border-radius: 30px; border: 2px solid var(--gold); margin-bottom: 16px; box-shadow: 0 0 15px rgba(255,215,0,0.2); }
-        .home-profile-avatar { width: 42px; height: 42px; border-radius: 50%; border: 2px solid var(--cyan); overflow: hidden; }
+        .home-profile { display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.05); padding: 8px 18px; border-radius: 30px; border: 2px solid var(--gold); margin-bottom: 10px; box-shadow: 0 0 15px rgba(255,215,0,0.2); max-width: 92vw; }
+        .home-profile-avatar { width: 42px; height: 42px; border-radius: 50%; border: 2px solid var(--cyan); overflow: hidden; flex-shrink: 0; }
         .home-profile-avatar img { width: 100%; height: 100%; object-fit: cover; }
-        .home-profile-name { font-weight: 900; font-size: 16px; color: var(--gold); font-family: 'Audiowide'; }
+        .home-profile-name { font-weight: 900; font-size: 14px; color: var(--gold); font-family: 'Audiowide'; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }
+        .home-row { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; justify-content: center; width: 100%; }
+        .home-join-box { margin-top: 12px; background: rgba(0,229,255,0.06); border: 2px solid rgba(0,229,255,0.35); border-radius: 18px; padding: 12px 14px; width: 100%; max-width: 320px; }
+        #login-busy { display: none; color: var(--cyan); font-weight: 900; font-size: 13px; margin: 8px 0; min-height: 18px; }
+
+        /* === MOBILE HOME — full screen scrollable === */
+        @media (max-width: 520px), (max-height: 820px) {
+            .screen { padding: 52px 10px 24px; justify-content: flex-start; }
+            .logo-text { font-size: clamp(26px, 8.5vw, 36px); margin-bottom: 4px; }
+            .btn { padding: 11px 16px; margin: 4px; font-size: 13px; border-radius: 14px; }
+            .input-group { margin-bottom: 10px; padding: 4px 12px; }
+            .home-profile { margin-bottom: 8px; padding: 6px 12px; }
+            .home-join-box { margin-top: 10px; padding: 10px 12px; }
+            #garage-icon-btn { width: 42px; height: 42px; font-size: 18px; top: 10px; right: 10px; }
+            .top-left-bar { top: 10px; left: 10px; }
+            .wallet-bar { padding: 6px 12px; }
+            #total-coins { font-size: 14px; }
+        }
+        @media (max-height: 640px) {
+            .screen { padding-top: 48px; }
+            .logo-text { font-size: 24px; }
+            .btn { padding: 10px 14px; font-size: 12px; margin: 3px; }
+            #home-screen .home-tagline { font-size: 11px !important; margin-bottom: 6px !important; }
+        }
 
         </style>
 <script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>
@@ -371,12 +412,15 @@
 
     <!-- LOGIN -->
     <div id="login-screen" class="screen active">
-        <div class="logo-text">LUDO STAR</div>
-        <p style="color:var(--cyan); font-weight:900; margin:0 0 24px 0; font-size:15px;">SIGN IN TO PLAY LIVE</p>
-        <button class="btn login-btn-fb" onclick="doLogin('facebook')"><span class="login-icon">🌐</span>CONTINUE WITH FACEBOOK</button>
-        <button class="btn login-btn-gmail" onclick="doLogin('gmail')"><span class="login-icon">✉️</span>CONTINUE WITH GMAIL</button>
-        <button class="btn login-btn-guest" onclick="doLogin('guest')"><span class="login-icon">👤</span>PLAY AS GUEST</button>
-        <p style="font-size:11px; color:#666; margin-top:20px; max-width:300px;">By continuing you agree to our Terms & Privacy Policy. Ads support free gameplay & rewards.</p>
+        <div class="screen-inner">
+            <div class="logo-text">LUDO STAR</div>
+            <p style="color:var(--cyan); font-weight:900; margin:0 0 18px 0; font-size:14px;">SIGN IN WITH REAL ACCOUNT</p>
+        <button class="btn login-btn-fb" id="btn-login-fb" onclick="doLogin('facebook')"><span class="login-icon">📘</span> CONTINUE WITH FACEBOOK</button>
+        <button class="btn login-btn-gmail" id="btn-login-gmail" onclick="doLogin('gmail')"><span class="login-icon">📧</span> CONTINUE WITH GMAIL</button>
+            <button class="btn login-btn-guest" onclick="doLogin('guest')"><span class="login-icon">👤</span>PLAY AS GUEST</button>
+            <div id="login-busy">Opening secure login…</div>
+            <p style="font-size:11px; color:#666; margin-top:16px; max-width:300px;">Real Google / Facebook via Firebase Auth. Guest skips social login. Ads support free gameplay.</p>
+        </div>
     </div>
 
     <!-- DAILY REWARDS -->
@@ -433,34 +477,37 @@
 
     <!-- HOME -->
     <div id="home-screen" class="screen">
-        <div class="logo-text">LUDO STAR</div>
-        <p style="color:var(--cyan); font-weight:900; margin:0 0 12px 0; font-size:13px; letter-spacing:1px;">PRIVATE ROOMS · LIVE DICE SYNC</p>
-        <div class="input-group">
-            <input type="text" id="user-name-input" placeholder="NAME" value="ALI" maxlength="10">
-            <div onclick="toggleAvatarPopup()" style="width:48px; height:48px; border-radius:50%; border:2px solid var(--gold); overflow:hidden; cursor:pointer; box-shadow:0 0 12px rgba(255,215,0,0.4);">
-                <img id="current-avatar-preview" src="" style="width:100%; height:100%; object-fit:cover;">
+        <div class="screen-inner">
+            <div class="logo-text">LUDO STAR</div>
+            <p class="home-tagline" style="color:var(--cyan); font-weight:900; margin:0 0 10px 0; font-size:12px; letter-spacing:1px;">PRIVATE ROOMS · LIVE DICE SYNC</p>
+            <div class="input-group">
+                <input type="text" id="user-name-input" placeholder="NAME" value="ALI" maxlength="10">
+                <div onclick="toggleAvatarPopup()" style="width:44px; height:44px; border-radius:50%; border:2px solid var(--gold); overflow:hidden; cursor:pointer; box-shadow:0 0 12px rgba(255,215,0,0.4); flex-shrink:0;">
+                    <img id="current-avatar-preview" src="" style="width:100%; height:100%; object-fit:cover;">
+                </div>
             </div>
+            <div class="home-profile" id="home-profile-bar" style="display:none;">
+                <div class="home-profile-avatar"><img id="home-profile-avatar-img" src=""></div>
+                <div class="home-profile-name" id="home-profile-name-text">PLAYER</div>
+                <button type="button" class="btn btn-dark" style="width:auto; padding:6px 10px; font-size:10px; margin:0;" onclick="doLogout()">LOGOUT</button>
+            </div>
+            <button class="btn" onclick="openModeSelection(true)">▶ PLAY WITH BOTS</button>
+            <button class="btn btn-blue" onclick="openModeSelection(false)">👥 CREATE PRIVATE ROOM</button>
+            <div class="home-row">
+                <button class="btn btn-green" style="width:130px; font-size:12px; padding:11px;" onclick="openDailyRewards()">🎁 REWARDS</button>
+                <button class="btn" style="background:linear-gradient(135deg,var(--gold),#f39c12); color:#000; width:130px; font-size:12px; padding:11px;" onclick="showLeague()">🏆 LEAGUE</button>
+            </div>
+            <div class="home-row">
+                <button id="reward-ad-btn" class="btn" style="background:linear-gradient(135deg,var(--gold),#f39c12); color:#000; width:150px; font-size:12px;" onclick="claimDailyBonus()">🎁 DAILY 1000</button>
+                <button class="btn btn-green" style="width:150px; font-size:12px;" onclick="watchUnlimitedAd()">📺 WATCH AD +200</button>
+            </div>
+            <div class="home-join-box">
+                <p style="font-size:12px; color:var(--cyan); margin:0 0 8px 0; font-weight:900;">🔗 JOIN LIVE FRIEND ROOM</p>
+                <input type="text" id="home-join-id" placeholder="e.g. AJ4821" maxlength="8" autocomplete="off" style="margin-bottom:8px; width:min(180px,70vw); border:2px solid #444; border-radius:12px; padding:8px; text-transform:uppercase; letter-spacing:2px;">
+                <button class="btn btn-green" style="width:min(210px,85vw); padding:12px;" onclick="joinFriendFromHome()">JOIN & PLAY LIVE</button>
+            </div>
+            <div id="avatar-popup"></div>
         </div>
-        <div class="home-profile" id="home-profile-bar" style="display:none;">
-            <div class="home-profile-avatar"><img id="home-profile-avatar-img" src=""></div>
-            <div class="home-profile-name" id="home-profile-name-text">PLAYER</div>
-        </div>
-        <button class="btn" onclick="openModeSelection(true)">▶ PLAY WITH BOTS</button>
-        <button class="btn btn-blue" onclick="openModeSelection(false)">👥 CREATE PRIVATE ROOM</button>
-        <div style="display:flex; gap:8px; margin-top:6px; flex-wrap:wrap; justify-content:center;">
-            <button class="btn btn-green" style="width:130px; font-size:12px; padding:11px;" onclick="openDailyRewards()">🎁 REWARDS</button>
-            <button class="btn" style="background:linear-gradient(135deg,var(--gold),#f39c12); color:#000; width:130px; font-size:12px; padding:11px;" onclick="showLeague()">🏆 LEAGUE</button>
-        </div>
-        <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; justify-content:center;">
-            <button id="reward-ad-btn" class="btn" style="background:linear-gradient(135deg,var(--gold),#f39c12); color:#000; width:160px; font-size:12px;" onclick="claimDailyBonus()">🎁 DAILY 1000</button>
-            <button class="btn btn-green" style="width:160px; font-size:12px;" onclick="watchUnlimitedAd()">📺 WATCH AD +200</button>
-        </div>
-        <div style="margin-top:14px; background:rgba(0,229,255,0.06); border:2px solid rgba(0,229,255,0.35); border-radius:18px; padding:14px 16px; width:90%; max-width:320px;">
-            <p style="font-size:12px; color:var(--cyan); margin:0 0 8px 0; font-weight:900;">🔗 JOIN LIVE FRIEND ROOM</p>
-            <input type="text" id="home-join-id" placeholder="e.g. AJ4821" maxlength="8" autocomplete="off" style="margin-bottom:8px; width:180px; border:2px solid #444; border-radius:12px; padding:8px; text-transform:uppercase; letter-spacing:2px;">
-            <button class="btn btn-green" style="width:210px; padding:12px;" onclick="joinFriendFromHome()">JOIN & PLAY LIVE</button>
-        </div>
-        <div id="avatar-popup"></div>
     </div>
 
     <!-- GARAGE -->
@@ -599,7 +646,7 @@
 
 
 // ===================================================================
-//  REAL ADSTERRA ADS (A→Z) — Monetag dummy fully removed
+//  REAL ADSTERRA ADS (A→Z) — full smartlink on every gate
 //  Smartlink: opens every time an ad gate runs (no fake countdown-only ads)
 // ===================================================================
 const ADSTERRA_DIRECT_LINK =
@@ -720,7 +767,7 @@ function toggleSound() {
 }
 
 // ===================================================================
-//  FIREBASE RTDB — online multiplayer (replaces PeerJS)
+//  FIREBASE RTDB + AUTH (real Google / Facebook)
 // ===================================================================
 const firebaseConfig = {
     apiKey: "AIzaSyDp2od-lrfAhEHV5oAIqBW5rWjaRbnAdFM",
@@ -732,12 +779,14 @@ const firebaseConfig = {
     appId: "1:288191292906:web:bc31cb072948533f88fe93"
 };
 let rtdb = null;
+let firebaseAuth = null;
 try {
     if (typeof firebase !== 'undefined') {
-        firebase.initializeApp(firebaseConfig);
+        if (!firebase.apps || !firebase.apps.length) firebase.initializeApp(firebaseConfig);
         rtdb = firebase.database();
+        firebaseAuth = firebase.auth();
     }
-} catch(e) { console.warn('Firebase init skipped (config placeholder):', e); }
+} catch(e) { console.warn('Firebase init skipped:', e); }
 
 let myRoomRef = null;
 let isHost = false;
@@ -1135,7 +1184,7 @@ function watchUnlimitedAd() {
 }
 
 // ===================================================================
-//  AD OVERLAY — every gate fires REAL Adsterra (no Monetag dummy)
+//  AD OVERLAY — every gate fires REAL Adsterra
 //  rewardAmount: local Ludo coins after ad (0 = gate only)
 // ===================================================================
 function showAdOverlay(rewardAmount, callback) {
@@ -2345,31 +2394,169 @@ function leaveMatch() {
 }
 
 // ===================================================================
-//  LOGIN SYSTEM
+//  LOGIN SYSTEM — real Google (Gmail) + Facebook via Firebase Auth
 // ===================================================================
 let isLoggedIn = false;
 let playerProfile = JSON.parse(localStorage.getItem('ludo_profile')) || null;
+let authBusy = false;
 
-function doLogin(provider) {
-    playSfx(sfxButton);
-    let name = 'PLAYER';
-    if (provider === 'facebook') name = 'FB_' + Math.floor(100 + Math.random() * 900);
-    else if (provider === 'gmail') name = 'G_' + Math.floor(100 + Math.random() * 900);
-    else name = 'GUEST_' + Math.floor(100 + Math.random() * 900);
+function setLoginBusy(on) {
+    authBusy = !!on;
+    const el = document.getElementById('login-busy');
+    if (el) el.style.display = on ? 'block' : 'none';
+    const fb = document.getElementById('btn-login-fb');
+    const gm = document.getElementById('btn-login-gmail');
+    if (fb) fb.disabled = !!on;
+    if (gm) gm.disabled = !!on;
+}
 
-    playerProfile = { name: name, provider: provider, avatar: myAvatarIdx, loginDate: Date.now() };
-    localStorage.setItem('ludo_profile', JSON.stringify(playerProfile));
+function friendlyAuthError(err) {
+    const code = (err && err.code) || '';
+    const msg = (err && err.message) || String(err || 'Login failed');
+    if (code === 'auth/popup-blocked') return 'Popup blocked — allow popups & retry';
+    if (code === 'auth/popup-closed-by-user') return 'Login closed — try again';
+    if (code === 'auth/unauthorized-domain') return 'Domain not authorized in Firebase';
+    if (code === 'auth/operation-not-allowed') return 'Enable this provider in Firebase Console → Authentication';
+    if (code === 'auth/account-exists-with-different-credential') return 'Account exists with another login method';
+    if (code === 'auth/network-request-failed') return 'Network error — check internet';
+    if (code === 'auth/cancelled-popup-request') return 'Login cancelled';
+    return msg.slice(0, 80);
+}
+
+function detectAuthProvider(user) {
+    try {
+        const p = (user.providerData && user.providerData[0] && user.providerData[0].providerId) || '';
+        if (p.indexOf('facebook') >= 0) return 'facebook';
+        if (p.indexOf('google') >= 0) return 'gmail';
+    } catch (e) {}
+    return 'google';
+}
+
+function buildAuthProvider(kind) {
+    if (kind === 'facebook') {
+        const p = new firebase.auth.FacebookAuthProvider();
+        p.addScope('email');
+        p.addScope('public_profile');
+        p.setCustomParameters({ display: 'popup' });
+        return p;
+    }
+    const p = new firebase.auth.GoogleAuthProvider();
+    p.addScope('email');
+    p.addScope('profile');
+    p.setCustomParameters({ prompt: 'select_account' });
+    return p;
+}
+
+function applyFirebaseUser(user, providerHint) {
+    if (!user) return;
+    const rawName = user.displayName || (user.email ? user.email.split('@')[0] : 'PLAYER');
+    const name = String(rawName).replace(/[^a-zA-Z0-9_ ]/g, '').trim().slice(0, 10).toUpperCase() || 'PLAYER';
+    const provider = providerHint || detectAuthProvider(user);
+    portalUid = user.uid;
+    try { localStorage.setItem('aj_portal_uid', user.uid); } catch (e) {}
+
+    playerProfile = {
+        name: name,
+        provider: provider,
+        avatar: myAvatarIdx,
+        photoURL: user.photoURL || '',
+        email: user.email || '',
+        uid: user.uid,
+        loginDate: Date.now()
+    };
+    try { localStorage.setItem('ludo_profile', JSON.stringify(playerProfile)); } catch (e) {}
+    isLoggedIn = true;
+
+    const nameInput = document.getElementById('user-name-input');
+    if (nameInput) nameInput.value = name;
+    if (playerProfile.photoURL) {
+        const prev = document.getElementById('current-avatar-preview');
+        if (prev) prev.src = playerProfile.photoURL;
+    }
+    updateHomeProfile();
+    setLoginBusy(false);
+    switchScreen('splash-screen');
+    setTimeout(() => {
+        if (document.getElementById('splash-screen').classList.contains('active')) showHome();
+    }, 900);
+    showAlert('Welcome ' + name + '!');
+}
+
+function finishGuestLogin() {
+    const name = 'GUEST_' + Math.floor(100 + Math.random() * 900);
+    playerProfile = { name: name, provider: 'guest', avatar: myAvatarIdx, loginDate: Date.now(), uid: portalUid || resolvePortalUid() };
+    try { localStorage.setItem('ludo_profile', JSON.stringify(playerProfile)); } catch (e) {}
     isLoggedIn = true;
     document.getElementById('user-name-input').value = name;
-    myAvatarIdx = playerProfile.avatar || 0;
     updateHomeProfile();
     switchScreen('splash-screen');
     setTimeout(() => {
-        if (document.getElementById('splash-screen').classList.contains('active')) {
-            showHome();
+        if (document.getElementById('splash-screen').classList.contains('active')) showHome();
+    }, 900);
+    showAlert('Welcome ' + name + '!');
+}
+
+async function doLogin(provider) {
+    playSfx(sfxButton);
+    if (authBusy) return;
+
+    if (provider === 'guest') {
+        finishGuestLogin();
+        return;
+    }
+
+    if (!firebaseAuth || typeof firebase === 'undefined' || !firebase.auth) {
+        showAlert('Firebase Auth not loaded');
+        return;
+    }
+
+    setLoginBusy(true);
+    const kind = (provider === 'facebook') ? 'facebook' : 'gmail';
+    try { localStorage.setItem('ludo_auth_pending', kind); } catch (e) {}
+
+    const authProvider = buildAuthProvider(kind);
+    try {
+        const result = await firebaseAuth.signInWithPopup(authProvider);
+        applyFirebaseUser(result.user, kind);
+    } catch (err) {
+        const code = err && err.code;
+        // Popup blocked / iframe / unsupported → redirect flow (real OAuth)
+        if (
+            code === 'auth/popup-blocked' ||
+            code === 'auth/operation-not-supported-in-this-environment' ||
+            code === 'auth/cancelled-popup-request'
+        ) {
+            try {
+                await firebaseAuth.signInWithRedirect(authProvider);
+                return; // page will navigate away
+            } catch (err2) {
+                setLoginBusy(false);
+                showAlert(friendlyAuthError(err2));
+                return;
+            }
         }
-    }, 1500);
-    showAlert('Welcome ' + name + '! \u{1F44B}');
+        setLoginBusy(false);
+        showAlert(friendlyAuthError(err));
+        console.warn('Login error', err);
+    }
+}
+
+async function doLogout() {
+    playSfx(sfxButton);
+    try {
+        if (firebaseAuth) await firebaseAuth.signOut();
+    } catch (e) {}
+    playerProfile = null;
+    isLoggedIn = false;
+    try { localStorage.removeItem('ludo_profile'); } catch (e) {}
+    const bar = document.getElementById('home-profile-bar');
+    if (bar) bar.style.display = 'none';
+    document.getElementById('login-screen').classList.add('active');
+    document.querySelectorAll('.screen').forEach((s) => {
+        if (s.id !== 'login-screen') s.classList.remove('active');
+    });
+    document.getElementById('garage-icon-btn').style.display = 'none';
+    showAlert('Logged out');
 }
 
 function updateHomeProfile() {
@@ -2377,9 +2564,40 @@ function updateHomeProfile() {
     const bar = document.getElementById('home-profile-bar');
     if (bar) {
         bar.style.display = 'flex';
-        document.getElementById('home-profile-avatar-img').src = avatarUrls[playerProfile.avatar || 0];
-        document.getElementById('home-profile-name-text').innerText = playerProfile.name;
+        const img = document.getElementById('home-profile-avatar-img');
+        const photo = playerProfile.photoURL || avatarUrls[playerProfile.avatar || 0];
+        if (img) img.src = photo;
+        const nameEl = document.getElementById('home-profile-name-text');
+        if (nameEl) {
+            const tag = playerProfile.provider === 'facebook' ? 'FB' : (playerProfile.provider === 'gmail' || playerProfile.provider === 'google') ? 'Gmail' : 'Guest';
+            nameEl.innerText = playerProfile.name + ' · ' + tag;
+        }
     }
+}
+
+function initFirebaseAuthListeners() {
+    if (!firebaseAuth) return;
+    // Complete redirect result (mobile / iframe safe)
+    firebaseAuth.getRedirectResult().then((result) => {
+        if (result && result.user) {
+            let pending = 'gmail';
+            try { pending = localStorage.getItem('ludo_auth_pending') || detectAuthProvider(result.user); } catch (e) {}
+            applyFirebaseUser(result.user, pending);
+            try { localStorage.removeItem('ludo_auth_pending'); } catch (e) {}
+        }
+    }).catch((err) => {
+        if (err && err.code) showAlert(friendlyAuthError(err));
+        setLoginBusy(false);
+    });
+
+    firebaseAuth.onAuthStateChanged((user) => {
+        if (user && !isLoggedIn) {
+            applyFirebaseUser(user, detectAuthProvider(user));
+        } else if (user) {
+            portalUid = user.uid;
+            try { localStorage.setItem('aj_portal_uid', user.uid); } catch (e) {}
+        }
+    });
 }
 
 // ===================================================================
@@ -2574,16 +2792,28 @@ const lIv = setInterval(() => {
 }, 50);
 
 initAvatars(); updateWalletUI(); resize();
+initFirebaseAuthListeners();
 
 portalUid = resolvePortalUid();
 try { localStorage.setItem('aj_portal_uid', portalUid); } catch (e) {}
 pendingJoinCode = (portalQuery().get('room') || portalQuery().get('code') || '').trim().toUpperCase();
 
-if (playerProfile) {
+// Prefer live Firebase session; else saved profile; else login screen
+if (firebaseAuth && firebaseAuth.currentUser) {
+    applyFirebaseUser(firebaseAuth.currentUser, detectAuthProvider(firebaseAuth.currentUser));
+} else if (playerProfile && playerProfile.provider !== 'guest' && playerProfile.uid) {
+    isLoggedIn = true;
+    document.getElementById('user-name-input').value = playerProfile.name;
+    myAvatarIdx = playerProfile.avatar || 0;
+    const prev = document.getElementById('current-avatar-preview');
+    if (prev) prev.src = playerProfile.photoURL || avatarUrls[myAvatarIdx];
+    updateHomeProfile();
+} else if (playerProfile && playerProfile.provider === 'guest') {
     isLoggedIn = true;
     document.getElementById('user-name-input').value = playerProfile.name;
     myAvatarIdx = playerProfile.avatar || 0;
     document.getElementById('current-avatar-preview').src = avatarUrls[myAvatarIdx];
+    updateHomeProfile();
 } else {
     document.getElementById('splash-screen').classList.remove('active');
     document.getElementById('login-screen').classList.add('active');
