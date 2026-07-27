@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createHash, timingSafeEqual } from 'crypto';
-import { applySplitReward, applyFlatCoins } from '../../lib/reward-engine';
+import { applyFlatCoins } from '../../lib/reward-engine';
 
 const POSTBACK_SECRET =
   process.env.OFFERWALL_POSTBACK_SECRET ||
@@ -9,18 +9,41 @@ const POSTBACK_SECRET =
 
 /**
  * GET|POST /api/postback
- * CPA / offerwall postback. Credits only when secret + payout are valid.
+ * CPAGrip (and compatible networks) S2S postback.
+ *
+ * Recommended CPAGrip Global Postback:
+ *   https://YOUR_DOMAIN/api/postback?userId={tracking_id}&points={points}&txid={offer_id}&status={status}&secret=AJ_SUPER_SECURE_786_PORTAL
+ *
+ * Credits only when:
+ *   - secret matches
+ *   - status is lead | success | completed | 1 | approved
+ *   - points > 0 (or payout > 0 fallback)
  */
 function readParams(url: URL, body: Record<string, unknown>) {
   const g = (k: string) => String(url.searchParams.get(k) || body[k] || '');
   return {
-    uid: g('uid') || g('user_id') || g('userId') || g('external_id') || g('ymid'),
-    txId: g('txid') || g('transaction_id') || g('tx') || g('offer_id') || g('click_id'),
+    uid:
+      g('userId') ||
+      g('user_id') ||
+      g('uid') ||
+      g('tracking_id') ||
+      g('external_id') ||
+      g('ymid') ||
+      g('subid') ||
+      g('subid1'),
+    txId:
+      g('txid') ||
+      g('transaction_id') ||
+      g('tx') ||
+      g('offer_id') ||
+      g('click_id') ||
+      g('lead_id') ||
+      '',
+    points: Math.floor(Number(g('points') || g('coins') || g('reward') || 0)) || 0,
     amount: parseFloat(g('amount') || g('payout') || g('revenue') || '0') || 0,
-    coins: Math.floor(Number(g('coins') || g('reward') || 0)) || 0,
-    secret: g('secret') || g('key') || g('token'),
+    secret: g('secret') || g('key') || g('token') || g('password'),
     sig: g('sig') || g('signature'),
-    status: g('status') || g('event') || 'completed',
+    status: (g('status') || g('event') || g('state') || 'completed').toLowerCase(),
   };
 }
 
@@ -45,6 +68,10 @@ function verifySecret(params: ReturnType<typeof readParams>): boolean {
   return false;
 }
 
+function isSuccessStatus(status: string): boolean {
+  return /^(lead|success|completed|complete|approved|ok|1|true)$/i.test(status.trim());
+}
+
 async function handle(request: Request) {
   try {
     const url = new URL(request.url);
@@ -64,55 +91,59 @@ async function handle(request: Request) {
     }
 
     const params = readParams(url, body);
-    if (!params.uid || !params.txId) {
-      return NextResponse.json({ ok: false, error: 'missing_uid_or_txid' }, { status: 400 });
+
+    if (!params.uid) {
+      return NextResponse.json({ ok: false, error: 'missing_userId' }, { status: 400 });
     }
     if (!verifySecret(params)) {
       return NextResponse.json({ ok: false, error: 'invalid_secret' }, { status: 403 });
     }
-    if (/reject|fail|chargeback|reversed/i.test(params.status)) {
-      return NextResponse.json({ ok: false, error: 'rejected_status' }, { status: 400 });
-    }
-    // Require a positive payout signal (USD amount or explicit coins)
-    if (params.amount <= 0 && params.coins <= 0) {
+    if (!isSuccessStatus(params.status)) {
       return NextResponse.json(
-        { ok: false, error: 'invalid_payout', message: 'Payout must be > 0.' },
+        {
+          ok: false,
+          error: 'rejected_status',
+          message: `Status must be lead or success (got: ${params.status})`,
+        },
         { status: 400 }
       );
     }
 
-    const txId = `postback_${params.txId}`.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 180);
+    // Prefer explicit points from CPAGrip; else require positive payout
+    const coins =
+      params.points > 0
+        ? params.points
+        : params.amount > 0
+          ? Math.max(1, Math.floor(params.amount * 100))
+          : 0;
 
-    let result;
-    if (params.coins > 0) {
-      result = await applyFlatCoins({
-        uid: params.uid,
-        txId,
-        source: 'offerwall',
-        coins: params.coins,
-        meta: {
-          providerAmount: params.amount,
-          status: params.status,
-          via: 'api_postback',
-          fromPostback: true,
-        },
-        ledgerCollection: 'offerwall_ledger',
-      });
-    } else {
-      result = await applySplitReward({
-        uid: params.uid,
-        txId,
-        source: 'offerwall',
-        seed: txId,
-        meta: {
-          providerAmount: params.amount,
-          status: params.status,
-          via: 'api_postback',
-          fromPostback: true,
-        },
-        ledgerCollection: 'offerwall_ledger',
-      });
+    if (coins <= 0) {
+      return NextResponse.json(
+        { ok: false, error: 'invalid_points', message: 'points must be > 0' },
+        { status: 400 }
+      );
     }
+
+    const txRaw =
+      params.txId ||
+      `${params.uid}_${params.status}_${coins}_${url.searchParams.get('offer_id') || Date.now()}`;
+    const txId = `cpagrip_${txRaw}`.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 180);
+
+    const result = await applyFlatCoins({
+      uid: params.uid,
+      txId,
+      source: 'offerwall',
+      coins,
+      meta: {
+        providerAmount: params.amount,
+        points: coins,
+        status: params.status,
+        via: 'cpagrip_postback',
+        fromPostback: true,
+      },
+      ledgerCollection: 'offerwall_ledger',
+      enforceDailyCap: false, // network postbacks are authoritative; ledger idempotency still applies
+    });
 
     if (!result.ok) {
       return NextResponse.json(
@@ -121,9 +152,19 @@ async function handle(request: Request) {
       );
     }
 
+    // CPAGrip often expects plain OK
+    const accept = request.headers.get('accept') || '';
+    if (accept.includes('text/plain') || url.searchParams.get('format') === 'text') {
+      return new NextResponse(result.duplicate ? 'DUPLICATE' : 'OK', {
+        status: 200,
+        headers: { 'Content-Type': 'text/plain' },
+      });
+    }
+
     return NextResponse.json({
       ok: true,
       duplicate: !!result.duplicate,
+      userId: params.uid,
       creditedCoins: result.balanceCredited ?? 0,
       message: result.duplicate
         ? 'Already credited'

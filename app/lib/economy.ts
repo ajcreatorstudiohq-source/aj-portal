@@ -170,29 +170,37 @@ export function isValidMilestone(gameId: string, level: number): boolean {
 
 /** Public offerwall config (safe for client bundles — NEXT_PUBLIC only) */
 export const OFFERWALL_PUBLIC = {
+  /** CPAGrip wall id 1906642 (ridefiles.net) — override via NEXT_PUBLIC_OFFERWALL_URL */
   wallUrl:
     process.env.NEXT_PUBLIC_OFFERWALL_URL ||
-    'https://omg10.com/4/11280173',
+    'https://ridefiles.net/script_include.php?id=1906642',
+  wallId: '1906642',
+  provider: 'CPAGrip' as const,
 };
+
+/** Minimum AJ Coins required to request a withdrawal */
+export const MIN_WITHDRAW_COINS = 10000;
 
 /**
  * Build partner offerwall URL with user id for postback attribution.
- * Opening this link alone never credits coins — partner postback required.
+ * Opening this link alone never credits coins — CPAGrip /api/postback required.
  */
 export function buildOfferwallUrl(uid?: string | null): string {
   const base = OFFERWALL_PUBLIC.wallUrl;
   try {
     const url = new URL(base);
     if (uid) {
-      url.searchParams.set('ymid', uid);
+      url.searchParams.set('tracking_id', uid);
       url.searchParams.set('user_id', uid);
+      url.searchParams.set('userId', uid);
+      url.searchParams.set('ymid', uid);
       url.searchParams.set('external_id', uid);
     }
     return url.toString();
   } catch {
     if (!uid) return base;
     const sep = base.includes('?') ? '&' : '?';
-    return `${base}${sep}ymid=${encodeURIComponent(uid)}&user_id=${encodeURIComponent(uid)}`;
+    return `${base}${sep}tracking_id=${encodeURIComponent(uid)}&userId=${encodeURIComponent(uid)}`;
   }
 }
 
