@@ -4357,22 +4357,114 @@ export function AJSuperPortal() {
       }
       setViewProfile(userData);
       try {
-        const pq1 = query(collection(db,"pulse_posts"), orderBy("createdAt","desc"), limit(30));
+        // Pulse photo posts (non-video)
+        const pq1 = query(collection(db, 'pulse_posts'), orderBy('createdAt', 'desc'), limit(40));
         const ps1 = await getDocs(pq1);
-        const pulseAll = ps1.docs.map(d => ({id:d.id,...d.data() as any, views:(d.data() as any).views||0}));
-        setProfilePosts(pulseAll.filter((p:any) => p.uid===uid && !p.isVideo));
-        const pq2 = query(collection(db,"user_posts"), orderBy("createdAt","desc"), limit(30));
-        const ps2 = await getDocs(pq2);
-        const all = ps2.docs.map(d => ({id:d.id,...d.data() as any}));
-        const feedVideos = all.filter((p:any) => p.uid===uid && p.isVideo).map((v:any) => ({...v, views:v.views||0}));
+        const pulseAll = ps1.docs.map((d) => ({
+          id: d.id,
+          ...(d.data() as Record<string, unknown>),
+          views: Number((d.data() as { views?: number }).views || 0),
+        }));
+        setProfilePosts(
+          pulseAll.filter((p: any) => (p.uid === uid || p.userId === uid) && !p.isVideo)
+        );
+
+        // Primary: top-level `videos` where userId matches the profile being viewed
+        let fromVideosCol: any[] = [];
+        try {
+          const videosQ = query(
+            collection(db, 'videos'),
+            where('userId', '==', uid),
+            limit(60)
+          );
+          const videosSnap = await getDocs(videosQ);
+          fromVideosCol = videosSnap.docs.map((d) => {
+            const data = d.data() as Record<string, unknown>;
+            const videoUrl = String(
+              data.videoUrl || data.url || data.src || data.image || data.mediaUrl || ''
+            );
+            const thumbnail = String(
+              data.thumbnail || data.thumb || data.poster || data.cover || videoUrl || ''
+            );
+            return {
+              id: d.id,
+              ...data,
+              userId: data.userId || uid,
+              videoUrl,
+              thumbnail,
+              text: data.text || data.caption || data.textOverlay || '',
+              isVideo: true,
+              views: Number(data.views || 0),
+              createdAt: data.createdAt,
+            };
+          });
+          // Newest first (client sort — avoids composite index requirement)
+          fromVideosCol.sort((a, b) => {
+            const am =
+              typeof a.createdAt?.toMillis === 'function'
+                ? a.createdAt.toMillis()
+                : Number(a.createdAtMs || a.createdAt || 0);
+            const bm =
+              typeof b.createdAt?.toMillis === 'function'
+                ? b.createdAt.toMillis()
+                : Number(b.createdAtMs || b.createdAt || 0);
+            return bm - am;
+          });
+        } catch (ve) {
+          console.warn('openProfile videos query failed', ve);
+        }
+
+        // Fallback: TikReels user_posts marked as video for this user
+        let feedVideos: any[] = [];
+        try {
+          const pq2 = query(collection(db, 'user_posts'), orderBy('createdAt', 'desc'), limit(60));
+          const ps2 = await getDocs(pq2);
+          feedVideos = ps2.docs
+            .map((d) => ({ id: d.id, ...(d.data() as any) }))
+            .filter((p: any) => (p.uid === uid || p.userId === uid) && p.isVideo)
+            .map((v: any) => ({
+              ...v,
+              userId: v.userId || v.uid || uid,
+              videoUrl: v.videoUrl || v.image || v.url || '',
+              thumbnail: v.thumbnail || v.image || v.videoUrl || '',
+              isVideo: true,
+              views: v.views || 0,
+            }));
+        } catch {}
+
+        // Legacy subcollection users/{uid}/videos
         let subVideos: any[] = [];
         try {
-          const vSnap = await getDocs(query(collection(db,"users",uid,"videos"), orderBy("createdAt","desc"), limit(50)));
-          subVideos = vSnap.docs.map(d => ({id:d.id,...d.data() as any, isVideo:true, views:(d.data() as any).views||0}));
+          const vSnap = await getDocs(
+            query(collection(db, 'users', uid, 'videos'), orderBy('createdAt', 'desc'), limit(50))
+          );
+          subVideos = vSnap.docs.map((d) => {
+            const data = d.data() as any;
+            return {
+              id: d.id,
+              ...data,
+              userId: data.userId || uid,
+              videoUrl: data.videoUrl || data.image || data.url || '',
+              thumbnail: data.thumbnail || data.image || data.videoUrl || '',
+              isVideo: true,
+              views: data.views || 0,
+            };
+          });
         } catch {}
-        const subIds = new Set(subVideos.map((v:any) => v.id));
-        setProfileVideos([...subVideos, ...feedVideos.filter((v:any) => !subIds.has(v.id))]);
-      } catch(e) { console.error('openProfile posts', e); }
+
+        const seen = new Set<string>();
+        const merged: any[] = [];
+        for (const v of [...fromVideosCol, ...feedVideos, ...subVideos]) {
+          const key = String(v.id || v.videoUrl || '');
+          if (!key || seen.has(key)) continue;
+          if (!v.videoUrl && !v.thumbnail && !v.image) continue;
+          seen.add(key);
+          merged.push(v);
+        }
+        setProfileVideos(merged);
+      } catch (e) {
+        console.error('openProfile posts', e);
+      }
       if (userData.followersCount !== undefined) {
         setFollowers(userData.followersCount);
       } else {
@@ -4543,6 +4635,30 @@ export function AJSuperPortal() {
         cssFilter: tikEditorFilter || 'none',
         createdAt:serverTimestamp()
       });
+      // Dual-write videos so friend profiles can query collection('videos').where('userId','==',uid)
+      if (tiktokPostIsVideo && mediaUrl) {
+        try {
+          await addDoc(collection(db, 'videos'), {
+            userId: user.uid,
+            uid: user.uid,
+            videoUrl: mediaUrl,
+            thumbnail: mediaUrl,
+            image: mediaUrl,
+            text: tiktokPostText || '',
+            textOverlay: tikEditorTextOverlay || null,
+            username: username || 'AJ_Member',
+            photo: user.photoURL || '',
+            likes: 0,
+            views: 0,
+            isVideo: true,
+            postId: postRef.id,
+            createdAt: serverTimestamp(),
+            createdAtMs: Date.now(),
+          });
+        } catch (ve) {
+          console.warn('videos collection write failed', ve);
+        }
+      }
       const reward = await earnReward(user, 'tiktok_post', {
         idempotencyKey: postRef.id,
         meta: { isVideo: tiktokPostIsVideo, postId: postRef.id, uploadVerified },
@@ -5703,7 +5819,9 @@ Tip: Social Hub se copy karo 📤`,
           {/* Caption if available */}
           {profileVideoViewer.text && (
             <div className="absolute bottom-8 left-4 right-16 z-20">
-              <p className="text-white font-black text-sm">@{username||'AJ_Member'}</p>
+              <p className="text-white font-black text-sm">
+                @{viewProfile?.username || username || 'AJ_Member'}
+              </p>
               <p className="text-gray-300 text-xs mt-1">{profileVideoViewer.text}</p>
             </div>
           )}
@@ -7519,16 +7637,20 @@ Tip: Social Hub se copy karo 📤`,
                       <div className="text-center"><p className="text-white font-black text-base">{profileTotalLikes}</p><p className="text-gray-400 text-[9px]">Likes</p></div>
                     </div>
                   </div>
-                  {/* Posts Grid */}
+                  {/* Posts + Videos Grid */}
                   <div className="mt-4 grid grid-cols-3 gap-0.5 p-0.5">
                     {profilePosts.map((post:any) => (
                       <div
-                        key={post.id}
+                        key={`post_${post.id}`}
                         className="relative aspect-square bg-white/5 overflow-hidden cursor-pointer active:scale-95 transition-all"
                         onClick={() => {
-                          const url = post.videoUrl || post.image;
-                          if (post.isVideo && url) {
-                            setProfileVideoViewer({ url, text: post.text || post.textOverlay });
+                          const url = post.videoUrl || post.image || post.url || post.thumbnail;
+                          if (!url) return;
+                          if (post.isVideo || /\.(mp4|webm|mov)(\?|$)/i.test(String(url))) {
+                            setProfileVideoViewer({
+                              url: String(url),
+                              text: post.text || post.textOverlay || post.caption || '',
+                            });
                           }
                         }}
                       >
@@ -7563,49 +7685,86 @@ Tip: Social Hub se copy karo 📤`,
                         </div>
                       </div>
                     ))}
-                    {profileVideos.map((vid:any) => (
+                    {profileVideos.map((vid:any) => {
+                      const playUrl = String(
+                        vid.videoUrl || vid.url || vid.src || vid.image || vid.mediaUrl || ''
+                      );
+                      const thumb = String(
+                        vid.thumbnail || vid.thumb || vid.poster || vid.cover || playUrl || ''
+                      );
+                      return (
                       <div
-                        key={vid.id}
+                        key={`vid_${vid.id}`}
+                        role="button"
+                        tabIndex={0}
                         className="relative aspect-square bg-white/5 overflow-hidden cursor-pointer active:scale-95 transition-all"
                         onClick={() => {
-                          const url = vid.videoUrl || vid.image;
-                          if (vid.isVideo && url) {
-                            setProfileVideoViewer({ url, text: vid.text || vid.textOverlay });
+                          if (!playUrl) {
+                            setVvipAlert({ msg: 'Video URL missing for this post.', icon: '⚠️' });
+                            return;
+                          }
+                          setProfileVideoViewer({
+                            url: playUrl,
+                            text: vid.text || vid.textOverlay || vid.caption || '',
+                          });
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            if (playUrl) {
+                              setProfileVideoViewer({
+                                url: playUrl,
+                                text: vid.text || vid.textOverlay || vid.caption || '',
+                              });
+                            }
                           }
                         }}
                       >
-                        {(vid.thumbnail || vid.videoUrl || vid.image)
-                          ? <>
-                              {vid.isVideo ? (
-                                <video
-                                  src={vid.thumbnail || vid.videoUrl || vid.image}
-                                  className="w-full h-full object-cover pointer-events-none"
-                                  muted
-                                  playsInline
-                                  preload="metadata"
-                                />
-                              ) : (
-                                <img src={vid.thumbnail || vid.image || vid.videoUrl} className="w-full h-full object-cover pointer-events-none" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}/>
-                              )}
-                              {vid.isVideo && (
-                                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                  <div className="w-9 h-9 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center">
-                                    <span className="text-white text-sm ml-0.5">▶</span>
-                                  </div>
-                                </div>
-                              )}
-                            </>
-                          : <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">🎬</span></div>
-                        }
-                        {vid.isVideo && <div className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5"><Film size={10} className="text-white"/></div>}
-                        {vid.views >= 0 && (
-                          <div className="absolute bottom-1 left-1 bg-black/60 rounded-full px-1.5 py-0.5 flex items-center gap-0.5">
-                            <Eye size={8} className="text-white"/>
-                            <span className="text-white text-[8px] font-black">{formatViews(vid.views || 0)}</span>
+                        {thumb ? (
+                          <>
+                            {/* Prefer static thumb image; fall back to muted video frame */}
+                            {/\.(mp4|webm|mov)(\?|$)/i.test(thumb) || (!vid.thumbnail && playUrl) ? (
+                              <video
+                                src={thumb || playUrl}
+                                className="w-full h-full object-cover pointer-events-none"
+                                muted
+                                playsInline
+                                preload="metadata"
+                              />
+                            ) : (
+                              <img
+                                src={thumb}
+                                alt=""
+                                className="w-full h-full object-cover pointer-events-none"
+                                onError={(e) => {
+                                  const el = e.target as HTMLImageElement;
+                                  el.style.display = 'none';
+                                }}
+                              />
+                            )}
+                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                              <div className="w-9 h-9 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center">
+                                <span className="text-white text-sm ml-0.5">▶</span>
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center bg-white/5">
+                            <span className="text-gray-500 text-xs">🎬</span>
                           </div>
                         )}
+                        <div className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5">
+                          <Film size={10} className="text-white"/>
+                        </div>
+                        <div className="absolute bottom-1 left-1 bg-black/60 rounded-full px-1.5 py-0.5 flex items-center gap-0.5">
+                          <Eye size={8} className="text-white"/>
+                          <span className="text-white text-[8px] font-black">
+                            {formatViews(vid.views || 0)}
+                          </span>
+                        </div>
                       </div>
-                    ))}
+                      );
+                    })}
                     {profilePosts.length === 0 && profileVideos.length === 0 && (
                       <div className="col-span-3 flex flex-col items-center justify-center py-16 gap-3">
                         <span className="text-4xl">📸</span>
