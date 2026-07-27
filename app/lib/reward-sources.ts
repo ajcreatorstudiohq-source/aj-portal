@@ -18,6 +18,7 @@ export const REWARD_SOURCES = [
   'pk_match',
   'referral',
   'math_challenge',
+  'alpha_captcha',
 ] as const;
 
 export type RewardSource = (typeof REWARD_SOURCES)[number];
@@ -42,6 +43,7 @@ export const DAILY_CAPS: Record<RewardSource, number> = {
   pk_match: 5,
   referral: 10,
   math_challenge: 5,
+  alpha_captcha: 5,
 };
 
 export const SOURCE_LABELS: Record<RewardSource, string> = {
@@ -59,8 +61,10 @@ export const SOURCE_LABELS: Record<RewardSource, string> = {
   pk_match: 'PK Live Match',
   referral: 'Referral Bonus',
   math_challenge: 'Daily Math Challenge',
+  alpha_captcha: 'Premium Alphanumeric Captcha',
 };
 
 /** Flat AJ Coin rewards */
 export const MATH_CHALLENGE_COINS = 5;
+export const ALPHA_CAPTCHA_COINS = 10;
 export const REWARDED_VIDEO_COINS = 20;

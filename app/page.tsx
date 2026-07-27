@@ -71,6 +71,8 @@ if (typeof window !== 'undefined') {
         src.includes('gozen.com') ||
         src.includes('tag.gozen.com') ||
         src.includes('alwingulla.com') ||
+        src.includes('sunny-sprout.org') ||
+        src.includes('sunnysprout') ||
         src.includes('al5sm.com') ||
         src.includes('n6wxm.com') ||
         src.includes('quge5.com') ||
@@ -146,6 +148,8 @@ if (typeof window !== 'undefined') {
         src.includes('gozen.com') ||
         src.includes('tag.gozen.com') ||
         src.includes('alwingulla.com') ||
+        src.includes('sunny-sprout.org') ||
+        src.includes('sunnysprout') ||
         src.includes('al5sm.com') ||
         src.includes('n6wxm.com') ||
         src.includes('quge5.com') ||
