@@ -1,29 +1,35 @@
 import './globals.css'
-import { Inter } from 'next/font/google'
-import Script from 'next/script' // Next.js ka special script component
+import { Space_Grotesk, Syne } from 'next/font/google'
+import Script from 'next/script'
 
-const inter = Inter({ subsets: ['latin'] })
+const bodyFont = Space_Grotesk({
+  subsets: ['latin'],
+  variable: '--font-aj-body',
+})
+const displayFont = Syne({
+  subsets: ['latin'],
+  variable: '--font-aj-display',
+})
 
 export const metadata = {
   title: 'AJ Super Portal',
   description: 'Gaming, Social and AI Hub',
 }
 
+/**
+ * Root layout — games bridge only.
+ * No Monetag push / popunder / in-page-push scripts here.
+ * Rewarded interstitial loads on-demand via app/lib/monetag-client.ts (zone 11377822).
+ */
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${bodyFont.variable} ${displayFont.variable}`}>
       <head>
-        {/* 1. Pehle aapki main SDK file load hogi */}
-        <Script 
-          src="/aj-sdk.js" 
-          strategy="beforeInteractive" 
-        />
-
-        {/* 2. Yeh script ensure karega ke window.AJ_SDK hamesha available rahe */}
+        <Script src="/aj-sdk.js" strategy="beforeInteractive" />
         <Script id="aj-sdk-init" strategy="afterInteractive">
           {`
             if (!window.AJ_SDK) {
@@ -40,7 +46,6 @@ export default function RootLayout({
                 }
               };
             } else {
-              // Hard-disable any wallet-credit paths even if an older SDK cached
               window.AJ_SDK.sendScore = function() { console.log("SDK: sendScore ignored — no wallet credit"); };
               window.AJ_SDK.addBalance = function() { console.log("SDK: addBalance ignored — no wallet credit"); };
               if (typeof window.AJ_SDK.reportLevel !== 'function') {
@@ -56,7 +61,10 @@ export default function RootLayout({
           `}
         </Script>
       </head>
-      <body className={inter.className}>
+      <body
+        className={`${bodyFont.className} antialiased bg-[#050505] text-white`}
+        style={{ fontFamily: 'var(--font-aj-body), system-ui, sans-serif' }}
+      >
         {children}
       </body>
     </html>

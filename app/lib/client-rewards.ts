@@ -19,6 +19,8 @@ const STRICT_SOURCES: Record<string, string> = {
   offerwall_video: 'networkShown',
   offerwall: 'fromPostback',
   app_download: 'installVerified',
+  tiktok_post: 'uploadVerified',
+  pulse_post: 'uploadVerified',
 };
 
 export async function earnReward(

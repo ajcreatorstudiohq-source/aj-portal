@@ -228,7 +228,8 @@ import {
 import {
   getFirestore,
   doc, setDoc, onSnapshot, updateDoc, increment, collection,
-  addDoc, getDoc, serverTimestamp, query, orderBy, limit, deleteDoc, getDocs, where
+  addDoc, getDoc, serverTimestamp, query, orderBy, limit, deleteDoc, getDocs, where,
+  runTransaction
 } from 'firebase/firestore';
 import {
   getDatabase, ref, onDisconnect, set, onValue, remove, push, onChildAdded, off
@@ -1347,7 +1348,7 @@ function waitForMonetagShowFn(zoneId: number, maxWaitMs = 15000): Promise<Functi
 // Returns a Promise that resolves true if the ad was shown, false otherwise.
 function triggerMonetagInterstitialAd(zoneId: number): Promise<boolean> {
   // Hard timeout so UI never hangs on a stuck Monetag Promise
-  const SHOW_MS = 28000;
+  const SHOW_MS = 5000;
   return new Promise((resolve) => {
     let settled = false;
     const done = (v: boolean) => {
@@ -2950,7 +2951,12 @@ export function AJSuperPortal() {
         }
         await signOut(auth);
         setUser(null);
-        setScreen('auth');
+        // Hard redirect to dedicated banned page (session terminated)
+        if (typeof window !== 'undefined') {
+          window.location.href = '/banned';
+        } else {
+          setScreen('auth');
+        }
       } catch (err) {
         console.error('kickIfBanned', err);
       } finally {
@@ -3141,10 +3147,10 @@ export function AJSuperPortal() {
     };
   }, [user, pkActive]);
 
-  // AI profit ticker
+  // AI profit ticker — Basic 2.5% / VVIP 5% of invested (visual only; claim uses server clock)
   useEffect(() => {
     if (!user || botTier==='none' || invested<=0) return;
-    const rate   = botTier==='vvip' ? 0.05 : 0.02;
+    const rate   = botTier==='vvip' ? 0.05 : 0.025;
     const perSec = (invested * rate) / 86400;
     const iv = setInterval(() => setVisualProfit(p => p+perSec), 1000);
     return () => clearInterval(iv);
@@ -3202,6 +3208,57 @@ export function AJSuperPortal() {
     }, 1000);
     return () => { if (pkTimerRef.current) clearInterval(pkTimerRef.current); };
   }, [pkActive]);
+
+  // PK real-time gift + score sync (Host / Guest / viewers on same session)
+  useEffect(() => {
+    if (!pkActive || !pkRoomId || !user) return;
+    const sessionUnsub = onSnapshot(doc(db, 'pk_sessions', pkRoomId), (snap) => {
+      if (!snap.exists()) return;
+      const d = snap.data() as {
+        scoreHost?: number;
+        scoreGuest?: number;
+        challengerUid?: string;
+        hostUid?: string;
+        rivalUid?: string;
+      };
+      const iAmHost = d.challengerUid === user.uid || d.hostUid === user.uid;
+      const hostScore = Number(d.scoreHost || 0);
+      const guestScore = Number(d.scoreGuest || 0);
+      setPkScore(
+        iAmHost
+          ? { me: hostScore, rival: guestScore }
+          : { me: guestScore, rival: hostScore }
+      );
+    });
+    const giftsUnsub = onSnapshot(
+      query(collection(db, 'pk_sessions', pkRoomId, 'gifts'), orderBy('createdAtMs', 'desc'), limit(1)),
+      (snap) => {
+        snap.docChanges().forEach((change) => {
+          if (change.type !== 'added') return;
+          const g = change.doc.data() as {
+            giftName?: string;
+            giftIcon?: string;
+            giftCost?: number;
+            senderUid?: string;
+            senderName?: string;
+            createdAtMs?: number;
+          };
+          // Skip own echo if we already showed locally within 2s
+          if (g.senderUid === user.uid && Date.now() - Number(g.createdAtMs || 0) < 2000) return;
+          setCinematicGift({
+            name: g.giftName || 'Gift',
+            icon: g.giftIcon || '🎁',
+            cost: Number(g.giftCost || 0),
+          });
+          setCinematicSender(g.senderName || 'Viewer');
+        });
+      }
+    );
+    return () => {
+      try { sessionUnsub(); } catch {}
+      try { giftsUnsub(); } catch {}
+    };
+  }, [pkActive, pkRoomId, user]);
 
   // Live Chat listener
   useEffect(() => {
@@ -3883,8 +3940,33 @@ export function AJSuperPortal() {
   const sendPkGift = async (creatorId:string, gift:{name:string,cost:number,icon:string}, isMe:boolean) => {
     if (!user) return;
     await sendGift(creatorId, gift);
-    if (isMe) setPkScore(s => ({ ...s, me: s.me + gift.cost }));
-    else setPkScore(s => ({ ...s, rival: s.rival + gift.cost }));
+    const nextMe = isMe ? gift.cost : 0;
+    const nextRival = isMe ? 0 : gift.cost;
+    setPkScore(s => ({ me: s.me + nextMe, rival: s.rival + nextRival }));
+
+    // Real-time sync — all PK participants see gift overlay + score
+    if (pkRoomId) {
+      try {
+        const giftEvent = {
+          giftName: gift.name,
+          giftIcon: gift.icon,
+          giftCost: gift.cost,
+          senderUid: user.uid,
+          senderName: username || 'Anonymous',
+          toHost: isMe,
+          createdAt: serverTimestamp(),
+          createdAtMs: Date.now(),
+        };
+        await addDoc(collection(db, 'pk_sessions', pkRoomId, 'gifts'), giftEvent);
+        await updateDoc(doc(db, 'pk_sessions', pkRoomId), {
+          scoreHost: increment(isMe ? gift.cost : 0),
+          scoreGuest: increment(isMe ? 0 : gift.cost),
+          lastGift: giftEvent,
+        });
+      } catch (e) {
+        console.warn('PK gift sync write failed', e);
+      }
+    }
   };
 
   // FIX: Host rival ki video frames + audio listen kare (PK battle split-screen)
@@ -4502,10 +4584,31 @@ export function AJSuperPortal() {
   // ==========================================================
   const handleTiktokPost = async () => {
     if (!tiktokPostText.trim() && !tiktokPostImg) return setVvipAlert({msg:"Add caption or image!"});
+    if (!user) return;
     try {
+      let mediaUrl = tiktokPostImg || '';
+      let uploadVerified = false;
+      // Require Storage upload when media is attached (base64/blob → Firebase Storage)
+      if (mediaUrl && (mediaUrl.startsWith('data:') || mediaUrl.startsWith('blob:'))) {
+        const res = await fetch(mediaUrl);
+        const blob = await res.blob();
+        const ext = tiktokPostIsVideo ? 'mp4' : 'jpg';
+        const file = new File([blob], `tikreel_${Date.now()}.${ext}`, {
+          type: blob.type || (tiktokPostIsVideo ? 'video/mp4' : 'image/jpeg'),
+        });
+        mediaUrl = await uploadToFirebaseStorage(file, user.uid);
+        if (!mediaUrl) throw new Error('upload_failed');
+        uploadVerified = true;
+      } else if (mediaUrl && mediaUrl.startsWith('http')) {
+        uploadVerified = true;
+      } else if (!mediaUrl && tiktokPostText.trim()) {
+        // Text-only post — no media upload required
+        uploadVerified = true;
+      }
+
       const postRef = await addDoc(collection(db,"user_posts"), {
-        text:tiktokPostText, image:tiktokPostImg, uid:user!.uid,
-        username:username||"AJ_Member", photo:user!.photoURL||'',
+        text:tiktokPostText, image:mediaUrl, uid:user.uid,
+        username:username||"AJ_Member", photo:user.photoURL||'',
         likes:0, views:0, isVideo:tiktokPostIsVideo,
         selectedSound: selectedSound || null,
         textOverlay: tikEditorTextOverlay || null,
@@ -4514,19 +4617,19 @@ export function AJSuperPortal() {
       });
       const reward = await earnReward(user, 'tiktok_post', {
         idempotencyKey: postRef.id,
-        meta: { isVideo: tiktokPostIsVideo, postId: postRef.id },
+        meta: { isVideo: tiktokPostIsVideo, postId: postRef.id, uploadVerified },
       });
       setTiktokPostText(''); setTiktokPostImg(''); setTiktokPostIsVideo(false);
       setTikEditorFilter('none'); setTikEditorTextOverlay(''); setSelectedSound(null);
       setTiktabMode('feed');
       if (reward.ok && !reward.duplicate) {
-        setVvipAlert({msg: reward.message || `🎬 Post published! +${reward.creditedCoins} AJ Coins`, icon:"🎬"});
+        setVvipAlert({msg: reward.message || `🎬 Post published! +${reward.creditedCoins} AJ Coins 🪙`, icon:"🎬"});
       } else if (reward.error === 'daily_limit') {
-        setVvipAlert({msg:'🎬 Post published! Daily TikReel reward limit reached — try tomorrow.', icon:"🎬"});
+        setVvipAlert({msg:'🎬 Post published! Daily TikReel reward limit (5) reached — try tomorrow.', icon:"🎬"});
       } else {
         setVvipAlert({msg:'🎬 Post published!', icon:"🎬"});
       }
-    } catch(e) { console.error('handleTiktokPost', e); setVvipAlert({msg:'Post failed. Please try again.'}); }
+    } catch(e) { console.error('handleTiktokPost', e); setVvipAlert({msg:'Post failed. Upload must succeed before coins.'}); }
   };
 
   // ==========================================================
@@ -4746,25 +4849,41 @@ export function AJSuperPortal() {
   };
   const handleCreatePost = async () => {
     if (!postText.trim() && !tempPhoto) return setVvipAlert({msg:"Empty Post!"});
+    if (!user) return;
     try {
+      let mediaUrl = tempPhoto || '';
+      let uploadVerified = false;
+      if (mediaUrl && (mediaUrl.startsWith('data:') || mediaUrl.startsWith('blob:'))) {
+        const res = await fetch(mediaUrl);
+        const blob = await res.blob();
+        const file = new File([blob], `pulse_${Date.now()}.jpg`, { type: blob.type || 'image/jpeg' });
+        mediaUrl = await uploadToFirebaseStorage(file, user.uid);
+        if (!mediaUrl) throw new Error('upload_failed');
+        uploadVerified = true;
+      } else if (mediaUrl && mediaUrl.startsWith('http')) {
+        uploadVerified = true;
+      } else if (!mediaUrl && postText.trim()) {
+        uploadVerified = true;
+      }
+
       const postRef = await addDoc(collection(db,"pulse_posts"), {
-        text:postText, image:tempPhoto, uid:user!.uid,
-        username:username||"AJ_Member", photo:user!.photoURL||'',
+        text:postText, image:mediaUrl, uid:user.uid,
+        username:username||"AJ_Member", photo:user.photoURL||'',
         likes:0, views:0, isVideo:pulsePostIsVideo, createdAt:serverTimestamp()
       });
       const reward = await earnReward(user, 'pulse_post', {
         idempotencyKey: postRef.id,
-        meta: { isVideo: pulsePostIsVideo, postId: postRef.id },
+        meta: { isVideo: pulsePostIsVideo, postId: postRef.id, uploadVerified },
       });
       setPostText(''); setTempPhoto(''); setPulsePostIsVideo(false);
       if (reward.ok && !reward.duplicate) {
-        setVvipAlert({msg: reward.message || `🚀 Post published! +${reward.creditedCoins} AJ Coins`, icon:"🚀"});
+        setVvipAlert({msg: reward.message || `🚀 Post published! +${reward.creditedCoins} AJ Coins 🪙`, icon:"🚀"});
       } else if (reward.error === 'daily_limit') {
-        setVvipAlert({msg:'🚀 Post published! Daily Pulse reward limit reached — try tomorrow.', icon:"🚀"});
+        setVvipAlert({msg:'🚀 Post published! Daily Pulse reward limit (5) reached — try tomorrow.', icon:"🚀"});
       } else {
         setVvipAlert({msg:'🚀 Post published!', icon:"🚀"});
       }
-    } catch(e) { console.error('handleCreatePost', e); setVvipAlert({msg:'Post failed. Please try again.'}); }
+    } catch(e) { console.error('handleCreatePost', e); setVvipAlert({msg:'Post failed. Upload must succeed before coins.'}); }
   };
 
   // FIX (Hinglish): `commentPostId` mein ab YouTube video IDs (from pixaVideos)
@@ -4976,7 +5095,7 @@ export function AJSuperPortal() {
     } catch(e) { console.error('activateBot', e); setVvipAlert({msg:'Activation failed. Please try again.'}); }
   };
 
-  /** Persist AI bot visual profit via unified reward split (not uncapped client fiction). */
+  /** Persist AI bot claim — server enforces 24h lock via lastBotClaimAt (anti clock-cheat). */
   const syncBotProfits = async () => {
     if (!user) return;
     if (!botTier || botTier === 'none' || invested <= 0) {
@@ -4987,17 +5106,17 @@ export function AJSuperPortal() {
     }
     const day = new Date().toISOString().slice(0, 10);
     const reward = await earnReward(user, 'ai_bot_sync', {
-      idempotencyKey: `${user.uid}_${botTier}_${day}_${Math.floor(visualProfit)}`,
+      idempotencyKey: `${user.uid}_${botTier}_${day}`,
       meta: { botTier, invested, visualProfit },
     });
     if (reward.ok && !reward.duplicate) {
       setVisualProfit(0);
-      try {
-        await updateDoc(doc(db, 'users', user.uid), { lastSync: serverTimestamp() });
-      } catch {}
-      setVvipAlert({ msg: reward.message || `Bot sync +${reward.creditedCoins} AJ Coins`, icon: '🤖' });
-    } else if (reward.error === 'daily_limit') {
-      setVvipAlert({ msg: 'Daily AI bot sync limit reached. Try again tomorrow.', icon: '⏳' });
+      setVvipAlert({ msg: reward.message || `Bot sync +${reward.creditedCoins} AJ Coins 🪙`, icon: '🤖' });
+    } else if (reward.error === 'daily_limit' || reward.error === 'claim_locked') {
+      setVvipAlert({
+        msg: reward.message || 'Bot claim locked for 24h (server time). Device clock changes do not bypass this.',
+        icon: '⏳',
+      });
     } else {
       setVvipAlert({ msg: reward.error || 'Bot sync failed', icon: '⚠️' });
     }
@@ -5039,27 +5158,88 @@ export function AJSuperPortal() {
 
   const handleTransfer = async () => {
     if (transferAmount<=0 || !transferId.trim()) return setVvipAlert({msg:"Fill all fields!"});
-    if (balance<transferAmount) return setVvipAlert({msg:"Insufficient balance!"});
-    if (transferId===user!.uid) return setVvipAlert({msg:"Cannot transfer to yourself."});
+    if (!user) return setVvipAlert({msg:"Please log in first."});
+    const toUid = transferId.trim();
+    const amount = Math.floor(transferAmount);
+    if (toUid === user.uid) return setVvipAlert({msg:"Cannot transfer to yourself."});
+    if (amount <= 0) return setVvipAlert({msg:"Enter a valid amount."});
+
     try {
-      const rSnap = await getDoc(doc(db,"users",transferId.trim()));
-      if (!rSnap.exists()) return setVvipAlert({msg:"Recipient not found!"});
-      await updateDoc(doc(db,"users",user!.uid),         { balance: increment(-transferAmount) });
-      await updateDoc(doc(db,"users",transferId.trim()), { balance: increment(transferAmount) });
+      // Prefer Admin atomic transfer API when configured
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch('/api/wallet/transfer', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ toUid, amount }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.ok) {
+          try {
+            await addDoc(collection(db,"notifications"), {
+              title:"Transfer Sent",
+              message:`Sent ${amount} AJ Coins 🪙 to ID: ${toUid}`,
+              date:serverTimestamp()
+            });
+          } catch {}
+          setVvipAlert({msg: data.message || `✅ Transferred ${amount} AJ Coins 🪙`, icon:"✅"});
+          setTransferAmount(0); setTransferId(''); setWalletTab('main');
+          return;
+        }
+        if (data.error && data.error !== 'admin_not_configured') {
+          const map: Record<string, string> = {
+            insufficient_balance: 'Insufficient balance!',
+            recipient_not_found: 'Recipient not found!',
+            self_transfer: 'Cannot transfer to yourself.',
+            sender_banned: 'Your account is restricted.',
+            recipient_banned: 'Recipient account is restricted.',
+          };
+          return setVvipAlert({ msg: map[data.error] || data.message || data.error });
+        }
+      } catch {
+        /* fall through to client transaction */
+      }
+
+      // Client Firestore runTransaction — atomic debit+credit, blocks self-transfer
+      await runTransaction(db, async (tx) => {
+        const senderRef = doc(db, 'users', user.uid);
+        const receiverRef = doc(db, 'users', toUid);
+        const [senderSnap, receiverSnap] = await Promise.all([
+          tx.get(senderRef),
+          tx.get(receiverRef),
+        ]);
+        if (!receiverSnap.exists()) throw new Error('recipient_not_found');
+        if (!senderSnap.exists()) throw new Error('sender_not_found');
+        const bal = Number((senderSnap.data() as { balance?: number }).balance || 0);
+        if (bal < amount) throw new Error('insufficient_balance');
+        tx.update(senderRef, { balance: increment(-amount) });
+        tx.update(receiverRef, { balance: increment(amount) });
+      });
+
       try {
         await addDoc(collection(db,"notifications"), {
           title:"Transfer Sent",
-          message:`Sent ${transferAmount} Coins to ID: ${transferId}`,
+          message:`Sent ${amount} AJ Coins 🪙 to ID: ${toUid}`,
           date:serverTimestamp()
         });
       } catch {}
-      setVvipAlert({msg:"✅ Transfer successful!",icon:"✅"}); setTransferAmount(0); setTransferId(''); setWalletTab('main');
-    } catch(e) { console.error('handleTransfer', e); setVvipAlert({msg:'Transfer failed. Please try again.'}); }
+      setVvipAlert({msg:`✅ Transferred ${amount} AJ Coins 🪙`,icon:"✅"});
+      setTransferAmount(0); setTransferId(''); setWalletTab('main');
+    } catch(e: unknown) {
+      const msg = e instanceof Error ? e.message : 'transfer_failed';
+      console.error('handleTransfer', e);
+      if (msg === 'insufficient_balance') setVvipAlert({msg:'Insufficient balance!'});
+      else if (msg === 'recipient_not_found') setVvipAlert({msg:'Recipient not found!'});
+      else setVvipAlert({msg:'Transfer failed. Please try again.'});
+    }
   };
 
   const handleWithdraw = async () => {
     if (balance < WITHDRAW_MIN)
-      return setVvipAlert({msg:`Minimum withdrawal is ${WITHDRAW_MIN.toLocaleString()} Coins ($${WITHDRAW_MIN/CASH_RATE} USD). Current: ${balance.toFixed(0)} Coins.`});
+      return setVvipAlert({msg:`Minimum withdrawal is ${WITHDRAW_MIN.toLocaleString()} AJ Coins 🪙. Current: ${balance.toFixed(0)} 🪙`});
     // Validate based on method type
     if (currentWithdrawMethod.type === 'simple') {
       if (!payoutId.trim()) return setVvipAlert({msg:`Enter your ${currentWithdrawMethod.field}.`});
@@ -5082,7 +5262,7 @@ export function AJSuperPortal() {
       try {
         await addDoc(collection(db,"notifications"), {
           title:"Withdrawal Requested",
-          message:`${balance} Coins ($${usdVal.toFixed(2)}) via ${payoutMethod} submitted for review.`,
+          message:`${balance} AJ Coins 🪙 via ${payoutMethod} submitted for review.`,
           date:serverTimestamp()
         });
       } catch {}
@@ -5195,57 +5375,57 @@ Kuch bhi poocho, seedha batata hoon! 🔥`,
     coin: {
       en:  `🪙 AJ Coins — Full Breakdown:\\\\\\\\
 \\\\\\\\
-• Rate: $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1 cash-out\\\\\\\\
+• Rate: ${COIN_RATE} AJ Coins 🪙 per purchase unit | Cash-out from ${WITHDRAW_MIN.toLocaleString()} 🪙\\\\\\\\
 • Welcome Bonus: ${SIGNUP_BONUS_COINS} Coins on signup 🎉\\\\\\\\
 • Referral Bonus: +${REFERRAL_COINS} Coins per friend referred\\\\\\\\
-• Video Post (TikReel): +10 Coins per upload\\\\\\\\
-• Photo Post (Pulse): +5 Coins per post\\\\\\\\
-• AI Bot (Basic): 2% daily on invested coins\\\\\\\\
-• AI Bot (VVIP): 5% daily on invested coins\\\\\\\\
+• Video Post (TikReel): +5 AJ Coins 🪙 per verified upload (max 5/day)\\\\\\\\
+• Photo Post (Pulse): +5 AJ Coins 🪙 per verified upload (max 5/day)\\\\\\\\
+• AI Bot (Basic): 2.5% daily on invested coins (24h server lock)\\\\\\\\
+• AI Bot (VVIP): 5% daily on invested coins (24h server lock)\\\\\\\\
 • Live gifts received: 60% goes to you!\\\\\\\\
 \\\\\\\\
 Go to Wallet → Purchase to top up anytime. 💰`,
       hin: `Bhai, yeh lo puri detail! 🪙\\\\\\\\
 \\\\\\\\
-• Rate: $1 = ${COIN_RATE} Coins | Cash out: ${CASH_RATE} Coins = $1\\\\\\\\
+• Rate: ${COIN_RATE} AJ Coins 🪙 | Min withdraw ${WITHDRAW_MIN.toLocaleString()} 🪙\\\\\\\\
 • Signup bonus: ${SIGNUP_BONUS_COINS} Coins FREE 🎉\\\\\\\\
 • Referral: +${REFERRAL_COINS} Coins har dost ke liye\\\\\\\\
-• TikReel video upload: +10 Coins\\\\\\\\
-• Pulse photo post: +5 Coins\\\\\\\\
-• AI Bot Basic: 2% daily profit\\\\\\\\
+• TikReel video upload: +5 AJ Coins 🪙\\\\\\\\
+• Pulse photo post: +5 AJ Coins 🪙\\\\\\\\
+• AI Bot Basic: 2.5% daily profit (24h server lock)\\\\\\\\
 • AI Bot VVIP: 5% daily profit 🔥\\\\\\\\
 • Live pe gifts milein: 60% tumhara!\\\\\\\\
 \\\\\\\\
 Wallet → Purchase se recharge karo, dost! 💰`,
       ur:  `🪙 AJ Coins — مکمل تفصیل:\\\\\\\\
 \\\\\\\\
-• شرح: $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1\\\\\\\\
+• شرح: ${COIN_RATE} AJ Coins 🪙 | Min withdraw ${WITHDRAW_MIN.toLocaleString()}\\\\\\\\
 • Signup بونس: ${SIGNUP_BONUS_COINS} Coins مفت 🎉\\\\\\\\
 • ریفرل: +${REFERRAL_COINS} Coins\\\\\\\\
-• TikReel ویڈیو: +10 Coins\\\\\\\\
-• Pulse فوٹو: +5 Coins\\\\\\\\
-• AI Bot Basic: 2% روزانہ\\\\\\\\
+• TikReel ویڈیو: +5 Coins 🪙\\\\\\\\
+• Pulse فوٹو: +5 Coins 🪙\\\\\\\\
+• AI Bot Basic: 2.5% روزانہ\\\\\\\\
 • AI Bot VVIP: 5% روزانہ 🔥\\\\\\\\
 • Live تحفے: 60% آپ کا!\\\\\\\\
 \\\\\\\\
 Wallet → Purchase 💰`,
       hi:  `🪙 AJ Coins:\\\\\\\\
 \\\\\\\\
-• $1 = ${COIN_RATE} Coins | ${CASH_RATE} Coins = $1\\\\\\\\
+• ${COIN_RATE} AJ Coins 🪙 | Min withdraw ${WITHDRAW_MIN.toLocaleString()}\\\\\\\\
 • Signup: ${SIGNUP_BONUS_COINS} Coins 🎉\\\\\\\\
 • Referral: +${REFERRAL_COINS} Coins\\\\\\\\
-• TikReel Video: +10 Coins\\\\\\\\
-• Pulse Photo: +5 Coins\\\\\\\\
-• AI Bot Basic: 2% | VVIP: 5% 🔥\\\\\\\\
+• TikReel Video: +5 Coins 🪙\\\\\\\\
+• Pulse Photo: +5 Coins 🪙\\\\\\\\
+• AI Bot Basic: 2.5% | VVIP: 5% 🔥\\\\\\\\
 • Gifts: 60% आपका!\\\\\\\\
 \\\\\\\\
 Wallet → Purchase 💰`,
       ar:  `🪙 AJ Coins:\\\\\\\\
 \\\\\\\\
-• $1 = ${COIN_RATE} | ${CASH_RATE} = $1\\\\\\\\
+• ${COIN_RATE} AJ Coins 🪙 | Min ${WITHDRAW_MIN.toLocaleString()}\\\\\\\\
 • Signup: ${SIGNUP_BONUS_COINS} 🎉\\\\\\\\
 • Referral: +${REFERRAL_COINS}\\\\\\\\
-• TikReel Video: +10\\\\\\\\
+• TikReel Video: +5\\\\\\\\
 • Pulse Photo: +5\\\\\\\\
 • AI Bot: 2-5% 🔥\\\\\\\\
 • Gifts: 60%\\\\\\\\
@@ -5260,7 +5440,7 @@ Wallet → Purchase 💰`,
 • CENTER-TAP to pause/resume video\\\\\\\\
 • Like ❤️, Comment 💬, Share 🔗, or send Gifts 🎁\\\\\\\\
 • Upload your own: hit ➕ Post tab, add caption + image/video\\\\\\\\
-• Each video upload earns you +10 Coins 🪙\\\\\\\\
+• Each verified upload earns you +5 AJ Coins 🪙\\\\\\\\
 • Photo post earns +5 Coins\\\\\\\\
 • CSS Filters, Music Picker & Text Overlay available in editor`,
       hin: `🎬 AJ TikReels:\\\\\\\\
@@ -5269,7 +5449,7 @@ Wallet → Purchase 💰`,
 • Videos scroll karo (snap-scroll)\\\\\\\\
 • CENTER TAP karo pause/resume ke liye\\\\\\\\
 • Like ❤️, Comment 💬, Gift 🎁\\\\\\\\
-• Video upload: +10 Coins 🔥\\\\\\\\
+• Video upload: +5 AJ Coins 🪙\\\\\\\\
 • Photo post: +5 Coins\\\\\\\\
 • Editor mein Filters, Music, Text Overlay bhi hai!`,
       ur:  `🎬 AJ TikReels:\\\\\\\\
@@ -5278,14 +5458,14 @@ Wallet → Purchase 💰`,
 • Videos اسکرول کریں\\\\\\\\
 • CENTER TAP: pause/resume\\\\\\\\
 • Like ❤️، Comment 💬، Gift 🎁\\\\\\\\
-• Video: +10 Coins 🔥\\\\\\\\
+• Video: +5 AJ Coins 🪙\\\\\\\\
 • Photo: +5 Coins\\\\\\\\
 • Editor: Filters، Music، Text Overlay`,
       hi:  `🎬 AJ TikReels:\\\\\\\\
 \\\\\\\\
 • Social → AJ TikReels → Feed\\\\\\\\
 • CENTER TAP: pause/resume\\\\\\\\
-• Video: +10 Coins 🔥\\\\\\\\
+• Video: +5 AJ Coins 🪙\\\\\\\\
 • Photo: +5 Coins\\\\\\\\
 • Editor: Filters, Music, Text Overlay`,
       ar:  `🎬 AJ TikReels:\\\\\\\\
@@ -5301,7 +5481,7 @@ Wallet → Purchase 💰`,
 \\\\\\\\
 📸 Feed:\\\\\\\\
 • Scroll posts, like, comment, share, send gifts\\\\\\\\
-• Post your own content → +5 Coins (photo) / +10 Coins (video)\\\\\\\\
+• Post your own content → +5 AJ Coins 🪙 (verified upload, max 5/day)\\\\\\\\
 \\\\\\\\
 🔴 Go Live:\\\\\\\\
 • Social Hub → GO LIVE button\\\\\\\\
@@ -5313,7 +5493,7 @@ Wallet → Purchase 💰`,
 \\\\\\\\
 📸 Feed:\\\\\\\\
 • Posts scroll, like/comment/gift\\\\\\\\
-• Photo post: +5 Coins | Video: +10 Coins\\\\\\\\
+• Photo/Video post: +5 AJ Coins 🪙\\\\\\\\
 \\\\\\\\
 🔴 Live:\\\\\\\\
 • GO LIVE → Room ID share karo\\\\\\\\
@@ -5323,7 +5503,7 @@ Wallet → Purchase 💰`,
       ur:  `📡 AJ Pulse:\\\\\\\\
 \\\\\\\\
 📸 فیڈ:\\\\\\\\
-• Photo: +5 Coins | Video: +10 Coins\\\\\\\\
+• Photo/Video: +5 AJ Coins 🪙\\\\\\\\
 \\\\\\\\
 🔴 Live:\\\\\\\\
 • GO LIVE → Room ID شیئر\\\\\\\\
@@ -5332,7 +5512,7 @@ Wallet → Purchase 💰`,
 ⚔️ PK: 100 Coins، 5 منٹ 🏆`,
       hi:  `📡 AJ Pulse:\\\\\\\\
 \\\\\\\\
-• Photo: +5 Coins | Video: +10 Coins\\\\\\\\
+• Photo/Video: +5 AJ Coins 🪙\\\\\\\\
 • GO LIVE → Room ID share\\\\\\\\
 • Gifts → 60% आपका!\\\\\\\\
 • PK Battle: 100 Coins 🏆`,
@@ -5774,12 +5954,12 @@ Tip: Social Hub se copy karo 📤`,
               <div className="p-5">
                 <p className="text-[10px] text-gray-400 uppercase tracking-widest font-black">Total Balance</p>
                 <p className="text-4xl font-black bg-gradient-to-r from-yellow-300 to-yellow-500 bg-clip-text text-transparent mt-1">{parseFloat(displayBalance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} <span className="text-lg text-yellow-400/70">🪙</span></p>
-                <p className="text-xs text-gray-400 mt-1">≈ ${displayUsdt} USD</p>
+                <p className="text-xs text-gray-400 mt-1">AJ Coins 🪙 · Min withdraw {WITHDRAW_MIN.toLocaleString()}</p>
                 {botTier !== 'none' && (
                   <div className="mt-3 flex items-center gap-2 bg-green-500/10 border border-green-500/20 rounded-2xl px-3 py-2">
                     <span className="text-green-400 text-xs font-black animate-pulse">● LIVE</span>
                     <span className="text-green-300 text-xs font-black">{botTier.toUpperCase()} BOT ACTIVE</span>
-                    <span className="ml-auto text-green-400 text-xs font-black">+{botTier==='vvip'?'5':'2'}% daily</span>
+                    <span className="ml-auto text-green-400 text-xs font-black">+{botTier==='vvip'?'5':'2.5'}% daily</span>
                   </div>
                 )}
                 <div className="mt-4 flex gap-2">
@@ -6879,23 +7059,46 @@ Tip: Social Hub se copy karo 📤`,
                 )}
                 {pkActive && (
                   <div className="w-full max-w-sm space-y-3">
-                    {/* FIX: PK BATTLE SPLIT-SCREEN — host (left) + rival (right) */}
-                    <div className="flex gap-2 rounded-2xl overflow-hidden border border-orange-500/30" style={{ height: 180 }}>
-                      {/* Host (me) — left half */}
-                      <div className="flex-1 relative bg-black overflow-hidden">
+                    {/* Dynamic Blue (Host) vs Red (Guest) score bar */}
+                    {(() => {
+                      const total = Math.max(1, pkScore.me + pkScore.rival);
+                      const mePct = Math.round((pkScore.me / total) * 100);
+                      const rivalPct = 100 - mePct;
+                      return (
+                        <div className="rounded-xl overflow-hidden border border-white/10">
+                          <div className="flex h-3 w-full">
+                            <div
+                              className="h-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all duration-500"
+                              style={{ width: `${mePct}%` }}
+                            />
+                            <div
+                              className="h-full bg-gradient-to-r from-rose-500 to-red-600 transition-all duration-500"
+                              style={{ width: `${rivalPct}%` }}
+                            />
+                          </div>
+                          <div className="flex justify-between px-2 py-1 bg-black/50 text-[9px] font-black">
+                            <span className="text-cyan-300">YOU {pkScore.me.toLocaleString()}🪙</span>
+                            <span className="text-gray-400">{formatPkTime(pkTimer)}</span>
+                            <span className="text-rose-300">{pkScore.rival.toLocaleString()}🪙 RIVAL</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                    {/* TikTok-style 50/50 vertical split — Host vs Guest */}
+                    <div className="flex flex-col gap-1 rounded-2xl overflow-hidden border border-orange-500/30" style={{ height: 320 }}>
+                      <div className="flex-1 relative bg-black overflow-hidden border-b border-white/10">
                         {cameraReady && liveVideoRef.current?.srcObject ? (
                           <video ref={liveVideoRef} autoPlay muted playsInline className="absolute inset-0 w-full h-full object-cover" style={{ objectFit: 'cover' }}/>
                         ) : (
                           <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
-                            <img src={tempPhoto || user?.photoURL || '/logo.png'} className="w-12 h-12 rounded-full border-2 border-orange-500 object-cover"/>
+                            <img src={tempPhoto || user?.photoURL || '/logo.png'} className="w-12 h-12 rounded-full border-2 border-cyan-500 object-cover"/>
                             <span className="text-white text-[9px] font-black">@{username||'You'}</span>
                           </div>
                         )}
-                        <div className="absolute bottom-1 left-1 bg-orange-600/80 text-white text-[8px] font-black px-2 py-0.5 rounded-full">
-                          @{username||'You'} · {pkScore.me.toLocaleString()}🪙
+                        <div className="absolute top-1 left-1 bg-cyan-600/80 text-white text-[8px] font-black px-2 py-0.5 rounded-full">
+                          HOST · {pkScore.me.toLocaleString()}🪙
                         </div>
                       </div>
-                      {/* Rival — right half */}
                       <div className="flex-1 relative bg-black overflow-hidden">
                         {pkRivalFrame ? (
                           <img src={pkRivalFrame} className="absolute inset-0 w-full h-full object-cover" alt="PK Opponent"/>
@@ -6903,17 +7106,16 @@ Tip: Social Hub se copy karo 📤`,
                           <img src={pkHostFrame} className="absolute inset-0 w-full h-full object-cover" alt="PK Opponent"/>
                         ) : (
                           <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
-                            <img src={pkRivalData?.photo || '/logo.png'} className="w-12 h-12 rounded-full border-2 border-orange-500 object-cover"/>
+                            <img src={pkRivalData?.photo || '/logo.png'} className="w-12 h-12 rounded-full border-2 border-rose-500 object-cover"/>
                             <span className="text-white text-[9px] font-black">@{pkRivalData?.username||'Opponent'}</span>
                             <span className="text-gray-400 text-[7px] animate-pulse">Connecting…</span>
                           </div>
                         )}
-                        <div className="absolute bottom-1 left-1 bg-orange-600/80 text-white text-[8px] font-black px-2 py-0.5 rounded-full">
-                          @{pkRivalData?.username||'Opponent'} · {pkScore.rival.toLocaleString()}🪙
+                        <div className="absolute top-1 left-1 bg-rose-600/80 text-white text-[8px] font-black px-2 py-0.5 rounded-full">
+                          GUEST · {pkScore.rival.toLocaleString()}🪙
                         </div>
                       </div>
                     </div>
-                    {/* PK Timer + VS bar */}
                     <div className="flex items-center justify-between bg-orange-500/10 border border-orange-500/30 rounded-xl px-3 py-2">
                       <span className="text-orange-400 font-black text-xs">⚔️ PK BATTLE</span>
                       <span className="text-white font-black text-sm">{formatPkTime(pkTimer)}</span>
@@ -6924,7 +7126,6 @@ Tip: Social Hub se copy karo 📤`,
                         className="text-red-400 text-[9px] font-black underline"
                       >End PK</button>
                     </div>
-                    {/* Tap for Sound — rival ki awaz enable karne ke liye (autoplay fix) */}
                     <button
                       onClick={() => {
                         try {
@@ -6938,7 +7139,6 @@ Tip: Social Hub se copy karo 📤`,
                       <Volume2 size={12} className="text-orange-400"/>
                       Tap to Enable Rival Sound
                     </button>
-                    {/* Gift buttons — score increase karte hain */}
                     <div className="grid grid-cols-3 gap-2">
                       {giftItems.slice(0,3).map(g => (
                         <button key={g.id} onClick={() => sendPkGift(user!.uid, g, true)} className="flex flex-col items-center gap-1 bg-white/5 border border-white/10 rounded-xl p-2 active:scale-90 transition-all">
@@ -7613,7 +7813,7 @@ Tip: Social Hub se copy karo 📤`,
             </div>
 
             {/* Bot Plans — FIX #7: card click triggers interstitial */}
-            {[ { tier:'basic', label:'Basic Bot', cost:1000, rate:'2% daily', icon:'🤖', color:'from-blue-600 to-cyan-600' },
+            {[ { tier:'basic', label:'Basic Bot', cost:2500, rate:'2.5% daily', icon:'🤖', color:'from-blue-600 to-cyan-600' },
               { tier:'vvip',  label:'VVIP Bot',  cost:5000, rate:'5% daily', icon:'🚀', color:'from-pink-600 to-purple-600' },
             ].map(plan => (
               <button
@@ -7702,15 +7902,15 @@ Tip: Social Hub se copy karo 📤`,
                   <div className="p-5">
                     <p className="text-[10px] text-gray-400 uppercase tracking-widest font-black">Total Balance</p>
                     <p className="text-4xl font-black bg-gradient-to-r from-yellow-300 to-yellow-500 bg-clip-text text-transparent mt-1">{parseFloat(displayBalance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} <span className="text-lg text-yellow-400/70">🪙</span></p>
-                    <p className="text-xs text-gray-400 mt-1">≈ ${displayUsdt} USD</p>
+                    <p className="text-xs text-gray-400 mt-1">AJ Coins 🪙 · Min withdraw {WITHDRAW_MIN.toLocaleString()}</p>
                     <div className="mt-4 grid grid-cols-2 gap-2">
                       <div className="bg-white/5 rounded-2xl p-3 text-center">
                         <p className="text-[9px] text-gray-400 font-black uppercase">Rate</p>
-                        <p className="text-white font-black text-xs mt-1">$1 = {COIN_RATE} 🪙</p>
+                        <p className="text-white font-black text-xs mt-1">{COIN_RATE} 🪙 / unit</p>
                       </div>
                       <div className="bg-white/5 rounded-2xl p-3 text-center">
                         <p className="text-[9px] text-gray-400 font-black uppercase">Cash Out</p>
-                        <p className="text-white font-black text-xs mt-1">{CASH_RATE} 🪙 = $1</p>
+                        <p className="text-white font-black text-xs mt-1">{CASH_RATE} 🪙 cash-out unit</p>
                       </div>
                     </div>
                   </div>
@@ -7734,7 +7934,7 @@ Tip: Social Hub se copy karo 📤`,
             {walletTab === 'purchase' && (
               <div className="space-y-4">
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
-                  <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-3">Amount (USD)</p>
+                  <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-3">Amount</p>
                   <div className="flex gap-2 flex-wrap mb-3">
                     {[20,50,100,250,500].map(amt => (
                       <button key={amt} onClick={() => setPurchaseAmount(amt)} className={`px-3 py-1.5 rounded-xl text-[10px] font-black transition-all ${purchaseAmount===amt ? 'bg-pink-600 text-white' : 'bg-white/5 border border-white/10 text-gray-400'}`}>
@@ -7758,8 +7958,8 @@ Tip: Social Hub se copy karo 📤`,
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
                   <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">Available Balance</p>
                   <p className="text-2xl font-black text-yellow-400">{balance.toFixed(0)} 🪙</p>
-                  <p className="text-[10px] text-gray-400 mt-1">≈ ${(balance/CASH_RATE).toFixed(2)} USD</p>
-                  <p className="text-[9px] text-orange-400 mt-2 font-black">Min withdrawal: {WITHDRAW_MIN.toLocaleString()} Coins (${WITHDRAW_MIN/CASH_RATE})</p>
+                  <p className="text-[10px] text-gray-400 mt-1">AJ Coins 🪙 balance</p>
+                  <p className="text-[9px] text-orange-400 mt-2 font-black">Min withdrawal: {WITHDRAW_MIN.toLocaleString()} AJ Coins 🪙</p>
                 </div>
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3">
                   <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Payment Method</p>

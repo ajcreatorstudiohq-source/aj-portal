@@ -178,7 +178,8 @@ export default function HubEarnPanel({
     const hardStop = window.setTimeout(() => {
       setAdBusy(false);
       cleanupMonetagDom();
-    }, 32000);
+      onAlert('Ad timed out (5s). Try again.', '⏱️');
+    }, 5000);
     try {
       const sdkOk = await ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL_ZONE);
       if (!sdkOk) {

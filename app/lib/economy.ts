@@ -201,7 +201,9 @@ export function getOfferwallServerConfig() {
   return {
     wallUrl: OFFERWALL_PUBLIC.wallUrl,
     postbackSecret:
-      process.env.OFFERWALL_POSTBACK_SECRET || 'aj-offerwall-dev-secret-change-me',
+      process.env.OFFERWALL_POSTBACK_SECRET ||
+      process.env.AJ_POSTBACK_SECRET ||
+      'AJ_SUPER_SECURE_786_PORTAL',
     maxDailyCompletions: Number(process.env.OFFERWALL_MAX_DAILY || 5),
   };
 }
