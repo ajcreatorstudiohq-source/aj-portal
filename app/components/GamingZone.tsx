@@ -91,7 +91,11 @@ export default function GamingZone({
       });
       clearInterval(tick);
       setDownloadPct((p) => ({ ...p, [gameId]: 100 }));
-      onAlert(data.message || 'Game downloaded & unlocked!', '✅');
+      onAlert(
+        data.message ||
+          'Game unlocked — Pending Verification. AJ Coins 🪙 only after verified postback.',
+        '⏳'
+      );
       onRefreshUser?.();
     } catch (e: unknown) {
       clearInterval(tick);
@@ -371,7 +375,8 @@ export default function GamingZone({
           <div className="rounded-2xl border border-pink-500/20 bg-pink-950/20 p-3">
             <p className="text-[11px] text-gray-300 leading-relaxed">
               <span className="text-pink-300 font-black">Download & Level Unlock:</span> No free game dumps.
-              Download/install a game (one-time coin reward), then clear milestone levels for more AJ Coins.
+              Download/install unlocks play only (Pending Verification). AJ Coins 🪙 credit via
+              verified CPAGrip postback or milestone clears — never from a click alone.
             </p>
           </div>
 

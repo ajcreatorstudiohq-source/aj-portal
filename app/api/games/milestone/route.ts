@@ -27,8 +27,7 @@ import {
  * Auth: Bearer <Firebase ID token>
  *
  * Validates install + level reached + milestone definition, then credits
- * $1.00–$1.50 USD equivalent to the user and logs the remainder of the
- * $5–$7 pool as AdminRevenue. Idempotent per user/game/level.
+ * AJ Coins 🪙 to the user and logs AdminRevenue. Idempotent per user/game/level.
  */
 export async function POST(request: Request) {
   try {

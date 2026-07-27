@@ -68,6 +68,8 @@ if (typeof window !== 'undefined') {
       const msg = String(message || '');
       const isExternalAdScript =
         src.includes('nap5k.com') ||
+        src.includes('gozen.com') ||
+        src.includes('tag.gozen.com') ||
         src.includes('al5sm.com') ||
         src.includes('n6wxm.com') ||
         src.includes('quge5.com') ||
@@ -140,6 +142,8 @@ if (typeof window !== 'undefined') {
       const src = String(e?.filename || e?.target?.src || e?.target?.href || '');
       if (
         src.includes('nap5k.com') ||
+        src.includes('gozen.com') ||
+        src.includes('tag.gozen.com') ||
         src.includes('al5sm.com') ||
         src.includes('n6wxm.com') ||
         src.includes('quge5.com') ||
@@ -1347,24 +1351,26 @@ function waitForMonetagShowFn(zoneId: number, maxWaitMs = 15000): Promise<Functi
 //   (so we can distinguish "ad failed" from "ad succeeded" for revenue tracking).
 // Returns a Promise that resolves true if the ad was shown, false otherwise.
 function triggerMonetagInterstitialAd(zoneId: number): Promise<boolean> {
-  // Hard timeout so UI never hangs on a stuck Monetag Promise
-  const SHOW_MS = 5000;
+  // 5s = SDK must trigger after show call; up to 120s wait for onReward (full video).
+  // Opening alone = false (no coins).
+  const TRIGGER_MS = 5000;
+  const REWARD_MS = 120000;
   return new Promise((resolve) => {
     let settled = false;
+    let triggered = false;
+    let hardTimer: ReturnType<typeof setTimeout> | null = null;
+    let rewardHardTimer: ReturnType<typeof setTimeout> | null = null;
     const done = (v: boolean) => {
       if (settled) return;
       settled = true;
+      if (hardTimer) clearTimeout(hardTimer);
+      if (rewardHardTimer) clearTimeout(rewardHardTimer);
       resolve(v);
     };
-    const hardTimer = setTimeout(() => {
-      cleanupMonetagDom();
-      done(false);
-    }, SHOW_MS + 4000);
 
     (async () => {
       try {
         if (typeof window === 'undefined') {
-          clearTimeout(hardTimer);
           done(false);
           return;
         }
@@ -1374,42 +1380,54 @@ function triggerMonetagInterstitialAd(zoneId: number): Promise<boolean> {
 
         const nowGate = Date.now();
         if ((nowGate - lastAnyAdShownTime) < AD_COOLDOWN_MS) {
-          clearTimeout(hardTimer);
           done(false);
           return;
         }
         realAdFiredThisCycle = false;
 
         // Zone 11377822 only — never legacy push/popunder zones
-        const showFn = await waitForMonetagShowFn(zoneId, 12000);
+        const showFn = await waitForMonetagShowFn(zoneId, 5000);
         if (typeof showFn !== 'function') {
-          clearTimeout(hardTimer);
           done(false);
           return;
         }
 
         try {
           await Promise.race([
-            Promise.resolve(showFn({ type: 'preload', requestVar: 'infeed_ad', timeout: 8 })).catch(() => null),
-            new Promise((r) => setTimeout(r, 10000)),
+            Promise.resolve(showFn({ type: 'preload', requestVar: 'infeed_ad', timeout: 5 })).catch(() => null),
+            new Promise((r) => setTimeout(r, 2500)),
           ]);
         } catch {
           /* preload optional */
         }
 
         if ((Date.now() - lastAnyAdShownTime) < AD_COOLDOWN_MS) {
-          clearTimeout(hardTimer);
           done(false);
           return;
         }
 
+        // Start 5s trigger clock only when we attempt to open the ad
+        hardTimer = setTimeout(() => {
+          if (!triggered) {
+            cleanupMonetagDom();
+            done(false);
+          }
+        }, TRIGGER_MS);
+        rewardHardTimer = setTimeout(() => {
+          cleanupMonetagDom();
+          done(false);
+        }, TRIGGER_MS + REWARD_MS);
+
         // Only type:'end' rewarded interstitial — never pop / inApp / push
+        // Promise resolve = onReward (video finished 100%). Opening alone = 0 coins.
         try {
           const showResult = showFn({ type: 'end', requestVar: 'infeed_ad' });
+          triggered = true;
+          if (hardTimer) clearTimeout(hardTimer);
           if (showResult && typeof (showResult as Promise<unknown>).then === 'function') {
             const shown = await Promise.race([
               (showResult as Promise<unknown>).then(() => true).catch(() => false),
-              new Promise<boolean>((r) => setTimeout(() => r(false), SHOW_MS)),
+              new Promise<boolean>((r) => setTimeout(() => r(false), REWARD_MS)),
             ]);
             if (shown) {
               lastAnyAdShownTime = Date.now();
@@ -1422,7 +1440,6 @@ function triggerMonetagInterstitialAd(zoneId: number): Promise<boolean> {
                   meta: { network: 'monetag', zoneId },
                 }).catch(() => {});
               } catch {}
-              clearTimeout(hardTimer);
               done(true);
             } else {
               lastAnyAdShownTime = Date.now() - (AD_COOLDOWN_MS - 30000);
@@ -1434,25 +1451,21 @@ function triggerMonetagInterstitialAd(zoneId: number): Promise<boolean> {
                   zoneId: MONETAG_INTERSTITIAL_ZONE,
                 }).catch(() => {});
               } catch {}
-              clearTimeout(hardTimer);
               done(false);
             }
           } else {
             // Non-promise = not a verified completion
             cleanupMonetagDom();
-            clearTimeout(hardTimer);
             done(false);
           }
         } catch {
           lastAnyAdShownTime = Date.now() - (AD_COOLDOWN_MS - 30000);
           cleanupMonetagDom();
-          clearTimeout(hardTimer);
           done(false);
         }
       } catch (e) {
         console.warn('[Monetag] triggerMonetagInterstitialAd error:', e);
         cleanupMonetagDom();
-        clearTimeout(hardTimer);
         done(false);
       }
     })();
@@ -3647,7 +3660,7 @@ export function AJSuperPortal() {
     // error aaye (ZegoCloud destroy, Firestore delete, media stop), user HAMESHA
     // Social Hub par wapas aa jaayega. Error se page crash nahi hoga.
     try {
-      // Host live reward once per day when ending a session ($1–$1.50 split)
+      // Host live reward once per day when ending a session (AJ Coins via server)
       try {
         if (user && liveRoomId) {
           const day = new Date().toISOString().slice(0, 10);
@@ -3773,7 +3786,7 @@ export function AJSuperPortal() {
       } catch (audioErr) {
         console.warn('joinLiveByRoomId: audio join failed (non-fatal — video still works)', audioErr);
       }
-      // Live view reward after ~60s of uninterrupted watching ($1–$1.50 split)
+      // Live view reward after ~60s of uninterrupted watching (AJ Coins via server)
       try {
         if ((liveStreamRef as any)._liveViewTimer) clearTimeout((liveStreamRef as any)._liveViewTimer);
         (liveStreamRef as any)._liveViewTimer = setTimeout(async () => {
@@ -4258,7 +4271,7 @@ export function AJSuperPortal() {
     try {
       // Deduct gift cost from sender (engagement spend)
       await updateDoc(doc(db,"users",user.uid), { balance: increment(-gift.cost) });
-      // Creator earns via unified $5–$7 / $1–$1.50 split engine (not flat 40%)
+      // Creator earns AJ Coins via verified server reward engine
       const giftKey = `${user.uid}_${creatorId}_${gift.name}_${Date.now()}`;
       const reward = await earnReward(user, 'live_gift', {
         idempotencyKey: giftKey,

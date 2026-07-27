@@ -1,7 +1,10 @@
 /**
  * Shared Monetag SDK loader + interstitial / rewarded show helpers.
  * Zone 11377822 only — rewarded interstitial (type:end).
- * Never uses push / pop / inApp / popunder formats.
+ * Never uses push / pop / inApp / popunder / gozen formats.
+ *
+ * Reward rule: coins ONLY when the SDK Promise resolves (onReward).
+ * Opening / starting an ad alone = 0 coins.
  */
 import {
   AD_COOLDOWN_MS,
@@ -21,9 +24,12 @@ let lastInFeedPopupTime = 0;
 let realAdFiredThisCycle = false;
 let pendingNavAfterAd: (() => void) | null = null;
 
-const SHOW_TIMEOUT_MS = 5000;
-const PRELOAD_TIMEOUT_MS = 4000;
+/** If SDK does not open an ad within this window, UI must reset loading */
+export const SDK_TRIGGER_TIMEOUT_MS = 5000;
+const PRELOAD_TIMEOUT_MS = 2500;
 const SDK_WAIT_MS = 5000;
+/** Max wait for onReward after ad has opened (user finishes video) */
+const REWARD_WAIT_MS = 120000;
 
 export function getLastAnyAdShownTime() {
   return lastAnyAdShownTime;
@@ -57,7 +63,7 @@ export function cleanupMonetagDom(): void {
   try {
     document
       .querySelectorAll(
-        'iframe[src*="nap5k"],iframe[src*="monetag"],iframe[src*="mdn201"],iframe[id*="google_ads"],div[id*="ad_iframe"]'
+        'iframe[src*="nap5k"],iframe[src*="monetag"],iframe[src*="mdn201"],iframe[src*="gozen"],iframe[id*="google_ads"],div[id*="ad_iframe"]'
       )
       .forEach((node) => {
         try {
@@ -110,13 +116,13 @@ function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => T): Pr
 
 /**
  * Inject Monetag SDK for zone. Resolves true when show_{zoneId} is available.
+ * Uses data-sdk so MultiTag does not auto-fire push / IPP.
  */
 export function ensureMonetagSdkLoaded(
   zoneId: number = MONETAG_INTERSTITIAL_ZONE
 ): Promise<boolean> {
   if (typeof window === 'undefined') return Promise.resolve(false);
 
-  // Keep push / IPP / popunder off while SDK loads
   try {
     startIntrusiveAdGuard();
   } catch {
@@ -151,7 +157,6 @@ export function ensureMonetagSdkLoaded(
         script.async = true;
         script.setAttribute('data-zone', String(zoneId));
         script.setAttribute('data-sdk', `show_${zoneId}`);
-        // data-sdk keeps MultiTag auto push/IPP from activating; only show_ZONE API
         script.src = MONETAG_TAG_URLS[zoneId] || MONETAG_TAG_URL;
         document.head.appendChild(script);
       }
@@ -227,6 +232,10 @@ export type MonetagShowOptions = {
   requestVar?: string;
   /** User / session id for Monetag postback linking */
   ymid?: string;
+  /** Called when SDK opens the ad unit (before onReward) */
+  onTriggered?: () => void;
+  /** Called when user finishes the video (Monetag Promise resolve = onReward) */
+  onReward?: () => void;
 };
 
 function asPromise(result: unknown): Promise<unknown> {
@@ -236,32 +245,48 @@ function asPromise(result: unknown): Promise<unknown> {
   return Promise.reject(new Error('monetag_no_promise'));
 }
 
+export type MonetagShowResult = {
+  /** SDK opened an ad unit within the trigger window */
+  triggered: boolean;
+  /** User completed the video — Monetag onReward / Promise resolve */
+  rewarded: boolean;
+};
+
 /**
- * Show Monetag rewarded interstitial. Resolves true ONLY when the SDK
- * Promise resolves after the ad is shown and closed. Always settles (timeout).
+ * Show Monetag rewarded interstitial.
+ * - Trigger must happen within SDK_TRIGGER_TIMEOUT_MS (5s) or returns not triggered.
+ * - `rewarded: true` ONLY when SDK Promise resolves (onReward / video finished).
+ * - Opening the ad alone never implies rewarded.
  */
 export function triggerMonetagInterstitialAd(
   zoneId: number = MONETAG_INTERSTITIAL_ZONE,
   opts: MonetagShowOptions = {}
 ): Promise<boolean> {
+  return showMonetagRewarded(zoneId, opts).then((r) => r.rewarded);
+}
+
+export function showMonetagRewarded(
+  zoneId: number = MONETAG_INTERSTITIAL_ZONE,
+  opts: MonetagShowOptions = {}
+): Promise<MonetagShowResult> {
   return withTimeout(
-    new Promise<boolean>((resolve) => {
+    new Promise<MonetagShowResult>((resolve) => {
       (async () => {
         try {
           if (typeof window === 'undefined') {
-            resolve(false);
+            resolve({ triggered: false, rewarded: false });
             return;
           }
 
           const sdkOk = await ensureMonetagSdkLoaded(zoneId);
           if (!sdkOk) {
-            resolve(false);
+            resolve({ triggered: false, rewarded: false });
             return;
           }
 
           const nowGate = Date.now();
           if (!opts.force && nowGate - lastAnyAdShownTime < AD_COOLDOWN_MS) {
-            resolve(false);
+            resolve({ triggered: false, rewarded: false });
             return;
           }
           realAdFiredThisCycle = false;
@@ -269,21 +294,20 @@ export function triggerMonetagInterstitialAd(
           const showFn = await waitForMonetagShowFn(zoneId, SDK_WAIT_MS);
           if (typeof showFn !== 'function') {
             console.warn(`[Monetag] show_${zoneId} unavailable`);
-            resolve(false);
+            resolve({ triggered: false, rewarded: false });
             return;
           }
 
           const requestVar = opts.requestVar || 'rewarded_video';
           const ymid = opts.ymid || `aj_${Date.now()}`;
-          // IMPORTANT: only type preload / end — never pop, inApp, or push
           const common = { requestVar, ymid };
 
-          // Preload is best-effort; never hang the button spinner
+          // Best-effort preload — never hang UI
           await withTimeout(
             asPromise(
               showFn({
                 type: 'preload',
-                timeout: 8,
+                timeout: 5,
                 ...common,
               })
             )
@@ -294,43 +318,89 @@ export function triggerMonetagInterstitialAd(
           );
 
           if (!opts.force && Date.now() - lastAnyAdShownTime < AD_COOLDOWN_MS) {
-            resolve(false);
+            resolve({ triggered: false, rewarded: false });
             return;
           }
 
-          const showResult = showFn({
-            type: 'end',
-            ...common,
-          });
-          const shown = await withTimeout(
+          let settled = false;
+          let triggered = false;
+          const finish = (result: MonetagShowResult) => {
+            if (settled) return;
+            settled = true;
+            resolve(result);
+          };
+
+          const triggerWatch = window.setTimeout(() => {
+            if (!triggered) {
+              cleanupMonetagDom();
+              finish({ triggered: false, rewarded: false });
+            }
+          }, SDK_TRIGGER_TIMEOUT_MS);
+
+          let showResult: unknown;
+          try {
+            showResult = showFn({
+              type: 'end',
+              ...common,
+            });
+            // Calling showFn without throw = SDK accepted the request (triggered)
+            triggered = true;
+            window.clearTimeout(triggerWatch);
+            try {
+              opts.onTriggered?.();
+            } catch {
+              /* ignore */
+            }
+          } catch {
+            window.clearTimeout(triggerWatch);
+            cleanupMonetagDom();
+            finish({ triggered: false, rewarded: false });
+            return;
+          }
+
+          if (settled) return;
+
+          // onReward = Monetag Promise resolve after full video
+          const rewarded = await withTimeout(
             asPromise(showResult)
-              .then(() => true)
+              .then(() => {
+                try {
+                  opts.onReward?.();
+                } catch {
+                  /* ignore */
+                }
+                return true;
+              })
               .catch(() => false),
-            SHOW_TIMEOUT_MS - 2000,
+            REWARD_WAIT_MS,
             () => false
           );
-          if (shown) {
+
+          if (settled) return;
+
+          if (rewarded) {
             lastAnyAdShownTime = Date.now();
             lastInterstitialAdTime = lastAnyAdShownTime;
             realAdFiredThisCycle = true;
             stripIntrusiveAdNodes();
-            resolve(true);
+            finish({ triggered: true, rewarded: true });
           } else {
+            // Soft cooldown so user can retry soon without spam
             lastAnyAdShownTime = Date.now() - (AD_COOLDOWN_MS - 30000);
             cleanupMonetagDom();
-            resolve(false);
+            finish({ triggered: true, rewarded: false });
           }
         } catch (e) {
-          console.warn('[Monetag] triggerMonetagInterstitialAd error:', e);
+          console.warn('[Monetag] showMonetagRewarded error:', e);
           cleanupMonetagDom();
-          resolve(false);
+          resolve({ triggered: false, rewarded: false });
         }
       })();
     }),
-    SHOW_TIMEOUT_MS + 4000,
+    SDK_TRIGGER_TIMEOUT_MS + REWARD_WAIT_MS + 2000,
     () => {
       cleanupMonetagDom();
-      return false;
+      return { triggered: false, rewarded: false };
     }
   );
 }
@@ -340,14 +410,19 @@ export async function showRewardedVideoAd(opts: {
   zoneId?: number;
   requestVar?: string;
   ymid?: string;
+  onTriggered?: () => void;
+  onReward?: () => void;
 } = {}): Promise<boolean> {
   const zoneId = opts.zoneId ?? MONETAG_INTERSTITIAL_ZONE;
   await ensureMonetagSdkLoaded(zoneId);
-  return triggerMonetagInterstitialAd(zoneId, {
+  const result = await showMonetagRewarded(zoneId, {
     force: true,
     requestVar: opts.requestVar || 'offerwall_rewarded',
     ymid: opts.ymid,
+    onTriggered: opts.onTriggered,
+    onReward: opts.onReward,
   });
+  return result.rewarded;
 }
 
 export function triggerInterstitialAd(force = false) {
@@ -358,7 +433,7 @@ export function triggerInterstitialAd(force = false) {
     if (!force && now - lastAnyAdShownTime < AD_COOLDOWN_MS) return;
     lastInterstitialAdTime = now;
     ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL_ZONE).then(() => {
-      triggerMonetagInterstitialAd(MONETAG_INTERSTITIAL_ZONE).catch(() => {});
+      showMonetagRewarded(MONETAG_INTERSTITIAL_ZONE, { force }).catch(() => {});
     });
   } catch {
     /* ignore */
@@ -395,9 +470,9 @@ export function triggerFreeCoinAd() {
     if (now - lastAnyAdShownTime < AD_COOLDOWN_MS) return false;
     lastFreeCoinAdTime = now;
     ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL_ZONE)
-      .then(() => triggerMonetagInterstitialAd(MONETAG_INTERSTITIAL_ZONE))
-      .then((shown) => {
-        if (!shown) cleanupMonetagDom();
+      .then(() => showMonetagRewarded(MONETAG_INTERSTITIAL_ZONE, { force: true }))
+      .then((r) => {
+        if (!r.rewarded) cleanupMonetagDom();
       })
       .catch(() => cleanupMonetagDom());
     return true;

@@ -1,29 +1,23 @@
 /**
- * AJ Super Portal — economy, games catalog, and revenue-split constants.
- *
- * Offerwall / milestone model:
- *   Provider average payout pool: $5.00 – $7.00 USD
- *   User wallet credit:           $1.00 – $1.50 USD equivalent
- *   Platform / admin revenue:     remainder of the pool
- *
- * Coin conversion (purchase rate): $1 USD = COIN_RATE AJ Coins
+ * AJ Super Portal — economy & games catalog.
+ * User-facing currency is strictly AJ Coins 🪙 (never show $ / USD / pool split in UI).
  */
 
-export const COIN_RATE = 100; // $1 buy → 100 AJ Coins
-export const CASH_RATE = 500; // 500 coins → $1 cash-out display
+/** Purchase rate: 1 purchase unit → COIN_RATE AJ Coins */
+export const COIN_RATE = 100;
+/** Cash-out display unit in AJ Coins */
+export const CASH_RATE = 500;
 
 /** New-user wallet credit on first profile create */
 export const SIGNUP_BONUS_COINS = 100;
 /** Coins credited to the referrer per successful referral */
 export const REFERRAL_BONUS_COINS = 50;
 
-/** User-facing reward band (USD) for offerwall + level milestones */
-export const USER_REWARD_USD_MIN = 1.0;
-export const USER_REWARD_USD_MAX = 1.5;
-
-/** Typical provider / offer payout pool (USD) before split */
-export const PROVIDER_PAYOUT_USD_MIN = 5.0;
-export const PROVIDER_PAYOUT_USD_MAX = 7.0;
+/** Internal reward band (server ledger only — not shown in UI) */
+const USER_REWARD_BAND_MIN = 1.0;
+const USER_REWARD_BAND_MAX = 1.5;
+const PROVIDER_BAND_MIN = 5.0;
+const PROVIDER_BAND_MAX = 7.0;
 
 export type GameCatalogItem = {
   id: string;
@@ -133,19 +127,17 @@ export function hashUnit(seed: string): number {
 }
 
 /**
- * Compute user / admin split from a $5–$7 pool with $1–$1.50 user credit.
+ * Compute user / admin ledger split for server rewards (AJ Coins only in UI).
  * Deterministic when `seed` is provided (idempotent postbacks).
  */
 export function computeRewardSplit(seed: string): RewardSplit {
   const u = hashUnit(seed);
   const v = hashUnit(seed + ':admin');
   const totalUsd =
-    PROVIDER_PAYOUT_USD_MIN +
-    u * (PROVIDER_PAYOUT_USD_MAX - PROVIDER_PAYOUT_USD_MIN);
+    PROVIDER_BAND_MIN + u * (PROVIDER_BAND_MAX - PROVIDER_BAND_MIN);
   let userUsd =
-    USER_REWARD_USD_MIN +
-    v * (USER_REWARD_USD_MAX - USER_REWARD_USD_MIN);
-  userUsd = clamp(userUsd, USER_REWARD_USD_MIN, Math.min(USER_REWARD_USD_MAX, totalUsd - 0.5));
+    USER_REWARD_BAND_MIN + v * (USER_REWARD_BAND_MAX - USER_REWARD_BAND_MIN);
+  userUsd = clamp(userUsd, USER_REWARD_BAND_MIN, Math.min(USER_REWARD_BAND_MAX, totalUsd - 0.5));
   const adminUsd = Number((totalUsd - userUsd).toFixed(4));
   const userCoins = Math.floor(userUsd * COIN_RATE);
   const adminCoins = Math.floor(adminUsd * COIN_RATE);
@@ -170,10 +162,10 @@ export function isValidMilestone(gameId: string, level: number): boolean {
 
 /** Public offerwall config (safe for client bundles — NEXT_PUBLIC only) */
 export const OFFERWALL_PUBLIC = {
-  /** CPAGrip wall id 1906642 (ridefiles.net) — override via NEXT_PUBLIC_OFFERWALL_URL */
+  /** CPAGrip show.php wall — override via NEXT_PUBLIC_OFFERWALL_URL */
   wallUrl:
     process.env.NEXT_PUBLIC_OFFERWALL_URL ||
-    'https://ridefiles.net/script_include.php?id=1906642',
+    'https://ridefiles.net/show.php?l=1&u=1906642&id=63969',
   wallId: '1906642',
   provider: 'CPAGrip' as const,
 };
@@ -191,16 +183,12 @@ export function buildOfferwallUrl(uid?: string | null): string {
     const url = new URL(base);
     if (uid) {
       url.searchParams.set('tracking_id', uid);
-      url.searchParams.set('user_id', uid);
-      url.searchParams.set('userId', uid);
-      url.searchParams.set('ymid', uid);
-      url.searchParams.set('external_id', uid);
     }
     return url.toString();
   } catch {
     if (!uid) return base;
     const sep = base.includes('?') ? '&' : '?';
-    return `${base}${sep}tracking_id=${encodeURIComponent(uid)}&userId=${encodeURIComponent(uid)}`;
+    return `${base}${sep}tracking_id=${encodeURIComponent(uid)}`;
   }
 }
 
