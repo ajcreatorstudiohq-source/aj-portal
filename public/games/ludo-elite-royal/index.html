@@ -223,10 +223,15 @@
         .p-avatar-circle { width: 26px; height: 26px; border-radius: 50%; border: 1.5px solid white; overflow: hidden; background: #333; flex-shrink: 0; }
         .p-avatar-circle img { width: 100%; height: 100%; object-fit: cover; }
 
-        #label-0 { top: -42px; left: 0; border-color: var(--red); }
-        #label-1 { top: -42px; right: 0; border-color: var(--green); flex-direction: row-reverse; }
-        #label-2 { bottom: -42px; right: 0; border-color: var(--yellow); flex-direction: row-reverse; }
-        #label-3 { bottom: -42px; left: 0; border-color: var(--blue); }
+        #label-0 { border-color: var(--red); }
+        #label-1 { border-color: var(--green); }
+        #label-2 { border-color: var(--yellow); }
+        #label-3 { border-color: var(--blue); }
+        .p-label.corner-br { top: auto; left: auto; bottom: -42px; right: 0; flex-direction: row-reverse; }
+        .p-label.corner-bl { top: auto; right: auto; bottom: -42px; left: 0; flex-direction: row; }
+        .p-label.corner-tr { bottom: auto; left: auto; top: -42px; right: 0; flex-direction: row-reverse; }
+        .p-label.corner-tl { bottom: auto; right: auto; top: -42px; left: 0; flex-direction: row; }
+        .p-label.you-seat { box-shadow: 0 0 14px rgba(255,215,0,0.45); }
 
         .chat-bubble { position: absolute; background: white; color: black; padding: 6px 12px; border-radius: 12px; font-size: 12px; font-weight: 900; max-width: 130px; word-wrap: break-word; pointer-events: none; z-index: 6000; display: none; transform: translateY(-58px); border: 2px solid #333; box-shadow: 0 4px 10px rgba(0,0,0,0.4); }
 
@@ -258,10 +263,11 @@
         }
         .dot { background: radial-gradient(circle at 30% 30%, #444, #000); border-radius: 50%; width: 8px; height: 8px; align-self: center; justify-self: center; box-shadow: inset 1px 1px 2px rgba(0,0,0,0.5); }
 
-        #dice-0 { top: -46px; left: 50%; margin-left: -27px; }
-        #dice-1 { top: -46px; right: 18px; }
-        #dice-2 { bottom: -46px; right: 18px; }
-        #dice-3 { bottom: -46px; left: 18px; }
+        .dice-area.corner-br { top: auto; left: auto; bottom: -52px; right: 10px; margin-left: 0; }
+        .dice-area.corner-bl { top: auto; right: auto; bottom: -52px; left: 10px; margin-left: 0; }
+        .dice-area.corner-tr { bottom: auto; left: auto; top: -52px; right: 10px; margin-left: 0; }
+        .dice-area.corner-tl { bottom: auto; right: auto; top: -52px; left: 10px; margin-left: 0; }
+        .dice-area.you-seat .dice { border: 2px solid var(--gold); box-shadow: 0 0 16px rgba(255,215,0,0.55); }
 
         @keyframes spinDice { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         .active-spin { animation: spinDice 3s linear infinite; border: 2px solid var(--gold); box-shadow: 0 0 20px var(--gold); }
@@ -270,7 +276,7 @@
         #game-wrapper {
             position: relative; width: 90vmin; height: 90vmin;
             max-width: 540px; max-height: 540px; display: none;
-            border-radius: 24px; margin-top: 28px;
+            border-radius: 24px; margin: 56px auto 64px;
             box-shadow: 0 25px 60px rgba(0,0,0,0.8), 0 0 40px rgba(0,229,255,0.15);
         }
         canvas { width: 100%; height: 100%; display: block; border-radius: 18px; }
@@ -1834,6 +1840,7 @@ function showFloatingChat(idx, msg) {
 //  GAME LOGIC
 // ===================================================================
 function getBoardRotation() {
+    // Keep THIS player's home yard at bottom-right (Ludo Star viewpoint)
     if (myColorIdx === 2) return 0;
     if (myColorIdx === 1) return -Math.PI / 2;
     if (myColorIdx === 0) return Math.PI;
@@ -1841,11 +1848,40 @@ function getBoardRotation() {
     return 0;
 }
 
+/** Place each seat's dice + label so YOU are always bottom-right. */
+function layoutPlayerChrome() {
+    const corners = ['corner-br', 'corner-bl', 'corner-tl', 'corner-tr'];
+    const you = ((Number(myColorIdx) % 4) + 4) % 4;
+    for (let i = 0; i < 4; i++) {
+        const pIdx = (you + i) % 4;
+        const corner = corners[i];
+        const isYou = pIdx === you;
+        const lbl = document.getElementById('label-' + pIdx);
+        const dice = document.getElementById('dice-' + pIdx);
+        if (lbl) {
+            lbl.classList.remove('corner-br', 'corner-bl', 'corner-tl', 'corner-tr', 'you-seat');
+            lbl.classList.add(corner);
+            if (isYou) lbl.classList.add('you-seat');
+        }
+        if (dice) {
+            dice.classList.remove('corner-br', 'corner-bl', 'corner-tl', 'corner-tr', 'you-seat');
+            dice.classList.add(corner);
+            if (isYou) dice.classList.add('you-seat');
+            const die = dice.querySelector('.dice');
+            if (die) {
+                if (isYou) die.classList.add('user-turn');
+                else die.classList.remove('user-turn');
+            }
+        }
+    }
+}
+
 function initGame() {
     if (myCoins < selectedLevel.fee) return showHome();
     myCoins -= selectedLevel.fee; updateWalletUI();
     players = []; winnersRank = []; hasKilled = [false, false, false, false];
     let tps = (gameMode === 'quick') ? 1 : 4;
+    layoutPlayerChrome();
     for (let i = 0; i < 4; i++) {
         let tks = [];
         if (activePlayers.includes(i)) for (let j = 0; j < tps; j++) tks.push(new Token(i, j));
