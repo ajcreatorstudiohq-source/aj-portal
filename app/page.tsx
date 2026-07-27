@@ -323,121 +323,35 @@ const PK_ENTRY_COINS = 100;
 const PK_DURATION    = 300;
 
 // ============================================================
-// MONETAG INTERSTITIAL TRIGGER — fires real ad (FIXED)
+// ADS POLICY — Rewarded Video ONLY (Zone 11377822)
 // ============================================================
-// ============================================================
-// AD THROTTLE / COOLDOWN SYSTEM (FIX: ads on every click ruining UX)
-// ============================================================
-// ============================================================
-// AD BALANCE SYSTEM — Poore portal mein ads ko balance karna
-// ============================================================
-// FIX (Hinglish): Pehle ads har click pe aa rahe the jo UX kharab karte the.
-// Ab hum ek CENTRALIZED ad balance system lagate hain:
-//
-// 1. INTERSTITIAL POPUP AD (full-screen Monetag):
-//    - Sirf 4 MINUTE mein ek baar poore app mein (ek hi timestamp share hota hai)
-//    - In-feed MonetagVideoAd + navigation + free-coin — sab same cooldown use karte hain
-//    - Yeh popup ad SIRF major events pe fire hota hai (feed scroll, screen transition)
-//    - Micro-interactions (like, comment, gift, back button) pe KABHI ad nahi
-//
-// 2. IN-FEED VIDEO AD (TikReels/Pulse):
-//    - 4 video posts ke baad ek in-feed ad slot
-//    - Fallback video hamesha chalega (revenue + non-intrusive, TikTok jaisa)
-//    - Real Monetag popup sirf cooldown ke baad fire hoga (3 min mein ek baar)
-//
-// 3. WATCH AD (Games screen):
-//    - 5 MINUTE alag cooldown (user voluntarily watch karta hai)
-//    - Sirf "Watch Ad" button se trigger — NO wallet / AJ Coin credit from games
-//
-// NET RESULT: Revenue chalti rehti hai (in-feed + occasional popup), lekin
-// user ko har click pe ad NAHI dikhta — UX smooth rehti hai.
-const AD_COOLDOWN_MS = 5 * 60 * 1000;      // 5 minutes — interstitial popup ad cooldown (poore app mein)
-const INFEED_POPUP_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes — in-feed popup cooldown
-const FREE_COIN_AD_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes — free coin ad cooldown
-// FIX (Hinglish): Pehle sab cooldowns 3 minute the. In-feed MonetagVideoAd har 6 post
-// pe mount hota tha, aur failed ad ke baad gate reset (`= 0`) hone ki wajah se ads
-// bar-bar fire ho rahe the ("har millisecond" wala complaint). Ab:
-//   1. Cooldowns badha ke 5 minute kar diye — ads kam dikheinge, UX smooth rahegi.
-//   2. Failed ad pe gate 0 nahi hota, balki 30s short cooldown lagta hai (Fix 1).
-//   3. In-feed REAL Monetag popup ek baar mount pe hi fire hoga, baad mein wahi
-//      component re-mount hua toh dobara nahi fire karega (Fix 3 — session flag).
-// FIX: Ek GLOBAL ad gate — chahe koi bhi ad trigger ho (hub card, in-feed, free coin),
-// show_XXX({ type: 'end' }) sirf 3 min mein ek baar call hoga. Isse Monetag SDK
-// bar-bar full-screen reward ad nahi dikhayega. In-feed fallback video hamesha chalega,
-// lekin REAL Monetag popup sirf 3 min mein ek dafa.
+// NO automatic interstitial / popunder / push / navigation ads.
+// Monetag SDK loads ONLY when the user taps Watch & Earn.
+// gozen / sunny-sprout / alwingulla scripts are blocked in layout + ad-guards.
+const AD_COOLDOWN_MS = 5 * 60 * 1000;
+const INFEED_POPUP_COOLDOWN_MS = 5 * 60 * 1000;
+const FREE_COIN_AD_COOLDOWN_MS = 5 * 60 * 1000;
 let lastAnyAdShownTime = 0;
 let lastInterstitialAdTime = 0;
 let lastFreeCoinAdTime = 0;
-let lastInFeedPopupTime = 0; // SEPARATE timestamp for in-feed ad popups (har 5 min mein ek baar)
-
-const triggerInterstitialAd = (force = false) => {
-  // Use the new SDK-based approach — no raw tag.min.js injection (prevents duplicate scripts / "Page could not load" error)
-  try {
-    if (typeof window !== 'undefined') {
-      // FIX: Cooldown check — agar last ad abhi tak 5 min cooldown ke andar hai, skip karo
-      const now = Date.now();
-      if (!force && (now - lastInterstitialAdTime) < AD_COOLDOWN_MS) {
-        // Ad cooldown active — skip this ad to protect UX, but let navigation proceed
-        return;
-      }
-      // FIX: Global ad gate — agar 5 min ke andar koi bhi ad dikh chuka hai, skip
-      if (!force && (now - lastAnyAdShownTime) < AD_COOLDOWN_MS) {
-        return;
-      }
-      lastInterstitialAdTime = now;
-      // Ensure the Monetag SDK is loaded once for the interstitial zone, then fire the ad
-      ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL);
-      triggerMonetagInterstitialAd(MONETAG_INTERSTITIAL).catch(() => {});
-    }
-  } catch {}
-};
-
-// Dedicated function for Games "Watch Ad" button — own cooldown, NO wallet credit
-const triggerFreeCoinAd = () => {
-  try {
-    if (typeof window !== 'undefined') {
-      const now = Date.now();
-      if ((now - lastFreeCoinAdTime) < FREE_COIN_AD_COOLDOWN_MS) {
-        return false;
-      }
-      if ((now - lastAnyAdShownTime) < AD_COOLDOWN_MS) {
-        return false;
-      }
-      lastFreeCoinAdTime = now;
-      ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL);
-      triggerMonetagInterstitialAd(MONETAG_INTERSTITIAL)
-        .then((shown) => { if (!shown) cleanupMonetagDom(); })
-        .catch(() => cleanupMonetagDom());
-      return true;
-    }
-  } catch {}
-  return false;
-};
-
-// NAVIGATION + AD OVERLAY — balanced approach
-// FIX (Hinglish): Navigation hamesha TURANT hoti hai (no delay).
-// Ad background mein fire hota hai sirf agar cooldown active nahi hai.
-// Isse UX smooth rehti hai — user ko wait nahi karna padta.
-// FIX: Module-level pending navigation — stored so InterstitialAdOverlay can call it after ad closes
+let lastInFeedPopupTime = 0;
 let pendingNavAfterAd: (() => void) | null = null;
 
+/** Disabled — never auto-fire Monetag on hub clicks / navigation. */
+const triggerInterstitialAd = (_force = false) => {
+  /* no-op: intrusive auto-ads removed */
+};
+
+/** Games "Watch Ad" — no portal wallet credit; also no auto Monetag fire. */
+const triggerFreeCoinAd = () => false;
+
+/** Navigate immediately — never inject interstitial overlays or redirects. */
 const navigateWithAdOverlay = (navFn: () => void) => {
-  const now = Date.now();
-  const inCooldown = (now - lastInterstitialAdTime) < AD_COOLDOWN_MS;
-  // FIX: Global ad gate — agar 5 min ke andar koi bhi ad dikh chuka hai, skip
-  const globalGate = (now - lastAnyAdShownTime) < AD_COOLDOWN_MS;
-  if (inCooldown || globalGate) {
-    // Cooldown or global gate active — no ad, just navigate
+  try {
+    pendingNavAfterAd = null;
     navFn();
-    return;
-  }
-  // Show interstitial ad overlay first; Monetag fires only after overlay host is painted
-  // (see InterstitialAdOverlay) — avoids black freeze from firing before UI is ready.
-  pendingNavAfterAd = navFn;
-  lastInterstitialAdTime = now;
-  ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL);
-  if (typeof window !== 'undefined') {
-    try { (window as any).__AJ_SHOW_INTERSTITIAL = true; window.dispatchEvent(new Event('aj-show-interstitial')); } catch {}
+  } catch {
+    /* ignore */
   }
 };
 
@@ -1542,17 +1456,11 @@ function MonetagVideoAd({ publisherId, type = 'interstitial' }: { publisherId: n
     }
   }, [currentPoster]);
 
-  // CRITICAL BLACK-SCREEN FIX:
-  // In-feed slots must NEVER call show_XXX({ type: 'end' }) / triggerMonetagInterstitialAd.
-  // That fullscreen Monetag overlay freezes the feed and leaves a black layer.
-  // Hub navigation + explicit Watch Ad / Ludo transitions own fullscreen ads.
-  // This component only renders a seamless sponsored fallback video card.
+  // In-feed slots: sponsored fallback video ONLY — never load or fire Monetag SDK.
   useEffect(() => {
     if (adTriggeredRef.current) return;
     adTriggeredRef.current = true;
     setAdTriggered(true);
-    // Soft-load SDK in background for later hub/interstitial use — do not show.
-    try { ensureMonetagSdkLoaded(publisherId); } catch {}
   }, [publisherId]);
 
   // Auto-hide the loading shimmer after 1s max even if onLoadedData never fires
@@ -1911,33 +1819,11 @@ function InterstitialAdOverlay({ onClose }: { onClose: () => void }) {
     }
   }, [closed]);
 
-  // Fire Monetag only after this overlay is painted (prevents black freeze from early show).
-  // navigateWithAdOverlay may have already gated cooldown — we still try once from a ready host.
+  // Intrusive auto-interstitials disabled — never fire Monetag from this overlay.
   useEffect(() => {
     if (closed || adShown) return;
     setAdShown(true);
-    lastInterstitialAdTime = Date.now();
-    let cancelled = false;
-    let attempts = 0;
-    const tryFire = () => {
-      if (cancelled) return;
-      attempts += 1;
-      const host = document.getElementById('aj-interstitial-monetag-host');
-      if (host) {
-        const r = host.getBoundingClientRect();
-        if (r.width > 0 && r.height > 0) {
-          triggerMonetagInterstitialAd(MONETAG_INTERSTITIAL)
-            .then((shown) => {
-              if (shown) lastAnyAdShownTime = Date.now();
-            })
-            .catch(() => cleanupMonetagDom());
-          return;
-        }
-      }
-      if (attempts < 40) requestAnimationFrame(tryFire);
-    };
-    requestAnimationFrame(tryFire);
-    return () => { cancelled = true; };
+    cleanupMonetagDom();
   }, [closed, adShown]);
 
   // Auto-dismiss after 8 seconds even if user doesn't skip
@@ -2600,32 +2486,13 @@ export function AJSuperPortal() {
   const currentWithdrawMethod = WITHDRAW_METHODS.find(m => m.label === payoutMethod) || WITHDRAW_METHODS[0];
 
   // ==========================================================
-  // INJECT MONETAG VIDEO AD SDK ON MOUNT
-  // Block push / in-page-push / floating notification ads permanently.
-  // Zone 11377822 SDK only (rewarded interstitial via show_XXX type:end).
+  // INTRUSIVE AD GUARD — never auto-load Monetag on mount.
+  // Zone 11377822 SDK loads only from Offer Hub → Watch & Earn.
   // ==========================================================
   useEffect(() => {
     if (typeof window === 'undefined') return;
-
     const stopGuard = startIntrusiveAdGuard();
-
-    try {
-      ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL);
-    } catch {}
-
-    waitForMonetagShowFn(MONETAG_INTERSTITIAL, 12000).then((showFn) => {
-      if (typeof showFn === 'function') {
-        try {
-          // preload only — never pop / inApp / push
-          const p = showFn({ type: 'preload', requestVar: 'infeed_ad', timeout: 8 });
-          if (p && typeof (p as Promise<unknown>).then === 'function') {
-            (p as Promise<unknown>).catch(() => {});
-          }
-        } catch {}
-      }
-      stripIntrusiveAdNodes();
-    });
-
+    stripIntrusiveAdNodes();
     return () => {
       try { stopGuard(); } catch {}
     };

@@ -49,8 +49,13 @@ export default function HubEarnPanel({
 
   useEffect(() => {
     startIntrusiveAdGuard();
-    ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL_ZONE).catch(() => {});
+    // Monetag SDK loads ONLY when user opens Watch & Earn (not on hub mount).
   }, []);
+
+  useEffect(() => {
+    if (panel !== 'videos') return;
+    ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL_ZONE).catch(() => {});
+  }, [panel]);
 
   const openBitLabs = (e: MouseEvent) => {
     guardClick(e);

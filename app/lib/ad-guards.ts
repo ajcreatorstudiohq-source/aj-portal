@@ -1,6 +1,12 @@
 /**
- * Block Monetag push / in-page-push / popunder / floating notification ads.
- * Only rewarded interstitial (show_11377822 type:end) is allowed via monetag-client.
+ * Block intrusive ads permanently:
+ * - tag.gozen.com / gozen.com
+ * - sunny-sprout.org
+ * - alwingulla.com
+ * - Monetag push / in-page-push / popunder / smart-tag / multi-tag
+ *
+ * ONLY allowed ad SDK: Monetag rewarded video zone 11377822
+ * (nap5k.com/tag.min.js with data-sdk + data-zone="11377822").
  */
 
 const BLOCKED_SCRIPT_SNIPPETS = [
@@ -12,18 +18,22 @@ const BLOCKED_SCRIPT_SNIPPETS = [
   'popunder.min',
   'vignette',
   'onclick',
+  'onclicka',
   'multi-tag',
   'multitag',
   'smartlink',
   'smart-tag',
   'smarttag',
-  'notification',
+  'notification.js',
   'tag.gozen.com',
   'gozen.com',
   'alwingulla.com',
   'alwingulla',
   'sunny-sprout.org',
   'sunnysprout',
+  'omg10.com',
+  'propellerads',
+  'propeller',
 ];
 
 const BLOCKED_HOST_SNIPPETS = [
@@ -35,6 +45,18 @@ const BLOCKED_HOST_SNIPPETS = [
   'alwingulla.',
   'sunny-sprout',
   'sunnysprout',
+  'omg10.com',
+];
+
+/** Domains that must never redirect / open popunders */
+const BLOCKED_REDIRECT_HOSTS = [
+  'tag.gozen.com',
+  'gozen.com',
+  'alwingulla.com',
+  'sunny-sprout.org',
+  'sunnysprout.org',
+  'omg10.com',
+  'propellerads.com',
 ];
 
 /** DOM selectors for Monetag / Propeller in-page push notification widgets */
@@ -56,19 +78,30 @@ const INTRUSIVE_AD_SELECTORS = [
   'iframe[src*="gozen"]',
   'iframe[src*="alwingulla"]',
   'iframe[src*="sunny-sprout"]',
+  'iframe[src*="omg10"]',
   'div[style*="z-index: 214748"]',
   'div[style*="z-index:214748"]',
 ].join(',');
 
-function scriptLooksBlocked(src: string, text = ''): boolean {
-  const hay = `${src} ${text}`.toLowerCase();
+function hostIsBlocked(urlLike: string): boolean {
+  const hay = String(urlLike || '').toLowerCase();
+  if (!hay) return false;
+  return BLOCKED_REDIRECT_HOSTS.some((h) => hay.includes(h));
+}
+
+function scriptLooksBlocked(src: string, text = '', zoneAttr = '', hasDataSdk = false): boolean {
+  const hay = `${src} ${text} ${zoneAttr}`.toLowerCase();
   if (!hay.trim()) return false;
-  if (hay.includes('data-sdk') && hay.includes('show_11377822')) return false;
-  // Allow ONLY zone 11377822 interstitial SDK tag with data-sdk
-  if (hay.includes('nap5k.com/tag.min.js') && hay.includes('data-sdk') && hay.includes('11377822')) {
+  // Allow ONLY zone 11377822 rewarded SDK tag with data-sdk
+  if (
+    hay.includes('nap5k.com') &&
+    (hasDataSdk || hay.includes('data-sdk') || hay.includes('show_11377822')) &&
+    (zoneAttr === '11377822' || hay.includes('11377822'))
+  ) {
     return false;
   }
-  if (hay.includes('nap5k.com') && !hay.includes('data-sdk')) return true;
+  // Bare Monetag / multi-tag without our zone = blocked (push/popunder risk)
+  if (hay.includes('nap5k.com')) return true;
   return (
     BLOCKED_SCRIPT_SNIPPETS.some((s) => hay.includes(s)) ||
     BLOCKED_HOST_SNIPPETS.some((s) => hay.includes(s))
@@ -155,7 +188,7 @@ export function blockIntrusiveAdScripts(): void {
       const hasSdk = script.hasAttribute('data-sdk');
       const zone = script.getAttribute('data-zone') || '';
       if (hasSdk && src.includes('nap5k.com') && zone === '11377822') return;
-      if (scriptLooksBlocked(src, text)) {
+      if (scriptLooksBlocked(src, text, zone, hasSdk)) {
         try {
           script.remove();
         } catch {
@@ -181,6 +214,103 @@ export function guardClick(e?: { preventDefault?: () => void; stopPropagation?: 
   }
 }
 
+let redirectGuardInstalled = false;
+
+/**
+ * Block automatic redirects / popunders to gozen, sunny-sprout, alwingulla, omg10, etc.
+ * Allows same-origin navigation and intentional offerwall opens (ridefiles / bitlabs).
+ */
+export function installRedirectGuard(): void {
+  if (typeof window === 'undefined' || redirectGuardInstalled) return;
+  redirectGuardInstalled = true;
+
+  const allowedOpenHosts = [
+    'ridefiles.net',
+    'dashboard.bitlabs.ai',
+    'bitlabs.ai',
+    'nowpayments.io',
+    'api.nowpayments.io',
+  ];
+
+  try {
+    const originalOpen = window.open.bind(window);
+    window.open = function guardedOpen(
+      url?: string | URL | undefined,
+      target?: string,
+      features?: string
+    ) {
+      const href = String(url || '');
+      if (hostIsBlocked(href)) {
+        console.warn('[AJ] Blocked popunder/redirect open:', href.slice(0, 120));
+        return null;
+      }
+      try {
+        const u = new URL(href, window.location.href);
+        const host = u.hostname.toLowerCase();
+        const isSame = host === window.location.hostname;
+        const isAllowed = allowedOpenHosts.some((h) => host === h || host.endsWith(`.${h}`));
+        const isHttp = u.protocol === 'http:' || u.protocol === 'https:';
+        if (isHttp && !isSame && !isAllowed && hostIsBlocked(host)) {
+          return null;
+        }
+      } catch {
+        if (hostIsBlocked(href)) return null;
+      }
+      return originalOpen(url as string, target, features);
+    } as typeof window.open;
+  } catch {
+    /* ignore */
+  }
+
+  try {
+    const loc = window.location;
+    const originalAssign = loc.assign.bind(loc);
+    const originalReplace = loc.replace.bind(loc);
+    loc.assign = ((url: string | URL) => {
+      const href = String(url);
+      if (hostIsBlocked(href)) {
+        console.warn('[AJ] Blocked location.assign redirect:', href.slice(0, 120));
+        return;
+      }
+      return originalAssign(url as string);
+    }) as typeof loc.assign;
+    loc.replace = ((url: string | URL) => {
+      const href = String(url);
+      if (hostIsBlocked(href)) {
+        console.warn('[AJ] Blocked location.replace redirect:', href.slice(0, 120));
+        return;
+      }
+      return originalReplace(url as string);
+    }) as typeof loc.replace;
+  } catch {
+    /* ignore */
+  }
+
+  try {
+    window.onbeforeunload = null;
+    const desc = Object.getOwnPropertyDescriptor(window, 'onbeforeunload');
+    if (!desc || desc.configurable) {
+      let _ob: OnBeforeUnloadEventHandler = null;
+      Object.defineProperty(window, 'onbeforeunload', {
+        configurable: true,
+        get() {
+          return _ob;
+        },
+        set(v) {
+          // Ignore ad scripts that set leave-page traps
+          if (typeof v === 'function') {
+            _ob = null;
+            return;
+          }
+          _ob = v;
+        },
+      });
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 let guardStarted = false;
 
 /**
@@ -190,6 +320,7 @@ export function startIntrusiveAdGuard(): () => void {
   if (typeof window === 'undefined' || typeof document === 'undefined') {
     return () => {};
   }
+  installRedirectGuard();
   if (guardStarted) {
     stripIntrusiveAdNodes();
     blockIntrusiveAdScripts();
@@ -199,6 +330,52 @@ export function startIntrusiveAdGuard(): () => void {
 
   blockIntrusiveAdScripts();
   stripIntrusiveAdNodes();
+
+  // Intercept document.createElement('script') for blocked hosts
+  try {
+    const originalCreate = Document.prototype.createElement;
+    Document.prototype.createElement = function patchedCreateElement(
+      tagName: string,
+      options?: ElementCreationOptions
+    ) {
+      const el = originalCreate.call(this, tagName, options);
+      if (String(tagName).toLowerCase() === 'script') {
+        const script = el as HTMLScriptElement;
+        const desc = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src') ||
+          Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'src');
+        try {
+          let current = '';
+          Object.defineProperty(script, 'src', {
+            configurable: true,
+            enumerable: true,
+            get() {
+              return current;
+            },
+            set(v: string) {
+              const next = String(v || '');
+              const zone = script.getAttribute('data-zone') || '';
+              const hasSdk = script.hasAttribute('data-sdk');
+              if (scriptLooksBlocked(next, script.textContent || '', zone, hasSdk)) {
+                if (!(hasSdk && next.includes('nap5k.com') && zone === '11377822')) {
+                  console.warn('[AJ] Blocked script src:', next.slice(0, 120));
+                  current = '';
+                  return;
+                }
+              }
+              current = next;
+              script.setAttribute('src', next);
+            },
+          });
+        } catch {
+          /* fallback: observe attribute */
+          void desc;
+        }
+      }
+      return el;
+    } as typeof document.createElement;
+  } catch {
+    /* ignore */
+  }
 
   const observer = new MutationObserver((mutations) => {
     for (const m of mutations) {
@@ -215,7 +392,7 @@ export function startIntrusiveAdGuard(): () => void {
           ) {
             return;
           }
-          if (scriptLooksBlocked(src, text)) {
+          if (scriptLooksBlocked(src, text, zone, node.hasAttribute('data-sdk'))) {
             try {
               node.remove();
             } catch {
@@ -257,7 +434,12 @@ export function startIntrusiveAdGuard(): () => void {
   const interval = window.setInterval(() => {
     blockIntrusiveAdScripts();
     stripIntrusiveAdNodes();
-  }, 1500);
+    try {
+      window.onbeforeunload = null;
+    } catch {
+      /* ignore */
+    }
+  }, 1200);
 
   try {
     if (!document.getElementById('aj-block-intrusive-ads')) {
@@ -275,7 +457,8 @@ export function startIntrusiveAdGuard(): () => void {
         iframe[src*="ipp"],
         iframe[src*="gozen"],
         iframe[src*="alwingulla"],
-        iframe[src*="sunny-sprout"] {
+        iframe[src*="sunny-sprout"],
+        iframe[src*="omg10"] {
           display: none !important;
           visibility: hidden !important;
           pointer-events: none !important;

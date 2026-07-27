@@ -425,60 +425,24 @@ export async function showRewardedVideoAd(opts: {
   return result.rewarded;
 }
 
-export function triggerInterstitialAd(force = false) {
+/** Disabled — no automatic interstitial popups anywhere in the portal. */
+export function triggerInterstitialAd(_force = false) {
+  /* no-op */
+}
+
+/** Navigate immediately — never fire Monetag overlays on screen changes. */
+export function navigateWithAdOverlay(navFn: () => void) {
   try {
-    if (typeof window === 'undefined') return;
-    const now = Date.now();
-    if (!force && now - lastInterstitialAdTime < AD_COOLDOWN_MS) return;
-    if (!force && now - lastAnyAdShownTime < AD_COOLDOWN_MS) return;
-    lastInterstitialAdTime = now;
-    ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL_ZONE).then(() => {
-      showMonetagRewarded(MONETAG_INTERSTITIAL_ZONE, { force }).catch(() => {});
-    });
+    pendingNavAfterAd = null;
+    navFn();
   } catch {
     /* ignore */
   }
 }
 
-export function navigateWithAdOverlay(navFn: () => void) {
-  const now = Date.now();
-  const inCooldown = now - lastInterstitialAdTime < AD_COOLDOWN_MS;
-  const globalGate = now - lastAnyAdShownTime < AD_COOLDOWN_MS;
-  if (inCooldown || globalGate) {
-    navFn();
-    return;
-  }
-  pendingNavAfterAd = navFn;
-  lastInterstitialAdTime = now;
-  ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL_ZONE);
-  if (typeof window !== 'undefined') {
-    try {
-      (window as unknown as { __AJ_SHOW_INTERSTITIAL?: boolean }).__AJ_SHOW_INTERSTITIAL = true;
-      window.dispatchEvent(new Event('aj-show-interstitial'));
-    } catch {
-      /* ignore */
-    }
-  }
-}
-
-/** @deprecated alias kept for Games "Watch Ad" — no wallet credit */
+/** Games "Watch Ad" — no wallet credit and no auto Monetag fire. */
 export function triggerFreeCoinAd() {
-  try {
-    if (typeof window === 'undefined') return false;
-    const now = Date.now();
-    if (now - lastFreeCoinAdTime < AD_COOLDOWN_MS) return false;
-    if (now - lastAnyAdShownTime < AD_COOLDOWN_MS) return false;
-    lastFreeCoinAdTime = now;
-    ensureMonetagSdkLoaded(MONETAG_INTERSTITIAL_ZONE)
-      .then(() => showMonetagRewarded(MONETAG_INTERSTITIAL_ZONE, { force: true }))
-      .then((r) => {
-        if (!r.rewarded) cleanupMonetagDom();
-      })
-      .catch(() => cleanupMonetagDom());
-    return true;
-  } catch {
-    return false;
-  }
+  return false;
 }
 
 export { AD_COOLDOWN_MS, MONETAG_INTERSTITIAL_ZONE as MONETAG_INTERSTITIAL };
