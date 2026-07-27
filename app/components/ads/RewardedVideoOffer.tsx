@@ -178,7 +178,7 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
           <p className="text-sm font-black text-white">Watch Ads</p>
           <p className="text-[11px] text-gray-300 leading-relaxed mt-0.5">
             Open Adsterra, wait {ADSTERRA_VERIFY_SECONDS}s for verification, then claim{' '}
-            <span className="text-amber-300 font-bold">+{ADSTERRA_REWARD_COINS} AJ Coins 🪙</span>.
+            <span className="text-sky-300 font-bold">+{ADSTERRA_REWARD_COINS} AJ Coins 🪙</span>.
           </p>
           <p className="text-[9px] text-gray-500 mt-1">
             Adsterra · up to {OFFERWALL_VIDEO_MAX_DAILY}/day
@@ -201,13 +201,13 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
       </button>
 
       {verifying ? (
-        <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-3 space-y-2">
-          <p className="text-[11px] text-amber-100 font-bold text-center leading-relaxed">
+        <div className="rounded-xl border border-sky-400/30 bg-sky-500/10 px-3 py-3 space-y-2">
+          <p className="text-[11px] text-sky-100 font-bold text-center leading-relaxed">
             Verifying Ad View... Stay on the ad page for {secondsLeft}s to earn coins.
           </p>
           <div className="h-1.5 rounded-full bg-black/40 overflow-hidden">
             <div
-              className="h-full bg-gradient-to-r from-amber-400 to-orange-500 transition-all duration-1000 ease-linear"
+              className="h-full bg-gradient-to-r from-blue-500 to-violet-500 transition-all duration-1000 ease-linear"
               style={{
                 width: `${Math.max(
                   0,
@@ -228,7 +228,7 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
             e.stopPropagation();
             void claimCoins(e);
           }}
-          className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 text-black text-xs font-black flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]"
+          className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-500 to-violet-600 text-white text-xs font-black flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]"
         >
           {busy ? (
             <>

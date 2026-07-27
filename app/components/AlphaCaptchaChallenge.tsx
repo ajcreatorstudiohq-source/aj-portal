@@ -191,7 +191,7 @@ export default function AlphaCaptchaChallenge({ user, onAlert, onRefreshUser }: 
               type="button"
               disabled={busy || !user}
               onClick={(e) => void verifyAndClaim(e)}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 text-black text-xs font-black flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]"
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-500 to-violet-600 text-white text-xs font-black flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]"
             >
               {busy ? (
                 <>

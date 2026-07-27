@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ExternalLink, Gift, Loader2 } from 'lucide-react';
 import { getAuth, onAuthStateChanged, type User } from 'firebase/auth';
 import { getApps, initializeApp } from 'firebase/app';
-import { buildCpaGripWallUrl, CPAGRIP_WALL_ID, openCpaGripOfferWall } from '../lib/cpagrip';
+import { MONLIX_OFFERS_URL, openMonlixOffers } from '../lib/offer-hub';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyDp2od-lrfAhEHV5oAIqBW5rWjaRbnAdFM',
@@ -28,8 +28,20 @@ function readQueryUid(): string {
   }
 }
 
+function buildMonlixUrl(uid?: string | null): string {
+  try {
+    const url = new URL(MONLIX_OFFERS_URL);
+    if (uid) url.searchParams.set('userid', uid);
+    return url.toString();
+  } catch {
+    if (!uid) return MONLIX_OFFERS_URL;
+    const sep = MONLIX_OFFERS_URL.includes('?') ? '&' : '?';
+    return `${MONLIX_OFFERS_URL}${sep}userid=${encodeURIComponent(uid)}`;
+  }
+}
+
 /**
- * Offer Partners bridge — opens CPAGrip ridefiles show.php with Firebase uid as tracking_id.
+ * Offer Partners bridge — opens Monlix / BitLabs-style CPA wall (NO ridefiles lockers).
  * Credits only via /api/postback.
  */
 export default function OfferwallPage() {
@@ -44,11 +56,11 @@ export default function OfferwallPage() {
   }, []);
 
   const trackingUid = useMemo(() => user?.uid || queryUid || '', [user?.uid, queryUid]);
-  const wallUrl = useMemo(() => buildCpaGripWallUrl(trackingUid || null), [trackingUid]);
+  const wallUrl = useMemo(() => buildMonlixUrl(trackingUid || null), [trackingUid]);
 
   useEffect(() => {
     if (!trackingUid || opened) return;
-    const result = openCpaGripOfferWall(trackingUid);
+    const result = openMonlixOffers(trackingUid);
     setOpened(true);
     if (!result.ok && wallUrl) {
       try {
@@ -66,7 +78,7 @@ export default function OfferwallPage() {
         className="pointer-events-none fixed inset-0 -z-10"
         style={{
           background:
-            'radial-gradient(ellipse at 20% 0%, rgba(236,72,153,0.18), transparent 50%), radial-gradient(ellipse at 90% 20%, rgba(34,211,238,0.12), transparent 45%), #050505',
+            'radial-gradient(ellipse at 20% 0%, rgba(99,102,241,0.2), transparent 50%), radial-gradient(ellipse at 90% 20%, rgba(34,211,238,0.12), transparent 45%), #050505',
         }}
       />
 
@@ -82,37 +94,36 @@ export default function OfferwallPage() {
             className="text-sm font-black truncate"
             style={{ fontFamily: 'var(--font-aj-display), sans-serif' }}
           >
-            AJ · Offer Partners
+            AJ · Offer Hub
           </p>
-          <p className="text-[10px] text-gray-400 truncate">CPAGrip · wall {CPAGRIP_WALL_ID}</p>
+          <p className="text-[10px] text-gray-400 truncate">Monlix · Earn More AJ Coins 🪙</p>
         </div>
       </header>
 
       <main className="flex-1 flex flex-col items-center justify-center gap-5 px-6 py-12 text-center">
-        <Gift size={28} className="text-pink-300" />
+        <Gift size={28} className="text-sky-300" />
         <h1
           className="text-xl font-black"
           style={{ fontFamily: 'var(--font-aj-display), sans-serif' }}
         >
-          Opening CPAGrip…
+          Opening Monlix…
         </h1>
         <p className="text-[12px] text-gray-400 max-w-sm leading-relaxed">
-          Direct offer wall opens in a new tab. AJ Coins 🪙 credit only after a verified{' '}
-          <code className="text-amber-200">lead</code>/<code className="text-amber-200">success</code>{' '}
-          postback — never from opening the link.
+          Want more coins? Complete real app installs in our Offer Hub. AJ Coins 🪙 credit only after
+          verified postback — never from opening the link.
         </p>
         {!trackingUid ? (
-          <p className="text-[10px] text-amber-300">Sign in on the hub so credits bind to your wallet.</p>
+          <p className="text-[10px] text-sky-300">Sign in on the hub so credits bind to your wallet.</p>
         ) : (
           <p className="text-[10px] text-cyan-400/80 font-mono truncate max-w-xs">
-            tracking_id · {trackingUid}
+            userid · {trackingUid}
           </p>
         )}
         <a
           href={wallUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 px-5 py-3 rounded-2xl bg-gradient-to-r from-cyan-400 to-blue-500 text-black text-xs font-black"
+          className="inline-flex items-center gap-2 px-5 py-3 rounded-2xl bg-gradient-to-r from-blue-500 to-violet-600 text-white text-xs font-black"
         >
           {opened ? (
             <>
@@ -120,7 +131,7 @@ export default function OfferwallPage() {
             </>
           ) : (
             <>
-              <Loader2 size={14} className="animate-spin" /> Launching…
+              <Loader2 size={14} className="animate-spin" /> Opening…
             </>
           )}
         </a>

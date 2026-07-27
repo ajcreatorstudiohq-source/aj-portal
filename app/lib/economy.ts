@@ -14,41 +14,45 @@ export const SIGNUP_BONUS_COINS = 0;
 export const REFERRAL_BONUS_COINS = 50;
 
 /**
- * Premium Games — CPAGrip unlock links (open in new tab).
- * Portal credits ZERO coins on Unlock & Play; owner is paid via CPAGrip.
+ * Premium Games — direct HTML / Netlify / APK URLs (NO ridefiles lockers).
+ * DOWNLOAD & PLAY opens Adsterra in a new tab, then loads `downloadUrl` here.
+ * Portal credits ZERO coins on click — owner earns via Adsterra.
  */
-export const PREMIUM_CPA_GAMES = [
+export const PREMIUM_DIRECT_GAMES = [
   {
     id: 'neon',
     name: 'Neon Strike',
     emoji: '⚡',
-    unlockUrl: 'https://ridefiles.net/1906687',
+    downloadUrl: '/games/neon-strike/index.html',
   },
   {
     id: 'rider',
     name: 'Rider King',
     emoji: '🏍️',
-    unlockUrl: 'https://ridefiles.net/1906688',
+    downloadUrl: '/games/rider-king/index.html',
   },
   {
     id: 'racer',
     name: 'Pulse Racer',
     emoji: '🏎️',
-    unlockUrl: 'https://ridefiles.net/1906689',
+    downloadUrl: '/games/pulse-racer/index.html',
   },
   {
     id: 'subsea',
     name: 'SubSea Surge',
     emoji: '🐠',
-    unlockUrl: 'https://ridefiles.net/1906691',
+    downloadUrl: '/games/subsea-surge/index.html',
   },
   {
     id: 'volcano',
     name: 'Volcano Escape',
     emoji: '🌋',
-    unlockUrl: 'https://ridefiles.net/1906693',
+    downloadUrl: '/games/volcano-escape/index.html',
   },
 ] as const;
+
+/** @deprecated use PREMIUM_DIRECT_GAMES */
+export const PREMIUM_CPA_GAMES = PREMIUM_DIRECT_GAMES;
 
 /** Internal reward band (server ledger only — not shown in UI) */
 const USER_REWARD_BAND_MIN = 1.0;

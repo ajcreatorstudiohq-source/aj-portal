@@ -11,8 +11,7 @@ import {
 import DailyMathChallenge from './DailyMathChallenge';
 import AlphaCaptchaChallenge from './AlphaCaptchaChallenge';
 import RewardedVideoOffer from './ads/RewardedVideoOffer';
-import { openCpaGripOfferWall } from '../lib/cpagrip';
-import { openBitLabsSurveys } from '../lib/offer-hub';
+import { openBitLabsSurveys, openMonlixOffers } from '../lib/offer-hub';
 import { trackAdEvent } from '../lib/ad-client';
 import { guardClick, startIntrusiveAdGuard } from '../lib/ad-guards';
 
@@ -26,7 +25,10 @@ type Props = {
 
 type HubPanel = 'none' | 'faucet' | 'videos';
 
-/** Offer Hub — Surveys, Math/Captcha, Watch Ads (no games). */
+/**
+ * Offer Hub — Earn More (BitLabs + Monlix) · Math/Captcha · Watch Ads.
+ * No CPAGrip lockers / ridefiles links.
+ */
 export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
   const [panel, setPanel] = useState<HubPanel>('none');
 
@@ -49,7 +51,7 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
     const result = openBitLabsSurveys();
     if (result.ok) {
       onAlert(
-        'BitLabs opened. Highest-payout surveys — AJ Coins 🪙 credit after verified completion.',
+        'BitLabs opened. Complete verified surveys to earn AJ Coins 🪙.',
         '🧠'
       );
     } else {
@@ -57,7 +59,7 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
     }
   };
 
-  const openCpaGrip = (e: MouseEvent) => {
+  const openMonlix = (e: MouseEvent) => {
     guardClick(e);
     if (!user) return onAlert('Please sign in first', '🔒');
     trackAdEvent(
@@ -65,18 +67,18 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
         event: 'click',
         placement: 'offerwall_rewarded_video',
         zoneId: 0,
-        meta: { action: 'open_cpagrip_hub', provider: 'cpagrip' },
+        meta: { action: 'open_monlix_hub', provider: 'monlix' },
       },
       user
     ).catch(() => {});
-    const result = openCpaGripOfferWall(user.uid);
+    const result = openMonlixOffers(user.uid);
     if (result.ok) {
       onAlert(
-        'CPAGrip tasks opened. AJ Coins 🪙 credit automatically after verified completion.',
+        'Monlix opened. Complete real app installs for big AJ Coins 🪙 rewards.',
         '📱'
       );
     } else {
-      onAlert(result.error || 'Could not open CPAGrip tasks.', '⚠️');
+      onAlert(result.error || 'Could not open Monlix.', '⚠️');
     }
   };
 
@@ -92,60 +94,70 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
         <p
           className="text-[11px] font-black uppercase tracking-[0.22em] text-transparent bg-clip-text"
           style={{
-            backgroundImage: 'linear-gradient(90deg,#22d3ee,#a78bfa,#f59e0b)',
+            backgroundImage: 'linear-gradient(90deg,#22d3ee,#818cf8,#a78bfa)',
             fontFamily: 'var(--font-aj-display), sans-serif',
           }}
         >
           Offer Hub
         </p>
         <p className="text-[10px] text-zinc-400 font-bold mt-0.5">
-          Surveys · Math · Ads · Earn AJ Coins 🪙
+          Want more coins? Complete real app installs in our Offer Hub.
         </p>
       </div>
 
+      <div className="rounded-2xl border border-indigo-500/25 bg-gradient-to-br from-[#0c1224]/80 to-[#050505] p-3 space-y-2">
+        <p className="text-[9px] font-black uppercase tracking-[0.18em] text-indigo-300">
+          Earn More · Official CPA
+        </p>
+        <p className="text-[10px] text-zinc-400 leading-relaxed">
+          High-value installs & surveys · big AJ Coins 🪙 after verified completion.
+        </p>
+        <div className="grid grid-cols-2 gap-2.5">
+          <button
+            type="button"
+            onClick={openBitLabs}
+            className="relative overflow-hidden rounded-2xl border border-violet-500/35 bg-gradient-to-br from-[#1a1028] via-[#120a1c] to-[#0a0a0a] p-3.5 text-left active:scale-[0.98] min-h-[108px]"
+          >
+            <div className="relative flex flex-col h-full gap-2">
+              <div className="w-9 h-9 rounded-xl bg-violet-500/20 border border-violet-400/30 flex items-center justify-center">
+                <ClipboardCheck size={16} className="text-violet-300" />
+              </div>
+              <div>
+                <p className="text-[12px] font-black text-white leading-tight">BitLabs</p>
+                <p className="text-[9px] font-black uppercase tracking-wider text-violet-300 mt-1">
+                  Surveys
+                </p>
+              </div>
+              <span className="mt-auto inline-flex items-center gap-1 text-[8px] font-bold text-zinc-500">
+                Earn AJ Coins 🪙 <ExternalLink size={9} />
+              </span>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={openMonlix}
+            className="relative overflow-hidden rounded-2xl border border-sky-500/35 bg-gradient-to-br from-[#0a1a2a] via-[#081018] to-[#0a0a0a] p-3.5 text-left active:scale-[0.98] min-h-[108px]"
+          >
+            <div className="relative flex flex-col h-full gap-2">
+              <div className="w-9 h-9 rounded-xl bg-sky-500/20 border border-sky-400/30 flex items-center justify-center">
+                <Gift size={16} className="text-sky-300" />
+              </div>
+              <div>
+                <p className="text-[12px] font-black text-white leading-tight">Monlix</p>
+                <p className="text-[9px] font-black uppercase tracking-wider text-sky-300 mt-1">
+                  App Installs
+                </p>
+              </div>
+              <span className="mt-auto inline-flex items-center gap-1 text-[8px] font-bold text-zinc-500">
+                Earn AJ Coins 🪙 <ExternalLink size={9} />
+              </span>
+            </div>
+          </button>
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 gap-2.5">
-        <button
-          type="button"
-          onClick={openBitLabs}
-          className="relative overflow-hidden rounded-2xl border border-violet-500/35 bg-gradient-to-br from-[#1a1028] via-[#120a1c] to-[#0a0a0a] p-3.5 text-left active:scale-[0.98] min-h-[118px]"
-        >
-          <div className="relative flex flex-col h-full gap-2">
-            <div className="w-9 h-9 rounded-xl bg-violet-500/20 border border-violet-400/30 flex items-center justify-center">
-              <ClipboardCheck size={16} className="text-violet-300" />
-            </div>
-            <div>
-              <p className="text-[12px] font-black text-white leading-tight">BitLabs Surveys</p>
-              <p className="text-[9px] font-black uppercase tracking-wider text-violet-300 mt-1">
-                Highest Payout
-              </p>
-            </div>
-            <span className="mt-auto inline-flex items-center gap-1 text-[8px] font-bold text-zinc-500">
-              Open <ExternalLink size={9} />
-            </span>
-          </div>
-        </button>
-
-        <button
-          type="button"
-          onClick={openCpaGrip}
-          className="relative overflow-hidden rounded-2xl border border-amber-500/35 bg-gradient-to-br from-[#2a1a08] via-[#1a1006] to-[#0a0a0a] p-3.5 text-left active:scale-[0.98] min-h-[118px]"
-        >
-          <div className="relative flex flex-col h-full gap-2">
-            <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-400/30 flex items-center justify-center">
-              <Gift size={16} className="text-amber-300" />
-            </div>
-            <div>
-              <p className="text-[12px] font-black text-white leading-tight">CPAGrip Tasks</p>
-              <p className="text-[9px] font-black uppercase tracking-wider text-amber-300 mt-1">
-                Offers & Installs
-              </p>
-            </div>
-            <span className="mt-auto inline-flex items-center gap-1 text-[8px] font-bold text-zinc-500">
-              Earn AJ Coins 🪙 <ExternalLink size={9} />
-            </span>
-          </div>
-        </button>
-
         <button
           type="button"
           onClick={(e) => togglePanel(e, 'faucet')}
@@ -187,7 +199,7 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
             <div>
               <p className="text-[12px] font-black text-white leading-tight">Watch Ads</p>
               <p className="text-[9px] font-black uppercase tracking-wider text-rose-300 mt-1">
-                Verified Earn
+                30s Verify · +5 🪙
               </p>
             </div>
             <span className="mt-auto text-[8px] font-bold text-zinc-500">+5 AJ Coins 🪙</span>
@@ -208,7 +220,7 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
       {panel === 'videos' ? (
         <div className="rounded-2xl border border-rose-500/20 bg-black/40 p-3 space-y-2">
           <p className="text-[9px] font-black uppercase tracking-widest text-rose-400">
-            Watch & Earn · Adsterra
+            Watch & Earn · Adsterra · 30s timer
           </p>
           <RewardedVideoOffer user={user} onAlert={onAlert} onRefreshUser={onRefreshUser} />
         </div>
