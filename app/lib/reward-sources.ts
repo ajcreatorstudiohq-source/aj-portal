@@ -17,6 +17,7 @@ export const REWARD_SOURCES = [
   'ai_bot_sync',
   'pk_match',
   'referral',
+  'math_challenge',
 ] as const;
 
 export type RewardSource = (typeof REWARD_SOURCES)[number];
@@ -40,6 +41,7 @@ export const DAILY_CAPS: Record<RewardSource, number> = {
   ai_bot_sync: 3,
   pk_match: 5,
   referral: 10,
+  math_challenge: 5,
 };
 
 export const SOURCE_LABELS: Record<RewardSource, string> = {
@@ -56,4 +58,9 @@ export const SOURCE_LABELS: Record<RewardSource, string> = {
   ai_bot_sync: 'AI Trading Bot Sync',
   pk_match: 'PK Live Match',
   referral: 'Referral Bonus',
+  math_challenge: 'Daily Math Challenge',
 };
+
+/** Flat AJ Coin rewards */
+export const MATH_CHALLENGE_COINS = 5;
+export const REWARDED_VIDEO_COINS = 20;

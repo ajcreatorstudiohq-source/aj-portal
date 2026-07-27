@@ -198,7 +198,7 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
           <p className="text-sm font-black text-white">Watch Rewarded Video</p>
           <p className="text-[11px] text-gray-300 leading-relaxed mt-0.5">
             Watch a full verified video ad to earn{' '}
-            <span className="text-amber-300 font-bold">AJ Coins 🪙</span>. No credit until the ad
+            <span className="text-amber-300 font-bold">+20 AJ Coins 🪙</span>. No credit until the ad
             finishes 100%.
           </p>
           <p className="text-[9px] text-gray-500 mt-1">

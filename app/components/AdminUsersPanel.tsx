@@ -217,10 +217,16 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
           <Shield size={16} className="text-red-400" />
           <h1 className="text-sm font-black text-white uppercase tracking-widest">Admin · Users</h1>
         </div>
+        <a
+          href="/aj-admin"
+          className="ml-auto text-[9px] font-black text-cyan-400 uppercase tracking-widest px-2 py-1 rounded-lg bg-cyan-500/10 border border-cyan-500/20"
+        >
+          Full Dashboard →
+        </a>
         <button
           onClick={loadUsers}
           disabled={loading}
-          className="ml-auto p-2 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all"
+          className="p-2 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all"
           type="button"
           title="Refresh"
         >
