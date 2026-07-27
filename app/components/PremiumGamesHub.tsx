@@ -1,7 +1,8 @@
 'use client';
 
-import { ExternalLink, Gamepad2 } from 'lucide-react';
-import { PREMIUM_CPA_GAMES } from '../lib/economy';
+import { Download } from 'lucide-react';
+import { PREMIUM_DIRECT_GAMES } from '../lib/economy';
+import { handleDirectDownload } from '../lib/direct-download';
 import { guardClick, startIntrusiveAdGuard } from '../lib/ad-guards';
 import { trackAdEvent } from '../lib/ad-client';
 
@@ -13,17 +14,17 @@ type Props = {
 };
 
 /**
- * Premium Games Hub — CPAGrip unlock links (owner revenue only).
- * Unlock & Play never credits AJ Coins on the portal.
+ * Premium Games Hub — Direct Download & Play (Adsterra bridge, NO lockers).
+ * DOWNLOAD & PLAY → Adsterra new tab + game in current tab. 0 AJ Coins on click.
  */
 export default function PremiumGamesHub({ user, onAlert }: Props) {
-  const unlockGame = (
+  const onDownloadPlay = (
     e: { preventDefault?: () => void; stopPropagation?: () => void },
-    game: (typeof PREMIUM_CPA_GAMES)[number]
+    game: (typeof PREMIUM_DIRECT_GAMES)[number]
   ) => {
     guardClick(e);
     startIntrusiveAdGuard();
-    if (!user) return onAlert('Please sign in to unlock Premium Games', '🔒');
+    if (!user) return onAlert('Please sign in to download & play', '🔒');
 
     trackAdEvent(
       {
@@ -31,27 +32,20 @@ export default function PremiumGamesHub({ user, onAlert }: Props) {
         placement: 'games_interstitial',
         zoneId: 0,
         meta: {
-          action: 'premium_game_unlock',
-          provider: 'cpagrip',
+          action: 'direct_download_play',
+          provider: 'adsterra_bridge',
           gameId: game.id,
+          gameUrl: game.downloadUrl,
           coinCredit: 0,
         },
       },
       user
     ).catch(() => {});
 
-    try {
-      const win = window.open(game.unlockUrl, '_blank', 'noopener,noreferrer');
-      if (!win) window.location.assign(game.unlockUrl);
-    } catch {
-      onAlert('Could not open unlock link. Allow popups and try again.', '⚠️');
-      return;
+    const result = handleDirectDownload(game.downloadUrl);
+    if (!result.ok) {
+      onAlert(result.error || 'Could not start download. Try again.', '⚠️');
     }
-
-    onAlert(
-      `${game.emoji} ${game.name} unlock opened. Complete the CPA offer to play — 0 AJ Coins credited here. Owner earns via CPAGrip.`,
-      '🎮'
-    );
   };
 
   return (
@@ -60,42 +54,44 @@ export default function PremiumGamesHub({ user, onAlert }: Props) {
         <p
           className="text-[11px] font-black uppercase tracking-[0.22em] text-transparent bg-clip-text"
           style={{
-            backgroundImage: 'linear-gradient(90deg,#fbbf24,#f59e0b,#f97316)',
+            backgroundImage: 'linear-gradient(90deg,#38bdf8,#818cf8,#a78bfa)',
             fontFamily: 'var(--font-aj-display), sans-serif',
           }}
         >
           Premium Games
         </p>
         <p className="text-[10px] text-zinc-400 font-bold mt-0.5">
-          Unlock & Play · CPA offers · 0 AJ Coins on portal 🪙
+          Download & Play · Direct access · AJ Coins 🪙 via Offer Hub
         </p>
       </div>
 
       <div className="grid grid-cols-3 gap-2.5">
-        {PREMIUM_CPA_GAMES.map((game) => (
+        {PREMIUM_DIRECT_GAMES.map((game) => (
           <div
             key={game.id}
-            className="relative overflow-hidden rounded-2xl border border-amber-500/30 bg-gradient-to-br from-[#1a1408] via-[#0f0c08] to-[#050505] p-3 flex flex-col min-h-[148px]"
+            className="relative overflow-hidden rounded-2xl border border-indigo-500/35 bg-gradient-to-br from-[#0c1224] via-[#0a0e1a] to-[#050505] p-3 flex flex-col min-h-[158px]"
           >
-            <div className="absolute inset-0 pointer-events-none opacity-40 bg-[radial-gradient(ellipse_at_30%_0%,rgba(251,191,36,0.18),transparent_55%)]" />
+            <div className="absolute inset-0 pointer-events-none opacity-50 bg-[radial-gradient(ellipse_at_30%_0%,rgba(99,102,241,0.22),transparent_55%)]" />
             <div className="relative flex flex-col h-full gap-2">
-              <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-400/35 flex items-center justify-center shadow-[0_0_18px_rgba(251,191,36,0.25)]">
+              <div className="w-10 h-10 rounded-xl bg-indigo-500/20 border border-sky-400/30 flex items-center justify-center shadow-[0_0_18px_rgba(99,102,241,0.3)]">
                 <span className="text-xl leading-none">{game.emoji}</span>
               </div>
               <div className="min-w-0">
                 <p className="text-[11px] font-black text-white leading-tight truncate">{game.name}</p>
-                <p className="text-[8px] text-amber-200/70 font-bold mt-1 uppercase tracking-wider">
-                  CPA Unlock
+                <p className="text-[8px] text-sky-200/70 font-bold mt-1 uppercase tracking-wider">
+                  Direct Play
                 </p>
               </div>
               <button
                 type="button"
-                onClick={(e) => unlockGame(e, game)}
-                className="mt-auto w-full py-2 rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 text-black text-[8px] font-black uppercase tracking-wide flex items-center justify-center gap-1 active:scale-[0.97] shadow-[0_0_16px_rgba(251,191,36,0.35)]"
+                onClick={(e) => onDownloadPlay(e, game)}
+                className="mt-auto w-full py-2.5 rounded-xl text-white text-[8px] font-black uppercase tracking-wide flex items-center justify-center gap-1.5 active:scale-[0.97] shadow-[0_0_18px_rgba(99,102,241,0.4)]"
+                style={{
+                  background: 'linear-gradient(135deg,#2563eb 0%,#4f46e5 45%,#7c3aed 100%)',
+                }}
               >
-                <Gamepad2 size={11} />
-                Unlock & Play
-                <ExternalLink size={9} />
+                <Download size={12} strokeWidth={2.5} />
+                Download & Play
               </button>
             </div>
           </div>

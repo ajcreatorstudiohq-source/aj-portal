@@ -59,7 +59,12 @@ const BLOCKED_REDIRECT_HOSTS = [
   'monetag.com',
 ];
 
-const ALLOWED_AD_HOSTS = ['effectivecpmnetwork.com', 'ridefiles.net', 'bitlabs.ai'];
+const ALLOWED_AD_HOSTS = [
+  'effectivecpmnetwork.com',
+  'bitlabs.ai',
+  'monlix.com',
+  'offers.monlix.com',
+];
 
 const INTRUSIVE_AD_SELECTORS = [
   '[class*="push-notification"]',
