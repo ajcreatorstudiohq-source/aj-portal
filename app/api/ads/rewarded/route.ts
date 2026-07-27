@@ -3,13 +3,12 @@ import {
   doc,
   getDoc,
   setDoc,
-  updateDoc,
+  runTransaction,
   serverTimestamp,
   increment,
 } from 'firebase/firestore';
 import { db } from '../../../../firebaseConfig';
 import { OFFERWALL_VIDEO_MAX_DAILY } from '../../../lib/ads-config';
-import { applyFlatCoins } from '../../../lib/reward-engine';
 import { REWARDED_VIDEO_COINS } from '../../../lib/reward-sources';
 import {
   bearerFromRequest,
@@ -17,6 +16,7 @@ import {
 } from '../../../lib/verify-id-token';
 
 const SESSION_TTL_MS = 3 * 60 * 1000;
+const MONETAG_ZONE = 11377822;
 
 function dayKeyUtc() {
   return new Date().toISOString().slice(0, 10);
@@ -27,7 +27,7 @@ function dayKeyUtc() {
  * Auth: Bearer <Firebase ID token>
  *
  * action: 'prepare'  → create short-lived session (anti-replay)
- * action: 'complete' → require networkShown + credit via offerwall_video
+ * action: 'complete' → require status === 'completed' + credit +20 via Firestore increment()
  */
 export async function POST(request: Request) {
   try {
@@ -96,14 +96,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: 'missing_session' }, { status: 400 });
     }
 
-    // Strict: Monetag SDK must report a successful show/close before credit.
+    // Strict: Monetag Promise must resolve → status === 'completed'
+    const status = String(body.status || body.meta?.status || '').toLowerCase();
     const networkShown = body.networkShown === true;
-    if (!networkShown) {
+    if (status !== 'completed' || !networkShown) {
       return NextResponse.json(
         {
           ok: false,
-          error: 'ad_not_verified',
-          message: 'Watch the full rewarded video before coins can be credited.',
+          error: status !== 'completed' ? 'status_required' : 'ad_not_verified',
+          message:
+            'Coins are credited only when Monetag status is completed (full rewarded video).',
         },
         { status: 403 }
       );
@@ -144,80 +146,98 @@ export async function POST(request: Request) {
 
     const slot = typeof session.slot === 'number' ? session.slot : dailyCount;
     const txId = `offerwall_video_${user.uid}_${dayKey}_${slot}`;
+    const ledgerRef = doc(db, 'offerwall_ledger', txId);
+    const coins = REWARDED_VIDEO_COINS; // flat 20 AJ Coins
 
-    // Flat 20 AJ Coins — ONLY after Monetag onReward (networkShown)
-    const result = await applyFlatCoins({
-      uid: user.uid,
-      txId,
-      source: 'offerwall_video',
-      coins: REWARDED_VIDEO_COINS,
-      meta: {
-        placement: session.placement || placement,
-        sessionId,
-        networkShown: true,
-        via: 'rewarded_video_onReward',
-        dayKey,
-        ...(body.meta && typeof body.meta === 'object' ? body.meta : {}),
-      },
-      ledgerCollection: 'offerwall_ledger',
-      enforceDailyCap: true,
-    });
+    // Atomic: Firestore increment(20) + mark session consumed (anti double-credit)
+    const creditResult = await runTransaction(db, async (tx) => {
+      const [ledgerSnap, freshSession, freshUser] = await Promise.all([
+        tx.get(ledgerRef),
+        tx.get(sessionRef),
+        tx.get(userRef),
+      ]);
 
-    if (!result.ok) {
-      const status = result.error === 'daily_limit' || result.dailyCapHit ? 429 : 500;
-      return NextResponse.json(
-        {
-          ok: false,
-          error: result.dailyCapHit ? 'daily_limit' : result.error || 'credit_failed',
-          dailyCapHit: !!result.dailyCapHit,
-        },
-        { status }
-      );
-    }
-
-    await updateDoc(sessionRef, {
-      consumed: true,
-      completedAt: serverTimestamp(),
-      networkShown: true,
-      txId,
-    });
-
-    if (!result.duplicate) {
-      try {
-        if (ud.offerwallVideoDayKey === dayKey) {
-          await updateDoc(userRef, {
-            offerwallVideoDayCount: increment(1),
-            lastOfferwallVideoAt: serverTimestamp(),
-          });
-        } else {
-          await updateDoc(userRef, {
-            offerwallVideoDayKey: dayKey,
-            offerwallVideoDayCount: 1,
-            lastOfferwallVideoAt: serverTimestamp(),
-          });
-        }
-      } catch {
-        /* non-fatal */
+      if (ledgerSnap.exists()) {
+        return { duplicate: true as const, credited: 0 };
       }
-    }
+      if (!freshSession.exists()) {
+        throw new Error('invalid_session');
+      }
+      const s = freshSession.data() as { uid: string; consumed?: boolean };
+      if (s.uid !== user.uid) throw new Error('session_mismatch');
+      if (s.consumed) return { duplicate: true as const, credited: 0 };
+
+      if (!freshUser.exists()) throw new Error('user_not_found');
+      const u = freshUser.data() as {
+        offerwallVideoDayKey?: string;
+        offerwallVideoDayCount?: number;
+      };
+      const count =
+        u.offerwallVideoDayKey === dayKey ? Number(u.offerwallVideoDayCount || 0) : 0;
+      if (count >= OFFERWALL_VIDEO_MAX_DAILY) {
+        throw new Error('daily_limit');
+      }
+
+      tx.set(ledgerRef, {
+        uid: user.uid,
+        source: 'offerwall_video',
+        txId,
+        coins,
+        status: 'completed',
+        sessionId,
+        placement: session.placement || placement,
+        zoneId: MONETAG_ZONE,
+        dayKey,
+        createdAt: serverTimestamp(),
+        meta: body.meta && typeof body.meta === 'object' ? body.meta : {},
+      });
+
+      tx.update(userRef, {
+        balance: increment(coins),
+        offerwallVideoDayKey: dayKey,
+        offerwallVideoDayCount: count + 1,
+        lastOfferwallVideoAt: serverTimestamp(),
+        lastRewardAt: serverTimestamp(),
+        lastRewardSource: 'offerwall_video',
+      });
+
+      tx.update(sessionRef, {
+        consumed: true,
+        completedAt: serverTimestamp(),
+        networkShown: true,
+        status: 'completed',
+        txId,
+        creditedCoins: coins,
+      });
+
+      return { duplicate: false as const, credited: coins };
+    });
 
     const remaining = Math.max(
       0,
-      OFFERWALL_VIDEO_MAX_DAILY - (result.duplicate ? dailyCount : dailyCount + 1)
+      OFFERWALL_VIDEO_MAX_DAILY -
+        (creditResult.duplicate ? dailyCount : dailyCount + 1)
     );
 
     return NextResponse.json({
       ok: true,
-      duplicate: !!result.duplicate,
-      creditedCoins: result.balanceCredited ?? 0,
+      duplicate: creditResult.duplicate,
+      creditedCoins: creditResult.credited,
       remainingToday: remaining,
-      message: result.duplicate
+      status: 'completed',
+      message: creditResult.duplicate
         ? 'Video reward already claimed'
-        : `Video complete! +${result.balanceCredited} AJ Coins 🪙`,
+        : `Video complete! +${creditResult.credited} AJ Coins 🪙`,
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'rewarded_failed';
-    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    const status =
+      msg === 'daily_limit'
+        ? 429
+        : msg === 'invalid_session' || msg === 'session_mismatch'
+          ? 400
+          : 500;
+    return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }
 
@@ -227,6 +247,7 @@ export async function GET() {
     maxDaily: OFFERWALL_VIDEO_MAX_DAILY,
     rewardCoins: REWARDED_VIDEO_COINS,
     source: 'offerwall_video',
-    requiresNetworkShown: true,
+    requiresStatus: 'completed',
+    zoneId: MONETAG_ZONE,
   });
 }

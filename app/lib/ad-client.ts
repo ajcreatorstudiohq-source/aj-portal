@@ -107,7 +107,13 @@ export async function prepareRewardedVideo(
 export async function completeRewardedVideo(
   user: { getIdToken: () => Promise<string> } | null | undefined,
   sessionId: string,
-  opts?: { placement?: string; networkShown?: boolean; meta?: Record<string, unknown> }
+  opts?: {
+    placement?: string;
+    networkShown?: boolean;
+    /** Monetag Promise resolve → must be 'completed' to credit */
+    status?: 'completed' | 'failed' | string;
+    meta?: Record<string, unknown>;
+  }
 ): Promise<RewardedVideoResult> {
   if (!user) return { ok: false, error: 'not_signed_in' };
   if (!sessionId) return { ok: false, error: 'missing_session' };
@@ -124,6 +130,7 @@ export async function completeRewardedVideo(
         sessionId,
         placement: opts?.placement || 'offerwall_rewarded_video',
         networkShown: !!opts?.networkShown,
+        status: opts?.status || '',
         meta: opts?.meta || {},
       }),
     });
