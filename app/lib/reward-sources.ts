@@ -67,4 +67,4 @@ export const SOURCE_LABELS: Record<RewardSource, string> = {
 /** Flat AJ Coin rewards */
 export const MATH_CHALLENGE_COINS = 5;
 export const ALPHA_CAPTCHA_COINS = 10;
-export const REWARDED_VIDEO_COINS = 20;
+export const REWARDED_VIDEO_COINS = 5;

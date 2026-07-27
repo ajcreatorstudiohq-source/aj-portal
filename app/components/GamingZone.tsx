@@ -148,12 +148,24 @@ export default function GamingZone({
     }
   };
 
-  // Listen for in-game level milestone messages
+  // Listen for in-game level milestone + Adsterra show requests
   useEffect(() => {
     if (!user) return;
     const handler = (e: MessageEvent) => {
       if (!e.data || typeof e.data !== 'object') return;
       const type = e.data.type;
+      if (type === 'GAME_SHOW_AD') {
+        try {
+          window.open(
+            'https://www.effectivecpmnetwork.com/b8jtkn6i4?key=77409a0e0aa4602b6d03798ff53516b3',
+            '_blank',
+            'noopener,noreferrer'
+          );
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
       if (
         type === 'GAME_LEVEL_REACHED' ||
         type === 'GAME_MILESTONE' ||

@@ -1,9 +1,10 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import { KeyRound, Loader2 } from 'lucide-react';
+import { ExternalLink, Gift, KeyRound, Loader2 } from 'lucide-react';
 import { ALPHA_CAPTCHA_COINS } from '../lib/reward-sources';
-import { guardClick } from '../lib/ad-guards';
+import { ADSTERRA_REWARDED_LINK } from '../lib/ads-config';
+import { guardClick, startIntrusiveAdGuard } from '../lib/ad-guards';
 
 type Props = {
   user: { uid: string; getIdToken: () => Promise<string> } | null;
@@ -12,7 +13,7 @@ type Props = {
 };
 
 /**
- * Premium Alphanumeric Captcha — type 6-char code for +10 AJ Coins (max 5/day).
+ * Premium Alphanumeric Captcha — Submit opens Adsterra, Verify & Claim credits +10.
  */
 export default function AlphaCaptchaChallenge({ user, onAlert, onRefreshUser }: Props) {
   const [busy, setBusy] = useState(false);
@@ -20,6 +21,17 @@ export default function AlphaCaptchaChallenge({ user, onAlert, onRefreshUser }: 
   const [code, setCode] = useState('');
   const [typed, setTyped] = useState('');
   const [remaining, setRemaining] = useState<number | null>(null);
+  const [claimReady, setClaimReady] = useState(false);
+
+  const openAdsterra = () => {
+    startIntrusiveAdGuard();
+    try {
+      const win = window.open(ADSTERRA_REWARDED_LINK, '_blank', 'noopener,noreferrer');
+      if (!win) window.location.assign(ADSTERRA_REWARDED_LINK);
+    } catch {
+      /* ignore */
+    }
+  };
 
   const authFetch = useCallback(
     async (body: Record<string, unknown>) => {
@@ -59,6 +71,7 @@ export default function AlphaCaptchaChallenge({ user, onAlert, onRefreshUser }: 
     if (busy) return;
     setBusy(true);
     setTyped('');
+    setClaimReady(false);
     try {
       const data = await authFetch({ action: 'prepare' });
       setSessionId(data.sessionId || null);
@@ -79,9 +92,21 @@ export default function AlphaCaptchaChallenge({ user, onAlert, onRefreshUser }: 
     }
   };
 
+  /** Submit → open Adsterra; credit only on Verify & Claim */
   const submit = async (e?: React.MouseEvent) => {
     guardClick(e);
     if (!user || !sessionId) return;
+    if (busy) return;
+    if (!typed.trim()) return onAlert('Type the captcha code first', '⚠️');
+    openAdsterra();
+    setClaimReady(true);
+    onAlert('Ad opened in a new tab. Return here and tap Verify & Claim.', '📺');
+  };
+
+  const verifyAndClaim = async (e?: React.MouseEvent) => {
+    guardClick(e);
+    if (!user || !sessionId) return;
+    if (!claimReady) return onAlert('Submit first to open the ad, then claim.', '📺');
     if (busy) return;
     setBusy(true);
     try {
@@ -89,6 +114,8 @@ export default function AlphaCaptchaChallenge({ user, onAlert, onRefreshUser }: 
         action: 'complete',
         sessionId,
         code: typed,
+        adViewed: true,
+        meta: { provider: 'adsterra', link: ADSTERRA_REWARDED_LINK },
       });
       if (typeof data.remainingToday === 'number') setRemaining(data.remainingToday);
       onAlert(
@@ -98,6 +125,7 @@ export default function AlphaCaptchaChallenge({ user, onAlert, onRefreshUser }: 
       setSessionId(null);
       setCode('');
       setTyped('');
+      setClaimReady(false);
       onRefreshUser?.();
     } catch (err: unknown) {
       const e2 = err as Error & { data?: { error?: string; message?: string } };
@@ -106,6 +134,7 @@ export default function AlphaCaptchaChallenge({ user, onAlert, onRefreshUser }: 
         setSessionId(null);
         setCode('');
         setTyped('');
+        setClaimReady(false);
       }
     } finally {
       setBusy(false);
@@ -121,7 +150,7 @@ export default function AlphaCaptchaChallenge({ user, onAlert, onRefreshUser }: 
         <div className="min-w-0 flex-1">
           <p className="text-sm font-black text-white">Premium Alphanumeric Captcha</p>
           <p className="text-[11px] text-gray-300 leading-relaxed mt-0.5">
-            Type the 6-character code for{' '}
+            Type the code, watch Adsterra, then claim{' '}
             <span className="text-amber-300 font-bold">+{ALPHA_CAPTCHA_COINS} AJ Coins 🪙</span>. Max
             5/day.
           </p>
@@ -145,22 +174,36 @@ export default function AlphaCaptchaChallenge({ user, onAlert, onRefreshUser }: 
             placeholder="Type the code"
             maxLength={8}
             autoCapitalize="characters"
-            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm text-center font-bold tracking-widest focus:outline-none focus:border-violet-400/50"
+            disabled={claimReady}
+            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm text-center font-bold tracking-widest focus:outline-none focus:border-violet-400/50 disabled:opacity-60"
           />
-          <button
-            type="button"
-            disabled={busy || !user}
-            onClick={(e) => void submit(e)}
-            className="w-full py-3 rounded-xl bg-gradient-to-r from-violet-400 to-indigo-500 text-black text-xs font-black flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]"
-          >
-            {busy ? (
-              <>
-                <Loader2 size={14} className="animate-spin" /> Verifying…
-              </>
-            ) : (
-              'Verify & Earn'
-            )}
-          </button>
+          {!claimReady ? (
+            <button
+              type="button"
+              disabled={busy || !user}
+              onClick={(e) => void submit(e)}
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-violet-400 to-indigo-500 text-black text-xs font-black flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]"
+            >
+              <ExternalLink size={14} /> Submit (Watch Ad)
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={busy || !user}
+              onClick={(e) => void verifyAndClaim(e)}
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 text-black text-xs font-black flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]"
+            >
+              {busy ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" /> Claiming…
+                </>
+              ) : (
+                <>
+                  <Gift size={14} /> Verify & Claim {ALPHA_CAPTCHA_COINS} Coins 🪙
+                </>
+              )}
+            </button>
+          )}
         </div>
       ) : (
         <button

@@ -29,7 +29,7 @@ function dayKeyUtc() {
  * Auth: Bearer <Firebase ID token>
  *
  * action: 'prepare' | 'complete' | 'claim_adsterra'
- * claim_adsterra → Firestore increment(20) with daily limit
+ * claim_adsterra → Firestore runTransaction increment(5) with daily limit
  */
 export async function POST(request: Request) {
   try {
@@ -58,7 +58,7 @@ export async function POST(request: Request) {
     const dailyCount =
       ud.offerwallVideoDayKey === dayKey ? Number(ud.offerwallVideoDayCount || 0) : 0;
 
-    // ── Adsterra claim: open link → Claim 20 Coins → increment(20)
+    // ── Adsterra claim: open link → Claim 5 Coins → increment(5)
     if (action === 'claim_adsterra') {
       if (dailyCount >= OFFERWALL_VIDEO_MAX_DAILY) {
         return NextResponse.json(
@@ -66,7 +66,7 @@ export async function POST(request: Request) {
           { status: 429 }
         );
       }
-      const coins = ADSTERRA_REWARD_COINS || REWARDED_VIDEO_COINS || 20;
+      const coins = ADSTERRA_REWARD_COINS || REWARDED_VIDEO_COINS || 5;
       const txId = `adsterra_claim_${user.uid}_${dayKey}_${dailyCount}`;
       const ledgerRef = doc(db, 'offerwall_ledger', txId);
 

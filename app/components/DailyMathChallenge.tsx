@@ -1,9 +1,10 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import { Calculator, Loader2 } from 'lucide-react';
+import { Calculator, ExternalLink, Gift, Loader2 } from 'lucide-react';
 import { MATH_CHALLENGE_COINS } from '../lib/reward-sources';
-import { guardClick } from '../lib/ad-guards';
+import { ADSTERRA_REWARDED_LINK } from '../lib/ads-config';
+import { guardClick, startIntrusiveAdGuard } from '../lib/ad-guards';
 
 type Props = {
   user: { uid: string; getIdToken: () => Promise<string> } | null;
@@ -12,8 +13,7 @@ type Props = {
 };
 
 /**
- * Daily Math Challenge — server-verified Q&A.
- * +5 AJ Coins per correct answer · max 5/day.
+ * Daily Math Challenge — Submit opens Adsterra, then Verify & Claim credits +5.
  */
 export default function DailyMathChallenge({ user, onAlert, onRefreshUser }: Props) {
   const [busy, setBusy] = useState(false);
@@ -21,6 +21,17 @@ export default function DailyMathChallenge({ user, onAlert, onRefreshUser }: Pro
   const [prompt, setPrompt] = useState('');
   const [answer, setAnswer] = useState('');
   const [remaining, setRemaining] = useState<number | null>(null);
+  const [claimReady, setClaimReady] = useState(false);
+
+  const openAdsterra = () => {
+    startIntrusiveAdGuard();
+    try {
+      const win = window.open(ADSTERRA_REWARDED_LINK, '_blank', 'noopener,noreferrer');
+      if (!win) window.location.assign(ADSTERRA_REWARDED_LINK);
+    } catch {
+      /* ignore */
+    }
+  };
 
   const authFetch = useCallback(
     async (body: Record<string, unknown>) => {
@@ -62,6 +73,7 @@ export default function DailyMathChallenge({ user, onAlert, onRefreshUser }: Pro
     if (busy) return;
     setBusy(true);
     setAnswer('');
+    setClaimReady(false);
     try {
       const data = await authFetch({ action: 'prepare' });
       setSessionId(data.sessionId || null);
@@ -82,9 +94,22 @@ export default function DailyMathChallenge({ user, onAlert, onRefreshUser }: Pro
     }
   };
 
+  /** Submit Answer → open Adsterra first; claim happens on Verify & Claim */
   const submitAnswer = async (e?: { preventDefault?: () => void; stopPropagation?: () => void }) => {
     guardClick(e);
     if (!user || !sessionId) return;
+    if (busy) return;
+    const n = Math.floor(Number(answer));
+    if (!Number.isFinite(n)) return onAlert('Enter a number answer', '⚠️');
+    openAdsterra();
+    setClaimReady(true);
+    onAlert('Ad opened in a new tab. Return here and tap Verify & Claim.', '📺');
+  };
+
+  const verifyAndClaim = async (e?: { preventDefault?: () => void; stopPropagation?: () => void }) => {
+    guardClick(e);
+    if (!user || !sessionId) return;
+    if (!claimReady) return onAlert('Submit first to open the ad, then claim.', '📺');
     if (busy) return;
     const n = Math.floor(Number(answer));
     if (!Number.isFinite(n)) return onAlert('Enter a number answer', '⚠️');
@@ -94,6 +119,8 @@ export default function DailyMathChallenge({ user, onAlert, onRefreshUser }: Pro
         action: 'complete',
         sessionId,
         answer: n,
+        adViewed: true,
+        meta: { provider: 'adsterra', link: ADSTERRA_REWARDED_LINK },
       });
       if (typeof data.remainingToday === 'number') setRemaining(data.remainingToday);
       onAlert(
@@ -103,6 +130,7 @@ export default function DailyMathChallenge({ user, onAlert, onRefreshUser }: Pro
       setSessionId(null);
       setPrompt('');
       setAnswer('');
+      setClaimReady(false);
       onRefreshUser?.();
     } catch (e: unknown) {
       const err = e as Error & { data?: { error?: string; message?: string } };
@@ -110,13 +138,14 @@ export default function DailyMathChallenge({ user, onAlert, onRefreshUser }: Pro
         err.data?.message ||
           (err.data?.error === 'wrong_answer'
             ? 'Incorrect — try a new challenge.'
-            : err.message || 'Submit failed'),
+            : err.message || 'Claim failed'),
         '⚠️'
       );
       if (err.data?.error === 'wrong_answer' || err.data?.error === 'session_expired') {
         setSessionId(null);
         setPrompt('');
         setAnswer('');
+        setClaimReady(false);
       }
     } finally {
       setBusy(false);
@@ -132,9 +161,9 @@ export default function DailyMathChallenge({ user, onAlert, onRefreshUser }: Pro
         <div className="min-w-0 flex-1">
           <p className="text-sm font-black text-white">Daily Math Challenge</p>
           <p className="text-[11px] text-gray-300 leading-relaxed mt-0.5">
-            Solve a quick server-verified question for{' '}
+            Solve, watch Adsterra, then claim{' '}
             <span className="text-amber-300 font-bold">+{MATH_CHALLENGE_COINS} AJ Coins 🪙</span>.
-            Max 5 correct answers / day.
+            Max 5 correct / day.
           </p>
           {remaining != null ? (
             <p className="text-[9px] text-gray-500 mt-1">{remaining} left today</p>
@@ -153,22 +182,36 @@ export default function DailyMathChallenge({ user, onAlert, onRefreshUser }: Pro
             value={answer}
             onChange={(e) => setAnswer(e.target.value)}
             placeholder="Your answer"
-            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm text-center font-bold focus:outline-none focus:border-emerald-400/50"
+            disabled={claimReady}
+            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm text-center font-bold focus:outline-none focus:border-emerald-400/50 disabled:opacity-60"
           />
-          <button
-            type="button"
-            disabled={busy || !user}
-            onClick={(e) => void submitAnswer(e)}
-            className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-500 text-black text-xs font-black flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]"
-          >
-            {busy ? (
-              <>
-                <Loader2 size={14} className="animate-spin" /> Checking…
-              </>
-            ) : (
-              'Submit Answer'
-            )}
-          </button>
+          {!claimReady ? (
+            <button
+              type="button"
+              disabled={busy || !user}
+              onClick={(e) => void submitAnswer(e)}
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-500 text-black text-xs font-black flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]"
+            >
+              <ExternalLink size={14} /> Submit Answer (Watch Ad)
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={busy || !user}
+              onClick={(e) => void verifyAndClaim(e)}
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 text-black text-xs font-black flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]"
+            >
+              {busy ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" /> Claiming…
+                </>
+              ) : (
+                <>
+                  <Gift size={14} /> Verify & Claim {MATH_CHALLENGE_COINS} Coins 🪙
+                </>
+              )}
+            </button>
+          )}
         </div>
       ) : (
         <button

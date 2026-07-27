@@ -1,7 +1,12 @@
 import './globals.css'
 import { Space_Grotesk, Syne } from 'next/font/google'
 import Script from 'next/script'
-import { ADSTERRA_SOCIAL_BAR_SRC } from './lib/ads-config'
+import {
+  ADSTERRA_NATIVE_BANNER_ID,
+  ADSTERRA_NATIVE_BANNER_SRC,
+  ADSTERRA_REWARDED_LINK,
+  ADSTERRA_SOCIAL_BAR_SRC,
+} from './lib/ads-config'
 
 const bodyFont = Space_Grotesk({
   subsets: ['latin'],
@@ -19,8 +24,7 @@ export const metadata = {
 
 /**
  * Root layout — premium dark shell.
- * Ads: Adsterra Social Bar only (body end).
- * Blocks Monetag / gozen / sunny-sprout / alwingulla / fake $ toasts permanently.
+ * Ads: Adsterra Social Bar + Native Banner only (no Monetag).
  */
 export default function RootLayout({
   children,
@@ -134,8 +138,10 @@ export default function RootLayout({
           {`
             if (!window.AJ_SDK) {
               window.AJ_SDK = {
-                directLink: '',
-                showAd: function() { console.log("SDK: showAd (local only)"); },
+                directLink: ${JSON.stringify(ADSTERRA_REWARDED_LINK)},
+                showAd: function() {
+                  try { window.open(${JSON.stringify(ADSTERRA_REWARDED_LINK)}, '_blank', 'noopener,noreferrer'); } catch (e) {}
+                },
                 sendScore: function() { console.log("SDK: sendScore ignored — no wallet credit"); },
                 addBalance: function() { console.log("SDK: addBalance ignored — no wallet credit"); },
                 reportLevel: function(gameId, level) {
@@ -147,7 +153,10 @@ export default function RootLayout({
                 }
               };
             } else {
-              window.AJ_SDK.directLink = '';
+              window.AJ_SDK.directLink = ${JSON.stringify(ADSTERRA_REWARDED_LINK)};
+              window.AJ_SDK.showAd = function() {
+                try { window.open(${JSON.stringify(ADSTERRA_REWARDED_LINK)}, '_blank', 'noopener,noreferrer'); } catch (e) {}
+              };
               window.AJ_SDK.sendScore = function() { console.log("SDK: sendScore ignored — no wallet credit"); };
               window.AJ_SDK.addBalance = function() { console.log("SDK: addBalance ignored — no wallet credit"); };
             }
@@ -159,7 +168,18 @@ export default function RootLayout({
         style={{ fontFamily: 'var(--font-aj-body), system-ui, sans-serif' }}
       >
         {children}
-        {/* Adsterra Social Bar — end of body only */}
+        {/* Adsterra Native Banner host (layout) */}
+        <div
+          id={ADSTERRA_NATIVE_BANNER_ID}
+          className="sr-only"
+          aria-hidden="true"
+        />
+        <Script
+          src={ADSTERRA_NATIVE_BANNER_SRC}
+          strategy="afterInteractive"
+          data-adsterra="native-banner"
+        />
+        {/* Adsterra Social Bar — end of body */}
         <Script
           src={ADSTERRA_SOCIAL_BAR_SRC}
           strategy="afterInteractive"

@@ -213,7 +213,7 @@ export default function HubEarnPanel({
                 Watch & Earn
               </p>
             </div>
-            <span className="mt-auto text-[8px] font-bold text-zinc-500">+20 AJ Coins 🪙</span>
+            <span className="mt-auto text-[8px] font-bold text-zinc-500">+5 AJ Coins 🪙</span>
           </div>
         </button>
       </div>

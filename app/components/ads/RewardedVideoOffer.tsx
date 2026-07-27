@@ -9,7 +9,7 @@ import {
   REWARDED_VIDEO_COOLDOWN_MS,
 } from '../../lib/ads-config';
 import { guardClick, startIntrusiveAdGuard } from '../../lib/ad-guards';
-import { doc, increment, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { doc, increment, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../firebase';
 
 type Props = {
@@ -104,12 +104,17 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
         }
 
         if (!credited) {
-          // Direct Firestore increment(20) as required
-          await updateDoc(doc(db, 'users', user.uid), {
-            balance: increment(ADSTERRA_REWARD_COINS),
-            lastAdsterraClaimAt: serverTimestamp(),
-            lastRewardAt: serverTimestamp(),
-            lastRewardSource: 'adsterra_watch',
+          // Client Firestore runTransaction — atomic increment(5)
+          await runTransaction(db, async (tx) => {
+            const uref = doc(db, 'users', user.uid);
+            const snap = await tx.get(uref);
+            if (!snap.exists()) throw new Error('user_not_found');
+            tx.update(uref, {
+              balance: increment(ADSTERRA_REWARD_COINS),
+              lastAdsterraClaimAt: serverTimestamp(),
+              lastRewardAt: serverTimestamp(),
+              lastRewardSource: 'adsterra_watch',
+            });
           });
           onAlert(`+${ADSTERRA_REWARD_COINS} AJ Coins 🪙 claimed!`, '💰');
           setClaimReady(false);

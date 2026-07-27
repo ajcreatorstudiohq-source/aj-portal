@@ -2036,8 +2036,8 @@ export function AJSuperPortal() {
   const currentWithdrawMethod = WITHDRAW_METHODS.find(m => m.label === payoutMethod) || WITHDRAW_METHODS[0];
 
   // ==========================================================
-  // INTRUSIVE AD GUARD — never auto-load Monetag on mount.
-  // Zone 11377822 SDK loads only from Offer Hub → Watch & Earn.
+  // INTRUSIVE AD GUARD — never auto-load third-party popunders on mount.
+  // Rewarded ads open Adsterra Direct Link from Offer Hub → Watch & Earn.
   // ==========================================================
   useEffect(() => {
     if (typeof window === 'undefined') return;
