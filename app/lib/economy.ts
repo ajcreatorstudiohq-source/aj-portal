@@ -1,18 +1,54 @@
 /**
  * AJ Super Portal — economy & games catalog.
- * User-facing currency is AJ Coins 🪙.
- * Withdrawal UI may show the cash equivalent ($20 min) for clarity only.
+ * User-facing currency is strictly AJ Coins 🪙 (never show $ / USD in UI).
  */
 
 /** Purchase rate: 1 purchase unit → COIN_RATE AJ Coins */
 export const COIN_RATE = 100;
-/** Cash-out rate: CASH_RATE AJ Coins = 1.00 cash unit (1,000 Coins = $1.00) */
+/** Internal cash-out divisor (1,000 AJ Coins ≈ 1 cash unit) — never show $ in UI */
 export const CASH_RATE = 1000;
 
 /** New-user wallet credit on first profile create — strictly zero */
 export const SIGNUP_BONUS_COINS = 0;
 /** Coins credited to the referrer per successful referral */
 export const REFERRAL_BONUS_COINS = 50;
+
+/**
+ * Premium Games — CPAGrip unlock links (open in new tab).
+ * Portal credits ZERO coins on Unlock & Play; owner is paid via CPAGrip.
+ */
+export const PREMIUM_CPA_GAMES = [
+  {
+    id: 'neon',
+    name: 'Neon Strike',
+    emoji: '⚡',
+    unlockUrl: 'https://ridefiles.net/1906687',
+  },
+  {
+    id: 'rider',
+    name: 'Rider King',
+    emoji: '🏍️',
+    unlockUrl: 'https://ridefiles.net/1906688',
+  },
+  {
+    id: 'racer',
+    name: 'Pulse Racer',
+    emoji: '🏎️',
+    unlockUrl: 'https://ridefiles.net/1906689',
+  },
+  {
+    id: 'subsea',
+    name: 'SubSea Surge',
+    emoji: '🐠',
+    unlockUrl: 'https://ridefiles.net/1906691',
+  },
+  {
+    id: 'volcano',
+    name: 'Volcano Escape',
+    emoji: '🌋',
+    unlockUrl: 'https://ridefiles.net/1906693',
+  },
+] as const;
 
 /** Internal reward band (server ledger only — not shown in UI) */
 const USER_REWARD_BAND_MIN = 1.0;
@@ -171,7 +207,7 @@ export const OFFERWALL_PUBLIC = {
   provider: 'CPAGrip' as const,
 };
 
-/** Minimum AJ Coins required to request a withdrawal (20,000 = $20) */
+/** Minimum AJ Coins required to request a withdrawal */
 export const MIN_WITHDRAW_COINS = 20000;
 
 /**

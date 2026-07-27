@@ -27,7 +27,6 @@ function ensureNativeInvokeScript() {
 }
 
 function reinvokeNativeBanner() {
-  // Re-append invoke.js so Adsterra binds to the current official container id
   if (typeof document === 'undefined') return;
   document
     .querySelectorAll('script[data-adsterra="native-banner-invoke"]')
@@ -44,7 +43,7 @@ function reinvokeNativeBanner() {
 
 /**
  * TikReel / Pulse in-feed Adsterra Native Banner.
- * Dark sponsored card — never a black video surface.
+ * Dark sponsored card with gradient atmosphere — never a blank black screen.
  * Official container id is moved into the visible slot (Adsterra requires exact id).
  */
 export default function AdsterraNativeBanner({ slotKey = 'feed' }: { slotKey?: string }) {
@@ -56,7 +55,6 @@ export default function AdsterraNativeBanner({ slotKey = 'feed' }: { slotKey?: s
     const host = hostRef.current;
     if (!host || typeof document === 'undefined') return;
 
-    // Remove layout/legacy duplicate hosts that steal the official id
     document.querySelectorAll(`#${ADSTERRA_NATIVE_BANNER_ID}`).forEach((el) => {
       if (!host.contains(el)) {
         try {
@@ -70,7 +68,6 @@ export default function AdsterraNativeBanner({ slotKey = 'feed' }: { slotKey?: s
     const activate = () => {
       let box = host.querySelector(`#${ADSTERRA_NATIVE_BANNER_ID}`) as HTMLElement | null;
       if (!box) {
-        // Steal / create the official container inside this visible slot
         const existing = document.getElementById(ADSTERRA_NATIVE_BANNER_ID);
         if (existing && existing !== box) {
           try {
@@ -82,7 +79,7 @@ export default function AdsterraNativeBanner({ slotKey = 'feed' }: { slotKey?: s
         box = document.createElement('div');
         box.id = ADSTERRA_NATIVE_BANNER_ID;
         box.className =
-          'w-full max-w-md min-h-[180px] flex items-center justify-center rounded-xl border border-white/10 bg-[#0a0a0f]';
+          'w-full max-w-md min-h-[220px] flex items-center justify-center rounded-xl border border-amber-500/20 bg-[#12121a]';
         const mount = host.querySelector('[data-adsterra-mount]') as HTMLElement | null;
         (mount || host).appendChild(box);
       }
@@ -92,17 +89,16 @@ export default function AdsterraNativeBanner({ slotKey = 'feed' }: { slotKey?: s
     const io = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          if (entry.isIntersecting && entry.intersectionRatio > 0.35) {
+          if (entry.isIntersecting && entry.intersectionRatio > 0.25) {
             activate();
           }
         }
       },
-      { threshold: [0.35, 0.6] }
+      { threshold: [0.25, 0.5] }
     );
     io.observe(host);
 
-    // Soft activate once after mount so first slot is not empty
-    const t = window.setTimeout(activate, 400);
+    const t = window.setTimeout(activate, 350);
     return () => {
       io.disconnect();
       window.clearTimeout(t);
@@ -116,27 +112,40 @@ export default function AdsterraNativeBanner({ slotKey = 'feed' }: { slotKey?: s
       className="absolute inset-0 w-full h-full min-h-screen flex flex-col items-center justify-center gap-4 px-5"
       style={{
         background:
-          'radial-gradient(ellipse at 50% 30%, #14141f 0%, #08080c 45%, #050505 100%)',
+          'radial-gradient(ellipse at 50% 28%, #1c1a28 0%, #121018 40%, #0a0a10 70%, #08080c 100%)',
       }}
     >
-      <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1">
-        <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-        <span className="text-[9px] font-black uppercase tracking-[0.22em] text-zinc-300">
+      {/* Atmosphere layer — prevents pure black void while ad loads */}
+      <div
+        className="pointer-events-none absolute inset-0 opacity-60"
+        style={{
+          background:
+            'linear-gradient(160deg, rgba(251,191,36,0.08) 0%, transparent 35%, rgba(34,211,238,0.06) 100%)',
+        }}
+      />
+
+      <div className="relative z-10 inline-flex items-center gap-2 rounded-full border border-amber-400/25 bg-black/35 backdrop-blur-md px-3 py-1">
+        <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+        <span className="text-[9px] font-black uppercase tracking-[0.22em] text-amber-100/90">
           Sponsored
         </span>
       </div>
 
       <div
         data-adsterra-mount
-        className="relative w-full max-w-md min-h-[180px] flex items-center justify-center rounded-2xl border border-white/10 bg-[#0a0a0f] shadow-[0_0_40px_rgba(0,0,0,0.55)] overflow-hidden"
+        className="relative z-10 w-full max-w-md min-h-[220px] flex items-center justify-center rounded-2xl border border-white/15 bg-gradient-to-b from-[#16161f] to-[#0c0c12] shadow-[0_0_48px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.06)] overflow-hidden"
       >
-        {/* Official Adsterra container is injected here when slot is visible */}
-        <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest pointer-events-none">
-          Loading offer…
-        </p>
+        <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center gap-2 px-6">
+          <div className="w-10 h-10 rounded-xl border border-amber-400/30 bg-amber-500/10 flex items-center justify-center">
+            <span className="text-lg">✨</span>
+          </div>
+          <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest text-center">
+            Loading partner offer…
+          </p>
+        </div>
       </div>
 
-      <p className="text-[10px] text-zinc-500 font-medium text-center max-w-xs">
+      <p className="relative z-10 text-[10px] text-zinc-400 font-medium text-center max-w-xs">
         Partner placement · Earn AJ Coins 🪙 on verified tasks
       </p>
     </div>
