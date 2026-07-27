@@ -399,9 +399,9 @@
         <div class="ad-box">
             <div id="ad-content-normal">
                 <div class="ad-spinner"></div>
-                <div class="ad-title">WATCH AD</div>
+                <div class="ad-title">ADSTERRA AD</div>
                 <div class="ad-countdown" id="ad-countdown">5</div>
-                <div class="ad-subtext">Ad opened in a new tab — keep playing after the countdown!</div>
+                <div class="ad-subtext">Real Adsterra opened in a new tab. Wait for the timer, then continue!</div>
             </div>
             <div id="ad-content-done" style="display:none;">
                 <div class="ad-reward-final" id="ad-reward-amount">+0</div>
@@ -589,68 +589,75 @@
 
 
 // ===================================================================
-//  ADS — Adsterra Direct Link via AJ_SDK (Monetag permanently removed)
+//  REAL ADSTERRA ADS (A→Z) — Monetag dummy fully removed
+//  Smartlink: opens every time an ad gate runs (no fake countdown-only ads)
 // ===================================================================
 const ADSTERRA_DIRECT_LINK =
   'https://www.effectivecpmnetwork.com/b8jtkn6i4?key=77409a0e0aa4602b6d03798ff53516b3';
-const AD_COOLDOWN_MS = 45 * 1000;
+const ADSTERRA_VERIFY_SECONDS = 5;
 let lastAnyAdShownTime = 0;
 let lastInterstitialAdTime = 0;
+let adTimerId = null;
 
-/** Open real Adsterra smartlink (new tab) + notify portal parent if embedded. */
-function triggerAdsterraAd() {
+/**
+ * Open REAL Adsterra rewarded/interstitial smartlink.
+ * @param {boolean} [force=true] — gated actions always force-open (never skip)
+ */
+function triggerAdsterraAd(force) {
+    const mustFire = force !== false;
     const now = Date.now();
-    if (now - lastAnyAdShownTime < AD_COOLDOWN_MS) {
-        console.log('[Ads] Skipped — cooldown');
+    // Only block accidental double-taps within 1.5s unless forced gate
+    if (!mustFire && now - lastAnyAdShownTime < 1500) {
+        console.log('[Adsterra] debounce skip');
         return false;
     }
+
     let fired = false;
-    try {
-        if (typeof AJ_SDK !== 'undefined' && typeof AJ_SDK.showAd === 'function') {
-            AJ_SDK.showAd();
-            fired = true;
-        } else {
-            window.open(ADSTERRA_DIRECT_LINK, '_blank', 'noopener,noreferrer');
+    const openLink = function () {
+        try {
+            if (typeof AJ_SDK !== 'undefined' && typeof AJ_SDK.showAd === 'function') {
+                AJ_SDK.showAd();
+                return true;
+            }
+        } catch (e) {}
+        try {
+            var win = window.open(ADSTERRA_DIRECT_LINK, '_blank', 'noopener,noreferrer');
+            if (!win) {
+                // Mobile popup blocked → same-tab fallback
+                try { window.location.assign(ADSTERRA_DIRECT_LINK); } catch (e2) {}
+            }
             if (typeof window.parent !== 'undefined' && window.parent !== window) {
                 try {
-                    window.parent.postMessage({ type: 'GAME_SHOW_AD', network: 'adsterra', placement: 'games_interstitial' }, '*');
-                } catch (e) {}
+                    window.parent.postMessage({
+                        type: 'GAME_SHOW_AD',
+                        network: 'adsterra',
+                        placement: 'games_interstitial'
+                    }, '*');
+                } catch (e3) {}
             }
-            fired = true;
+            return true;
+        } catch (e) {
+            console.warn('[Adsterra] open failed', e);
+            return false;
         }
-    } catch (e) {
-        console.warn('[Ads] open failed', e);
-        try {
-            window.open(ADSTERRA_DIRECT_LINK, '_blank', 'noopener,noreferrer');
-            fired = true;
-        } catch (e2) {}
-    }
+    };
+
+    fired = openLink();
     if (fired) {
         lastAnyAdShownTime = Date.now();
         lastInterstitialAdTime = Date.now();
+        console.log('[Adsterra] REAL ad opened');
     }
     return fired;
 }
 
-// Legacy aliases (no Monetag network calls)
-const MONETAG_ZONE_ID = 0;
-function destroyMonetagHost() {}
-function triggerMonetagInterstitialAd(_zoneId) { return Promise.resolve(triggerAdsterraAd()); }
-
-// ===================================================================
-//  AJ SDK BRIDGE — LOCAL Ludo coins only, never portal wallet
-// ===================================================================
 function ajShowAd() {
-    return Promise.resolve(triggerAdsterraAd());
+    return Promise.resolve(triggerAdsterraAd(true));
 }
+
 let ludoPortalWins = parseInt(localStorage.getItem("ludo_portal_wins") || "0", 10) || 0;
 function ajSendScore(points) {
     // Local prestige only — do NOT credit AJ Super Portal wallet / cash-out.
-    try {
-        if (typeof AJ_SDK !== 'undefined' && AJ_SDK.sendScore) {
-            // Even if AJ_SDK exists, refuse wallet writes from Ludo.
-        }
-    } catch (e) {}
     void points;
 }
 
@@ -1118,33 +1125,41 @@ function watchUnlimitedAd() {
 }
 
 // ===================================================================
-//  AD OVERLAY (unified) — used by all ad-gated actions
-//  rewardAmount: coins to give after ad (0 = no reward, just gate)
-//  callback: function to run after ad completes
+//  AD OVERLAY — every gate fires REAL Adsterra (no Monetag dummy)
+//  rewardAmount: local Ludo coins after ad (0 = gate only)
 // ===================================================================
-let adTimerId = null;
-
 function showAdOverlay(rewardAmount, callback) {
     const overlay = document.getElementById('ad-overlay');
     const normal = document.getElementById('ad-content-normal');
     const done = document.getElementById('ad-content-done');
     const finalAmount = document.getElementById('ad-reward-amount');
+
+    // ALWAYS open real Adsterra first (forced — never fake/skip)
+    const fired = triggerAdsterraAd(true);
+    console.log('[Adsterra] showAdOverlay fired=', fired, 'reward=', rewardAmount);
+
     if (!overlay || !normal || !done) {
-        try { triggerAdsterraAd(); } catch (e) {}
-        if (typeof callback === 'function') { try { callback(); } catch(e) {} }
+        if (typeof callback === 'function') { try { callback(); } catch (e) {} }
         return;
     }
 
     overlay.style.display = 'flex';
-    overlay.style.background = 'radial-gradient(circle at 50% 40%, #1a1030 0%, #050508 70%)';
+    overlay.style.background = 'radial-gradient(circle at 50% 40%, #0d2137 0%, #050508 70%)';
     normal.style.display = 'block';
     done.style.display = 'none';
-
-    // Fire real Adsterra ad (new tab / portal bridge)
-    try { triggerAdsterraAd(); } catch (e) { console.warn('[Ads] overlay fire error', e); }
+    try {
+        const title = overlay.querySelector('.ad-title');
+        if (title) title.textContent = fired ? 'ADSTERRA AD' : 'OPENING AD…';
+        const sub = overlay.querySelector('.ad-subtext');
+        if (sub) {
+            sub.textContent = fired
+                ? 'Real Adsterra ad opened. Stay on the ad tab, then come back!'
+                : 'Allow popups, then tap Watch Ad again.';
+        }
+    } catch (e) {}
 
     let finished = false;
-    const finish = function() {
+    const finish = function () {
         if (finished) return;
         finished = true;
         if (adTimerId) { clearInterval(adTimerId); adTimerId = null; }
@@ -1163,26 +1178,25 @@ function showAdOverlay(rewardAmount, callback) {
             overlay.style.display = 'none';
         }
         if (typeof callback === 'function') {
-            try { callback(); } catch(e) { console.warn('ad callback error', e); }
+            try { callback(); } catch (e) { console.warn('ad callback error', e); }
         }
     };
 
-    // Countdown 5s UI + hard 8s safety timeout (never freeze gameplay)
-    let count = 5;
+    let count = ADSTERRA_VERIFY_SECONDS;
     const countdownEl = document.getElementById('ad-countdown');
     if (countdownEl) countdownEl.innerText = String(count);
     if (adTimerId) clearInterval(adTimerId);
-    adTimerId = setInterval(function() {
+    adTimerId = setInterval(function () {
         count--;
         if (countdownEl) countdownEl.innerText = String(Math.max(0, count));
         if (count <= 0) finish();
     }, 1000);
-    setTimeout(finish, 8000);
+    setTimeout(finish, (ADSTERRA_VERIFY_SECONDS + 3) * 1000);
 }
 
 function closeAdOverlay() {
     playSfx(sfxButton);
-    try { document.getElementById('ad-overlay').style.display = 'none'; } catch(e) {}
+    try { document.getElementById('ad-overlay').style.display = 'none'; } catch (e) {}
 }
 
 // ===================================================================
