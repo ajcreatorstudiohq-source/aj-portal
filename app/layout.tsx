@@ -18,9 +18,8 @@ export const metadata = {
 
 /**
  * Root layout — premium dark shell.
- * - Games bridge (aj-sdk.js) only
- * - NO CPAGrip script_include (offer wall opens via direct show.php URL)
- * - NO Monetag push/popunder/gozen scripts (rewarded interstitial loaded on demand only)
+ * Games bridge only. No CPAGrip script_include, no Monetag push/popunder/gozen.
+ * Fake “$50,000 credited / demo account” floating toasts are scrubbed on sight.
  */
 export default function RootLayout({
   children,
@@ -59,36 +58,69 @@ export default function RootLayout({
                 };
               }
             }
-            // Kill intrusive Monetag push / popunder / gozen / floating fake-credit widgets
+            // Hard-kill fake credit / push / floating notification widgets (never load push SDKs)
             (function () {
-              var BLOCKED = ['tag.gozen.com','gozen.com','push.min.js','in-page-push','inpagepush','popunder','multi-tag','notification'];
-              function isBlockedSrc(src) {
-                if (!src) return false;
-                var s = String(src).toLowerCase();
-                if (s.indexOf('nap5k.com/tag.min.js') !== -1) return false; // allowed interstitial SDK only when data-sdk
-                for (var i = 0; i < BLOCKED.length; i++) {
-                  if (s.indexOf(BLOCKED[i]) !== -1) return true;
-                }
-                return false;
-              }
-              function scrub() {
+              var BLOCKED_SRC = [
+                'tag.gozen.com','gozen.com','push.min.js','push.js','in-page-push','inpagepush',
+                'popunder','multi-tag','multitag','propeller','notification.js'
+              ];
+              var FAKE_TOAST = [
+                'you have 1 new message','demo account','$50,000','50000 credited',
+                'credited to your demo','new message!'
+              ];
+              function scrubScripts() {
                 try {
                   document.querySelectorAll('script[src]').forEach(function (el) {
-                    var src = el.getAttribute('src') || '';
+                    var src = (el.getAttribute('src') || '').toLowerCase();
                     if (el.hasAttribute('data-sdk') && src.indexOf('nap5k.com') !== -1) return;
-                    if (isBlockedSrc(src) || src.toLowerCase().indexOf('gozen') !== -1) {
-                      try { el.remove(); } catch (e) {}
+                    for (var i = 0; i < BLOCKED_SRC.length; i++) {
+                      if (src.indexOf(BLOCKED_SRC[i]) !== -1) {
+                        try { el.remove(); } catch (e) {}
+                        return;
+                      }
                     }
                   });
+                } catch (e2) {}
+              }
+              function scrubFakeToasts() {
+                try {
+                  var nodes = document.body ? document.body.querySelectorAll('div,aside,section,span') : [];
+                  for (var i = 0; i < nodes.length; i++) {
+                    var el = nodes[i];
+                    if (!(el instanceof HTMLElement)) continue;
+                    var t = (el.textContent || '').toLowerCase();
+                    if (!t || t.length > 400) continue;
+                    var hit = false;
+                    for (var j = 0; j < FAKE_TOAST.length; j++) {
+                      if (t.indexOf(FAKE_TOAST[j]) !== -1) { hit = true; break; }
+                    }
+                    if (!hit) continue;
+                    try { el.remove(); } catch (e3) {}
+                  }
                   document.querySelectorAll('#grip_wall,#InlineBoxMainOuterLayer,#main_back,#main_div').forEach(function (n) {
-                    try { n.remove(); } catch (e2) {}
+                    try { n.remove(); } catch (e4) {}
                   });
-                  try { window.onbeforeunload = null; } catch (e3) {}
-                } catch (e4) {}
+                  try { window.onbeforeunload = null; } catch (e5) {}
+                } catch (e6) {}
+              }
+              function scrub() { scrubScripts(); scrubFakeToasts(); }
+              if (!document.getElementById('aj-kill-fake-toasts')) {
+                var style = document.createElement('style');
+                style.id = 'aj-kill-fake-toasts';
+                style.textContent = [
+                  '[class*="push-notification"],[class*="push_notification"],[class*="in-page-push"],',
+                  '[class*="inpagepush"],[id*="push-notification"],[id*="in-page-push"],',
+                  'iframe[src*="push"],iframe[src*="inpage"],iframe[src*="ipp"],iframe[src*="gozen"]{',
+                  'display:none!important;visibility:hidden!important;pointer-events:none!important;opacity:0!important;}'
+                ].join('');
+                document.head.appendChild(style);
               }
               scrub();
-              setInterval(scrub, 2000);
+              setInterval(scrub, 800);
               document.addEventListener('DOMContentLoaded', scrub);
+              try {
+                new MutationObserver(scrub).observe(document.documentElement, { childList: true, subtree: true });
+              } catch (e7) {}
             })();
           `}
         </Script>

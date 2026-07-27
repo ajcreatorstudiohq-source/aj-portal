@@ -19,7 +19,7 @@ export const OFFERWALL_VIDEO_MAX_DAILY = Number(
     8
 );
 
-/** Estimated admin eCPM USD used when logging impression revenue (no user credit). */
+/** Estimated admin eCPM used when logging impression revenue (no user credit). */
 export const AD_IMPRESSION_ECPM_USD = 2.5;
 export const AD_CLICK_VALUE_USD = 0.05;
 

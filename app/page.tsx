@@ -7923,7 +7923,7 @@ Tip: Social Hub se copy karo 📤`,
                       </div>
                       <div className="bg-white/5 rounded-2xl p-3 text-center">
                         <p className="text-[9px] text-gray-400 font-black uppercase">Cash Out</p>
-                        <p className="text-white font-black text-xs mt-1">{CASH_RATE} 🪙 cash-out unit</p>
+                        <p className="text-white font-black text-xs mt-1">{CASH_RATE} AJ Coins 🪙 per cash-out unit</p>
                       </div>
                     </div>
                   </div>
