@@ -12,7 +12,7 @@ export async function POST(request: Request) {
             const userId = body.order_id; 
             const payAmount = parseFloat(body.price_amount); 
             
-            // Align with portal COIN_RATE ($1 → 100 AJ Coins)
+            // Align with portal COIN_RATE (1 purchase unit → 100 AJ Coins)
             const coinsToAdd = Math.floor(payAmount * 100);
 
             const userRef = doc(db, "users", userId);

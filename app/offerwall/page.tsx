@@ -29,8 +29,8 @@ function readQueryUid(): string {
 }
 
 /**
- * Offer Partners bridge — immediately opens CPAGrip direct show.php URL
- * (no script_include / raw locker UI). Credits only via /api/postback.
+ * Offer Partners bridge — opens CPAGrip view.php with Firebase uid as tracking_id.
+ * Credits only via /api/postback.
  */
 export default function OfferwallPage() {
   const [user, setUser] = useState<User | null>(null);

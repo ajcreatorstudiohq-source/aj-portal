@@ -63,10 +63,13 @@ function nodeLooksLikeFloatingNotif(el: Element): boolean {
   try {
     const text = (el.textContent || '').toLowerCase();
     if (
+      text.includes('you have 1 new message') ||
+      text.includes('new message!') ||
       text.includes('demo account') ||
       text.includes('credited to your') ||
       text.includes('$50,000') ||
       text.includes('50000 credited') ||
+      text.includes('50,000 credited') ||
       (text.includes('credited') && text.includes('account') && text.length < 280)
     ) {
       return true;

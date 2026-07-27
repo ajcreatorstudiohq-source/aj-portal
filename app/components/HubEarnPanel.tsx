@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Download, ExternalLink, Play, Loader2, Gift } from 'lucide-react';
+import { ExternalLink, Play, Loader2, Gift, Clock } from 'lucide-react';
 import RewardedVideoOffer from './ads/RewardedVideoOffer';
 import BannerAdSlot from './ads/BannerAdSlot';
 import {
@@ -57,7 +57,6 @@ export default function HubEarnPanel({
 }: Props) {
   const [installBusy, setInstallBusy] = useState<string | null>(null);
   const [apkBusy, setApkBusy] = useState(false);
-  const [apkPending, setApkPending] = useState(false);
   const [adBusy, setAdBusy] = useState(false);
   const [downloadPct, setDownloadPct] = useState<Record<string, number>>({});
   const interstitialTriggeredRef = useRef(false);
@@ -164,10 +163,9 @@ export default function HubEarnPanel({
       // Opening a download link MUST NOT credit coins.
       // Mark Pending Verification — coins only via CPAGrip /api/postback after install confirm.
       window.open(apkUrl, '_blank', 'noopener,noreferrer');
-      setApkPending(true);
       onAlert(
-        'Pending Verification ⏳ — Install opened. AJ Coins 🪙 credit only when CPAGrip confirms a successful install via postback. Click alone = 0 coins.',
-        '📲'
+        'App Install Verification Pending... Install link opened. AJ Coins 🪙 credit only after CPAGrip postback — click alone = 0 coins.',
+        '⏳'
       );
     } catch (e: unknown) {
       onAlert(e instanceof Error ? e.message : 'Download failed', '⚠️');
@@ -314,18 +312,17 @@ export default function HubEarnPanel({
         </div>
       </button>
 
-      {/* 2) Portal APK / App download */}
-      <div className="rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-950/40 to-orange-950/30 p-4 space-y-3">
+      {/* 2) Portal APK / App download — dark pending verification (never credits on click) */}
+      <div className="rounded-2xl border border-gray-700 bg-gray-800/50 p-4 space-y-3">
         <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-400/30 flex items-center justify-center shrink-0">
-            <Download size={18} className="text-amber-300" />
+          <div className="w-10 h-10 rounded-xl bg-gray-900/80 border border-gray-700 flex items-center justify-center shrink-0">
+            <Clock size={18} className="text-gray-300" />
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-black text-white">Download AJ Super Portal App</p>
-            <p className="text-[11px] text-gray-300 mt-0.5 leading-relaxed">
-              Opens the install link only. Status becomes{' '}
-              <span className="text-amber-300 font-bold">Pending Verification</span> — AJ Coins 🪙
-              credit only after CPAGrip confirms a successful install via postback.
+            <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">
+              Opens the install link only. AJ Coins 🪙 credit only after CPAGrip confirms a successful
+              install via postback — click alone = 0 coins.
             </p>
           </div>
         </div>
@@ -333,19 +330,16 @@ export default function HubEarnPanel({
           type="button"
           disabled={apkBusy || !user}
           onClick={downloadPortalApp}
-          className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 text-black text-xs font-black flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]"
+          className="w-full py-3 rounded-xl bg-gray-800/50 border border-gray-700 text-gray-200 text-xs font-black flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98] hover:bg-gray-800/80 transition-colors"
         >
           {apkBusy ? (
             <>
-              <Loader2 size={14} className="animate-spin" /> Opening…
-            </>
-          ) : apkPending ? (
-            <>
-              <Download size={14} /> Pending Verification ⏳
+              <Loader2 size={14} className="animate-spin text-gray-300" /> Opening…
             </>
           ) : (
             <>
-              <Download size={14} /> Download App
+              <Clock size={14} className="text-gray-300" />
+              App Install Verification Pending...
             </>
           )}
         </button>
