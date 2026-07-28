@@ -15,9 +15,6 @@ export const ADGEM_WALL_BASE =
  * Macros: {amount} → payout, {state} → status, {player_id} → userId
  *
  * https://aj-portal-one.vercel.app/api/postback?payout={amount}&status={state}&userId={player_id}&secret=AJ_SUPER_SECURE_786_PORTAL
- *
- * Tip: add &secret=… so credits stay protected. Without secret, set
- * OFFERWALL_ALLOW_UNSIGNED_POSTBACK=1 on the server.
  */
 export const ADGEM_POSTBACK_URL =
   process.env.NEXT_PUBLIC_ADGEM_POSTBACK_URL ||
@@ -29,8 +26,7 @@ export const CPX_RESEARCH_APP_ID = ADGEM_APP_ID;
 export const CPX_RESEARCH_BASE = ADGEM_WALL_BASE;
 /** @deprecated BitLabs / CPX → AdGem */
 export const BITLABS_SURVEYS_URL = ADGEM_WALL_BASE;
-
-/** Monlix offerwall — high-value app installs (Official CPA) */
+/** @deprecated Monlix removed from Offer Hub */
 export const MONLIX_OFFERS_URL =
   process.env.NEXT_PUBLIC_MONLIX_URL || 'https://offers.monlix.com/';
 
@@ -88,29 +84,12 @@ export function openBitLabsSurveys(uid?: string | null): {
   return openAdGem(uid);
 }
 
+/** @deprecated Monlix removed — use openAdGem */
 export function openMonlixOffers(uid?: string | null): {
   ok: boolean;
   url?: string;
   error?: string;
 } {
-  if (typeof window === 'undefined') return { ok: false, error: 'client_only' };
-  try {
-    let href = MONLIX_OFFERS_URL;
-    try {
-      const url = new URL(MONLIX_OFFERS_URL);
-      if (uid) url.searchParams.set('userid', uid);
-      href = url.toString();
-    } catch {
-      if (uid) {
-        const sep = MONLIX_OFFERS_URL.includes('?') ? '&' : '?';
-        href = `${MONLIX_OFFERS_URL}${sep}userid=${encodeURIComponent(uid)}`;
-      }
-    }
-    const win = window.open(href, '_blank', 'noopener,noreferrer');
-    if (win) return { ok: true, url: href };
-    window.location.assign(href);
-    return { ok: true, url: href };
-  } catch {
-    return { ok: false, error: 'Could not open Monlix (popup blocked).' };
-  }
+  if (!uid) return { ok: false, error: 'Please sign in first' };
+  return openAdGem(uid);
 }

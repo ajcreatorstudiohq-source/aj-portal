@@ -3,16 +3,17 @@
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import {
   ClipboardCheck,
+  Download,
   ExternalLink,
-  Gift,
-  Play,
+  Gamepad2,
   Sparkles,
   X,
 } from 'lucide-react';
 import DailyMathChallenge from './DailyMathChallenge';
 import AlphaCaptchaChallenge from './AlphaCaptchaChallenge';
-import RewardedVideoOffer from './ads/RewardedVideoOffer';
-import { ADGEM_APP_ID, buildAdGemUrl, openMonlixOffers } from '../lib/offer-hub';
+import { ADGEM_APP_ID, buildAdGemUrl } from '../lib/offer-hub';
+import { PREMIUM_DIRECT_GAMES } from '../lib/economy';
+import { handleEarnAndPlayGame } from '../lib/direct-download';
 import { trackAdEvent } from '../lib/ad-client';
 import { guardClick, startIntrusiveAdGuard } from '../lib/ad-guards';
 
@@ -24,10 +25,11 @@ type Props = {
   onRefreshUser?: () => void;
 };
 
-type HubPanel = 'none' | 'faucet' | 'videos' | 'adgem';
+type HubPanel = 'none' | 'faucet' | 'earnplay' | 'adgem';
 
 /**
- * Offer Hub — Earn More (ADGem + Monlix) · Math/Captcha · Watch Ads.
+ * Offer Hub — ADGem + Earn & Play (games cards) · Math/Captcha.
+ * Monlix and Watch Ads removed.
  */
 export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
   const [panel, setPanel] = useState<HubPanel>('none');
@@ -67,33 +69,42 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
     setPanel((cur) => (cur === 'adgem' ? 'none' : cur));
   };
 
-  const openMonlix = (e: MouseEvent) => {
-    guardClick(e);
-    if (!user) return onAlert('Please sign in first', '🔒');
-    trackAdEvent(
-      {
-        event: 'click',
-        placement: 'offerwall_rewarded_video',
-        zoneId: 0,
-        meta: { action: 'open_monlix_hub', provider: 'monlix' },
-      },
-      user
-    ).catch(() => {});
-    const result = openMonlixOffers(user.uid);
-    if (result.ok) {
-      onAlert(
-        'Monlix opened. Complete real app installs for big AJ Coins 🪙 rewards.',
-        '📱'
-      );
-    } else {
-      onAlert(result.error || 'Could not open Monlix.', '⚠️');
-    }
-  };
-
   const togglePanel = (e: MouseEvent, next: HubPanel) => {
     guardClick(e);
     if (!user) return onAlert('Please sign in first', '🔒');
     setPanel((cur) => (cur === next ? 'none' : next));
+  };
+
+  const playGame = (
+    e: { preventDefault?: () => void; stopPropagation?: () => void },
+    game: (typeof PREMIUM_DIRECT_GAMES)[number]
+  ) => {
+    guardClick(e);
+    startIntrusiveAdGuard();
+    if (!user) return onAlert('Please sign in to Earn & Play', '🔒');
+
+    trackAdEvent(
+      {
+        event: 'click',
+        placement: 'games_interstitial',
+        zoneId: 0,
+        meta: {
+          action: 'earn_and_play_game',
+          provider: 'adsterra_bridge',
+          gameId: game.id,
+          gameUrl: game.downloadUrl,
+          coinCredit: 0,
+        },
+      },
+      user
+    ).catch(() => {});
+
+    const result = handleEarnAndPlayGame(game.downloadUrl);
+    if (!result.ok) {
+      onAlert(result.error || 'Could not open game. Try again.', '⚠️');
+      return;
+    }
+    onAlert(`${game.emoji} ${game.name} opening…`, '🎮');
   };
 
   return (
@@ -109,16 +120,13 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
           Offer Hub
         </p>
         <p className="text-[10px] text-zinc-400 font-bold mt-0.5">
-          Want more coins? Complete real app installs in our Offer Hub.
+          ADGem offers · Earn & Play games · AJ Coins 🪙
         </p>
       </div>
 
       <div className="rounded-2xl border border-indigo-500/25 bg-gradient-to-br from-[#0c1224]/80 to-[#050505] p-3 space-y-2">
         <p className="text-[9px] font-black uppercase tracking-[0.18em] text-indigo-300">
-          Earn More · Official CPA
-        </p>
-        <p className="text-[10px] text-zinc-400 leading-relaxed">
-          High-value installs & surveys · big AJ Coins 🪙 after verified completion.
+          Earn More
         </p>
         <div className="grid grid-cols-2 gap-2.5">
           <button
@@ -148,76 +156,97 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
 
           <button
             type="button"
-            onClick={openMonlix}
-            className="relative overflow-hidden rounded-2xl border border-sky-500/35 bg-gradient-to-br from-[#0a1a2a] via-[#081018] to-[#0a0a0a] p-3.5 text-left active:scale-[0.98] min-h-[108px]"
+            onClick={(e) => togglePanel(e, 'earnplay')}
+            className={`relative overflow-hidden rounded-2xl border p-3.5 text-left active:scale-[0.98] min-h-[108px] ${
+              panel === 'earnplay'
+                ? 'border-sky-400/55 bg-gradient-to-br from-[#0a1a2a] to-[#0a0a0a]'
+                : 'border-sky-500/35 bg-gradient-to-br from-[#0a1a2a] via-[#081018] to-[#0a0a0a]'
+            }`}
           >
             <div className="relative flex flex-col h-full gap-2">
               <div className="w-9 h-9 rounded-xl bg-sky-500/20 border border-sky-400/30 flex items-center justify-center">
-                <Gift size={16} className="text-sky-300" />
+                <Gamepad2 size={16} className="text-sky-300" />
               </div>
               <div>
-                <p className="text-[12px] font-black text-white leading-tight">Monlix</p>
+                <p className="text-[12px] font-black text-white leading-tight">Earn & Play</p>
                 <p className="text-[9px] font-black uppercase tracking-wider text-sky-300 mt-1">
-                  App Installs
+                  Games
                 </p>
               </div>
               <span className="mt-auto inline-flex items-center gap-1 text-[8px] font-bold text-zinc-500">
-                Earn AJ Coins 🪙 <ExternalLink size={9} />
+                Download & Play <Download size={9} />
               </span>
             </div>
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2.5">
-        <button
-          type="button"
-          onClick={(e) => togglePanel(e, 'faucet')}
-          className={`relative overflow-hidden rounded-2xl border p-3.5 text-left active:scale-[0.98] min-h-[118px] ${
-            panel === 'faucet'
-              ? 'border-cyan-400/50 bg-gradient-to-br from-[#06252a] to-[#0a0a0a]'
-              : 'border-cyan-500/30 bg-gradient-to-br from-[#0a1f24] via-[#071416] to-[#0a0a0a]'
-          }`}
-        >
-          <div className="relative flex flex-col h-full gap-2">
-            <div className="w-9 h-9 rounded-xl bg-cyan-500/20 border border-cyan-400/30 flex items-center justify-center">
-              <Sparkles size={16} className="text-cyan-300" />
-            </div>
-            <div>
-              <p className="text-[12px] font-black text-white leading-tight">Math & Captcha</p>
-              <p className="text-[9px] font-black uppercase tracking-wider text-cyan-300 mt-1">
-                Daily Faucet
-              </p>
-            </div>
-            <span className="mt-auto text-[8px] font-bold text-zinc-500">
-              +5 / +10 🪙 · 5/day each
-            </span>
+      {panel === 'earnplay' ? (
+        <div className="rounded-2xl border border-sky-500/25 bg-gradient-to-br from-[#061820]/90 to-[#050505] p-3 space-y-3">
+          <p className="text-[9px] font-black uppercase tracking-[0.18em] text-sky-300">
+            Earn & Play · Games
+          </p>
+          <div className="grid grid-cols-3 gap-2.5">
+            {PREMIUM_DIRECT_GAMES.map((game) => {
+              const isNetlify = String(game.downloadUrl).includes('netlify');
+              return (
+                <div
+                  key={game.id}
+                  className="relative overflow-hidden rounded-2xl border border-indigo-500/35 bg-gradient-to-br from-[#0c1224] via-[#0a0e1a] to-[#050505] p-3 flex flex-col min-h-[148px]"
+                >
+                  <div className="absolute inset-0 pointer-events-none opacity-50 bg-[radial-gradient(ellipse_at_30%_0%,rgba(99,102,241,0.22),transparent_55%)]" />
+                  <div className="relative flex flex-col h-full gap-2">
+                    <div className="w-10 h-10 rounded-xl bg-indigo-500/20 border border-sky-400/30 flex items-center justify-center">
+                      <span className="text-xl leading-none">{game.emoji}</span>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-black text-white leading-tight truncate">
+                        {game.name}
+                      </p>
+                      <p className="text-[8px] text-sky-200/70 font-bold mt-1 uppercase tracking-wider">
+                        {isNetlify ? 'Netlify' : 'Direct Play'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => playGame(e, game)}
+                      className="mt-auto w-full py-2.5 rounded-xl text-white text-[8px] font-black uppercase tracking-wide flex items-center justify-center gap-1.5 active:scale-[0.97]"
+                      style={{
+                        background: 'linear-gradient(135deg,#2563eb 0%,#4f46e5 45%,#7c3aed 100%)',
+                      }}
+                    >
+                      <Download size={12} strokeWidth={2.5} />
+                      Play
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        </button>
+        </div>
+      ) : null}
 
-        <button
-          type="button"
-          onClick={(e) => togglePanel(e, 'videos')}
-          className={`relative overflow-hidden rounded-2xl border p-3.5 text-left active:scale-[0.98] min-h-[118px] ${
-            panel === 'videos'
-              ? 'border-rose-400/50 bg-gradient-to-br from-[#2a0a14] to-[#0a0a0a]'
-              : 'border-rose-500/30 bg-gradient-to-br from-[#1f0a12] via-[#14060c] to-[#0a0a0a]'
-          }`}
-        >
-          <div className="relative flex flex-col h-full gap-2">
-            <div className="w-9 h-9 rounded-xl bg-rose-500/20 border border-rose-400/30 flex items-center justify-center">
-              <Play size={16} className="text-rose-300" />
-            </div>
-            <div>
-              <p className="text-[12px] font-black text-white leading-tight">Watch Ads</p>
-              <p className="text-[9px] font-black uppercase tracking-wider text-rose-300 mt-1">
-                30s Verify · +5 🪙
-              </p>
-            </div>
-            <span className="mt-auto text-[8px] font-bold text-zinc-500">+5 AJ Coins 🪙</span>
+      <button
+        type="button"
+        onClick={(e) => togglePanel(e, 'faucet')}
+        className={`w-full relative overflow-hidden rounded-2xl border p-3.5 text-left active:scale-[0.98] min-h-[100px] ${
+          panel === 'faucet'
+            ? 'border-cyan-400/50 bg-gradient-to-br from-[#06252a] to-[#0a0a0a]'
+            : 'border-cyan-500/30 bg-gradient-to-br from-[#0a1f24] via-[#071416] to-[#0a0a0a]'
+        }`}
+      >
+        <div className="relative flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-cyan-500/20 border border-cyan-400/30 flex items-center justify-center shrink-0">
+            <Sparkles size={16} className="text-cyan-300" />
           </div>
-        </button>
-      </div>
+          <div className="min-w-0">
+            <p className="text-[12px] font-black text-white leading-tight">Math & Captcha</p>
+            <p className="text-[9px] font-black uppercase tracking-wider text-cyan-300 mt-1">
+              Daily Faucet · +5 / +10 🪙
+            </p>
+          </div>
+        </div>
+      </button>
 
       {panel === 'faucet' ? (
         <div className="space-y-3 rounded-2xl border border-cyan-500/20 bg-black/40 p-3">
@@ -229,16 +258,6 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
         </div>
       ) : null}
 
-      {panel === 'videos' ? (
-        <div className="rounded-2xl border border-rose-500/20 bg-black/40 p-3 space-y-2">
-          <p className="text-[9px] font-black uppercase tracking-widest text-rose-400">
-            Watch & Earn · Adsterra · 30s timer
-          </p>
-          <RewardedVideoOffer user={user} onAlert={onAlert} onRefreshUser={onRefreshUser} />
-        </div>
-      ) : null}
-
-      {/* ADGem fullscreen offerwall iframe */}
       {adgemOpen && user?.uid && adgemSrc ? (
         <div
           className="fixed inset-0 z-[99999] bg-black"
