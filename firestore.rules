@@ -178,6 +178,47 @@ service cloud.firestore {
       allow write: if false; // server / Admin SDK only
     }
 
+    // Live streaming rooms + chat (TikTok-style)
+    match /live_rooms/{roomId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid;
+      allow update: if signedIn();
+      allow delete: if signedIn()
+        && resource.data.uid == request.auth.uid;
+      match /messages/{messageId} {
+        allow read: if signedIn();
+        allow create: if signedIn()
+          && request.resource.data.uid == request.auth.uid;
+        allow update, delete: if signedIn()
+          && resource.data.uid == request.auth.uid;
+      }
+    }
+
+    // PK battles (challenge by user ID / join by pk room ID)
+    match /pk_sessions/{sessionId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && (request.resource.data.hostUid == request.auth.uid
+            || request.resource.data.hostId == request.auth.uid);
+      allow update: if signedIn();
+      allow delete: if signedIn()
+        && (resource.data.hostUid == request.auth.uid
+            || resource.data.hostId == request.auth.uid);
+      match /gifts/{giftId} {
+        allow read: if signedIn();
+        allow create: if signedIn()
+          && request.resource.data.senderUid == request.auth.uid;
+        allow update, delete: if false;
+      }
+    }
+
+    match /notifications/{notifId} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update, delete: if signedIn();
+    }
+
     // Default deny — merge carefully with your existing rules for wallet, admin, etc.
     match /{document=**} {
       allow read, write: if false;

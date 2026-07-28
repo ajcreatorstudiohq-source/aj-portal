@@ -2151,15 +2151,32 @@ export function AJSuperPortal() {
   // ==========================================================
   const fetchLiveNow = () => {
     try {
-      const q = query(collection(db,"live_rooms"), orderBy("startedAt","desc"), limit(20));
-      return onSnapshot(q, snap => {
-        const now = Date.now();
-        const rooms = snap.docs
-          .map(d => ({ id:d.id, ...d.data() }))
-          .filter((r:any) => r.lastSeenMs && (now - r.lastSeenMs) < 15000);
-        setLiveNowList(rooms);
-      });
-    } catch { return () => {}; }
+      // Prefer unordered query (no composite index) + client filter/sort
+      const q = query(collection(db, 'live_rooms'), limit(40));
+      return onSnapshot(
+        q,
+        (snap) => {
+          const now = Date.now();
+          const rooms = snap.docs
+            .map((d) => ({ id: d.id, ...d.data() } as any))
+            .filter(
+              (r: any) =>
+                r.active !== false &&
+                Number(r.lastSeenMs || 0) > 0 &&
+                now - Number(r.lastSeenMs) < 45000
+            )
+            .sort(
+              (a: any, b: any) =>
+                Number(b.startedAtMs || b.lastSeenMs || 0) -
+                Number(a.startedAtMs || a.lastSeenMs || 0)
+            );
+          setLiveNowList(rooms);
+        },
+        (err) => console.warn('live_rooms list', err)
+      );
+    } catch {
+      return () => {};
+    }
   };
 
   // ==========================================================
@@ -3512,15 +3529,67 @@ export function AJSuperPortal() {
   // ==========================================================
   const joinLiveByRoomId = async (roomId?: string) => {
     const rid = (roomId || joinRoomInput).trim();
-    if (!rid) return setVvipAlert({msg:"Please enter the streamer's Room ID."});
+    if (!rid) return setVvipAlert({msg:"Please enter Live Room ID or PK Match ID."});
     try {
+      // TikTok-style: paste PK match ID to join/accept the battle
+      try {
+        const pkSnap = await getDoc(doc(db, 'pk_sessions', rid));
+        if (pkSnap.exists() && user) {
+          const pk = { id: pkSnap.id, pkRoomId: pkSnap.id, ...pkSnap.data() } as any;
+          const status = String(pk.status || '');
+          const iAmRival = pk.rivalUid === user.uid;
+          const iAmHost = pk.hostUid === user.uid || pk.hostId === user.uid;
+          if (iAmRival && status !== 'ended' && status !== 'declined') {
+            setJoinRoomInput('');
+            await acceptPkChallenge(pk);
+            return;
+          }
+          if (iAmHost && status !== 'ended' && status !== 'declined') {
+            setPkRoomId(pkSnap.id);
+            setPkRivalData({
+              uid: pk.rivalUid,
+              username: pk.rivalName || pk.rivalUid,
+              photo: pk.rivalPhoto || '',
+            });
+            setPkTimer(Number(pk.duration || PK_DURATION));
+            setPkScore({
+              me: Number(pk.scoreHost || 0),
+              rival: Number(pk.scoreGuest || 0),
+            });
+            setPkWinner(null);
+            setPkActive(true);
+            setScreen('social');
+            setSocialScreen('golive');
+            setLiveActive(true);
+            try { joinPkRivalStream(pkSnap.id); } catch {}
+            setJoinRoomInput('');
+            setVvipAlert({ msg: '⚔️ Rejoined PK Match!', icon: '⚔️' });
+            return;
+          }
+          if (status === 'active' || status === 'pending') {
+            const hostUid = pk.hostUid || pk.hostId;
+            if (hostUid) {
+              const hostLive = await getDocs(
+                query(collection(db, 'live_rooms'), where('uid', '==', hostUid), limit(1))
+              );
+              if (!hostLive.empty) {
+                setJoinRoomInput('');
+                return joinLiveByRoomId(hostLive.docs[0].id);
+              }
+            }
+          }
+        }
+      } catch (pkLookupErr) {
+        console.warn('PK id lookup', pkLookupErr);
+      }
+
       let roomSnap:any = await getDoc(doc(db, 'live_rooms', rid));
       if (!roomSnap.exists()) {
         const all2 = await getDocs(query(collection(db,'live_rooms'),limit(50)));
         const m = all2.docs.find(d => d.id.endsWith(rid) || d.id===rid);
         if (m) roomSnap = m;
       }
-      if (!roomSnap.exists()) return setVvipAlert({msg:'Room not found. Use the Copy button for the full ID.'});
+      if (!roomSnap.exists()) return setVvipAlert({msg:'Room not found. Paste full Live Room ID or PK Match ID.'});
       if (!roomSnap.data()?.active) return setVvipAlert({msg:'This stream has ended.'});
       setScreen('social');
       setSocialScreen('joinlive');
@@ -3537,6 +3606,17 @@ export function AJSuperPortal() {
         }
       );
       viewerUnsubRef.current = unsub;
+      // Real-time viewers + room meta for watchers
+      try {
+        if ((viewerUnsubRef as any)._roomMeta) {
+          try { (viewerUnsubRef as any)._roomMeta(); } catch {}
+        }
+        (viewerUnsubRef as any)._roomMeta = onSnapshot(doc(db, 'live_rooms', roomSnap.id), (metaSnap) => {
+          if (!metaSnap.exists()) return;
+          const data = metaSnap.data() as any;
+          setViewerRoom((prev: any) => (prev ? { ...prev, ...data, id: metaSnap.id } : { id: metaSnap.id, ...data }));
+        });
+      } catch {}
       // FIX ROUND 7: Listen to RTDB for host's live video frames —
       // host broadcasts frames to live_frames/{roomId}/current and
       // viewer displays them in real-time on an <img> element.
@@ -3585,6 +3665,12 @@ export function AJSuperPortal() {
     // FIX: Pura leaveViewerRoom try/finally mein — hamesha Social Hub par wapas aao
     try {
       if (viewerUnsubRef.current) { viewerUnsubRef.current(); viewerUnsubRef.current = null; }
+      try {
+        if ((viewerUnsubRef as any)._roomMeta) {
+          (viewerUnsubRef as any)._roomMeta();
+          (viewerUnsubRef as any)._roomMeta = null;
+        }
+      } catch {}
       // FIX ROUND 7: Stop RTDB frame listener
       if (viewerFrameUnsubRef.current) { viewerFrameUnsubRef.current(); viewerFrameUnsubRef.current = null; }
       try {
@@ -3742,16 +3828,39 @@ export function AJSuperPortal() {
     gift: { name: string; cost: number; icon: string; mediaUrl?: string }
   ) => {
     if (!user) return;
-    await sendGift(creatorId, gift);
+    if (balance < gift.cost) {
+      setVvipAlert({
+        msg: `Insufficient Balance! Need ${gift.cost} 🪙 — Go to Wallet to recharge.`,
+        icon: '💰',
+      });
+      return;
+    }
+
+    // Deduct coins from gifter (boosts your PK bar — TikTok-style)
+    try {
+      await runTransaction(db, async (tx) => {
+        const uref = doc(db, 'users', user.uid);
+        const snap = await tx.get(uref);
+        if (!snap.exists()) throw new Error('user_not_found');
+        const bal = Number((snap.data() as { balance?: number }).balance || 0);
+        if (bal < gift.cost) throw new Error('insufficient_balance');
+        tx.update(uref, { balance: increment(-gift.cost) });
+      });
+    } catch (e) {
+      console.error('PK gift deduct', e);
+      setVvipAlert({ msg: 'Gift failed. Please try again.', icon: '⚠️' });
+      return;
+    }
 
     // Real-time sync — Gifter, Host, and Guest all see the same overlay + score
     if (pkRoomId) {
       try {
         const sessionSnap = await getDoc(doc(db, 'pk_sessions', pkRoomId));
         const session = sessionSnap.exists()
-          ? (sessionSnap.data() as { hostUid?: string; hostId?: string })
+          ? (sessionSnap.data() as { hostUid?: string; hostId?: string; rivalUid?: string })
           : {};
         const hostId = session.hostUid || session.hostId || '';
+        const rivalId = session.rivalUid || creatorId || '';
         const iAmHost = hostId === user.uid;
         // Gift boosts the sender's own team (standard PK battle)
         const creditHost = iAmHost;
@@ -3780,8 +3889,29 @@ export function AJSuperPortal() {
           scoreGuest: increment(creditHost ? 0 : gift.cost),
           lastGift: giftEvent,
         });
+        // Optional creator share to the other side / host live
+        const beneficiary = creditHost ? rivalId || hostId : hostId;
+        if (beneficiary && beneficiary !== user.uid) {
+          try {
+            await earnReward(user, 'live_gift', {
+              idempotencyKey: `${user.uid}_${pkRoomId}_${gift.name}_${Date.now()}`,
+              beneficiaryUid: beneficiary,
+              meta: { giftName: gift.name, giftCost: gift.cost, pkRoomId },
+            });
+          } catch {
+            /* score already updated */
+          }
+        }
+        setVvipAlert({
+          msg: `${gift.icon} ${gift.name}! +${gift.cost} to your PK score`,
+          icon: gift.icon,
+        });
       } catch (e) {
         console.warn('PK gift sync write failed', e);
+        setVvipAlert({
+          msg: 'Gift score sync failed. Publish firestore.rules for pk_sessions.',
+          icon: '⚠️',
+        });
       }
     }
   };
@@ -7875,6 +8005,21 @@ Tip: Social Hub se copy karo 📤`,
                 )}
                 {pkActive && (
                   <div className="w-full max-w-sm space-y-3">
+                    {pkRoomId ? (
+                      <div className="bg-white/5 border border-orange-500/20 rounded-2xl p-3">
+                        <p className="text-[9px] text-orange-400 font-black uppercase tracking-widest mb-1">PK Match ID (share to join)</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-white text-[10px] font-mono flex-1 truncate">{pkRoomId}</p>
+                          <button
+                            type="button"
+                            onClick={() => copyToClipboard(pkRoomId)}
+                            className="bg-orange-600/20 border border-orange-500/30 text-orange-300 text-[9px] font-black px-3 py-1.5 rounded-xl active:scale-90 transition-all"
+                          >
+                            {copied ? '✓' : 'Copy'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
                     {/* Dynamic Blue (Host) vs Red (Guest) score bar */}
                     {(() => {
                       const total = Math.max(1, pkScore.me + pkScore.rival);
@@ -8133,10 +8278,10 @@ Tip: Social Hub se copy karo 📤`,
                   </div>
                 )}
                 <div className="w-full">
-                  <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2">Or enter Room ID</p>
-                  <input value={joinRoomInput} onChange={e => setJoinRoomInput(e.target.value)} placeholder="Paste Room ID here" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-cyan-500/50 mb-3"/>
+                  <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2">Join by Live Room ID or PK Match ID</p>
+                  <input value={joinRoomInput} onChange={e => setJoinRoomInput(e.target.value)} placeholder="Paste Live Room ID or PK Match ID" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-cyan-500/50 mb-3"/>
                   <button onClick={() => joinLiveByRoomId()} className="w-full py-3 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all" style={{background:'linear-gradient(135deg,#0891b2,#0e7490)'}}>
-                    Join Stream
+                    Join Stream / PK Match
                   </button>
                 </div>
               </div>
@@ -8152,7 +8297,9 @@ Tip: Social Hub se copy karo 📤`,
                 </button>
                 <img src={viewerRoom.photo||'/logo.png'} className="w-7 h-7 rounded-full border border-red-500 object-cover"/>
                 <span className="text-sm font-black text-white">@{viewerRoom.username}</span>
-                <span className="text-[9px] text-gray-400 font-black flex items-center gap-0.5"><Eye size={10}/> {viewerRoom.liveViewers || 0}</span>
+                <span className="text-[9px] text-cyan-300 font-black flex items-center gap-0.5 bg-cyan-500/10 border border-cyan-400/20 px-2 py-0.5 rounded-full">
+                  <Eye size={10}/> {formatViews(Number(viewerRoom.liveViewers || viewerRoom.viewerCount || 0))} watching
+                </span>
                 <span className="ml-auto text-[9px] text-red-400 font-black animate-pulse">🔴 LIVE</span>
               </div>
               <div className="flex-1 flex flex-col">
@@ -8408,14 +8555,6 @@ Tip: Social Hub se copy karo 📤`,
                     <p className="text-[8px] text-white/35 font-mono truncate">ID: {activeChatUser?.uid || ''}</p>
                   </div>
                 </button>
-                <div className="ml-auto flex gap-2">
-                  <button onClick={() => startZegoCall('audio')} className="p-2 rounded-xl bg-green-500/10 border border-green-500/20 active:scale-90 transition-all">
-                    <Phone size={14} className="text-green-400"/>
-                  </button>
-                  <button onClick={() => startZegoCall('video')} className="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/20 active:scale-90 transition-all">
-                    <VideoIcon size={14} className="text-cyan-400"/>
-                  </button>
-                </div>
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[radial-gradient(ellipse_at_top,_rgba(34,211,238,0.06),_transparent_55%)]">
                 {dmMessages.length === 0 && (
