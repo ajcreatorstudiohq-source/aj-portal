@@ -4811,6 +4811,8 @@ export function AJSuperPortal() {
         likes: 0,
         views: 0,
         isVideo: pulsePostIsVideo,
+        contentType: pulsePostIsVideo ? 'video/mp4' : 'image/jpeg',
+        mime: pulsePostIsVideo ? 'video/mp4' : 'image/jpeg',
         createdAt: serverTimestamp(),
         createdAtMs,
       });
@@ -6331,7 +6333,6 @@ Tip: Social Hub se copy karo 📤`,
                             muted
                             playsInline
                             preload="auto"
-                            crossOrigin="anonymous"
                             onLoadedData={(e) => {
                               if (!isActive) return;
                               const v = e.currentTarget;
@@ -6352,13 +6353,17 @@ Tip: Social Hub se copy karo 📤`,
                                 if (isActive) v.play().catch(() => {});
                                 return;
                               }
-                              // Last resort: show still so the slide is not blank
-                              v.style.display = 'none';
-                              const img = document.createElement('img');
-                              img.src = String(post.thumbnail || post.image || mediaUrl);
-                              img.className = 'absolute inset-0 w-full h-full object-cover';
-                              img.alt = '';
-                              v.parentElement?.insertBefore(img, v);
+                              // Do NOT swap to <img> — that made other users' reels look like photos.
+                              // Keep <video> and let user tap to retry load (Storage 403 = publish rules).
+                              if (!v.dataset.retryTap) {
+                                v.dataset.retryTap = '1';
+                                v.poster = '';
+                                const retry = () => {
+                                  v.load();
+                                  if (isActive) v.play().catch(() => {});
+                                };
+                                v.addEventListener('click', retry, { once: true });
+                              }
                             }}
                             style={{ filter: post.cssFilter && post.cssFilter !== 'none' ? post.cssFilter : undefined, touchAction:'pan-y' }}
                           />
@@ -6822,7 +6827,6 @@ Tip: Social Hub se copy karo 📤`,
                             muted
                             playsInline
                             preload="auto"
-                            crossOrigin="anonymous"
                             onLoadedData={(e) => {
                               if (!isActive) return;
                               const v = e.currentTarget;
@@ -6839,6 +6843,19 @@ Tip: Social Hub se copy karo 📤`,
                                 v.src = altVideoUrl;
                                 v.load();
                                 if (isActive) v.play().catch(() => {});
+                                return;
+                              }
+                              // Keep as video — never fall back to a still for Pulse clips
+                              if (!v.dataset.retryTap) {
+                                v.dataset.retryTap = '1';
+                                v.addEventListener(
+                                  'click',
+                                  () => {
+                                    v.load();
+                                    if (isActive) v.play().catch(() => {});
+                                  },
+                                  { once: true }
+                                );
                               }
                             }}
                             onClick={() => setReelPaused(p => !p)}
@@ -7767,7 +7784,6 @@ Tip: Social Hub se copy karo 📤`,
                                 muted
                                 playsInline
                                 preload="metadata"
-                                crossOrigin="anonymous"
                               />
                             ) : (
                               <img

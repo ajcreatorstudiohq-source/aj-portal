@@ -5,13 +5,15 @@ Project: **`aj-super-portal`**. Repo files: `storage.rules`, `firestore.rules`.
 ## Why other users' videos look like photos / won't open
 
 1. **Storage read locked to owner** on `tikreels/{uid}/**` or `profile_photos/{uid}/**`  
-   Your own uploads play (you just uploaded / cached). Other users' `<video src>` GETs return 403 → blank or the UI falls back to a still.
+   Your own uploads play (you just uploaded / cached). Other users' `<video src>` GETs return 403 → blank / fail.
 2. **Firestore read locked to owner** on `user_posts` / `videos`  
    Feed/profile queries only return your docs, or dual-written `videos` rows for others never load.
 3. **Missing `isVideo` / only JPEG in `image`** on legacy docs  
    Client must still treat Firebase Storage URLs + `isVideo: true` as `<video>` (see `app/lib/tikreel.ts`).
+4. **Do not use `crossOrigin="anonymous"` on TikReel `<video>`**  
+   Firebase Storage often lacks CORS for credentialed/anonymous canvas reads; the browser then fails the media request even when the download URL is valid. Plain `<video src>` does not need CORS.
 
-There is **no** `storage.rules` / CORS doc in the repo historically — configure Console as below.
+Configure Console as below (repo: `storage.rules`, `firestore.rules`).
 
 ## Storage rules (required)
 

@@ -354,12 +354,16 @@ export function getPlayableSrc(post: {
   }
   if (post.isVideo && image && !urlLooksLikeImage(image)) return { src: image, kind: 'video' };
   if (post.isVideo && video && !urlLooksLikeImage(video)) return { src: video, kind: 'video' };
-  // Last resort for flagged videos: still use Firebase URL even if we cannot classify
+  // Last resort for flagged videos: still use Firebase / any URL as <video>
+  // (never render as <img> — that showed "pics" instead of reels for other users)
   if (post.isVideo && candidates.find((u) => isFirebaseStorageUrl(u))) {
     return {
       src: candidates.find((u) => isFirebaseStorageUrl(u)) || '',
       kind: 'video',
     };
+  }
+  if (post.isVideo && (video || image)) {
+    return { src: video || image, kind: 'video' };
   }
   if (image) return { src: image, kind: 'image' };
   if (video) return { src: video, kind: urlLooksLikeVideo(video) ? 'video' : 'image' };
