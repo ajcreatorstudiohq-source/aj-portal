@@ -50,6 +50,7 @@ import AdminUsersPanel from './components/AdminUsersPanel';
 import { isPortalAdminUser } from './lib/admin-auth';
 import { BAN_FORBIDDEN_MESSAGE, DEFAULT_ACCOUNT_BAN_FIELDS, isUserBanned } from './lib/user-ban';
 import { startIntrusiveAdGuard, stripIntrusiveAdNodes } from './lib/ad-guards';
+import { REEL_COMMENTS_COL, sortCommentsAsc } from './lib/reel-comments';
 
 // ============================================================
 // GLOBAL ERROR SHIELD (FIX: "Page couldn't load" error)
@@ -1900,7 +1901,11 @@ export function AJSuperPortal() {
 
   // FIX (Hinglish): Profile video viewer — jab profile grid mein kisi video post par
   // click karte hain toh full-screen video khulta hai (jaise TikTok app mein hota hai).
-  const [profileVideoViewer, setProfileVideoViewer] = useState<{ url: string; text?: string } | null>(null);
+  const [profileVideoViewer, setProfileVideoViewer] = useState<{
+    url: string;
+    text?: string;
+    post?: any;
+  } | null>(null);
 
   // ── TIKREELS WINDOWING
   const [activeVideoIdx, setActiveVideoIdx] = useState(0);
@@ -2258,30 +2263,33 @@ export function AJSuperPortal() {
     }
     if (commentPostId && !commentPostId.startsWith('gift_')) {
       try {
-        const col = commentCollection || (
-          pixaVideos.some((v:any) => v.id === commentPostId)
-            ? 'yt_posts'
-            : pulsePosts.find((p:any) => p.id === commentPostId)
-              ? 'pulse_posts'
-              : 'user_posts'
+        // Top-level reel_comments — permanent, visible to every signed-in user
+        const q = query(
+          collection(db, REEL_COMMENTS_COL),
+          where('postId', '==', commentPostId),
+          limit(200)
         );
-        const q = query(collection(db, col, commentPostId, "comments"), orderBy("createdAt","asc"));
         const unsub = onSnapshot(
           q,
-          (snap) => setPostComments(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+          (snap) => {
+            const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+            setPostComments(sortCommentsAsc(rows as any[]));
+          },
           (err) => {
-            console.warn('comments listen', err);
-            // Fallback without orderBy
-            try {
-              const q2 = query(collection(db, col, commentPostId, 'comments'), limit(80));
-              onSnapshot(q2, (snap) =>
-                setPostComments(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
-              );
-            } catch {}
+            console.warn('reel_comments listen', err);
+            // One-shot fallback
+            getDocs(q)
+              .then((snap) => {
+                const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+                setPostComments(sortCommentsAsc(rows as any[]));
+              })
+              .catch(() => {});
           }
         );
         return unsub;
-      } catch(e) { console.error("Comment sub error", e); }
+      } catch (e) {
+        console.error('Comment sub error', e);
+      }
     }
     return () => {};
   }, [socialScreen, activeContact, commentPostId, commentCollection]);
@@ -4915,10 +4923,8 @@ export function AJSuperPortal() {
     } catch(e) { console.error('handleCreatePost', e); setVvipAlert({msg:'Post failed. Upload must succeed before coins.'}); }
   };
 
-  // FIX (Hinglish): `commentPostId` mein ab YouTube video IDs (from pixaVideos)
-  // bhi aa sakte hain. Unke liye hum `yt_comments` collection use karte hain
-  // (alag collection) taaki regular user_posts se conflict na ho.
-  // Aur `pixaVideoComments` local state se comments turant dikh bhi jaate hain.
+  // Permanent TikTok-style comments → top-level `reel_comments` (all users see them).
+  // Server API fallback if client Firestore rules block the write.
   const submitComment = async () => {
     if (!newComment.trim() || !commentPostId) return;
     if (!user) {
@@ -4926,70 +4932,113 @@ export function AJSuperPortal() {
       return;
     }
     const text = newComment.trim();
-    try {
-      const commentData = {
-        text,
-        uid: user.uid,
-        username: username || 'AJ_Member',
-        photo: user?.photoURL || tempPhoto || '',
-        createdAt: serverTimestamp(),
-        createdAtMs: Date.now(),
-      };
-      const col =
-        commentCollection ||
-        (pixaVideos.some((v: any) => v.id === commentPostId)
-          ? 'yt_posts'
-          : pulsePosts.find((p: any) => p.id === commentPostId)
-            ? 'pulse_posts'
-            : 'user_posts');
+    if (text.length > 1000) {
+      setVvipAlert({ msg: 'Comment is too long.', icon: '⚠️' });
+      return;
+    }
+    const postType =
+      commentCollection ||
+      (pixaVideos.some((v: any) => v.id === commentPostId)
+        ? 'yt_posts'
+        : pulsePosts.find((p: any) => p.id === commentPostId)
+          ? 'pulse_posts'
+          : 'user_posts');
+    const createdAtMs = Date.now();
+    const commentData = {
+      postId: commentPostId,
+      postType,
+      text,
+      uid: user.uid,
+      username: username || 'AJ_Member',
+      photo: tempPhoto || user.photoURL || '',
+      createdAt: serverTimestamp(),
+      createdAtMs,
+    };
 
-      if (col === 'yt_posts') {
+    let savedId = '';
+    try {
+      const ref = await addDoc(collection(db, REEL_COMMENTS_COL), commentData);
+      savedId = ref.id;
+    } catch (clientErr) {
+      console.warn('reel_comments client write failed, trying API', clientErr);
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch('/api/comments', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            postId: commentPostId,
+            postType,
+            text,
+            username: username || 'AJ_Member',
+            photo: tempPhoto || user.photoURL || '',
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data?.ok) {
+          throw new Error(data?.error || 'api_comment_failed');
+        }
+        savedId = String(data.id || `api_${createdAtMs}`);
+      } catch (apiErr) {
+        console.error('submitComment', apiErr);
+        setVvipAlert({
+          msg: 'Comment failed to save. Publish firestore.rules (reel_comments) or set FIREBASE_SERVICE_ACCOUNT_JSON.',
+          icon: '⚠️',
+        });
+        return;
+      }
+    }
+
+    // Best-effort dual-write + commentCount (legacy subcollections / badge)
+    try {
+      if (postType === 'yt_posts') {
         await setDoc(
           doc(db, 'yt_posts', commentPostId),
           { id: commentPostId, type: 'youtube', createdAt: serverTimestamp() },
           { merge: true }
         );
-        await addDoc(collection(db, 'yt_posts', commentPostId, 'comments'), commentData);
-      } else {
-        // Ensure parent exists for dual-written TikReels (videos → user_posts)
-        const parentRef = doc(db, col, commentPostId);
-        const parentSnap = await getDoc(parentRef);
-        if (!parentSnap.exists() && col === 'user_posts') {
-          // Fallback: try videos collection comments if user_posts missing
-          await addDoc(collection(db, 'videos', commentPostId, 'comments'), commentData);
-          try {
-            await updateDoc(doc(db, 'videos', commentPostId), {
-              commentCount: increment(1),
-            });
-          } catch {}
-        } else {
-          await addDoc(collection(db, col, commentPostId, 'comments'), commentData);
-          try {
-            await updateDoc(parentRef, { commentCount: increment(1) });
-          } catch {}
-        }
       }
-
-      // Optimistic UI — listener will replace with server docs
-      setPostComments((prev) => [
-        ...prev,
-        { id: `local_${Date.now()}`, ...commentData, createdAt: null },
-      ]);
-      setNewComment('');
-      // Bump local commentCount on feeds
-      const bump = (list: any[]) =>
-        list.map((p) =>
-          String(p.id) === commentPostId || String(p.postId) === commentPostId
-            ? { ...p, commentCount: Number(p.commentCount || 0) + 1 }
-            : p
-        );
-      setUserPosts((prev) => bump(prev));
-      setPulsePosts((prev) => bump(prev));
-      requestAnimationFrame(() => commentInputRef.current?.focus());
-    } catch (e) {
-      console.error('submitComment', e);
-      setVvipAlert({ msg: 'Failed to post comment. Try again.', icon: '⚠️' });
+      await addDoc(collection(db, postType, commentPostId, 'comments'), {
+        text,
+        uid: user.uid,
+        username: username || 'AJ_Member',
+        photo: tempPhoto || user.photoURL || '',
+        createdAt: serverTimestamp(),
+        createdAtMs,
+      });
+    } catch {
+      /* nested path optional */
     }
+    try {
+      if (postType === 'user_posts' || postType === 'pulse_posts' || postType === 'videos') {
+        await updateDoc(doc(db, postType, commentPostId), {
+          commentCount: increment(1),
+        });
+      }
+    } catch {
+      /* parent count optional */
+    }
+
+    setPostComments((prev) => {
+      if (prev.some((c: any) => c.id === savedId)) return prev;
+      return sortCommentsAsc([
+        ...prev,
+        { id: savedId || `local_${createdAtMs}`, ...commentData, createdAt: null },
+      ]);
+    });
+    setNewComment('');
+    const bump = (list: any[]) =>
+      list.map((p) =>
+        String(p.id) === commentPostId || String(p.postId) === commentPostId
+          ? { ...p, commentCount: Number(p.commentCount || 0) + 1 }
+          : p
+      );
+    setUserPosts((prev) => bump(prev));
+    setPulsePosts((prev) => bump(prev));
+    requestAnimationFrame(() => commentInputRef.current?.focus());
   };
 
   const handleDeleteNotification = async (id:string) => {
@@ -5899,14 +5948,12 @@ Tip: Social Hub se copy karo 📤`,
           hota hai, aur close button se wapas aa jaate hain. */}
       {profileVideoViewer && (
         <div className="fixed inset-0 z-[9998] bg-black flex flex-col">
-          {/* Close button */}
           <button
             onClick={() => setProfileVideoViewer(null)}
             className="absolute top-4 right-4 z-50 w-10 h-10 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center active:scale-90 transition-all"
           >
             <X size={20} className="text-white"/>
           </button>
-          {/* Video player — fills the screen, plays with sound */}
           <div className="flex-1 flex items-center justify-center relative">
             <video
               src={toPlayableMediaUrl(profileVideoViewer.url)}
@@ -5917,15 +5964,30 @@ Tip: Social Hub se copy karo 📤`,
               loop
             />
           </div>
-          {/* Caption if available */}
-          {profileVideoViewer.text && (
-            <div className="absolute bottom-8 left-4 right-16 z-20">
+          <div className="absolute bottom-8 left-4 right-4 z-20 flex items-end justify-between gap-3">
+            <div className="min-w-0 flex-1">
               <p className="text-white font-black text-sm">
                 @{viewProfile?.username || username || 'AJ_Member'}
               </p>
-              <p className="text-gray-300 text-xs mt-1">{profileVideoViewer.text}</p>
+              {profileVideoViewer.text ? (
+                <p className="text-gray-300 text-xs mt-1">{profileVideoViewer.text}</p>
+              ) : null}
             </div>
-          )}
+            {profileVideoViewer.post ? (
+              <button
+                type="button"
+                onClick={(e) => openComments(profileVideoViewer.post, e)}
+                className="flex-shrink-0 flex flex-col items-center gap-1 active:scale-90"
+              >
+                <div className="w-11 h-11 rounded-full bg-white/15 border border-white/20 backdrop-blur-sm flex items-center justify-center">
+                  <MessageSquare size={20} className="text-white" />
+                </div>
+                <span className="text-white text-[9px] font-black">
+                  {formatViews(profileVideoViewer.post.commentCount || 0)}
+                </span>
+              </button>
+            ) : null}
+          </div>
         </div>
       )}
 
@@ -6857,6 +6919,7 @@ Tip: Social Hub se copy karo 📤`,
                             setProfileVideoViewer({
                               url,
                               text: post.text || post.textOverlay || post.caption || '',
+                              post,
                             });
                           }}
                           onKeyDown={(e) => {
@@ -6866,6 +6929,7 @@ Tip: Social Hub se copy karo 📤`,
                                 setProfileVideoViewer({
                                   url: playUrl || thumb,
                                   text: post.text || post.textOverlay || post.caption || '',
+                                  post,
                                 });
                               }
                             }
@@ -7203,7 +7267,7 @@ Tip: Social Hub se copy karo 📤`,
                         className="relative aspect-square bg-white/5 overflow-hidden cursor-pointer active:scale-95 transition-all"
                         onClick={() => {
                           if (url && (media.kind === 'video' || post.isVideo)) {
-                            setProfileVideoViewer({ url, text: post.text || post.textOverlay });
+                            setProfileVideoViewer({ url, text: post.text || post.textOverlay, post });
                           }
                         }}
                       >
@@ -7905,6 +7969,7 @@ Tip: Social Hub se copy karo 📤`,
                             setProfileVideoViewer({
                               url: String(url),
                               text: post.text || post.textOverlay || post.caption || '',
+                              post,
                             });
                           }
                         }}
@@ -7967,6 +8032,7 @@ Tip: Social Hub se copy karo 📤`,
                           setProfileVideoViewer({
                             url,
                             text: vid.text || vid.textOverlay || vid.caption || '',
+                            post: vid,
                           });
                         }}
                         onKeyDown={(e) => {
@@ -7976,6 +8042,7 @@ Tip: Social Hub se copy karo 📤`,
                               setProfileVideoViewer({
                                 url: playUrl || thumb,
                                 text: vid.text || vid.textOverlay || vid.caption || '',
+                                post: vid,
                               });
                             }
                           }
