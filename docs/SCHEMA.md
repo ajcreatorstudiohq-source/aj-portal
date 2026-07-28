@@ -25,6 +25,16 @@ Engine: `computeRewardSplit(seed)` → `applySplitReward` / `POST /api/rewards/e
 | `offerwallDayKey` / `offerwallDayCount` | string/number | Offerwall daily cap |
 | `botTier` / `invested` / `lastSync` | bot fields | AI Trading Bot |
 | `lastRewardAt` / `lastRewardSource` | audit | Last split credit |
+| `chat_partners/{otherUid}` | subcollection | DM inbox row (`chatId`, `lastMessage`, friend id) |
+
+## Direct messages (TikTok-style)
+
+| Path | Purpose |
+|---|---|
+| `chats/{uidA_uidB}` | Shared thread (`participants`, `lastMessage`) |
+| `chats/{chatId}/messages/{id}` | Real-time messages both users see |
+
+See `docs/TIKTOK_DM.md`.
 
 ## Ledgers
 
