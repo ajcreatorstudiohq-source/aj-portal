@@ -144,7 +144,8 @@ service cloud.firestore {
 
     // TikTok-style permanent comments (top-level — all signed-in users read/write)
     match /reel_comments/{commentId} {
-      allow read: if signedIn();
+      // Public read so every viewer sees the same thread (TikTok-style)
+      allow read: if true;
       // Keep create rules minimal so writes are not rejected after local optimistic commit
       allow create: if signedIn()
         && request.resource.data.uid == request.auth.uid

@@ -57,6 +57,7 @@ import {
   buildDmChatId,
   normalizePartnerProfile,
 } from './lib/dm-chat';
+import { REEL_COMMENTS_COL, sortCommentsAsc, mergeCommentLists, resolveCommentPostIds, dedupeComments } from './lib/reel-comments';
 
 // ============================================================
 // GLOBAL ERROR SHIELD (FIX: "Page couldn't load" error)
@@ -1751,12 +1752,15 @@ export function AJSuperPortal() {
   const [showNotifs,    setShowNotifs]    = useState(false);
   const [isMutualFriend,setIsMutualFriend]= useState(false);
   const [commentPostId, setCommentPostId] = useState<string|null>(null);
+  const [commentAliasIds, setCommentAliasIds] = useState<string[]>([]);
   const [commentCollection, setCommentCollection] = useState<string>('user_posts');
+  const [commentsLoading, setCommentsLoading] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0); // FIX: track keyboard height for comment input padding
   const [postComments,  setPostComments]  = useState<any[]>([]);
   // Pending local comments — survive snapshot wipes when server rejects optimistic writes
   const pendingCommentsRef = useRef<Record<string, any>>({});
   const commentListenPostIdRef = useRef<string | null>(null);
+  const commentAliasIdsRef = useRef<string[]>([]);
   const [newComment,    setNewComment]    = useState('');
   // FIX ROUND 3: Comment input ke liye dedicated ref — keyboard focus ke liye
   const commentInputRef = useRef<HTMLInputElement>(null);
@@ -2274,79 +2278,202 @@ export function AJSuperPortal() {
       }
       return () => unsubs.forEach((u) => u());
     }
-    if (commentPostId && !commentPostId.startsWith('gift_')) {
-      commentListenPostIdRef.current = commentPostId;
-      const listeningPostId = commentPostId;
-      try {
-        // Merge server snapshot with pending locals — never wipe a just-posted comment
-        const q = query(
-          collection(db, REEL_COMMENTS_COL),
-          where('postId', '==', listeningPostId),
-          limit(200)
-        );
-
-        const applyServerRows = (rows: any[]) => {
-          if (commentListenPostIdRef.current !== listeningPostId) return;
-          const pending = Object.values(pendingCommentsRef.current);
-          for (const p of pending) {
-            if (String(p.postId) !== listeningPostId) continue;
-            const matched = rows.some(
-              (s) =>
-                String(s.id) === String(p.id) ||
-                (String(s.uid) === String(p.uid) &&
-                  String(s.text) === String(p.text) &&
-                  Math.abs(Number(s.createdAtMs || 0) - Number(p.createdAtMs || 0)) < 20000)
-            );
-            if (matched) delete pendingCommentsRef.current[p.id];
-          }
-          setPostComments(
-            mergeCommentLists(
-              rows,
-              Object.values(pendingCommentsRef.current),
-              listeningPostId
-            ) as any[]
-          );
-        };
-
-        const unsub = onSnapshot(
-          q,
-          (snap) => {
-            applyServerRows(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-          },
-          (err) => {
-            console.warn('reel_comments listen', err);
-            getDocs(q)
-              .then((snap) => {
-                applyServerRows(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-              })
-              .catch(() => {});
-            if (user) {
-              user
-                .getIdToken()
-                .then((token: string) =>
-                  fetch(`/api/comments?postId=${encodeURIComponent(listeningPostId)}`, {
-                    headers: { Authorization: `Bearer ${token}` },
-                  })
-                )
-                .then((r: Response) => r.json())
-                .then((data: { ok?: boolean; comments?: any[] }) => {
-                  if (data?.ok && Array.isArray(data.comments)) {
-                    applyServerRows(data.comments);
-                  }
-                })
-                .catch(() => {});
-            }
-          }
-        );
-        return () => {
-          unsub();
-        };
-      } catch (e) {
-        console.error('Comment sub error', e);
-      }
-    }
     return () => {};
-  }, [commentPostId, user]);
+  }, [socialScreen, activeContact, user]);
+
+  /** Fetch comments from reel_comments + nested paths + API for all aliases. */
+  const loadAllCommentsForAliases = async (
+    aliases: string[],
+    canonicalId: string
+  ): Promise<any[]> => {
+    const collected: any[] = [];
+    const pushRows = (rows: any[]) => {
+      for (const r of rows) {
+        if (!r?.id) continue;
+        collected.push(r);
+      }
+    };
+
+    await Promise.all(
+      aliases.map(async (pid) => {
+        try {
+          const snap = await getDocs(
+            query(
+              collection(db, REEL_COMMENTS_COL),
+              where('postId', '==', pid),
+              limit(200)
+            )
+          );
+          pushRows(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        } catch (e) {
+          console.warn('load reel_comments', pid, e);
+        }
+        // Also match docs that stored this id in postIds[]
+        try {
+          const snap2 = await getDocs(
+            query(
+              collection(db, REEL_COMMENTS_COL),
+              where('postIds', 'array-contains', pid),
+              limit(200)
+            )
+          );
+          pushRows(snap2.docs.map((d) => ({ id: d.id, ...d.data() })));
+        } catch {
+          /* index / field may be missing */
+        }
+      })
+    );
+
+    const nestedCols = ['user_posts', 'videos', 'pulse_posts', 'yt_posts'];
+    await Promise.all(
+      aliases.flatMap((pid) =>
+        nestedCols.map(async (col) => {
+          try {
+            const snap = await getDocs(
+              query(collection(db, col, pid, 'comments'), limit(100))
+            );
+            pushRows(
+              snap.docs.map((d) => {
+                const data = d.data() as Record<string, unknown>;
+                const ca = data.createdAt as { toMillis?: () => number } | undefined;
+                return {
+                  id: `${col}_${pid}_${d.id}`,
+                  postId: canonicalId,
+                  text: data.text,
+                  uid: data.uid,
+                  username: data.username || 'AJ_Member',
+                  photo: data.photo || '',
+                  createdAtMs:
+                    Number(data.createdAtMs || 0) ||
+                    (ca && typeof ca.toMillis === 'function' ? ca.toMillis() : 0),
+                  _nested: true,
+                };
+              })
+            );
+          } catch {
+            /* nested path may not exist */
+          }
+        })
+      )
+    );
+
+    try {
+      const headers: Record<string, string> = {};
+      if (user) {
+        try {
+          headers.Authorization = `Bearer ${await user.getIdToken()}`;
+        } catch {
+          /* guest fetch */
+        }
+      }
+      await Promise.all(
+        aliases.map(async (pid) => {
+          try {
+            const res = await fetch(
+              `/api/comments?postId=${encodeURIComponent(pid)}`,
+              { headers }
+            );
+            const data = await res.json().catch(() => ({}));
+            if (data?.ok && Array.isArray(data.comments)) {
+              pushRows(data.comments);
+            }
+          } catch {
+            /* ignore */
+          }
+        })
+      );
+    } catch {
+      /* ignore */
+    }
+
+    return dedupeComments(collected);
+  };
+
+  // Dedicated comment listener — MUST be separate from tikreels/pulse feed effect
+  // (those branches return early and previously blocked comments on the feed).
+  useEffect(() => {
+    if (!commentPostId || commentPostId.startsWith('gift_')) return;
+
+    commentListenPostIdRef.current = commentPostId;
+    const listeningPostId = commentPostId;
+    const aliases =
+      commentAliasIds.length > 0
+        ? Array.from(new Set([commentPostId, ...commentAliasIds]))
+        : [commentPostId];
+    commentAliasIdsRef.current = aliases;
+    setCommentsLoading(true);
+
+    const applyServerRows = (rows: any[], { replace }: { replace?: boolean } = {}) => {
+      if (commentListenPostIdRef.current !== listeningPostId) return;
+      const pending = Object.values(pendingCommentsRef.current);
+      for (const p of pending) {
+        const matched = rows.some(
+          (s: any) =>
+            String(s.id) === String(p.id) ||
+            (String(s.uid) === String(p.uid) &&
+              String(s.text) === String(p.text) &&
+              Math.abs(Number(s.createdAtMs || 0) - Number(p.createdAtMs || 0)) < 20000)
+        );
+        if (matched) delete pendingCommentsRef.current[p.id];
+      }
+      setPostComments((prev) => {
+        const base = replace
+          ? rows
+          : dedupeComments([
+              ...prev.filter((c: any) => c._nested || c.pending),
+              ...rows,
+            ]);
+        return mergeCommentLists(
+          base as any[],
+          Object.values(pendingCommentsRef.current),
+          aliases
+        ) as any[];
+      });
+      setCommentsLoading(false);
+    };
+
+    let unsub: (() => void) | undefined;
+    try {
+      const q =
+        aliases.length === 1
+          ? query(
+              collection(db, REEL_COMMENTS_COL),
+              where('postId', '==', aliases[0]),
+              limit(200)
+            )
+          : query(
+              collection(db, REEL_COMMENTS_COL),
+              where('postId', 'in', aliases.slice(0, 10)),
+              limit(200)
+            );
+
+      unsub = onSnapshot(
+        q,
+        (snap) => {
+          applyServerRows(
+            snap.docs.map((d) => ({ id: d.id, ...d.data() })),
+            { replace: false }
+          );
+        },
+        (err) => {
+          console.warn('reel_comments listen', err);
+          void loadAllCommentsForAliases(aliases, listeningPostId).then((rows) => {
+            applyServerRows(rows, { replace: true });
+          });
+        }
+      );
+    } catch (e) {
+      console.error('Comment sub error', e);
+    }
+
+    void loadAllCommentsForAliases(aliases, listeningPostId).then((rows) => {
+      applyServerRows(rows, { replace: true });
+    });
+
+    return () => {
+      unsub?.();
+    };
+  }, [commentPostId, commentAliasIds, user]);
 
   // FIX ROUND 6: Comment keyboard open nahi ho raha tha — ab PROPER fix.
   // Mobile pe input focus karne ke liye multiple strategies use karte hain:
@@ -4013,6 +4140,11 @@ export function AJSuperPortal() {
     }
     if (!id) return;
 
+    const aliases = resolveCommentPostIds(
+      post || { id, postId: id, videoId: post?.videoId }
+    );
+    if (!aliases.includes(id)) aliases.unshift(id);
+
     // Keep focus chain alive for iOS/Android keyboard
     let tmp: HTMLInputElement | null = null;
     try {
@@ -4027,10 +4159,17 @@ export function AJSuperPortal() {
     } catch {}
 
     setCommentCollection(col);
+    setCommentAliasIds(aliases);
+    setCommentsLoading(true);
     // Switching posts: clear list for the new post only (keep pending for same post)
     if (commentListenPostIdRef.current !== id) {
       setPostComments(
-        Object.values(pendingCommentsRef.current).filter((c) => String(c.postId) === id)
+        Object.values(pendingCommentsRef.current).filter(
+          (c) =>
+            String(c.postId) === id ||
+            aliases.includes(String(c.postId)) ||
+            (Array.isArray(c.postIds) && c.postIds.some((a: string) => aliases.includes(String(a))))
+        )
       );
     }
     setCommentPostId(id);
@@ -5203,11 +5342,16 @@ export function AJSuperPortal() {
         : pulsePosts.find((p: any) => p.id === commentPostId)
           ? 'pulse_posts'
           : 'user_posts');
+    const aliases =
+      commentAliasIds.length > 0
+        ? Array.from(new Set([commentPostId, ...commentAliasIds]))
+        : [commentPostId];
     const createdAtMs = Date.now();
     const localId = `pending_${createdAtMs}_${user.uid}`;
     const localComment = {
       id: localId,
       postId: commentPostId,
+      postIds: aliases,
       postType,
       text,
       uid: user.uid,
@@ -5220,7 +5364,7 @@ export function AJSuperPortal() {
     // 1) Show immediately + keep in pending map (survives snapshot wipes)
     pendingCommentsRef.current[localId] = localComment;
     setPostComments((prev) =>
-      mergeCommentLists(prev as any[], Object.values(pendingCommentsRef.current), commentPostId) as any[]
+      mergeCommentLists(prev as any[], Object.values(pendingCommentsRef.current), aliases) as any[]
     );
     // 2) Clear ONLY the input — never reset the list
     setNewComment('');
@@ -5229,6 +5373,7 @@ export function AJSuperPortal() {
     let savedId = '';
     const payload = {
       postId: commentPostId,
+      postIds: aliases,
       postType,
       text,
       username: username || 'AJ_Member',
@@ -5300,7 +5445,7 @@ export function AJSuperPortal() {
       return mergeCommentLists(
         withoutLocal as any[],
         Object.values(pendingCommentsRef.current),
-        commentPostId
+        aliases
       ) as any[];
     });
     // After a short delay, pending entry can drop once listener has the server doc
@@ -5308,19 +5453,30 @@ export function AJSuperPortal() {
       delete pendingCommentsRef.current[savedId];
     }, 8000);
 
-    // Best-effort commentCount bump
+    // Best-effort commentCount bump on all alias parent docs
     try {
       if (postType === 'user_posts' || postType === 'pulse_posts' || postType === 'videos') {
-        await updateDoc(doc(db, postType, commentPostId), {
-          commentCount: increment(1),
-        });
+        await Promise.all(
+          aliases.map(async (pid) => {
+            try {
+              await updateDoc(doc(db, postType, pid), {
+                commentCount: increment(1),
+              });
+            } catch {
+              /* parent may not exist under this id */
+            }
+          })
+        );
       }
     } catch {
       /* optional */
     }
     const bump = (list: any[]) =>
       list.map((p) =>
-        String(p.id) === commentPostId || String(p.postId) === commentPostId
+        aliases.includes(String(p.id)) ||
+        aliases.includes(String(p.postId || '')) ||
+        String(p.id) === commentPostId ||
+        String(p.postId) === commentPostId
           ? { ...p, commentCount: Number(p.commentCount || 0) + 1 }
           : p
       );
@@ -8620,10 +8776,16 @@ Tip: Social Hub se copy karo 📤`,
           {commentPostId && (
             <div
               className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end"
-              onClick={() => { setCommentPostId(null); setPostComments([]); setKeyboardHeight(0); setCommentCollection('user_posts'); }}
+              onClick={() => {
+                setCommentPostId(null);
+                setCommentAliasIds([]);
+                setCommentsLoading(false);
+                setKeyboardHeight(0);
+                setCommentCollection('user_posts');
+              }}
             >
               <div
-                className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl p-4 max-h-[75vh] flex flex-col"
+                className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl p-4 min-h-[55vh] max-h-[85vh] flex flex-col"
                 style={{
                   position: 'fixed',
                   bottom: 0,
@@ -8635,27 +8797,45 @@ Tip: Social Hub se copy karo 📤`,
                 }}
                 onClick={e => e.stopPropagation()}
               >
-                <div className="flex items-center justify-between mb-3 px-2">
-                  <p className="text-sm font-black text-white">💬 Comments</p>
-                  <button onClick={() => { setCommentPostId(null); setPostComments([]); setKeyboardHeight(0); setCommentCollection('user_posts'); }}>
+                <div className="flex items-center justify-between mb-3 px-2 shrink-0">
+                  <p className="text-sm font-black text-white">
+                    Comments
+                    {postComments.length > 0 ? (
+                      <span className="ml-1 font-bold text-white/40">({postComments.length})</span>
+                    ) : null}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCommentPostId(null);
+                      setCommentAliasIds([]);
+                      setCommentsLoading(false);
+                      setKeyboardHeight(0);
+                      setCommentCollection('user_posts');
+                    }}
+                  >
                     <X size={18} className="text-gray-400"/>
                   </button>
                 </div>
-                <div className="flex-1 overflow-y-auto space-y-3 mb-3 px-2">
-                  {postComments.length === 0 && (
-                    <p className="text-gray-500 text-xs text-center mt-4">No comments yet. Be the first!</p>
+                {/* Scroll list above keyboard — always tall enough to show prior comments */}
+                <div className="min-h-[220px] flex-1 overflow-y-auto overscroll-contain space-y-3 mb-3 px-2">
+                  {commentsLoading && postComments.length === 0 && (
+                    <p className="text-gray-500 text-xs text-center py-8">Loading comments…</p>
+                  )}
+                  {!commentsLoading && postComments.length === 0 && (
+                    <p className="text-gray-500 text-xs text-center py-8">No comments yet. Be the first!</p>
                   )}
                   {postComments.map((c:any) => (
                     <div key={c.id} className="flex items-start gap-2">
-                      <img src={c.photo||'/logo.png'} className="w-7 h-7 rounded-full border border-white/20 object-cover flex-shrink-0"/>
-                      <div className="bg-white/5 rounded-2xl px-3 py-2 flex-1">
+                      <img src={c.photo||'/logo.png'} className="w-7 h-7 rounded-full border border-white/20 object-cover flex-shrink-0" alt=""/>
+                      <div className="bg-white/5 rounded-2xl px-3 py-2 flex-1 min-w-0">
                         <p className="text-[9px] text-pink-400 font-black">@{c.username}</p>
-                        <p className="text-white text-xs mt-0.5">{c.text}</p>
+                        <p className="text-white text-xs mt-0.5 whitespace-pre-wrap break-words">{c.text}</p>
                       </div>
                     </div>
                   ))}
                 </div>
-                <div className="flex gap-2 px-1" style={{ position: 'sticky', bottom: 0, zIndex: 9002, background: '#0a0a1a', paddingTop: 8 }}>
+                <div className="flex gap-2 px-1 shrink-0" style={{ position: 'sticky', bottom: 0, zIndex: 9002, background: '#0a0a1a', paddingTop: 8 }}>
                   <input
                     ref={commentInputRef}
                     value={newComment}
