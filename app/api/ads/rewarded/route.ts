@@ -68,7 +68,6 @@ export async function POST(request: Request) {
       }
 
       const sessionId = String(body.sessionId || '').trim();
-      const VERIFY_MS = 30 * 1000;
       if (!sessionId) {
         return NextResponse.json(
           {
@@ -108,21 +107,27 @@ export async function POST(request: Request) {
       }
       if (Date.now() > Number(session.expiresAt || 0)) {
         return NextResponse.json(
-          { ok: false, error: 'session_expired', message: 'Ad session expired. Start Watch Ads again.' },
+          {
+            ok: false,
+            error: 'session_expired',
+            message: 'Ad session expired. Start Watch Ads again.',
+          },
           { status: 400 }
         );
       }
 
+      // Source of truth: wall-clock since prepare (client away time is metadata only)
       const needMs =
         (Number(session.verifySeconds) > 0 ? Number(session.verifySeconds) : 30) * 1000;
       const startedMs = Number(session.createdAtMs || 0);
-      if (!startedMs || Date.now() - startedMs < needMs) {
+      const elapsedSincePrepare = startedMs > 0 ? Date.now() - startedMs : 0;
+      if (!startedMs || elapsedSincePrepare < needMs) {
+        const left = Math.max(0, Math.ceil((needMs - elapsedSincePrepare) / 1000));
         return NextResponse.json(
           {
             ok: false,
             error: 'verify_too_fast',
-            message:
-              'You did not complete 30 seconds on the ad. Stay on Adsterra for the full 30s, then claim. No AJ Coins were credited.',
+            message: `Please wait ${left}s more, then claim. Full 30s required. No AJ Coins were credited.`,
           },
           { status: 403 }
         );
@@ -132,26 +137,14 @@ export async function POST(request: Request) {
         body.meta && typeof body.meta === 'object'
           ? (body.meta as { totalAwayMs?: number; enteredAdAt?: number; leftAdAt?: number })
           : {};
-      const reportedAway = Number(meta.totalAwayMs || 0);
-      // Client timing is advisory; if reported, it must also meet 30s
-      if (reportedAway > 0 && reportedAway < VERIFY_MS) {
-        return NextResponse.json(
-          {
-            ok: false,
-            error: 'away_too_short',
-            message:
-              'You did not complete 30 seconds on the ad. Early return = no coins. Try Watch Ads again.',
-          },
-          { status: 403 }
-        );
-      }
 
       await setDoc(
         sessionRef,
         {
           enteredAdAt: meta.enteredAdAt ?? null,
           leftAdAt: meta.leftAdAt ?? null,
-          totalAwayMs: reportedAway || null,
+          totalAwayMs: Number(meta.totalAwayMs || 0) || null,
+          elapsedSincePrepareMs: elapsedSincePrepare,
           claimAttemptAt: serverTimestamp(),
         },
         { merge: true }
