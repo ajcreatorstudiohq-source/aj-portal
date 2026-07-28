@@ -1977,7 +1977,7 @@ export function AJSuperPortal() {
   const [dmInput,           setDmInput]           = useState('');
   const [dmInbox,           setDmInbox]           = useState<any[]>([]);
   const [dmInboxLoading,    setDmInboxLoading]    = useState(false);
-  const [dmBackScreen,      setDmBackScreen]      = useState<'messages' | 'profile' | 'hub' | 'tikreels'>('messages');
+  const [dmBackScreen,      setDmBackScreen]      = useState<'messages' | 'profile' | 'hub' | 'tikreels' | 'pulse'>('messages');
   const dmUnsubRef = useRef<any>(null);
   const dmInboxUnsubRef = useRef<any>(null);
   const dmEndRef   = useRef<HTMLDivElement>(null);
@@ -4553,7 +4553,7 @@ export function AJSuperPortal() {
     );
   };
 
-  const openMessagesInbox = (back: 'messages' | 'profile' | 'hub' | 'tikreels' = 'hub') => {
+  const openMessagesInbox = (back: 'messages' | 'profile' | 'hub' | 'tikreels' | 'pulse' = 'hub') => {
     if (!user) {
       setVvipAlert({ msg: 'Please sign in to view messages.', icon: '🔒' });
       return;
@@ -4565,12 +4565,20 @@ export function AJSuperPortal() {
     if (back === 'tikreels') {
       setTiktabMode('profile');
     }
+    if (back === 'pulse') {
+      setPulseTab('profile');
+    }
   };
 
   const leaveMessagesToBack = () => {
     if (dmBackScreen === 'tikreels') {
       setSocialScreen('tikreels');
       setTiktabMode('profile');
+      return;
+    }
+    if (dmBackScreen === 'pulse') {
+      setSocialScreen('pulse');
+      setPulseTab('profile');
       return;
     }
     if (dmBackScreen === 'profile') {
@@ -4587,7 +4595,7 @@ export function AJSuperPortal() {
   const openOrCreateChat = async (
     otherUid: string,
     otherData: any,
-    back: 'messages' | 'profile' | 'hub' | 'tikreels' = 'messages'
+    back: 'messages' | 'profile' | 'hub' | 'tikreels' | 'pulse' = 'messages'
   ) => {
     if (!user) {
       setVvipAlert({ msg: 'Please sign in to message.', icon: '🔒' });
@@ -4640,18 +4648,49 @@ export function AJSuperPortal() {
         dmUnsubRef.current();
         dmUnsubRef.current = null;
       }
+      const applyDmDocs = (docs: { id: string; data: () => Record<string, unknown> }[]) => {
+        const rows = docs
+          .map((d) => ({ id: d.id, ...d.data() } as any))
+          .sort(
+            (a, b) =>
+              Number(a.createdAtMs || 0) - Number(b.createdAtMs || 0) ||
+              String(a.id).localeCompare(String(b.id))
+          );
+        setDmMessages((prev) => {
+          const pending = prev.filter(
+            (m: any) =>
+              m.pending &&
+              !rows.some(
+                (r: any) =>
+                  String(r.uid) === String(m.uid) &&
+                  String(r.text) === String(m.text) &&
+                  Math.abs(Number(r.createdAtMs || 0) - Number(m.createdAtMs || 0)) < 30000
+              )
+          );
+          return [...rows, ...pending].sort(
+            (a: any, b: any) => Number(a.createdAtMs || 0) - Number(b.createdAtMs || 0)
+          );
+        });
+        setTimeout(() => dmEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 60);
+      };
+      // Shared thread for both users — same chatId = both see every message live
       dmUnsubRef.current = onSnapshot(
         query(collection(db, CHATS_COL, chatId, 'messages'), orderBy('createdAt', 'asc'), limit(300)),
-        (s) => {
-          setDmMessages(s.docs.map((d) => ({ id: d.id, ...d.data() })));
-          setTimeout(() => dmEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 60);
-        },
+        (s) => applyDmDocs(s.docs),
         (err) => {
-          console.warn('dm listen', err);
-          setVvipAlert({
-            msg: 'Chat could not load. Publish firestore.rules for chats.',
-            icon: '⚠️',
-          });
+          console.warn('dm listen ordered', err);
+          // Fallback without orderBy so both sides still sync
+          dmUnsubRef.current = onSnapshot(
+            query(collection(db, CHATS_COL, chatId, 'messages'), limit(300)),
+            (s) => applyDmDocs(s.docs),
+            (err2) => {
+              console.warn('dm listen fallback', err2);
+              setVvipAlert({
+                msg: 'Chat could not load. Publish firestore.rules for chats.',
+                icon: '⚠️',
+              });
+            }
+          );
         }
       );
       setScreen('social');
@@ -4674,6 +4713,21 @@ export function AJSuperPortal() {
     }
     setDmInput('');
     const createdAtMs = Date.now();
+    const localId = `local_${createdAtMs}_${user.uid}`;
+    // Optimistic: sender sees it instantly; recipient gets it via the same chat onSnapshot
+    setDmMessages((prev) => [
+      ...prev,
+      {
+        id: localId,
+        uid: user.uid,
+        username: username || user.displayName || 'AJ_Member',
+        photo: tempPhoto || user.photoURL || '',
+        text,
+        createdAtMs,
+        pending: true,
+      },
+    ]);
+    setTimeout(() => dmEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 40);
     try {
       await addDoc(collection(db, CHATS_COL, activeChatId, 'messages'), {
         uid: user.uid,
@@ -4696,6 +4750,7 @@ export function AJSuperPortal() {
       });
     } catch (e) {
       console.error('sendDmMessage', e);
+      setDmMessages((prev) => prev.filter((m: any) => m.id !== localId));
       setDmInput(text);
       setVvipAlert({
         msg: 'Message not saved. Publish firestore.rules for chats.',
@@ -5183,7 +5238,13 @@ export function AJSuperPortal() {
   const handleFileChange = async (e:any) => {
     const file = e.target.files?.[0]; if (!file) return;
     const isVid = fileLooksLikeVideo(file);
-    setPulsePostIsVideo(isVid);
+    // Pulse = photos only (TikReels is for videos)
+    if (socialScreen === 'pulse' && isVid) {
+      setVvipAlert({ msg: 'Pulse is for photos. Use TikReels for videos.', icon: '📸' });
+      e.target.value = '';
+      return;
+    }
+    setPulsePostIsVideo(socialScreen === 'pulse' ? false : isVid);
     let url = '';
     if (user?.uid) url = await uploadMediaDurable(file, user.uid);
     if (!url) url = await uploadToCloudinary(file);
@@ -5426,10 +5487,12 @@ export function AJSuperPortal() {
       }
 
       const createdAtMs = Date.now();
+      // Pulse = photos (TikReels handles videos)
+      const asVideo = false;
       const postRef = await addDoc(collection(db,"pulse_posts"), {
         text: postText,
         image: mediaUrl,
-        videoUrl: pulsePostIsVideo ? mediaUrl : '',
+        videoUrl: '',
         thumbnail: mediaUrl,
         uid: user.uid,
         userId: user.uid,
@@ -5437,15 +5500,16 @@ export function AJSuperPortal() {
         photo: user.photoURL || '',
         likes: 0,
         views: 0,
-        isVideo: pulsePostIsVideo,
-        contentType: pulsePostIsVideo ? 'video/mp4' : 'image/jpeg',
-        mime: pulsePostIsVideo ? 'video/mp4' : 'image/jpeg',
+        commentCount: 0,
+        isVideo: asVideo,
+        contentType: 'image/jpeg',
+        mime: 'image/jpeg',
         createdAt: serverTimestamp(),
         createdAtMs,
       });
       const reward = await earnReward(user, 'pulse_post', {
         idempotencyKey: postRef.id,
-        meta: { isVideo: pulsePostIsVideo, postId: postRef.id, uploadVerified },
+        meta: { isVideo: false, postId: postRef.id, uploadVerified },
       });
       setPostText(''); setTempPhoto(''); setPulsePostIsVideo(false);
       // Optimistic local insert so feed updates instantly
@@ -5455,12 +5519,12 @@ export function AJSuperPortal() {
             normalizePulsePost(postRef.id, {
               text: postText,
               image: mediaUrl,
-              videoUrl: pulsePostIsVideo ? mediaUrl : '',
+              videoUrl: '',
               uid: user.uid,
               userId: user.uid,
               username: username || 'AJ_Member',
               photo: user.photoURL || '',
-              isVideo: pulsePostIsVideo,
+              isVideo: false,
               createdAtMs,
             }),
           ],
@@ -5468,9 +5532,9 @@ export function AJSuperPortal() {
         ])
       );
       if (reward.ok && !reward.duplicate) {
-        setVvipAlert({msg: reward.message || `🚀 Post published! +${reward.creditedCoins} AJ Coins 🪙`, icon:"🚀"});
+        setVvipAlert({msg: reward.message || `📸 Pulse published! +${reward.creditedCoins} AJ Coins 🪙`, icon:"📸"});
       } else if (reward.error === 'daily_limit') {
-        setVvipAlert({msg:'🚀 Post published! Daily Pulse reward limit (5) reached — try tomorrow.', icon:"🚀"});
+        setVvipAlert({msg:'📸 Post published! Daily Pulse reward limit (5) reached — try tomorrow.', icon:"📸"});
       } else {
         setVvipAlert({msg:'🚀 Post published!', icon:"🚀"});
       }
@@ -6436,15 +6500,21 @@ Tip: Social Hub se copy karo 📤`,
   // PULSE UNSPLASH COMBINED FEED — FIX #5: Unsplash + Firestore merged
   // ==========================================================
   const combinedPulseFeed = React.useMemo(() => {
-    // Real Firebase posts first (TikTok/Instagram style), then Unsplash filler
+    // Real Firebase posts first — Pulse prefers photos (TikReel-style feed of pics)
     const realPosts = (pulsePosts || [])
       .map((p: any) => {
         const media = getPlayableSrc(p);
+        const pic = String(
+          p.image || p.thumbnail || (media.kind === 'image' ? media.src : '') || ''
+        ).trim();
+        const vid = String(p.videoUrl || (media.kind === 'video' ? media.src : '') || '').trim();
+        // Prefer still image for Pulse; only treat as video when no pic exists
+        const asVideo = !pic && (media.kind === 'video' || p.isVideo === true || Boolean(vid));
         return {
           ...p,
-          image: media.src || p.image || p.videoUrl || p.thumbnail || '',
-          videoUrl: p.videoUrl || (media.kind === 'video' ? media.src : ''),
-          isVideo: media.kind === 'video' || p.isVideo === true,
+          image: pic || (!asVideo ? media.src || vid : '') || vid,
+          videoUrl: asVideo ? vid || media.src : '',
+          isVideo: asVideo,
         };
       })
       .filter((p: any) => p.image || p.videoUrl || p.text);
@@ -7646,11 +7716,19 @@ Tip: Social Hub se copy karo 📤`,
                     return combinedPulseFeed.flatMap((post:any, idx:number) => {
                       const isActive = activeVideoIdx === idx;
                       const media = getPlayableSrc(post);
-                      const mediaUrl = media.src || String(post.image || post.videoUrl || post.thumbnail || '');
+                      const picUrl = String(
+                        post.image || post.thumbnail || (!post.isVideo ? post.mediaUrl || post.url || '' : '') || ''
+                      ).trim();
+                      // Pulse = photos first (same TikReel UI, pics instead of videos)
                       const playAsVideo =
-                        media.kind === 'video' ||
-                        isPlayableTikReel(post) ||
-                        post.isVideo === true;
+                        !picUrl &&
+                        (media.kind === 'video' ||
+                          isPlayableTikReel(post) ||
+                          post.isVideo === true);
+                      const mediaUrl =
+                        (playAsVideo
+                          ? media.src || post.videoUrl || picUrl
+                          : picUrl || media.src || post.image || post.thumbnail || '') || '';
                       const altVideoUrl = [post.videoUrl, post.mediaUrl, post.url, post.image]
                         .map((u: unknown) => toPlayableMediaUrl(String(u || '').trim()))
                         .find((u: string) => u && u !== mediaUrl) || '';
@@ -7714,20 +7792,27 @@ Tip: Social Hub se copy karo 📤`,
                             <p className="text-zinc-400 text-xs font-bold px-6 text-center">{post.text || 'Pulse post'}</p>
                           </div>
                         )}
-                        {/* Neon glowing border frame — cyan/cyberpunk aesthetic */}
-                        <div className="absolute inset-2 rounded-3xl pointer-events-none z-5" style={{ border: "2px solid rgba(34,211,238,0.3)", boxShadow: "0 0 20px rgba(34,211,238,0.15)", borderRadius: "1.5rem" }}/>
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent pointer-events-none"/>
-                        {/* FIX (Hinglish): Pause indicator overlay for Pulse videos */}
-                        {reelPaused && isActive && (
+                        <div
+                          className="absolute inset-0 z-10"
+                          onClick={() => setReelPaused((p) => !p)}
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none"/>
+                        {reelPaused && isActive && playAsVideo && (
                           <div className="absolute inset-0 z-15 flex items-center justify-center pointer-events-none">
                             <div className="w-20 h-20 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center">
                               <span className="text-white text-3xl">⏸</span>
                             </div>
                           </div>
                         )}
-                        {/* Right actions — hide for Unsplash items, with gift icon */}
+                        {/* Same TikReel action rail — Gift / Like / Comment / Share / Delete */}
                         {!post.isUnsplash && (
                           <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-[110]">
+                            <button onClick={e => openGiftPanel(post, e)} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                              <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
+                                <Gift size={18} className="text-yellow-400"/>
+                              </div>
+                              <span className="text-white text-[9px] font-black">Gift</span>
+                            </button>
                             <button onClick={e => { e.stopPropagation(); handleLike(post, false); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                               <div className={`w-10 h-10 rounded-full flex items-center justify-center ${likedPosts[post.id] ? 'bg-red-500/30' : 'bg-black/40 backdrop-blur-sm'}`}>
                                 <Heart size={18} className={likedPosts[post.id] ? 'text-red-400 fill-red-400' : 'text-white'}/>
@@ -7746,54 +7831,32 @@ Tip: Social Hub se copy karo 📤`,
                               </div>
                               <span className="text-white text-[9px] font-black">Share</span>
                             </button>
-                            <button onClick={e => openGiftPanel(post, e)} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
-                              <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
-                                <Bookmark size={18} className="text-white"/>
-                              </div>
-                              <span className="text-white text-[9px] font-black">Save</span>
-                            </button>
+                            {(post.uid === user?.uid || post.userId === user?.uid) && (
+                              <button onClick={e => { e.stopPropagation(); handleDeletePost(String(post.id)); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                                <div className="w-10 h-10 rounded-full bg-red-500/30 backdrop-blur-sm flex items-center justify-center">
+                                  <Trash2 size={18} className="text-red-400"/>
+                                </div>
+                              </button>
+                            )}
                           </div>
                         )}
-                        {/* Bottom info — Pulse card with neon border, LIKE/COMMENTS counts, Tip AJ Coins, Share to WhatsApp */}
-                        <div className="relative z-10 p-4">
-                          {/* Username + timestamp */}
-                          <div className="flex items-center gap-2 mb-3">
-                            <img src={post.photo||'/logo.png'} className="w-9 h-9 rounded-full border-2 border-cyan-400/50 object-cover flex-shrink-0" style={{ boxShadow: '0 0 12px rgba(34,211,238,0.3)' }}/>
-                            <div className="flex-1 min-w-0">
-                              <button onClick={() => !post.isUnsplash && openProfile(post.uid)} className="flex items-baseline gap-2">
-                                <span className="text-white font-black text-sm truncate">@{post.username}</span>
-                                <span className="text-gray-500 text-[10px] flex-shrink-0">2h ago</span>
-                              </button>
-                            </div>
+                        <div className="absolute bottom-6 left-4 right-16 z-10">
+                          <div className="inline-flex items-center gap-1.5 bg-gradient-to-r from-cyan-500/80 to-pink-500/80 backdrop-blur-sm rounded-full px-3 py-1 mb-2">
+                            <span className="text-white text-[8px] font-black uppercase tracking-widest animate-pulse">📸 Pulse</span>
                           </div>
-                          {/* Post text */}
-                          <p className="text-white text-sm font-bold line-clamp-3 mb-3">{post.text}</p>
-                          {/* LIKE / COMMENTS count display */}
-                          <div className="flex items-center gap-4 mb-3">
-                            <div className="flex items-center gap-1.5">
-                              <Heart size={14} className={likedPosts[post.id] ? 'text-red-400 fill-red-400' : 'text-pink-400'}/>
-                              <span className="text-pink-400 text-xs font-black">{formatViews(post.likes || 0)}</span>
-                              <span className="text-gray-500 text-[9px] font-black uppercase">Likes</span>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <MessageSquare size={14} className="text-cyan-400"/>
-                              <span className="text-cyan-400 text-xs font-black">{formatViews(post.views||0)}</span>
-                              <span className="text-gray-500 text-[9px] font-black uppercase">Comments</span>
-                            </div>
+                          <button
+                            type="button"
+                            className="flex items-center gap-2 mb-1"
+                            onClick={() => !post.isUnsplash && openProfile(String(post.uid || post.userId || ''))}
+                          >
+                            <img src={post.photo||'/logo.png'} className="w-7 h-7 rounded-full border border-white/30 object-cover" alt=""/>
+                            <span className="text-white font-black text-xs">@{post.username}</span>
+                          </button>
+                          <p className="text-gray-300 text-[10px] line-clamp-2">{post.text}</p>
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <Eye size={11} className="text-white/80"/>
+                            <span className="text-white/90 text-[9px] font-black">{formatViews(post.views||0)} views</span>
                           </div>
-                          {/* Action buttons — Tip AJ Coins + Share to WhatsApp */}
-                          {!post.isUnsplash && (
-                            <div className="flex items-center gap-2">
-                              <button onClick={e => openGiftPanel(post, e)} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all" style={{ background: 'linear-gradient(135deg,#f59e0b,#d97706)', boxShadow: '0 0 14px rgba(245,158,11,0.3)' }}>
-                                <span className="text-sm">🪙</span>
-                                <span className="text-white">Tip AJ Coins</span>
-                              </button>
-                              <button onClick={e => { e.stopPropagation(); handleShare(post.text||''); }} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all bg-green-600/20 border border-green-500/30" style={{ boxShadow: '0 0 14px rgba(34,197,94,0.2)' }}>
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" className="text-green-400"><path d="M17.6 6.3A7.8 7.8 0 0 0 12 4a7.9 7.9 0 0 0-7.9 7.9c0 1.4.4 2.7 1 3.9L4 20l4.3-1.1c1.1.6 2.4.9 3.7.9A7.9 7.9 0 0 0 20 11.9c0-2.1-.8-4.1-2.4-5.6zM12 18.5c-1.2 0-2.3-.3-3.3-.9l-.2-.1-2.6.7.7-2.5-.2-.2a6.5 6.5 0 0 1-1-3.5 6.6 6.6 0 0 1 6.6-6.6 6.6 6.6 0 0 1 6.6 6.6 6.6 6.6 0 0 1-6.6 6.5z"/></svg>
-                                <span className="text-green-400">WhatsApp</span>
-                              </button>
-                            </div>
-                          )}
                         </div>
                       </div>
                     );
@@ -7820,36 +7883,34 @@ Tip: Social Hub se copy karo 📤`,
                 </div>
               )}
 
-              {/* ── PULSE CREATE ── */}
+              {/* ── PULSE CREATE (photos — TikReel create twin) ── */}
               {pulseTab === 'create' && (
                 <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-                  <div className="relative w-full aspect-video bg-white/5 border border-white/10 rounded-2xl overflow-hidden cursor-pointer" onClick={handleImageClick}>
+                  <div className="relative w-full aspect-[9/16] max-h-[55vh] bg-white/5 border border-white/10 rounded-2xl overflow-hidden cursor-pointer" onClick={handleImageClick}>
                     {tempPhoto ? (
-                      pulsePostIsVideo
-                        ? <video src={tempPhoto} className="w-full h-full object-cover" muted loop autoPlay playsInline/>
-                        : <img src={tempPhoto} className="w-full h-full object-cover"/>
+                      <img src={tempPhoto} className="w-full h-full object-cover" alt=""/>
                     ) : (
                       <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
                         <PlusSquare size={32} className="text-gray-500"/>
-                        <span className="text-gray-400 text-xs">Tap to add photo/video</span>
+                        <span className="text-gray-400 text-xs">Tap to add a photo</span>
+                        <span className="text-gray-600 text-[9px]">Pulse = pics · TikReels = videos</span>
                       </div>
                     )}
                   </div>
-                  <textarea value={postText} onChange={e => setPostText(e.target.value)} placeholder="What's on your mind?" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm h-24 resize-none focus:outline-none focus:border-pink-500/50"/>
+                  <textarea value={postText} onChange={e => setPostText(e.target.value)} placeholder="Write a caption…" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm h-24 resize-none focus:outline-none focus:border-pink-500/50"/>
                   <button onClick={handleCreatePost} className="w-full py-4 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all shadow-[0_0_24px_rgba(236,72,153,0.4)]" style={{background:'linear-gradient(135deg,#ec4899,#8b5cf6)'}}>
-                    🚀 Post (+{pulsePostIsVideo ? 10 : 5} Coins)
+                    📸 Post Pulse (+5 Coins)
                   </button>
                 </div>
               )}
 
-              {/* ── PULSE PROFILE ── */}
+              {/* ── PULSE PROFILE (same as TikReel profile) ── */}
               {pulseTab === 'profile' && (
                 <div className="flex-1 overflow-y-auto">
                   <div className="flex flex-col items-center px-4 py-6">
-                    {/* FIX #8: Neon Pink + button on avatar */}
                     <div className="relative">
                       <div className="w-20 h-20 rounded-full border-2 border-pink-500 overflow-hidden cursor-pointer" onClick={() => dpFileRef.current?.click()}>
-                        <img src={tempPhoto||user?.photoURL||'/logo.png'} className="w-full h-full object-cover"/>
+                        <img src={tempPhoto||user?.photoURL||'/logo.png'} className="w-full h-full object-cover" alt=""/>
                       </div>
                       <button
                         onClick={() => dpFileRef.current?.click()}
@@ -7859,53 +7920,74 @@ Tip: Social Hub se copy karo 📤`,
                         <Plus size={14} className="text-white font-black" strokeWidth={3}/>
                       </button>
                     </div>
-                    <p className="text-white font-black text-lg mt-3">@{username||'AJ_Member'}</p>
+                    <p className="text-white font-black text-lg mt-3">
+                      {profileDisplayName || user?.displayName || `@${username || 'AJ_Member'}`}
+                    </p>
+                    <p className="text-gray-400 text-xs">@{username||'AJ_Member'}</p>
                     <p className="text-gray-400 text-xs mt-1 text-center max-w-xs">{bio||'No bio yet.'}</p>
                     <div className="flex gap-8 mt-4">
-                      <div className="text-center"><p className="text-white font-black text-lg">{pulsePosts.filter((p:any) => p.uid===user?.uid || p.userId===user?.uid).length}</p><p className="text-gray-400 text-[10px]">Posts</p></div>
-                      <div className="text-center"><p className="text-white font-black text-lg">0</p><p className="text-gray-400 text-[10px]">Followers</p></div>
-                      <div className="text-center"><p className="text-white font-black text-lg">0</p><p className="text-gray-400 text-[10px]">Following</p></div>
+                      <div className="text-center">
+                        <p className="text-white font-black text-lg">
+                          {pulsePosts.filter((p:any) => p.uid===user?.uid || p.userId===user?.uid).length}
+                        </p>
+                        <p className="text-gray-400 text-[10px]">Posts</p>
+                      </div>
+                      <button type="button" onClick={() => void openFollowList('followers', user?.uid)} className="text-center active:scale-95">
+                        <p className="text-white font-black text-lg">{tikProfileFollowers || followers}</p>
+                        <p className="text-gray-400 text-[10px]">Followers</p>
+                      </button>
+                      <button type="button" onClick={() => void openFollowList('following', user?.uid)} className="text-center active:scale-95">
+                        <p className="text-white font-black text-lg">{followingList.length}</p>
+                        <p className="text-gray-400 text-[10px]">Following</p>
+                      </button>
+                    </div>
+                    <div className="flex gap-2 mt-4 items-center">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setProfileDisplayName(profileDisplayName || user?.displayName || '');
+                          setSocialScreen('setup');
+                        }}
+                        className="px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest bg-white/5 border border-white/10 text-gray-300"
+                      >
+                        <Edit3 size={11} className="inline mr-1" /> Edit
+                      </button>
+                      <button
+                        type="button"
+                        title="Messages"
+                        onClick={() => openMessagesInbox('pulse')}
+                        className="px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 flex items-center gap-1.5 active:scale-90 transition-all shadow-[0_0_12px_rgba(34,211,238,0.3)]"
+                      >
+                        <MessageCircle size={12} />
+                        Message
+                      </button>
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-0.5 p-0.5">
+                    {pulsePosts.filter((p:any) => p.uid===user?.uid || p.userId===user?.uid).length === 0 && (
+                      <div className="col-span-3 flex flex-col items-center justify-center py-16 gap-3">
+                        <span className="text-4xl">📸</span>
+                        <p className="text-gray-500 text-sm">No posts yet. Share your first Pulse photo!</p>
+                      </div>
+                    )}
                     {pulsePosts.filter((p:any) => p.uid===user?.uid || p.userId===user?.uid).map((post:any) => {
                       const media = getPlayableSrc(post);
-                      const url = media.src || post.videoUrl || post.image || post.thumbnail || '';
+                      const url = String(post.image || post.thumbnail || media.src || post.videoUrl || '');
                       return (
                       <div
                         key={post.id}
                         className="relative aspect-square bg-white/5 overflow-hidden cursor-pointer active:scale-95 transition-all"
                         onClick={() => {
-                          if (url && (media.kind === 'video' || post.isVideo)) {
-                            setProfileVideoViewer({ url, text: post.text || post.textOverlay, post });
-                          }
+                          if (!url) return;
+                          setProfileVideoViewer({ url, text: post.text || post.textOverlay, post });
                         }}
                       >
-                        {media.kind === 'video' || post.isVideo ? (
-                          url ? (
-                            <video
-                              src={url}
-                              className="w-full h-full object-cover pointer-events-none"
-                              muted
-                              playsInline
-                              preload="metadata"
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">📝</span></div>
-                          )
-                        ) : (
-                          url
-                            ? <img src={url} className="w-full h-full object-cover pointer-events-none" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}/>
-                            : <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">📝</span></div>
-                        )}
-                        {(media.kind === 'video' || post.isVideo) && (
-                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                            <div className="w-9 h-9 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center">
-                              <span className="text-white text-sm ml-0.5">▶</span>
-                            </div>
-                          </div>
-                        )}
-                        {(media.kind === 'video' || post.isVideo) && <div className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5"><Film size={10} className="text-white"/></div>}
+                        <img
+                          src={url}
+                          className="w-full h-full object-cover pointer-events-none"
+                          alt=""
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
                         <div className="absolute bottom-1 left-1 bg-black/60 rounded-full px-1.5 py-0.5 flex items-center gap-0.5">
                           <Eye size={8} className="text-white"/>
                           <span className="text-white text-[8px] font-black">{formatViews(post.views||0)}</span>
@@ -8528,7 +8610,7 @@ Tip: Social Hub se copy karo 📤`,
                     }
                     setActiveChatId(null);
                     setDmMessages([]);
-                    if (dmBackScreen === 'messages' || dmBackScreen === 'tikreels' || dmBackScreen === 'hub' || dmBackScreen === 'profile') {
+                    if (dmBackScreen === 'messages' || dmBackScreen === 'tikreels' || dmBackScreen === 'pulse' || dmBackScreen === 'hub' || dmBackScreen === 'profile') {
                       if (dmBackScreen === 'messages') {
                         setSocialScreen('messages');
                       } else {
