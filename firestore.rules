@@ -50,7 +50,11 @@ service cloud.firestore {
     match /user_posts/{postId} {
       allow read: if signedIn();
       allow create: if signedIn() && postOwner();
-      allow update, delete: if signedIn() && existingPostOwner();
+      allow delete: if signedIn() && existingPostOwner();
+      allow update: if signedIn() && existingPostOwner()
+        || (signedIn()
+            && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['likes', 'commentCount', 'views']));
       match /likes/{likerId} {
         allow read: if signedIn();
         allow write: if signedIn() && request.auth.uid == likerId;
@@ -66,13 +70,31 @@ service cloud.firestore {
     match /videos/{videoId} {
       allow read: if signedIn();
       allow create: if signedIn() && postOwner();
-      allow update, delete: if signedIn() && existingPostOwner();
+      allow delete: if signedIn() && existingPostOwner();
+      allow update: if signedIn() && existingPostOwner()
+        || (signedIn()
+            && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['likes', 'commentCount', 'views']));
+      match /likes/{likerId} {
+        allow read: if signedIn();
+        allow write: if signedIn() && request.auth.uid == likerId;
+      }
+      match /comments/{commentId} {
+        allow read: if signedIn();
+        allow create: if signedIn();
+        allow update, delete: if signedIn()
+          && resource.data.uid == request.auth.uid;
+      }
     }
 
     match /pulse_posts/{postId} {
       allow read: if signedIn();
       allow create: if signedIn() && postOwner();
-      allow update, delete: if signedIn() && existingPostOwner();
+      allow delete: if signedIn() && existingPostOwner();
+      allow update: if signedIn() && existingPostOwner()
+        || (signedIn()
+            && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['likes', 'commentCount', 'views']));
       match /likes/{likerId} {
         allow read: if signedIn();
         allow write: if signedIn() && request.auth.uid == likerId;

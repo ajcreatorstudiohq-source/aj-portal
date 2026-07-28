@@ -1174,7 +1174,7 @@ function CinematicGiftOverlay({ gift, sender, onDone }: { gift: any; sender: str
   const [show, setShow] = useState(false);
   useEffect(() => {
     const raf = requestAnimationFrame(() => setShow(true));
-    const t = setTimeout(onDone, 4500);
+    const t = setTimeout(onDone, 5000);
     return () => { cancelAnimationFrame(raf); clearTimeout(t); };
   }, [onDone]);
 
@@ -1932,6 +1932,12 @@ export function AJSuperPortal() {
   const [isFollowing,   setIsFollowing]   = useState(false);
   const [followedYouTubers, setFollowedYouTubers] = useState<Set<string>>(new Set());
   const [followingList, setFollowingList] = useState<any[]>([]);
+  const [followersList, setFollowersList] = useState<any[]>([]);
+  const [followListUsers, setFollowListUsers] = useState<any[]>([]);
+  const [followListMode, setFollowListMode] = useState<'followers' | 'following' | null>(null);
+  const [followListLoading, setFollowListLoading] = useState(false);
+  const [followListUid, setFollowListUid] = useState<string | null>(null);
+  const [profileDisplayName, setProfileDisplayName] = useState('');
 
   // ── REFS
   const fileInputRef  = useRef<HTMLInputElement>(null);
@@ -2561,6 +2567,7 @@ export function AJSuperPortal() {
           setHasSocialProfile((d.hasSocialProfile as boolean) ?? true);
           setUsername((d.username as string) || '');
           setBio((d.bio as string) || '');
+          setProfileDisplayName((d.name as string) || (cu.displayName as string) || '');
           setTempPhoto((d.photo as string) || cu.photoURL || '');
         } else {
           // NEW USER — create profile + show camera permission prompt
@@ -3911,7 +3918,7 @@ export function AJSuperPortal() {
     } catch(e) { console.error('sendGift', e); setVvipAlert({msg:'Gift failed. Please try again.'}); }
   };
 
-  /** Open comments — must run inside tap handler so mobile keyboard can open. */
+  /** Open comments — always use the durable parent doc (user_posts / pulse_posts). */
   const openComments = (
     postOrId: any,
     e?: { stopPropagation?: () => void; preventDefault?: () => void }
@@ -3925,17 +3932,15 @@ export function AJSuperPortal() {
     if (post) {
       if (
         post._source === 'pulse_posts' ||
-        pulsePosts.some((p: any) => p.id === post.id)
+        pulsePosts.some((p: any) => p.id === post.id && !post.postId)
       ) {
         col = 'pulse_posts';
         id = String(post.id);
-      } else if (pixaVideos.some((v: any) => v.id === post.id)) {
+      } else if (pixaVideos.some((v: any) => v.id === post.id || v.id === post.videoId)) {
         col = 'yt_posts';
         id = String(post.id);
-      } else if (post._source === 'videos' && !post.postId) {
-        col = 'videos';
-        id = String(post.id);
       } else {
+        // TikReel: always comment on user_posts (dual-written videos use postId)
         col = 'user_posts';
         id = String(post.postId || post.id);
       }
@@ -4075,18 +4080,77 @@ export function AJSuperPortal() {
     } catch {}
   };
 
-  const loadFollowingList = async () => {
-    if (!user) return;
+  const loadFollowingList = async (uid?: string) => {
+    const target = uid || user?.uid;
+    if (!target) return;
     try {
-      const foSnap = await getDocs(collection(db,"users",user.uid,"following"));
-      const list = await Promise.all(foSnap.docs.map(async d => {
-        try {
-          const snap = await getDoc(doc(db,"users",d.id));
-          return snap.exists() ? { uid:d.id, ...snap.data() } : { uid:d.id, username:d.id };
-        } catch { return { uid:d.id, username:d.id }; }
-      }));
-      setFollowingList(list.filter(Boolean));
-    } catch {}
+      const foSnap = await getDocs(collection(db, 'users', target, 'following'));
+      const list = await Promise.all(
+        foSnap.docs.map(async (d) => {
+          try {
+            const snap = await getDoc(doc(db, 'users', d.id));
+            return snap.exists()
+              ? { uid: d.id, ...snap.data() }
+              : { uid: d.id, username: d.id };
+          } catch {
+            return { uid: d.id, username: d.id };
+          }
+        })
+      );
+      const cleaned = list.filter(Boolean);
+      if (!uid || uid === user?.uid) setFollowingList(cleaned);
+      return cleaned;
+    } catch {
+      return [];
+    }
+  };
+
+  const loadFollowersList = async (uid?: string) => {
+    const target = uid || user?.uid;
+    if (!target) return [];
+    try {
+      const foSnap = await getDocs(collection(db, 'users', target, 'followers'));
+      const list = await Promise.all(
+        foSnap.docs.map(async (d) => {
+          try {
+            const snap = await getDoc(doc(db, 'users', d.id));
+            return snap.exists()
+              ? { uid: d.id, ...snap.data() }
+              : { uid: d.id, username: d.id };
+          } catch {
+            return { uid: d.id, username: d.id };
+          }
+        })
+      );
+      const cleaned = list.filter(Boolean);
+      setFollowersList(cleaned);
+      return cleaned;
+    } catch {
+      return [];
+    }
+  };
+
+  const openFollowList = async (
+    mode: 'followers' | 'following',
+    uid?: string | null
+  ) => {
+    const target = uid || viewingUid || user?.uid;
+    if (!target) return;
+    setFollowListMode(mode);
+    setFollowListUid(target);
+    setFollowListLoading(true);
+    setFollowListUsers([]);
+    try {
+      if (mode === 'followers') {
+        const list = await loadFollowersList(target);
+        setFollowListUsers(list || []);
+      } else {
+        const list = await loadFollowingList(target);
+        setFollowListUsers(list || []);
+      }
+    } finally {
+      setFollowListLoading(false);
+    }
   };
 
   // ==========================================================
@@ -4607,14 +4671,43 @@ export function AJSuperPortal() {
   };
 
   const handleCreateProfile = async () => {
-    if (username.length<3) return setVvipAlert({msg:"Username too short!"});
+    if (username.length < 3) return setVvipAlert({ msg: 'Username too short!' });
+    if (!user) return;
     try {
-      await updateDoc(doc(db,"users",user!.uid), {
-        username: username.toLowerCase().trim(), bio,
-        photo: tempPhoto||user!.photoURL||"/logo.png", hasSocialProfile:true
+      const display =
+        profileDisplayName.trim() || user.displayName || username.trim();
+      await updateDoc(doc(db, 'users', user.uid), {
+        name: display,
+        displayName: display,
+        username: username.toLowerCase().trim(),
+        bio: bio || '',
+        photo: tempPhoto || user.photoURL || '/logo.png',
+        photoURL: tempPhoto || user.photoURL || '/logo.png',
+        hasSocialProfile: true,
       });
-      setHasSocialProfile(true); setSocialScreen('hub'); setVvipAlert({msg:"🚀 Profile Active!",icon:"🚀"});
-    } catch(e) { console.error('handleCreateProfile', e); setVvipAlert({msg:'Profile save failed. Please try again.'}); }
+      setHasSocialProfile(true);
+      setProfileDisplayName(display);
+      setViewProfile((prev: any) =>
+        prev && prev.uid === user.uid
+          ? {
+              ...prev,
+              name: display,
+              displayName: display,
+              username: username.toLowerCase().trim(),
+              bio: bio || '',
+              photo: tempPhoto || user.photoURL || '/logo.png',
+            }
+          : prev
+      );
+      setSocialScreen('hub');
+      setVvipAlert({
+        msg: hasSocialProfile ? '✅ Profile updated!' : '🚀 Profile Active!',
+        icon: '🚀',
+      });
+    } catch (e) {
+      console.error('handleCreateProfile', e);
+      setVvipAlert({ msg: 'Profile save failed. Please try again.' });
+    }
   };
 
   const sendChatMessage = async () => {
@@ -4832,12 +4925,13 @@ export function AJSuperPortal() {
       setVvipAlert({ msg: 'Please sign in to comment.', icon: '🔒' });
       return;
     }
+    const text = newComment.trim();
     try {
       const commentData = {
-        text: newComment.trim(),
+        text,
         uid: user.uid,
         username: username || 'AJ_Member',
-        photo: user?.photoURL || '',
+        photo: user?.photoURL || tempPhoto || '',
         createdAt: serverTimestamp(),
         createdAtMs: Date.now(),
       };
@@ -4850,29 +4944,47 @@ export function AJSuperPortal() {
             : 'user_posts');
 
       if (col === 'yt_posts') {
-        try {
-          await setDoc(
-            doc(db, 'yt_posts', commentPostId),
-            { id: commentPostId, type: 'youtube', createdAt: serverTimestamp() },
-            { merge: true }
-          );
-          await addDoc(collection(db, 'yt_posts', commentPostId, 'comments'), commentData);
-        } catch (e2) {
-          console.error('yt comment error', e2);
-          throw e2;
-        }
+        await setDoc(
+          doc(db, 'yt_posts', commentPostId),
+          { id: commentPostId, type: 'youtube', createdAt: serverTimestamp() },
+          { merge: true }
+        );
+        await addDoc(collection(db, 'yt_posts', commentPostId, 'comments'), commentData);
       } else {
-        await addDoc(collection(db, col, commentPostId, 'comments'), commentData);
-        try {
-          await updateDoc(doc(db, col, commentPostId), { commentCount: increment(1) });
-        } catch {}
+        // Ensure parent exists for dual-written TikReels (videos → user_posts)
+        const parentRef = doc(db, col, commentPostId);
+        const parentSnap = await getDoc(parentRef);
+        if (!parentSnap.exists() && col === 'user_posts') {
+          // Fallback: try videos collection comments if user_posts missing
+          await addDoc(collection(db, 'videos', commentPostId, 'comments'), commentData);
+          try {
+            await updateDoc(doc(db, 'videos', commentPostId), {
+              commentCount: increment(1),
+            });
+          } catch {}
+        } else {
+          await addDoc(collection(db, col, commentPostId, 'comments'), commentData);
+          try {
+            await updateDoc(parentRef, { commentCount: increment(1) });
+          } catch {}
+        }
       }
+
+      // Optimistic UI — listener will replace with server docs
       setPostComments((prev) => [
         ...prev,
         { id: `local_${Date.now()}`, ...commentData, createdAt: null },
       ]);
       setNewComment('');
-      // Keep keyboard open for next comment
+      // Bump local commentCount on feeds
+      const bump = (list: any[]) =>
+        list.map((p) =>
+          String(p.id) === commentPostId || String(p.postId) === commentPostId
+            ? { ...p, commentCount: Number(p.commentCount || 0) + 1 }
+            : p
+        );
+      setUserPosts((prev) => bump(prev));
+      setPulsePosts((prev) => bump(prev));
       requestAnimationFrame(() => commentInputRef.current?.focus());
     } catch (e) {
       console.error('submitComment', e);
@@ -4938,52 +5050,83 @@ export function AJSuperPortal() {
   // aur `if (!postSnap.exists()) return;` se like silently fail ho jaata tha.
   // Ab agar isYoutube=true hai toh hum sirf local state toggle karte hain (client-side).
   //
-  // FIX (Hinglish) ROUND 3: Like button pe "2 likes add ho jaana" issue fix kiya.
-  // Problem: Mobile pe tap kabhi-kabhi do baar fire ho jaata hai, aur kyunki
-  // handleLike async hai, state race condition se count double ho jaata tha.
-  // Ab ek `likeInProgressRef` Set use karke guard lagaya gaya — jab tak ek like
-  // process ho raha hai, dobara tap ignore hota hai (debounce).
-  const handleLike = async (id:string, isVideo:boolean = false, isYoutube:boolean = false) => {
+  // FIX: Like count — Firestore is source of truth. Do NOT add +1 in UI when
+  // likedPosts is true (that caused viewer to see N+2 while others saw N+1).
+  const bumpLocalLikes = (likeId: string, delta: number) => {
+    const apply = (list: any[]) =>
+      list.map((p) => {
+        const keys = [p.id, p.postId].map(String);
+        if (!keys.includes(String(likeId))) return p;
+        return { ...p, likes: Math.max(0, Number(p.likes || 0) + delta) };
+      });
+    setUserPosts((prev) => apply(prev));
+    setPulsePosts((prev) => apply(prev));
+  };
+
+  const handleLike = async (
+    idOrPost: any,
+    isVideo: boolean = false,
+    isYoutube: boolean = false
+  ) => {
     if (!user) return;
-    // GUARD: Agar yeh post already like-in-progress hai toh ignore (double-tap prevention)
+    const post = typeof idOrPost === 'object' && idOrPost ? idOrPost : null;
+    let id =
+      typeof idOrPost === 'string'
+        ? idOrPost
+        : String(post?.postId || post?.id || '');
+    if (!id) return;
     if (likeInProcess.has(id)) return;
     likeInProcess.add(id);
-    // YouTube/pixa videos — local-only like toggle (no Firestore, these aren't real posts)
+
     if (isYoutube) {
-      setLikedPosts((p:any) => ({...p,[id]: !p[id]}));
+      setLikedPosts((p: any) => ({ ...p, [id]: !p[id] }));
       likeInProcess.delete(id);
       return;
     }
-    const col = isVideo ? 'user_posts' : 'pulse_posts';
+
+    // Resolve collection: Pulse stays on pulse_posts; TikReel always user_posts (postId)
+    let col = 'user_posts';
+    if (post) {
+      if (
+        post._source === 'pulse_posts' ||
+        (!post.postId && pulsePosts.some((p: any) => p.id === post.id))
+      ) {
+        col = 'pulse_posts';
+        id = String(post.id);
+      } else {
+        col = 'user_posts';
+        id = String(post.postId || post.id);
+      }
+    } else {
+      col = isVideo ? 'user_posts' : 'pulse_posts';
+    }
+
     const likeRef = doc(db, col, id, 'likes', user.uid);
     try {
       const likeSnap = await getDoc(likeRef);
       const postRef = doc(db, col, id);
       const postSnap = await getDoc(postRef);
       if (!postSnap.exists()) {
-        // FIX: Agar Firestore mein post nahi hai toh local toggle kar do (crash na ho)
-        setLikedPosts((p:any) => ({...p,[id]: !p[id]}));
+        setLikedPosts((p: any) => ({ ...p, [id]: !p[id] }));
         likeInProcess.delete(id);
         return;
       }
-      const currentLikes = postSnap.data()?.likes || 0;
+      const currentLikes = Number(postSnap.data()?.likes || 0);
       if (likeSnap.exists()) {
-        // User already liked — REMOVE the like (toggle off)
         await deleteDoc(likeRef);
         await updateDoc(postRef, { likes: Math.max(0, currentLikes - 1) });
-        setLikedPosts((p:any) => ({...p,[id]:false}));
+        setLikedPosts((p: any) => ({ ...p, [id]: false }));
+        bumpLocalLikes(id, -1);
       } else {
-        // User hasn't liked yet — ADD the like (one like per person)
         await setDoc(likeRef, { uid: user.uid, date: serverTimestamp() });
         await updateDoc(postRef, { likes: currentLikes + 1 });
-        setLikedPosts((p:any) => ({...p,[id]:true}));
+        setLikedPosts((p: any) => ({ ...p, [id]: true }));
+        bumpLocalLikes(id, 1);
       }
-    } catch(e) {
+    } catch (e) {
       console.error('handleLike firestore', e);
-      // FIX: Error aane par bhi local toggle kar do taaki UI respond kare
-      setLikedPosts((p:any) => ({...p,[id]: !p[id]}));
+      setLikedPosts((p: any) => ({ ...p, [id]: !p[id] }));
     } finally {
-      // FIX ROUND 3: Guard hatao taaki user dobara like kar sake
       likeInProcess.delete(id);
     }
   };
@@ -4993,13 +5136,14 @@ export function AJSuperPortal() {
   useEffect(() => {
     if (!user) return;
     const loadLikedStatus = async () => {
-      // Check TikReels user_posts
+      // Check TikReels user_posts (also by postId for dual-written videos rows)
       for (const post of userPosts) {
-        if (likedStatusLoadedRef.current.has(post.id)) continue;
-        likedStatusLoadedRef.current.add(post.id);
+        const likeId = String(post.postId || post.id);
+        if (likedStatusLoadedRef.current.has(likeId)) continue;
+        likedStatusLoadedRef.current.add(likeId);
         try {
-          const snap = await getDoc(doc(db, 'user_posts', post.id, 'likes', user.uid));
-          if (snap.exists()) setLikedPosts((p:any) => ({...p,[post.id]:true}));
+          const snap = await getDoc(doc(db, 'user_posts', likeId, 'likes', user.uid));
+          if (snap.exists()) setLikedPosts((p: any) => ({ ...p, [likeId]: true }));
         } catch {}
       }
       // Check Pulse posts
@@ -6149,13 +6293,15 @@ Tip: Social Hub se copy karo 📤`,
       {screen === 'social' && (
         <div className="fixed inset-0 flex flex-col bg-[#050505]">
 
-          {/* ── PROFILE SETUP ── */}
+          {/* ── PROFILE SETUP / EDIT ── */}
           {socialScreen === 'setup' && (
             <div className="flex-1 overflow-y-auto px-4 py-8 flex flex-col items-center gap-5">
               <div className="relative z-[50]">
                 <img src="/logo.png" alt="AJ" className="w-16 h-16 rounded-2xl shadow-[0_0_30px_rgba(236,72,153,0.5)]"/>
               </div>
-              <h2 className="text-xl font-black bg-gradient-to-r from-pink-500 to-cyan-400 bg-clip-text text-transparent">Create Your Profile</h2>
+              <h2 className="text-xl font-black bg-gradient-to-r from-pink-500 to-cyan-400 bg-clip-text text-transparent">
+                {hasSocialProfile ? 'Edit Your Profile' : 'Create Your Profile'}
+              </h2>
               <div className="relative cursor-pointer" onClick={handleImageClick}>
                 <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-pink-500">
                   <img src={tempPhoto || user?.photoURL || '/logo.png'} className="w-full h-full object-cover"/>
@@ -6164,11 +6310,40 @@ Tip: Social Hub se copy karo 📤`,
                   <Camera size={12} className="text-white"/>
                 </div>
               </div>
-              <input value={username} onChange={e => setUsername(e.target.value)} placeholder="Username (min 3 chars)" className="w-full max-w-sm bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"/>
-              <textarea value={bio} onChange={e => setBio(e.target.value)} placeholder="Bio (optional)" className="w-full max-w-sm bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm h-20 resize-none focus:outline-none focus:border-pink-500/50"/>
-              <button onClick={handleCreateProfile} className="w-full max-w-sm py-4 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all shadow-[0_0_24px_rgba(236,72,153,0.4)]" style={{background:'linear-gradient(135deg,#ec4899,#8b5cf6)'}}>
-                🚀 Activate Profile
+              <input
+                value={profileDisplayName}
+                onChange={(e) => setProfileDisplayName(e.target.value)}
+                placeholder="Display name"
+                className="w-full max-w-sm bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"
+              />
+              <input
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Username (min 3 chars)"
+                className="w-full max-w-sm bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"
+              />
+              <textarea
+                value={bio}
+                onChange={(e) => setBio(e.target.value)}
+                placeholder="Bio (optional)"
+                className="w-full max-w-sm bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm h-20 resize-none focus:outline-none focus:border-pink-500/50"
+              />
+              <button
+                onClick={handleCreateProfile}
+                className="w-full max-w-sm py-4 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all shadow-[0_0_24px_rgba(236,72,153,0.4)]"
+                style={{ background: 'linear-gradient(135deg,#ec4899,#8b5cf6)' }}
+              >
+                {hasSocialProfile ? '💾 Save Changes' : '🚀 Activate Profile'}
               </button>
+              {hasSocialProfile && (
+                <button
+                  type="button"
+                  onClick={() => setSocialScreen(viewingUid ? 'profile' : 'hub')}
+                  className="text-xs text-gray-400 font-black uppercase tracking-widest"
+                >
+                  Cancel
+                </button>
+              )}
             </div>
           )}
 
@@ -6375,11 +6550,11 @@ Tip: Social Hub se copy karo 📤`,
                             </div>
                             <span className="text-white text-[9px] font-black">Gift</span>
                           </button>
-                          <button onClick={e => { e.stopPropagation(); handleLike(String(post.postId || post.id), true); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); handleLike(post, true); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center ${likedPosts[post.postId || post.id] ? 'bg-red-500/30' : 'bg-black/40 backdrop-blur-sm'}`}>
                               <Heart size={18} className={likedPosts[post.postId || post.id] ? 'text-red-400 fill-red-400' : 'text-white'}/>
                             </div>
-                            <span className="text-white text-[9px] font-black">{(likedPosts[post.postId || post.id] ? (post.likes||0) + 1 : post.likes||0)}</span>
+                            <span className="text-white text-[9px] font-black">{post.likes || 0}</span>
                           </button>
                           <button onClick={e => openComments(post, e)} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
@@ -6484,7 +6659,7 @@ Tip: Social Hub se copy karo 📤`,
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center ${likedPosts[vid.id] ? 'bg-red-500/30' : 'bg-black/40 backdrop-blur-sm'}`}>
                               <Heart size={18} className={likedPosts[vid.id] ? 'text-red-400 fill-red-400' : 'text-white'}/>
                             </div>
-                            <span className="text-white text-[9px] font-black">{formatViews((likedPosts[vid.id] ? (vid.likes||0) + 1 : vid.likes||0))}</span>
+                            <span className="text-white text-[9px] font-black">{formatViews(vid.likes || 0)}</span>
                           </button>
                           <button onClick={e => openComments(vid, e)} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
@@ -6613,15 +6788,34 @@ Tip: Social Hub se copy karo 📤`,
                         <Plus size={14} className="text-white font-black" strokeWidth={3}/>
                       </button>
                     </div>
-                    <p className="text-white font-black text-lg mt-3">@{username||'AJ_Member'}</p>
-                    <p className="text-gray-400 text-xs mt-1 text-center max-w-xs">{bio||'No bio yet.'}</p>
+                    <p className="text-white font-black text-lg mt-3">
+                      {profileDisplayName || user?.displayName || `@${username || 'AJ_Member'}`}
+                    </p>
+                    <p className="text-gray-400 text-xs">@{username || 'AJ_Member'}</p>
+                    <p className="text-gray-400 text-xs mt-1 text-center max-w-xs">{bio || 'No bio yet.'}</p>
                     <div className="flex gap-8 mt-4">
                       <div className="text-center"><p className="text-white font-black text-lg">{tikProfileMyPosts.length}</p><p className="text-gray-400 text-[10px]">Posts</p></div>
-                      <div className="text-center"><p className="text-white font-black text-lg">{tikProfileFollowers}</p><p className="text-gray-400 text-[10px]">Followers</p></div>
-                      <div className="text-center"><p className="text-white font-black text-lg">{followingList.length}</p><p className="text-gray-400 text-[10px]">Following</p></div>
+                      <button type="button" onClick={() => void openFollowList('followers', user?.uid)} className="text-center active:scale-95">
+                        <p className="text-white font-black text-lg">{tikProfileFollowers}</p>
+                        <p className="text-gray-400 text-[10px]">Followers</p>
+                      </button>
+                      <button type="button" onClick={() => void openFollowList('following', user?.uid)} className="text-center active:scale-95">
+                        <p className="text-white font-black text-lg">{followingList.length}</p>
+                        <p className="text-gray-400 text-[10px]">Following</p>
+                      </button>
                     </div>
                     <div className="flex gap-2 mt-4">
-                      {(['posts','following'] as const).map(tab => (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setProfileDisplayName(profileDisplayName || user?.displayName || '');
+                          setSocialScreen('setup');
+                        }}
+                        className="px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest bg-white/5 border border-white/10 text-gray-300"
+                      >
+                        <Edit3 size={11} className="inline mr-1" /> Edit
+                      </button>
+                      {(['posts', 'following'] as const).map((tab) => (
                         <button key={tab} onClick={() => setTikProfileSubTab(tab)} className={`px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${tikProfileSubTab===tab ? 'bg-pink-600 text-white' : 'bg-white/5 border border-white/10 text-gray-400'}`}>
                           {tab}
                         </button>
@@ -6860,17 +7054,17 @@ Tip: Social Hub se copy karo 📤`,
                         {/* Right actions — hide for Unsplash items, with gift icon */}
                         {!post.isUnsplash && (
                           <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-[110]">
-                            <button onClick={e => { e.stopPropagation(); handleLike(post.id, post.isVideo); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <button onClick={e => { e.stopPropagation(); handleLike(post, false); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                               <div className={`w-10 h-10 rounded-full flex items-center justify-center ${likedPosts[post.id] ? 'bg-red-500/30' : 'bg-black/40 backdrop-blur-sm'}`}>
                                 <Heart size={18} className={likedPosts[post.id] ? 'text-red-400 fill-red-400' : 'text-white'}/>
                               </div>
-                              <span className="text-white text-[9px] font-black">{formatViews((likedPosts[post.id] ? (post.likes||0) + 1 : post.likes||0))}</span>
+                              <span className="text-white text-[9px] font-black">{formatViews(post.likes || 0)}</span>
                             </button>
                             <button onClick={e => openComments(post, e)} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                               <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                                 <MessageSquare size={18} className="text-white"/>
                               </div>
-                              <span className="text-white text-[9px] font-black">{formatViews(post.views||0)}</span>
+                              <span className="text-white text-[9px] font-black">{formatViews(post.commentCount || 0)}</span>
                             </button>
                             <button onClick={e => { e.stopPropagation(); handleShare(post.text||''); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                               <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
@@ -6904,7 +7098,7 @@ Tip: Social Hub se copy karo 📤`,
                           <div className="flex items-center gap-4 mb-3">
                             <div className="flex items-center gap-1.5">
                               <Heart size={14} className={likedPosts[post.id] ? 'text-red-400 fill-red-400' : 'text-pink-400'}/>
-                              <span className="text-pink-400 text-xs font-black">{formatViews((likedPosts[post.id] ? (post.likes||0) + 1 : post.likes||0))}</span>
+                              <span className="text-pink-400 text-xs font-black">{formatViews(post.likes || 0)}</span>
                               <span className="text-gray-500 text-[9px] font-black uppercase">Likes</span>
                             </div>
                             <div className="flex items-center gap-1.5">
@@ -7631,30 +7825,70 @@ Tip: Social Hub se copy karo 📤`,
                       )}
                     </div>
                     {viewingUid !== user?.uid ? (
-                      <div className="flex gap-2 pb-2">
+                      <div className="flex gap-2 pb-2 items-center">
                         <button onClick={() => handleFollow(viewingUid!)} className={`px-4 py-2 rounded-2xl text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all ${isFollowing ? 'bg-white/10 border border-white/20 text-gray-300' : 'bg-pink-600 text-white shadow-[0_0_14px_rgba(236,72,153,0.4)]'}`}>
                           {isFollowing ? <><UserCheck size={12} className="inline mr-1"/>Following</> : <><UserPlus size={12} className="inline mr-1"/>Follow</>}
                         </button>
-                        <button onClick={() => openOrCreateChat(viewingUid!, viewProfile)} className="px-4 py-2 rounded-2xl text-[11px] font-black uppercase tracking-widest bg-white/10 border border-white/20 text-gray-300 active:scale-95 transition-all">
-                          <MessageCircle size={12} className="inline mr-1"/>Message
+                        <button
+                          type="button"
+                          title="Message"
+                          onClick={() => openOrCreateChat(viewingUid!, viewProfile)}
+                          className="w-10 h-10 rounded-2xl bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 flex items-center justify-center active:scale-90 transition-all shadow-[0_0_14px_rgba(34,211,238,0.35)]"
+                        >
+                          <MessageCircle size={18} />
                         </button>
                       </div>
                     ) : (
-                      <button onClick={() => { setSocialScreen('setup'); }} className="pb-2 px-4 py-2 rounded-2xl text-[11px] font-black uppercase tracking-widest bg-white/10 border border-white/20 text-gray-300 active:scale-95 transition-all">
-                        <Edit3 size={12} className="inline mr-1"/>Edit
+                      <button
+                        onClick={() => {
+                          setProfileDisplayName(
+                            viewProfile?.name ||
+                              viewProfile?.displayName ||
+                              profileDisplayName ||
+                              user?.displayName ||
+                              ''
+                          );
+                          setUsername(viewProfile?.username || username || '');
+                          setBio(viewProfile?.bio || bio || '');
+                          setTempPhoto(
+                            viewProfile?.photo ||
+                              viewProfile?.photoURL ||
+                              tempPhoto ||
+                              user?.photoURL ||
+                              ''
+                          );
+                          setSocialScreen('setup');
+                        }}
+                        className="pb-2 px-4 py-2 rounded-2xl text-[11px] font-black uppercase tracking-widest bg-white/10 border border-white/20 text-gray-300 active:scale-95 transition-all"
+                      >
+                        <Edit3 size={12} className="inline mr-1"/>Edit Profile
                       </button>
                     )}
                   </div>
                   {/* Info */}
                   <div className="px-4 mt-3">
-                    <p className="text-white font-black text-lg">{viewProfile?.name||viewProfile?.displayName||'AJ Member'}</p>
-                    <p className="text-gray-400 text-xs">@{viewProfile?.username||'aj_member'}</p>
+                    <p className="text-white font-black text-lg">{viewProfile?.name||viewProfile?.displayName||profileDisplayName||'AJ Member'}</p>
+                    <p className="text-gray-400 text-xs">@{viewProfile?.username||username||'aj_member'}</p>
                     {isMutualFriend && <span className="text-[9px] text-cyan-400 font-black bg-cyan-500/10 border border-cyan-500/20 px-2 py-0.5 rounded-full mt-1 inline-block">Mutual Friend</span>}
-                    {viewProfile?.bio && <p className="text-gray-300 text-xs mt-2">{viewProfile.bio}</p>}
+                    {(viewProfile?.bio || bio) && <p className="text-gray-300 text-xs mt-2">{viewProfile?.bio || bio}</p>}
                     <div className="flex gap-6 mt-4">
                       <div className="text-center"><p className="text-white font-black text-base">{profileVideos.length || viewProfile?.postsCount || 0}</p><p className="text-gray-400 text-[9px]">Posts</p></div>
-                      <div className="text-center"><p className="text-white font-black text-base">{followers}</p><p className="text-gray-400 text-[9px]">Followers</p></div>
-                      <div className="text-center"><p className="text-white font-black text-base">{following}</p><p className="text-gray-400 text-[9px]">Following</p></div>
+                      <button
+                        type="button"
+                        onClick={() => void openFollowList('followers', viewingUid)}
+                        className="text-center active:scale-95 transition-all"
+                      >
+                        <p className="text-white font-black text-base">{followers}</p>
+                        <p className="text-gray-400 text-[9px]">Followers</p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void openFollowList('following', viewingUid)}
+                        className="text-center active:scale-95 transition-all"
+                      >
+                        <p className="text-white font-black text-base">{following}</p>
+                        <p className="text-gray-400 text-[9px]">Following</p>
+                      </button>
                       <div className="text-center"><p className="text-white font-black text-base">{profileTotalLikes}</p><p className="text-gray-400 text-[9px]">Likes</p></div>
                     </div>
                   </div>
@@ -7840,6 +8074,73 @@ Tip: Social Hub se copy karo 📤`,
                       <span className="text-yellow-400 text-[9px] font-black">{g.cost.toLocaleString()} 🪙</span>
                     </button>
                   ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Followers / Following list sheet ── */}
+          {followListMode && (
+            <div
+              className="fixed inset-0 z-[9100] bg-black/80 backdrop-blur-md flex flex-col justify-end"
+              onClick={() => {
+                setFollowListMode(null);
+                setFollowListUid(null);
+              }}
+            >
+              <div
+                className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl p-4 max-h-[75vh] flex flex-col"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between mb-3 px-1">
+                  <p className="text-sm font-black text-white uppercase tracking-widest">
+                    {followListMode === 'followers' ? 'Followers' : 'Following'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFollowListMode(null);
+                      setFollowListUid(null);
+                    }}
+                  >
+                    <X size={18} className="text-gray-400" />
+                  </button>
+                </div>
+                <div className="flex-1 overflow-y-auto space-y-2 pb-4">
+                  {followListLoading && (
+                    <p className="text-gray-500 text-xs text-center py-8">Loading…</p>
+                  )}
+                  {!followListLoading && followListUsers.length === 0 && (
+                      <p className="text-gray-500 text-xs text-center py-8">
+                        No {followListMode} yet.
+                      </p>
+                    )}
+                  {!followListLoading &&
+                    followListUsers.map((u: any) => (
+                      <button
+                        key={u.uid}
+                        type="button"
+                        onClick={() => {
+                          setFollowListMode(null);
+                          void openProfile(u.uid);
+                        }}
+                        className="w-full flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl p-3 active:scale-95 transition-all"
+                      >
+                        <img
+                          src={u.photo || u.photoURL || '/logo.png'}
+                          className="w-10 h-10 rounded-full border border-white/20 object-cover"
+                          alt=""
+                        />
+                        <div className="text-left min-w-0 flex-1">
+                          <p className="text-xs font-black text-white truncate">
+                            {u.name || u.displayName || `@${u.username || u.uid}`}
+                          </p>
+                          <p className="text-[9px] text-gray-400 truncate">
+                            @{u.username || u.uid}
+                          </p>
+                        </div>
+                      </button>
+                    ))}
                 </div>
               </div>
             </div>
