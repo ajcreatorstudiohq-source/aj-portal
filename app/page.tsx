@@ -7098,7 +7098,6 @@ Tip: Social Hub se copy karo 📤`,
               <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
                 {[ { icon: '🎬', label: 'AJ TikReels', sub: 'Short Videos', action: () => { setSocialScreen('tikreels'); setTiktabMode('feed'); } },
                   { icon: '🎬', label: 'AJ Pulse', sub: 'Social features', action: () => { setSocialScreen('pulse'); setPulseTab('feed'); } },
-                  { icon: '💬', label: 'Messages', sub: 'Chats & friend IDs', action: () => { openMessagesInbox(); } },
                   { icon: 'G', label: 'Go Live', sub: 'Social features', action: () => { setSocialScreen('golive'); } },
                   { icon: 'J', label: 'Join Live', sub: 'Social features', action: () => { setSocialScreen('joinlive'); } },
                   { icon: 'M', label: 'My Profile', sub: 'Social features', action: () => { openProfile(user.uid); } },
@@ -8718,16 +8717,7 @@ Tip: Social Hub se copy karo 📤`,
                         </button>
                       </div>
                     ) : (
-                      <div className="flex gap-2 pb-2 items-center">
-                        <button
-                          type="button"
-                          title="Messages"
-                          onClick={() => openMessagesInbox('profile')}
-                          className="w-10 h-10 rounded-2xl bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 flex items-center justify-center active:scale-90 transition-all shadow-[0_0_14px_rgba(34,211,238,0.35)]"
-                        >
-                          <MessageCircle size={18} />
-                        </button>
-                        <button
+                      <button
                         onClick={() => {
                           setProfileDisplayName(
                             viewProfile?.name ||
@@ -8747,11 +8737,10 @@ Tip: Social Hub se copy karo 📤`,
                           );
                           setSocialScreen('setup');
                         }}
-                        className="px-4 py-2 rounded-2xl text-[11px] font-black uppercase tracking-widest bg-white/10 border border-white/20 text-gray-300 active:scale-95 transition-all"
+                        className="pb-2 px-4 py-2 rounded-2xl text-[11px] font-black uppercase tracking-widest bg-white/10 border border-white/20 text-gray-300 active:scale-95 transition-all"
                       >
                         <Edit3 size={12} className="inline mr-1"/>Edit Profile
                       </button>
-                      </div>
                     )}
                   </div>
                   {/* Info */}
