@@ -31,6 +31,12 @@ import {
 import { earnReward } from './lib/client-rewards';
 import { trackAdEvent } from './lib/ad-client';
 import { INFEED_AD_EVERY_N } from './lib/ads-config';
+import {
+  normalizeTikReelPost,
+  mergeTikReelPosts,
+  filterOwnedBy,
+  type TikReelPost,
+} from './lib/tikreel';
 import AdminUsersPanel from './components/AdminUsersPanel';
 import { isPortalAdminUser } from './lib/admin-auth';
 import { BAN_FORBIDDEN_MESSAGE, DEFAULT_ACCOUNT_BAN_FIELDS, isUserBanned } from './lib/user-ban';
@@ -2125,10 +2131,76 @@ export function AJSuperPortal() {
       } catch {}
     }
     if (socialScreen==='tikreels') {
+      // TikTok-style feed: load a large recent window of community uploads + videos col
+      const unsubs: Array<() => void> = [];
+      let fromPosts: TikReelPost[] = [];
+      let fromVideos: TikReelPost[] = [];
+      const publish = () => {
+        setUserPosts(mergeTikReelPosts([fromPosts, fromVideos]));
+      };
       try {
-        const q = query(collection(db,"user_posts"), orderBy("createdAt","desc"), limit(20));
-        return onSnapshot(q, snap => setUserPosts(snap.docs.map(d=>({id:d.id,...d.data()}))));
-      } catch {}
+        const q = query(
+          collection(db, 'user_posts'),
+          orderBy('createdAt', 'desc'),
+          limit(100)
+        );
+        unsubs.push(
+          onSnapshot(
+            q,
+            (snap) => {
+              fromPosts = snap.docs.map((d) =>
+                normalizeTikReelPost(d.id, d.data() as Record<string, unknown>, 'user_posts')
+              );
+              publish();
+            },
+            (err) => console.warn('tikreels user_posts feed', err)
+          )
+        );
+      } catch (e) {
+        console.warn('tikreels user_posts query', e);
+      }
+      try {
+        // Prefer createdAtMs (no composite index); fall back to unordered snapshot
+        const qv = query(
+          collection(db, 'videos'),
+          orderBy('createdAtMs', 'desc'),
+          limit(100)
+        );
+        unsubs.push(
+          onSnapshot(
+            qv,
+            (snap) => {
+              fromVideos = snap.docs.map((d) =>
+                normalizeTikReelPost(d.id, d.data() as Record<string, unknown>, 'videos')
+              );
+              publish();
+            },
+            () => {
+              // Fallback without orderBy if index missing
+              try {
+                const q2 = query(collection(db, 'videos'), limit(100));
+                unsubs.push(
+                  onSnapshot(q2, (snap) => {
+                    fromVideos = snap.docs.map((d) =>
+                      normalizeTikReelPost(
+                        d.id,
+                        d.data() as Record<string, unknown>,
+                        'videos'
+                      )
+                    );
+                    publish();
+                  })
+                );
+              } catch (e2) {
+                console.warn('tikreels videos feed fallback', e2);
+              }
+            }
+          )
+        );
+      } catch (e) {
+        console.warn('tikreels videos query', e);
+      }
+      return () => unsubs.forEach((u) => u());
     }
     if (socialScreen==='pulse') {
       try {
@@ -2275,85 +2347,80 @@ export function AJSuperPortal() {
     return () => {};
   }, [socialScreen]);
 
-  // FIX: When TikReels profile tab is opened, fetch ONLY this user's videos
-  // Primary: videos where userId matches; fallback: user_posts for same uid
+  // FIX: When TikReels profile tab is opened, fetch ALL of this user's videos
+  // via uid/userId queries (not global newest-60 + client filter).
   useEffect(() => {
     if (socialScreen !== 'tikreels' || tiktabMode !== 'profile') return;
     if (!user) return;
     const fetchMyPosts = async () => {
       try {
-        const seen = new Set<string>();
-        const merged: any[] = [];
+        const lists: TikReelPost[][] = [];
 
-        // Primary: top-level videos filtered by userId === current user
+        // videos.userId
         try {
-          const videosQ = query(
-            collection(db, 'videos'),
-            where('userId', '==', user.uid),
-            limit(60)
+          const videosSnap = await getDocs(
+            query(collection(db, 'videos'), where('userId', '==', user.uid), limit(120))
           );
-          const videosSnap = await getDocs(videosQ);
-          for (const d of videosSnap.docs) {
-            const data = d.data() as Record<string, unknown>;
-            if (String(data.userId || data.uid || '') !== user.uid) continue;
-            const videoUrl = String(
-              data.videoUrl || data.url || data.src || data.image || data.mediaUrl || ''
-            );
-            const thumbnail = String(
-              data.thumbnail || data.thumb || data.poster || data.cover || videoUrl || ''
-            );
-            const row = {
-              id: d.id,
-              ...data,
-              uid: user.uid,
-              userId: user.uid,
-              videoUrl,
-              image: videoUrl || thumbnail,
-              thumbnail,
-              isVideo: true,
-              views: Number(data.views || 0),
-              text: data.text || data.caption || data.textOverlay || '',
-            };
-            if (!seen.has(d.id)) {
-              seen.add(d.id);
-              merged.push(row);
-            }
-          }
+          lists.push(
+            videosSnap.docs.map((d) =>
+              normalizeTikReelPost(d.id, d.data() as Record<string, unknown>, 'videos')
+            )
+          );
         } catch (ve) {
-          console.warn('tikProfile videos query', ve);
+          console.warn('tikProfile videos.userId', ve);
         }
 
-        // Fallback: user_posts belonging to this user only
+        // videos.uid (legacy dual field)
         try {
-          const q1 = query(collection(db, 'user_posts'), orderBy('createdAt', 'desc'), limit(60));
-          const snap1 = await getDocs(q1);
-          for (const d of snap1.docs) {
-            const p = { id: d.id, ...(d.data() as any) };
-            if (p.uid !== user.uid && p.userId !== user.uid) continue;
-            if (seen.has(d.id)) continue;
-            seen.add(d.id);
-            merged.push({
-              ...p,
-              userId: p.userId || p.uid || user.uid,
-              videoUrl: p.videoUrl || p.image || p.url || '',
-              thumbnail: p.thumbnail || p.image || p.videoUrl || '',
-            });
-          }
+          const videosUidSnap = await getDocs(
+            query(collection(db, 'videos'), where('uid', '==', user.uid), limit(120))
+          );
+          lists.push(
+            videosUidSnap.docs.map((d) =>
+              normalizeTikReelPost(d.id, d.data() as Record<string, unknown>, 'videos')
+            )
+          );
+        } catch {}
+
+        // user_posts.uid
+        try {
+          const postsSnap = await getDocs(
+            query(collection(db, 'user_posts'), where('uid', '==', user.uid), limit(120))
+          );
+          lists.push(
+            postsSnap.docs.map((d) =>
+              normalizeTikReelPost(d.id, d.data() as Record<string, unknown>, 'user_posts')
+            )
+          );
         } catch (e) {
-          console.error('fetchTikProfileMyPosts', e);
+          console.warn('tikProfile user_posts.uid', e);
         }
 
-        merged.sort((a, b) => {
-          const am =
-            typeof a.createdAt?.toMillis === 'function'
-              ? a.createdAt.toMillis()
-              : Number(a.createdAtMs || a.createdAt || 0);
-          const bm =
-            typeof b.createdAt?.toMillis === 'function'
-              ? b.createdAt.toMillis()
-              : Number(b.createdAtMs || b.createdAt || 0);
-          return bm - am;
-        });
+        // user_posts.userId
+        try {
+          const posts2 = await getDocs(
+            query(collection(db, 'user_posts'), where('userId', '==', user.uid), limit(120))
+          );
+          lists.push(
+            posts2.docs.map((d) =>
+              normalizeTikReelPost(d.id, d.data() as Record<string, unknown>, 'user_posts')
+            )
+          );
+        } catch {}
+
+        // Legacy subcollection
+        try {
+          const subSnap = await getDocs(
+            query(collection(db, 'users', user.uid, 'videos'), limit(80))
+          );
+          lists.push(
+            subSnap.docs.map((d) =>
+              normalizeTikReelPost(d.id, d.data() as Record<string, unknown>, 'users_videos')
+            )
+          );
+        } catch {}
+
+        const merged = filterOwnedBy(mergeTikReelPosts(lists), user.uid);
         setTikProfileMyPosts(merged);
       } catch (e) {
         console.error('fetchTikProfileMyPosts', e);
@@ -2744,14 +2811,25 @@ export function AJSuperPortal() {
     const isTikFeed = socialScreen === 'tikreels' && tiktabMode === 'feed';
     const isPulseFeed = socialScreen === 'pulse' && pulseTab === 'feed';
     if (!isTikFeed && !isPulseFeed) return;
-    // Track views for user posts only
+    // Track views for community TikReels (user posts render FIRST in the feed)
     if (socialScreen === 'tikreels' && userPosts.length > 0) {
-      const localIdx = activeVideoIdx - pixaVideos.length;
-      if (localIdx >= 0 && userPosts[localIdx]) {
+      const localIdx = activeVideoIdx;
+      if (localIdx >= 0 && localIdx < userPosts.length && userPosts[localIdx]) {
         const postId = userPosts[localIdx].id;
+        const col =
+          userPosts[localIdx]._source === 'videos' ? 'videos' : 'user_posts';
         if (!trackedViewsRef.current.has(postId)) {
           trackedViewsRef.current.add(postId);
-          try { updateDoc(doc(db, 'user_posts', postId), { views: increment(1) }); } catch {}
+          try {
+            updateDoc(doc(db, col, postId), { views: increment(1) });
+          } catch {}
+          // Also bump linked user_posts when viewing a videos-doc
+          const linked = userPosts[localIdx].postId;
+          if (col === 'videos' && linked) {
+            try {
+              updateDoc(doc(db, 'user_posts', String(linked)), { views: increment(1) });
+            } catch {}
+          }
         }
       }
     }
@@ -3889,108 +3967,70 @@ export function AJSuperPortal() {
           pulseAll.filter((p: any) => (p.uid === uid || p.userId === uid) && !p.isVideo)
         );
 
-        // Primary: top-level `videos` where userId matches the profile being viewed
-        let fromVideosCol: any[] = [];
+        // Primary: top-level `videos` where userId / uid matches the profile
+        const lists: TikReelPost[][] = [];
         try {
-          const videosQ = query(
-            collection(db, 'videos'),
-            where('userId', '==', uid),
-            limit(60)
+          const videosSnap = await getDocs(
+            query(collection(db, 'videos'), where('userId', '==', uid), limit(120))
           );
-          const videosSnap = await getDocs(videosQ);
-          fromVideosCol = videosSnap.docs.map((d) => {
-            const data = d.data() as Record<string, unknown>;
-            const videoUrl = String(
-              data.videoUrl || data.url || data.src || data.image || data.mediaUrl || ''
-            );
-            const thumbnail = String(
-              data.thumbnail || data.thumb || data.poster || data.cover || videoUrl || ''
-            );
-            return {
-              id: d.id,
-              ...data,
-              userId: data.userId || uid,
-              videoUrl,
-              thumbnail,
-              text: data.text || data.caption || data.textOverlay || '',
-              isVideo: true,
-              views: Number(data.views || 0),
-              createdAt: data.createdAt,
-            };
-          });
-          // Newest first (client sort — avoids composite index requirement)
-          fromVideosCol.sort((a, b) => {
-            const am =
-              typeof a.createdAt?.toMillis === 'function'
-                ? a.createdAt.toMillis()
-                : Number(a.createdAtMs || a.createdAt || 0);
-            const bm =
-              typeof b.createdAt?.toMillis === 'function'
-                ? b.createdAt.toMillis()
-                : Number(b.createdAtMs || b.createdAt || 0);
-            return bm - am;
-          });
+          lists.push(
+            videosSnap.docs.map((d) =>
+              normalizeTikReelPost(d.id, d.data() as Record<string, unknown>, 'videos')
+            )
+          );
         } catch (ve) {
-          console.warn('openProfile videos query failed', ve);
+          console.warn('openProfile videos.userId failed', ve);
         }
-
-        // Fallback: TikReels user_posts marked as video for this user
-        let feedVideos: any[] = [];
         try {
-          const pq2 = query(collection(db, 'user_posts'), orderBy('createdAt', 'desc'), limit(60));
-          const ps2 = await getDocs(pq2);
-          feedVideos = ps2.docs
-            .map((d) => ({ id: d.id, ...(d.data() as any) }))
-            .filter((p: any) => (p.uid === uid || p.userId === uid) && p.isVideo)
-            .map((v: any) => ({
-              ...v,
-              userId: v.userId || v.uid || uid,
-              videoUrl: v.videoUrl || v.image || v.url || '',
-              thumbnail: v.thumbnail || v.image || v.videoUrl || '',
-              isVideo: true,
-              views: v.views || 0,
-            }));
+          const videosUidSnap = await getDocs(
+            query(collection(db, 'videos'), where('uid', '==', uid), limit(120))
+          );
+          lists.push(
+            videosUidSnap.docs.map((d) =>
+              normalizeTikReelPost(d.id, d.data() as Record<string, unknown>, 'videos')
+            )
+          );
+        } catch {}
+
+        // user_posts owned by this profile (indexed by uid / userId — not global scan)
+        try {
+          const postsSnap = await getDocs(
+            query(collection(db, 'user_posts'), where('uid', '==', uid), limit(120))
+          );
+          lists.push(
+            postsSnap.docs.map((d) =>
+              normalizeTikReelPost(d.id, d.data() as Record<string, unknown>, 'user_posts')
+            )
+          );
+        } catch {}
+        try {
+          const posts2 = await getDocs(
+            query(collection(db, 'user_posts'), where('userId', '==', uid), limit(120))
+          );
+          lists.push(
+            posts2.docs.map((d) =>
+              normalizeTikReelPost(d.id, d.data() as Record<string, unknown>, 'user_posts')
+            )
+          );
         } catch {}
 
         // Legacy subcollection users/{uid}/videos
-        let subVideos: any[] = [];
         try {
           const vSnap = await getDocs(
-            query(collection(db, 'users', uid, 'videos'), orderBy('createdAt', 'desc'), limit(50))
+            query(collection(db, 'users', uid, 'videos'), limit(80))
           );
-          subVideos = vSnap.docs.map((d) => {
-            const data = d.data() as any;
-            return {
-              id: d.id,
-              ...data,
-              userId: data.userId || uid,
-              videoUrl: data.videoUrl || data.image || data.url || '',
-              thumbnail: data.thumbnail || data.image || data.videoUrl || '',
-              isVideo: true,
-              views: data.views || 0,
-            };
-          });
+          lists.push(
+            vSnap.docs.map((d) =>
+              normalizeTikReelPost(d.id, {
+                ...(d.data() as Record<string, unknown>),
+                userId: uid,
+                uid,
+              }, 'users_videos')
+            )
+          );
         } catch {}
 
-        const seen = new Set<string>();
-        const merged: any[] = [];
-        for (const v of [...fromVideosCol, ...feedVideos, ...subVideos]) {
-          const owner = String(v.userId || v.uid || '');
-          // Strict friend-profile filter: only videos owned by this profile uid
-          if (owner !== uid) continue;
-          const key = String(v.id || v.videoUrl || '');
-          if (!key || seen.has(key)) continue;
-          if (!v.videoUrl && !v.thumbnail && !v.image) continue;
-          seen.add(key);
-          merged.push({
-            ...v,
-            userId: uid,
-            videoUrl: v.videoUrl || v.image || v.url || '',
-            thumbnail: v.thumbnail || v.image || v.videoUrl || '',
-            isVideo: true,
-          });
-        }
-        setProfileVideos(merged);
+        setProfileVideos(filterOwnedBy(mergeTikReelPosts(lists), uid));
       } catch (e) {
         console.error('openProfile posts', e);
       }
@@ -4155,16 +4195,19 @@ export function AJSuperPortal() {
         uploadVerified = true;
       }
 
+      const createdAtMs = Date.now();
       const postRef = await addDoc(collection(db,"user_posts"), {
-        text:tiktokPostText, image:mediaUrl, uid:user.uid,
+        text:tiktokPostText, image:mediaUrl, videoUrl: mediaUrl,
+        uid:user.uid, userId:user.uid,
         username:username||"AJ_Member", photo:user.photoURL||'',
         likes:0, views:0, isVideo:tiktokPostIsVideo,
         selectedSound: selectedSound || null,
         textOverlay: tikEditorTextOverlay || null,
         cssFilter: tikEditorFilter || 'none',
-        createdAt:serverTimestamp()
+        createdAt:serverTimestamp(),
+        createdAtMs,
       });
-      // Dual-write videos so friend profiles can query collection('videos').where('userId','==',uid)
+      // Dual-write videos so feed + profiles can query collection('videos')
       if (tiktokPostIsVideo && mediaUrl) {
         try {
           await addDoc(collection(db, 'videos'), {
@@ -4182,12 +4225,32 @@ export function AJSuperPortal() {
             isVideo: true,
             postId: postRef.id,
             createdAt: serverTimestamp(),
-            createdAtMs: Date.now(),
+            createdAtMs,
           });
         } catch (ve) {
           console.warn('videos collection write failed', ve);
         }
+        try {
+          await addDoc(collection(db, 'users', user.uid, 'videos'), {
+            userId: user.uid,
+            uid: user.uid,
+            videoUrl: mediaUrl,
+            thumbnail: mediaUrl,
+            image: mediaUrl,
+            text: tiktokPostText || '',
+            postId: postRef.id,
+            isVideo: true,
+            createdAt: serverTimestamp(),
+            createdAtMs,
+          });
+        } catch {}
       }
+      try {
+        await updateDoc(doc(db, 'users', user.uid), {
+          postsCount: increment(1),
+          lastTikReelAt: serverTimestamp(),
+        });
+      } catch {}
       const reward = await earnReward(user, 'tiktok_post', {
         idempotencyKey: postRef.id,
         meta: { isVideo: tiktokPostIsVideo, postId: postRef.id, uploadVerified },
@@ -4195,6 +4258,31 @@ export function AJSuperPortal() {
       setTiktokPostText(''); setTiktokPostImg(''); setTiktokPostIsVideo(false);
       setTikEditorFilter('none'); setTikEditorTextOverlay(''); setSelectedSound(null);
       setTiktabMode('feed');
+      // Refresh own profile cache immediately
+      setTikProfileMyPosts((prev: any[]) =>
+        mergeTikReelPosts([
+          [
+            normalizeTikReelPost(
+              postRef.id,
+              {
+                text: tiktokPostText,
+                image: mediaUrl,
+                videoUrl: mediaUrl,
+                uid: user.uid,
+                userId: user.uid,
+                username: username || 'AJ_Member',
+                photo: user.photoURL || '',
+                isVideo: tiktokPostIsVideo,
+                likes: 0,
+                views: 0,
+                createdAtMs,
+              },
+              'user_posts'
+            ),
+          ],
+          prev as TikReelPost[],
+        ])
+      );
       if (reward.ok && !reward.duplicate) {
         setVvipAlert({msg: reward.message || `🎬 Post published! +${reward.creditedCoins} AJ Coins 🪙`, icon:"🎬"});
       } else if (reward.error === 'daily_limit') {
@@ -4515,7 +4603,37 @@ export function AJSuperPortal() {
   const handleDeletePost = async (id:string) => {
     const col = (socialScreen === 'pulse') ? 'pulse_posts' : 'user_posts';
     try {
-      await deleteDoc(doc(db, col, id));
+      if (col === 'pulse_posts') {
+        await deleteDoc(doc(db, col, id));
+      } else {
+        // Delete user_posts + any dual-written videos rows
+        try {
+          await deleteDoc(doc(db, 'user_posts', id));
+        } catch {}
+        try {
+          await deleteDoc(doc(db, 'videos', id));
+        } catch {}
+        try {
+          const vs = await getDocs(
+            query(collection(db, 'videos'), where('postId', '==', id), limit(10))
+          );
+          await Promise.all(vs.docs.map((d) => deleteDoc(d.ref)));
+        } catch {}
+        if (user?.uid) {
+          try {
+            await updateDoc(doc(db, 'users', user.uid), { postsCount: increment(-1) });
+          } catch {}
+        }
+        setUserPosts((prev: any[]) =>
+          prev.filter((p) => p.id !== id && p.postId !== id)
+        );
+        setTikProfileMyPosts((prev: any[]) =>
+          prev.filter((p) => p.id !== id && p.postId !== id)
+        );
+        setProfileVideos((prev: any[]) =>
+          prev.filter((p) => p.id !== id && p.postId !== id)
+        );
+      }
       setActiveMenuId(null);
       setVvipAlert({msg:'🗑️ Post deleted.', icon:'🗑️'});
     } catch(e) { console.error('handleDeletePost', e); }
@@ -5809,8 +5927,9 @@ Tip: Social Hub se copy karo 📤`,
                         const newVal = !s;
                         // Re-load active iframe with mute toggled
                         const activeIframe = iframeRefs.current[activeVideoIdx];
-                        if (activeIframe && pixaVideos[activeVideoIdx]) {
-                          const v = pixaVideos[activeVideoIdx];
+                        const ytIdx = activeVideoIdx - userPosts.length;
+                        if (activeIframe && ytIdx >= 0 && pixaVideos[ytIdx]) {
+                          const v = pixaVideos[ytIdx];
                           activeIframe.src = `https://www.youtube.com/embed/${v.id}?autoplay=1&mute=${newVal?0:1}&loop=1&playlist=${v.id}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3`;
                         }
                         return newVal;
@@ -5854,23 +5973,120 @@ Tip: Social Hub se copy karo 📤`,
                       video skip ho jaata thi. Ab pattern:
                       vid[0], vid[1], vid[2], vid[3], AD, vid[4], vid[5], vid[6], vid[7], AD ...
                       — har 4 REAL videos ke baad ek ad, bilkul jaise user ne maanga. */}
+                  {/* Community TikReels first (TikTok-style), then YouTube discovery filler */}
+                  {userPosts.flatMap((post:any, idx:number) => {
+                    const globalIdx = idx;
+                    const isActive  = activeVideoIdx === globalIdx;
+                    const mediaUrl = String(post.videoUrl || post.image || post.url || post.mediaUrl || '');
+                    const ownerUid = String(post.uid || post.userId || '');
+                    const contentEl = (
+                      <div key={`user_${post.id}`} data-vidx={globalIdx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505] flex flex-col justify-end" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
+                        {(post.isVideo || /\.(mp4|webm|mov)(\?|$)/i.test(mediaUrl)) && mediaUrl ? (
+                          <video
+                            ref={el => { userVideoRefs.current[globalIdx] = el; }}
+                            src={mediaUrl}
+                            className="absolute inset-0 w-full h-full object-cover"
+                            autoPlay={isActive} loop muted={!globalSoundOn} playsInline
+                            style={{ filter: post.cssFilter && post.cssFilter !== 'none' ? post.cssFilter : undefined, touchAction:'pan-y' }}
+                          />
+                        ) : mediaUrl ? (
+                          <img src={mediaUrl} className="absolute inset-0 w-full h-full object-cover"/>
+                        ) : (
+                          <div className="absolute inset-0 bg-gradient-to-br from-purple-900/50 to-pink-900/50"/>
+                        )}
+                        {post.textOverlay && (
+                          <div className="absolute top-1/3 left-0 right-0 flex justify-center z-20 pointer-events-none">
+                            <span className="bg-black/60 backdrop-blur-sm text-white font-black text-lg px-4 py-2 rounded-2xl text-center">{post.textOverlay}</span>
+                          </div>
+                        )}
+                        <div
+                          className="absolute inset-0 z-10"
+                          onClick={() => setReelPaused(p => !p)}
+                        />
+                        {reelPaused && isActive && (
+                          <div className="absolute inset-0 z-15 flex items-center justify-center pointer-events-none">
+                            <div className="w-20 h-20 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center">
+                              <span className="text-white text-3xl">⏸</span>
+                            </div>
+                          </div>
+                        )}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none"/>
+                        <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-[110]">
+                          <button onClick={e => { e.stopPropagation(); setPulseGiftPostId(post.postId || post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
+                              <Gift size={18} className="text-yellow-400"/>
+                            </div>
+                            <span className="text-white text-[9px] font-black">Gift</span>
+                          </button>
+                          <button onClick={e => { e.stopPropagation(); handleLike(String(post.postId || post.id), true); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${likedPosts[post.postId || post.id] ? 'bg-red-500/30' : 'bg-black/40 backdrop-blur-sm'}`}>
+                              <Heart size={18} className={likedPosts[post.postId || post.id] ? 'text-red-400 fill-red-400' : 'text-white'}/>
+                            </div>
+                            <span className="text-white text-[9px] font-black">{(likedPosts[post.postId || post.id] ? (post.likes||0) + 1 : post.likes||0)}</span>
+                          </button>
+                          <button onClick={e => { e.stopPropagation(); setCommentPostId(String(post.postId || post.id)); let _tmp: any = null; try { _tmp = document.createElement('input'); _tmp.setAttribute('type','text'); _tmp.style.cssText='position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px;border:0;'; document.body.appendChild(_tmp); _tmp.focus(); } catch {} setTimeout(() => { if (commentInputRef.current) commentInputRef.current.focus(); if (_tmp) try { document.body.removeChild(_tmp); } catch {} }, 120); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
+                              <MessageSquare size={18} className="text-white"/>
+                            </div>
+                            <span className="text-white text-[9px] font-black">{formatViews(post.commentCount||0)}</span>
+                          </button>
+                          <button onClick={e => { e.stopPropagation(); handleShare(post.text||''); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
+                              <Share2 size={18} className="text-white"/>
+                            </div>
+                            <span className="text-white text-[9px] font-black">Share</span>
+                          </button>
+                          {ownerUid === user?.uid && (
+                            <button onClick={e => { e.stopPropagation(); handleDeletePost(String(post.postId || post.id)); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                              <div className="w-10 h-10 rounded-full bg-red-500/30 backdrop-blur-sm flex items-center justify-center">
+                                <Trash2 size={18} className="text-red-400"/>
+                              </div>
+                            </button>
+                          )}
+                        </div>
+                        <div className="absolute bottom-6 left-4 right-16 z-10">
+                          <div className="inline-flex items-center gap-1.5 bg-gradient-to-r from-pink-500/80 to-purple-500/80 backdrop-blur-sm rounded-full px-3 py-1 mb-2">
+                            <span className="text-white text-[8px] font-black uppercase tracking-widest animate-pulse">🔥 Trending Now</span>
+                          </div>
+                          <button className="flex items-center gap-2 mb-1" onClick={() => openProfile(ownerUid)}>
+                            <img src={post.photo||'/logo.png'} className="w-7 h-7 rounded-full border border-white/30 object-cover"/>
+                            <span className="text-white font-black text-xs">@{post.username}</span>
+                          </button>
+                          <p className="text-gray-300 text-[10px] line-clamp-2">{post.text}</p>
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <Eye size={11} className="text-white/80"/>
+                            <span className="text-white/90 text-[9px] font-black">{formatViews(post.views||0)} views</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 mt-1.5">
+                            <div className="w-4 h-4 rounded-full bg-gradient-to-r from-cyan-400 to-pink-500 flex items-center justify-center flex-shrink-0" style={{ animation: 'spin 3s linear infinite' }}>
+                              <div className="w-1.5 h-1.5 bg-white rounded-full"/>
+                            </div>
+                            <span className="text-white/80 text-[9px] font-black truncate">🎵 @{post.username} · AJ Original Sound</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                      if ((idx + 1) % INFEED_AD_EVERY_N === 0) {
+                        return [contentEl, (
+                          <div key={`ad_user_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden" style={{ scrollSnapAlign:'start', background: 'radial-gradient(ellipse at 50% 30%, #1c1a28 0%, #0a0a10 100%)' }}>
+                            <InFeedAdShell placement="tikreel_infeed" user={user}>
+                              <AdsterraNativeBanner slotKey={`tik_user_${idx}`} />
+                            </InFeedAdShell>
+                          </div>
+                        )];
+                      }
+                      return [contentEl];
+                  })}
                   {(() => {
-                    // In-feed ads use Adsterra Native Banner (no black video surface).
-                    // har 8 post pe full-screen ad block karna padta tha jo UX kharab
-                    // karta tha. Ab feed mein SIRF content videos hain, koi ad slot nahi.
-                    // Real Monetag popup ad still fires once per 5-min cycle via navigation
-                    // and free-coin triggers (cooldown-gated), so revenue stays.
                     return pixaVideos.flatMap((vid:any, idx:number) => {
-                      const isActive = activeVideoIdx === idx;
-                      // FIX #6: mute=0 when globalSoundOn, else mute=1; audio kill on scroll
-                      // FIX (Hinglish): enablejsapi=1 add kiya gaya hai taaki hum YouTube
-                      // iframe ko postMessage se pause/resume kar sakein (tap-to-pause ke liye).
+                      const globalIdx = userPosts.length + idx;
+                      const isActive = activeVideoIdx === globalIdx;
                       const embedSrc = `https://www.youtube.com/embed/${vid.id}?autoplay=${isActive?1:0}&mute=${(isActive && globalSoundOn)?0:1}&loop=1&playlist=${vid.id}&controls=0&rel=0&playsinline=1&modestbranding=1&showinfo=0&iv_load_policy=3&enablejsapi=1`;
                     const contentEl = (
-                      <div key={vid.id} data-vidx={idx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505] flex flex-col justify-end" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
+                      <div key={`yt_${vid.id}`} data-vidx={globalIdx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505] flex flex-col justify-end" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
                         {isActive ? (
                           <iframe
-                            ref={el => { iframeRefs.current[idx] = el; }}
+                            ref={el => { iframeRefs.current[globalIdx] = el; }}
                             src={embedSrc}
                             className="absolute inset-0 w-full h-full"
                             style={{ transform:'scale(1.15)', transformOrigin:'center center', pointerEvents:'none', touchAction:'pan-y' }}
@@ -5888,16 +6104,10 @@ Tip: Social Hub se copy karo 📤`,
                             </div>
                           </div>
                         )}
-                        {/* FIX (Hinglish): Tap-to-pause/resume overlay — YouTube iframe pe
-                            pointerEvents:'none' hai isliye hum ek invisible click overlay lagate
-                            hain jo tap pe video ko pause/resume karta hai. Right-side buttons
-                            (like/comment/share) z-20 mein hain aur e.stopPropagation karte hain
-                            isliye woh click yahan nahi aata. */}
                         <div
                           className="absolute inset-0 z-10"
                           onClick={() => setReelPaused(p => !p)}
                         />
-                        {/* Pause icon indicator — dikhata hai ki video paused hai */}
                         {reelPaused && isActive && (
                           <div className="absolute inset-0 z-15 flex items-center justify-center pointer-events-none">
                             <div className="w-20 h-20 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center">
@@ -5906,9 +6116,7 @@ Tip: Social Hub se copy karo 📤`,
                           </div>
                         )}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none"/>
-                        {/* Right actions — TikReel style with gift icon */}
                         <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-[110]">
-                          {/* Gift button */}
                           <button onClick={e => { e.stopPropagation(); setPulseGiftPostId(vid.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <Gift size={18} className="text-yellow-400"/>
@@ -5934,20 +6142,16 @@ Tip: Social Hub se copy karo 📤`,
                             <span className="text-white text-[9px] font-black">Share</span>
                           </button>
                         </div>
-                        {/* Bottom info — TikReel style with TRENDING NOW badge */}
                         <div className="absolute bottom-6 left-4 right-16 z-10">
-                          {/* TRENDING NOW badge */}
                           <div className="inline-flex items-center gap-1.5 bg-gradient-to-r from-pink-500/80 to-purple-500/80 backdrop-blur-sm rounded-full px-3 py-1 mb-2">
                             <span className="text-white text-[8px] font-black uppercase tracking-widest animate-pulse">🔥 Trending Now</span>
                           </div>
                           <p className="text-white font-black text-xs truncate">@{vid.user}</p>
                           <p className="text-gray-300 text-[10px] mt-0.5 line-clamp-2">{vid.title}</p>
-                          {/* Views count */}
                           <div className="flex items-center gap-1.5 mt-1.5">
                             <Eye size={11} className="text-white/80"/>
                             <span className="text-white/90 text-[9px] font-black">{formatViews(vid.views||0)} views</span>
                           </div>
-                          {/* Music attribution — spinning disc icon */}
                           <div className="flex items-center gap-1.5 mt-1.5">
                             <div className="w-4 h-4 rounded-full bg-gradient-to-r from-cyan-400 to-pink-500 flex items-center justify-center flex-shrink-0" style={{ animation: 'spin 3s linear infinite' }}>
                               <div className="w-1.5 h-1.5 bg-white rounded-full"/>
@@ -5957,7 +6161,6 @@ Tip: Social Hub se copy karo 📤`,
                         </div>
                       </div>
                     );
-                      // Every 4th post: Adsterra Native Banner (dark Sponsored card).
                       if ((idx + 1) % INFEED_AD_EVERY_N === 0) {
                         return [contentEl, (
                           <div key={`ad_pixa_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden" style={{ scrollSnapAlign:'start', background: 'radial-gradient(ellipse at 50% 30%, #1c1a28 0%, #0a0a10 100%)' }}>
@@ -5970,114 +6173,6 @@ Tip: Social Hub se copy karo 📤`,
                       return [contentEl];
                     });
                   })()}
-                  {/* User-uploaded TikReels */}
-                  {userPosts.flatMap((post:any, idx:number) => {
-                    const globalIdx = pixaVideos.length + idx;
-                    const isActive  = activeVideoIdx === globalIdx;
-                    const contentEl = (
-                      <div key={post.id} data-vidx={globalIdx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505] flex flex-col justify-end" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
-                        {post.isVideo && post.image ? (
-                          <video
-                            ref={el => { userVideoRefs.current[globalIdx] = el; }}
-                            src={post.image}
-                            className="absolute inset-0 w-full h-full object-cover"
-                            autoPlay={isActive} loop muted={!globalSoundOn} playsInline
-                            style={{ filter: post.cssFilter && post.cssFilter !== 'none' ? post.cssFilter : undefined, touchAction:'pan-y' }}
-                          />
-                        ) : post.image ? (
-                          <img src={post.image} className="absolute inset-0 w-full h-full object-cover"/>
-                        ) : (
-                          <div className="absolute inset-0 bg-gradient-to-br from-purple-900/50 to-pink-900/50"/>
-                        )}
-                        {post.textOverlay && (
-                          <div className="absolute top-1/3 left-0 right-0 flex justify-center z-20 pointer-events-none">
-                            <span className="bg-black/60 backdrop-blur-sm text-white font-black text-lg px-4 py-2 rounded-2xl text-center">{post.textOverlay}</span>
-                          </div>
-                        )}
-                        {/* FIX (Hinglish): Tap-to-pause/resume overlay for user-uploaded videos */}
-                        <div
-                          className="absolute inset-0 z-10"
-                          onClick={() => setReelPaused(p => !p)}
-                        />
-                        {reelPaused && isActive && (
-                          <div className="absolute inset-0 z-15 flex items-center justify-center pointer-events-none">
-                            <div className="w-20 h-20 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center">
-                              <span className="text-white text-3xl">⏸</span>
-                            </div>
-                          </div>
-                        )}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none"/>
-                        {/* Right actions — with gift icon */}
-                        <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-[110]">
-                          <button onClick={e => { e.stopPropagation(); setPulseGiftPostId(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
-                            <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
-                              <Gift size={18} className="text-yellow-400"/>
-                            </div>
-                            <span className="text-white text-[9px] font-black">Gift</span>
-                          </button>
-                          <button onClick={e => { e.stopPropagation(); handleLike(post.id, post.isVideo); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
-                            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${likedPosts[post.id] ? 'bg-red-500/30' : 'bg-black/40 backdrop-blur-sm'}`}>
-                              <Heart size={18} className={likedPosts[post.id] ? 'text-red-400 fill-red-400' : 'text-white'}/>
-                            </div>
-                            <span className="text-white text-[9px] font-black">{(likedPosts[post.id] ? (post.likes||0) + 1 : post.likes||0)}</span>
-                          </button>
-                          <button onClick={e => { e.stopPropagation(); setCommentPostId(post.id); let _tmp: any = null; try { _tmp = document.createElement('input'); _tmp.setAttribute('type','text'); _tmp.style.cssText='position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px;border:0;'; document.body.appendChild(_tmp); _tmp.focus(); } catch {} setTimeout(() => { if (commentInputRef.current) commentInputRef.current.focus(); if (_tmp) try { document.body.removeChild(_tmp); } catch {} }, 120); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
-                            <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
-                              <MessageSquare size={18} className="text-white"/>
-                            </div>
-                            <span className="text-white text-[9px] font-black">{formatViews(post.commentCount||0)}</span>
-                          </button>
-                          <button onClick={e => { e.stopPropagation(); handleShare(post.text||''); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
-                            <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
-                              <Share2 size={18} className="text-white"/>
-                            </div>
-                            <span className="text-white text-[9px] font-black">Share</span>
-                          </button>
-                          {post.uid === user?.uid && (
-                            <button onClick={e => { e.stopPropagation(); handleDeletePost(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
-                              <div className="w-10 h-10 rounded-full bg-red-500/30 backdrop-blur-sm flex items-center justify-center">
-                                <Trash2 size={18} className="text-red-400"/>
-                              </div>
-                            </button>
-                          )}
-                        </div>
-                        {/* Bottom info — with TRENDING NOW + music attribution */}
-                        <div className="absolute bottom-6 left-4 right-16 z-10">
-                          <div className="inline-flex items-center gap-1.5 bg-gradient-to-r from-pink-500/80 to-purple-500/80 backdrop-blur-sm rounded-full px-3 py-1 mb-2">
-                            <span className="text-white text-[8px] font-black uppercase tracking-widest animate-pulse">🔥 Trending Now</span>
-                          </div>
-                          <button className="flex items-center gap-2 mb-1" onClick={() => openProfile(post.uid)}>
-                            <img src={post.photo||'/logo.png'} className="w-7 h-7 rounded-full border border-white/30 object-cover"/>
-                            <span className="text-white font-black text-xs">@{post.username}</span>
-                          </button>
-                          <p className="text-gray-300 text-[10px] line-clamp-2">{post.text}</p>
-                          <div className="flex items-center gap-1.5 mt-1">
-                            <Eye size={11} className="text-white/80"/>
-                            <span className="text-white/90 text-[9px] font-black">{formatViews(post.views||0)} views</span>
-                          </div>
-                          {/* Music attribution */}
-                          <div className="flex items-center gap-1.5 mt-1.5">
-                            <div className="w-4 h-4 rounded-full bg-gradient-to-r from-cyan-400 to-pink-500 flex items-center justify-center flex-shrink-0" style={{ animation: 'spin 3s linear infinite' }}>
-                              <div className="w-1.5 h-1.5 bg-white rounded-full"/>
-                            </div>
-                            <span className="text-white/80 text-[9px] font-black truncate">🎵 @{post.username} · AJ Original Sound</span>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                      // FIX ROUND 8: Har 4 user-uploaded videos ke baad ek REAL video ad.
-                      // Every 4th post: Adsterra Native Banner (dark Sponsored card).
-                      if ((idx + 1) % INFEED_AD_EVERY_N === 0) {
-                        return [contentEl, (
-                          <div key={`ad_user_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden" style={{ scrollSnapAlign:'start', background: 'radial-gradient(ellipse at 50% 30%, #1c1a28 0%, #0a0a10 100%)' }}>
-                            <InFeedAdShell placement="tikreel_infeed" user={user}>
-                              <AdsterraNativeBanner slotKey={`tik_user_${idx}`} />
-                            </InFeedAdShell>
-                          </div>
-                        )];
-                      }
-                      return [contentEl];
-                  })}
                   {pixaVideos.length === 0 && userPosts.length === 0 && (
                     <div className="flex flex-col items-center justify-center h-full gap-4 pt-32">
                       <span className="text-5xl">🎬</span>
@@ -7159,7 +7254,7 @@ Tip: Social Hub se copy karo 📤`,
                     {isMutualFriend && <span className="text-[9px] text-cyan-400 font-black bg-cyan-500/10 border border-cyan-500/20 px-2 py-0.5 rounded-full mt-1 inline-block">Mutual Friend</span>}
                     {viewProfile?.bio && <p className="text-gray-300 text-xs mt-2">{viewProfile.bio}</p>}
                     <div className="flex gap-6 mt-4">
-                      <div className="text-center"><p className="text-white font-black text-base">{viewProfile?.postsCount||0}</p><p className="text-gray-400 text-[9px]">Posts</p></div>
+                      <div className="text-center"><p className="text-white font-black text-base">{profileVideos.length || viewProfile?.postsCount || 0}</p><p className="text-gray-400 text-[9px]">Posts</p></div>
                       <div className="text-center"><p className="text-white font-black text-base">{followers}</p><p className="text-gray-400 text-[9px]">Followers</p></div>
                       <div className="text-center"><p className="text-white font-black text-base">{following}</p><p className="text-gray-400 text-[9px]">Following</p></div>
                       <div className="text-center"><p className="text-white font-black text-base">{profileTotalLikes}</p><p className="text-gray-400 text-[9px]">Likes</p></div>
