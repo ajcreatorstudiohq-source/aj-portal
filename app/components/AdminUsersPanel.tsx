@@ -19,7 +19,6 @@ import { isPortalAdminUser } from '../lib/admin-auth';
 import { ACCOUNT_STATUS, buildBanUpdate, isUserBanned } from '../lib/user-ban';
 import { isRtdbPresenceOnline, isUserOnlineNow, type PresenceSnapshot } from '../lib/presence';
 import { COIN_RATE, CASH_RATE, formatUsd, coinsToUsd } from '../lib/economy';
-import { COIN_RATE, formatUsd, coinsToUsd } from '../lib/economy';
 import { ensureUserReferralId } from '../lib/referral';
 
 export type AdminUserRow = {
