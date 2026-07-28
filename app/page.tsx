@@ -27,6 +27,7 @@ import {
   REFERRAL_BONUS_COINS,
   MIN_WITHDRAW_COINS,
   COIN_RATE as ECONOMY_COIN_RATE,
+  CASH_RATE,
   PLATFORM_EARN_SHARE,
   USER_EARN_SHARE as ECONOMY_USER_EARN_SHARE,
   coinsToUsd,
@@ -6873,10 +6874,10 @@ Tip: Social Hub se copy karo 📤`,
                 <p className="text-4xl font-black bg-gradient-to-r from-yellow-300 to-yellow-500 bg-clip-text text-transparent mt-1">{parseFloat(displayBalance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} <span className="text-lg text-yellow-400/70">AJ Coins 🪙</span></p>
                 <p className="text-sm font-black text-emerald-400 mt-1">
                   ≈ {formatUsd(coinsToUsd(Number(displayBalance) || balance))}
-                  <span className="text-[10px] text-gray-500 font-bold ml-2">({COIN_RATE} 🪙 = $1)</span>
+                  <span className="text-[10px] text-gray-500 font-bold ml-2">(withdraw {CASH_RATE} 🪙 = $1)</span>
                 </p>
                 <p className="text-xs text-gray-400 mt-1">
-                  Min withdraw 20,000 AJ Coins 🪙 ({formatUsd(coinsToCashUsd(20000))} cash)
+                  Min withdraw 20,000 AJ Coins 🪙 ({formatUsd(coinsToCashUsd(20000))})
                 </p>
                 {botTier !== 'none' && (
                   <div className="mt-3 flex items-center gap-2 bg-green-500/10 border border-green-500/20 rounded-2xl px-3 py-2">
@@ -9279,19 +9280,19 @@ Tip: Social Hub se copy karo 📤`,
                     <p className="text-4xl font-black bg-gradient-to-r from-yellow-300 to-yellow-500 bg-clip-text text-transparent mt-1">{parseFloat(displayBalance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} <span className="text-lg text-yellow-400/70">AJ Coins 🪙</span></p>
                     <p className="text-sm font-black text-emerald-400 mt-1">
                       ≈ {formatUsd(coinsToUsd(Number(displayBalance) || balance))}
-                      <span className="text-[10px] text-gray-500 font-bold ml-2">({COIN_RATE} 🪙 = $1)</span>
+                      <span className="text-[10px] text-gray-500 font-bold ml-2">(withdraw {CASH_RATE} 🪙 = $1)</span>
                     </p>
                     <p className="text-xs text-gray-400 mt-1">
-                  Min withdraw 20,000 AJ Coins 🪙 ({formatUsd(coinsToCashUsd(20000))} cash)
+                  Min withdraw 20,000 AJ Coins 🪙 ({formatUsd(coinsToCashUsd(20000))})
                 </p>
                     <div className="mt-4 grid grid-cols-2 gap-2">
                       <div className="bg-white/5 rounded-2xl p-3 text-center">
-                        <p className="text-[9px] text-gray-400 font-black uppercase">Rate</p>
-                        <p className="text-white font-black text-xs mt-1">{COIN_RATE} 🪙 = $1</p>
+                        <p className="text-[9px] text-gray-400 font-black uppercase">Buy rate</p>
+                        <p className="text-white font-black text-xs mt-1">{COIN_RATE} 🪙 / $1</p>
                       </div>
                       <div className="bg-white/5 rounded-2xl p-3 text-center">
-                        <p className="text-[9px] text-gray-400 font-black uppercase">Cash Out</p>
-                        <p className="text-white font-black text-xs mt-1">{formatUsd(coinsToCashUsd(balance))}</p>
+                        <p className="text-[9px] text-gray-400 font-black uppercase">Withdraw</p>
+                        <p className="text-white font-black text-xs mt-1">{CASH_RATE} 🪙 = $1</p>
                       </div>
                     </div>
                   </div>
@@ -9339,8 +9340,12 @@ Tip: Social Hub se copy karo 📤`,
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
                   <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">Available Balance</p>
                   <p className="text-2xl font-black text-yellow-400">{balance.toFixed(0)} 🪙</p>
-                  <p className="text-sm font-black text-emerald-400 mt-1">≈ {formatUsd(coinsToUsd(balance))} · cash {formatUsd(coinsToCashUsd(balance))}</p>
-                  <p className="text-[10px] text-gray-400 mt-1">AJ Coins 🪙 · {COIN_RATE} 🪙 = $1</p>
+                  <p className="text-sm font-black text-emerald-400 mt-1">
+                    ≈ {formatUsd(coinsToCashUsd(balance))}
+                  </p>
+                  <p className="text-[10px] text-gray-400 mt-1">
+                    Withdraw value · {CASH_RATE} 🪙 = $1
+                  </p>
                   <p className="text-[9px] text-orange-400 mt-2 font-black">
                     Min withdraw 20,000 AJ Coins 🪙
                   </p>

@@ -56,7 +56,8 @@ Ledger: `admin_stats/earnings` + `AdminRevenue` rows.
 
 ## User wallet
 
-Users see coins **and** USD (`100 🪙 = $1`). Withdraw cash estimate uses `1000 🪙 ≈ $1`.
+Users see coins **and** withdraw USD (**1000 🪙 = $1**).  
+Buy rate stays separate (`COIN_RATE = 100` per purchase unit).
 
 ## Firestore fields to check
 
