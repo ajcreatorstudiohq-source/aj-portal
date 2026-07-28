@@ -49,6 +49,10 @@ export function urlLooksLikeVideo(url: string): boolean {
   const u = url.trim();
   if (/^blob:/i.test(u) || /^data:video\//i.test(u)) return true;
   if (/\/video\/upload\//i.test(u)) return true; // Cloudinary video
+  // Free public hosts (Catbox etc.) — treat as video when file ext matches
+  if (/files\.catbox\.moe|litter\.catbox\.moe|i\.ibb\.co/i.test(u) && VIDEO_EXT_RE.test(u)) {
+    return true;
+  }
   // Cloudinary image delivery of a still — not a video (unless file ext is video)
   if (/\/image\/upload\//i.test(u) && !VIDEO_EXT_RE.test(u)) return false;
   if (VIDEO_EXT_RE.test(u) || VIDEO_EXT_ENC_RE.test(u)) return true;

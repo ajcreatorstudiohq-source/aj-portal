@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Ban, RefreshCw, Search, Shield } from 'lucide-react';
 import {
   collection,
@@ -12,9 +12,12 @@ import {
   serverTimestamp,
   updateDoc,
 } from 'firebase/firestore';
+import { getApps } from 'firebase/app';
+import { getDatabase, ref, onValue, off } from 'firebase/database';
 import { auth, db } from '../firebase';
 import { isPortalAdminUser } from '../lib/admin-auth';
 import { ACCOUNT_STATUS, buildBanUpdate, isUserBanned } from '../lib/user-ban';
+import { isRtdbPresenceOnline, isUserOnlineNow, type PresenceSnapshot } from '../lib/presence';
 
 export type AdminUserRow = {
   uid: string;
@@ -27,6 +30,7 @@ export type AdminUserRow = {
   isBanned?: boolean;
   banReason?: string;
   status?: string;
+  lastSeenMs?: number;
 };
 
 type Props = {
@@ -38,6 +42,7 @@ type Props = {
 
 export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
   const [users, setUsers] = useState<AdminUserRow[]>([]);
+  const [presenceByUid, setPresenceByUid] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [banningUid, setBanningUid] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -74,7 +79,6 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
       try {
         snap = await getDocs(q);
       } catch {
-        // Fallback if lastSync index/order fails
         snap = await getDocs(query(collection(db, 'users'), limit(100)));
       }
       const rows: AdminUserRow[] = snap.docs.map((d) => {
@@ -90,6 +94,7 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
           isBanned: Boolean(data.isBanned),
           banReason: (data.banReason as string) || '',
           status: (data.status as string) || 'offline',
+          lastSeenMs: Number(data.lastSeenMs || 0) || undefined,
         };
       });
       setUsers(rows);
@@ -104,7 +109,35 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
   useEffect(() => {
     if (!allowed) return;
     loadUsers();
+    // Refresh Firestore lastSeen periodically so lights stay accurate
+    const t = window.setInterval(() => {
+      void loadUsers();
+    }, 45000);
+    return () => window.clearInterval(t);
   }, [allowed, loadUsers]);
+
+  // Real-time RTDB presence — who is actually in the portal right now
+  useEffect(() => {
+    if (!allowed) return;
+    const app = getApps()[0];
+    if (!app) return;
+    const rtdb = getDatabase(app);
+    const presenceRef = ref(rtdb, 'presence');
+    const handler = (snap: { forEach: (cb: (c: { key: string | null; val: () => PresenceSnapshot }) => void) => void }) => {
+      const next: Record<string, boolean> = {};
+      snap.forEach((child) => {
+        if (!child.key) return;
+        next[child.key] = isRtdbPresenceOnline(child.val());
+      });
+      setPresenceByUid(next);
+    };
+    onValue(presenceRef, handler, (err) => {
+      console.warn('Admin presence listen failed — publish database.rules.json presence', err);
+    });
+    return () => {
+      off(presenceRef);
+    };
+  }, [allowed]);
 
   const markBannedInUi = (uid: string, banReason: string) => {
     setUsers((prev) =>
@@ -174,7 +207,6 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
         return;
       }
 
-      // API failed (rules/network) — fall back to authenticated client write
       console.warn('ban API failed, using client fallback:', data?.error || res.status);
       await banViaClientFallback(target.uid, reason);
       markBannedInUi(target.uid, reason);
@@ -190,16 +222,44 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
     }
   };
 
-  const filtered = users.filter((u) => {
+  const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return true;
-    return (
-      u.uid.toLowerCase().includes(q) ||
-      (u.email || '').toLowerCase().includes(q) ||
-      (u.username || '').toLowerCase().includes(q) ||
-      (u.name || '').toLowerCase().includes(q)
-    );
-  });
+    const rows = users.filter((u) => {
+      if (!q) return true;
+      return (
+        u.uid.toLowerCase().includes(q) ||
+        (u.email || '').toLowerCase().includes(q) ||
+        (u.username || '').toLowerCase().includes(q) ||
+        (u.name || '').toLowerCase().includes(q)
+      );
+    });
+    // Online users first
+    return [...rows].sort((a, b) => {
+      const aOn = isUserOnlineNow({
+        rtdbOnline: presenceByUid[a.uid],
+        status: a.status,
+        lastSeenMs: a.lastSeenMs,
+      })
+        ? 1
+        : 0;
+      const bOn = isUserOnlineNow({
+        rtdbOnline: presenceByUid[b.uid],
+        status: b.status,
+        lastSeenMs: b.lastSeenMs,
+      })
+        ? 1
+        : 0;
+      return bOn - aOn;
+    });
+  }, [users, search, presenceByUid]);
+
+  const onlineCount = filtered.filter((u) =>
+    isUserOnlineNow({
+      rtdbOnline: presenceByUid[u.uid],
+      status: u.status,
+      lastSeenMs: u.lastSeenMs,
+    })
+  ).length;
 
   if (!allowed) return null;
 
@@ -244,8 +304,18 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
             className="flex-1 bg-transparent text-white text-sm focus:outline-none placeholder:text-gray-600"
           />
         </div>
-        <p className="text-[10px] text-gray-500 mt-2 font-black uppercase tracking-widest">
-          {filtered.length} user{filtered.length === 1 ? '' : 's'}
+        <p className="text-[10px] text-gray-500 mt-2 font-black uppercase tracking-widest flex items-center gap-3">
+          <span>
+            {filtered.length} user{filtered.length === 1 ? '' : 's'}
+          </span>
+          <span className="inline-flex items-center gap-1.5 text-emerald-400">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            {onlineCount} online
+          </span>
+          <span className="inline-flex items-center gap-1.5 text-red-400">
+            <span className="w-2 h-2 rounded-full bg-red-500" />
+            {Math.max(0, filtered.length - onlineCount)} offline
+          </span>
         </p>
       </div>
 
@@ -261,32 +331,57 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
         <div className="space-y-2">
           {filtered.map((u) => {
             const banned = isUserBanned(u);
+            const online = isUserOnlineNow({
+              rtdbOnline: presenceByUid[u.uid],
+              status: u.status,
+              lastSeenMs: u.lastSeenMs,
+            });
             return (
               <div
                 key={u.uid}
                 className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl p-3"
               >
-                <img
-                  src={u.photo || '/logo.png'}
-                  alt=""
-                  className="w-10 h-10 rounded-full object-cover border border-white/20 flex-shrink-0"
-                />
+                <div className="relative flex-shrink-0">
+                  <img
+                    src={u.photo || '/logo.png'}
+                    alt=""
+                    className="w-10 h-10 rounded-full object-cover border border-white/20"
+                  />
+                  <span
+                    title={online ? 'Online in portal' : 'Offline'}
+                    className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-[#0a0a0a] ${
+                      online ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : 'bg-red-500'
+                    }`}
+                  />
+                </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
+                    <span
+                      className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                        online ? 'bg-emerald-400 animate-pulse' : 'bg-red-500'
+                      }`}
+                      title={online ? 'Online' : 'Offline'}
+                    />
                     <p className="text-white text-xs font-black truncate">
                       @{u.username || u.name || 'user'}
                     </p>
+                    <span
+                      className={`text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border ${
+                        online
+                          ? 'bg-emerald-600/25 border-emerald-500/40 text-emerald-300'
+                          : 'bg-red-600/20 border-red-500/35 text-red-400'
+                      }`}
+                    >
+                      {online ? 'Online' : 'Offline'}
+                    </span>
                     {banned ? (
                       <span className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-red-600/30 border border-red-500/40 text-red-400">
                         Banned
                       </span>
                     ) : (
-                      <span className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-green-600/20 border border-green-500/30 text-green-400">
+                      <span className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-white/5 border border-white/15 text-gray-400">
                         Active
                       </span>
-                    )}
-                    {u.status === 'online' && !banned && (
-                      <span className="text-[8px] text-cyan-400 font-black">● Online</span>
                     )}
                   </div>
                   <p className="text-[9px] text-gray-500 truncate mt-0.5">{u.email || u.uid}</p>

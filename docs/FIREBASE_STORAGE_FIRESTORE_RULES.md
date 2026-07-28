@@ -2,18 +2,30 @@
 
 Project: **`aj-super-portal`**. Repo files: `storage.rules`, `firestore.rules`.
 
+## Public media hosting (no paid Firebase Storage)
+
+Uploads no longer depend on Firebase Storage for TikReels.
+
+Order in `app/lib/media-upload.ts`:
+
+1. **Cloudinary** unsigned preset (`atm28akz` / `aj_portal`) — free CDN HTTPS
+2. **Catbox.moe** — free anonymous public file URL
+3. Firebase Storage — **skipped for videos** (403 / free-tier / locked rules)
+
+New posts store public `https://…` URLs in `videoUrl` + `image`, so every user’s `<video src>` works without CORS/403.
+
+**Note:** Old posts that already point at locked Firebase Storage URLs may still 403 until re-uploaded. New uploads are fixed.
+
+---
+
 ## Why other users' videos look like photos / won't open
 
-1. **Storage read locked to owner** on `tikreels/{uid}/**` or `profile_photos/{uid}/**`  
-   Your own uploads play (you just uploaded / cached). Other users' `<video src>` GETs return 403 → blank / fail.
-2. **Firestore read locked to owner** on `user_posts` / `videos`  
-   Feed/profile queries only return your docs, or dual-written `videos` rows for others never load.
-3. **Missing `isVideo` / only JPEG in `image`** on legacy docs  
-   Client must still treat Firebase Storage URLs + `isVideo: true` as `<video>` (see `app/lib/tikreel.ts`).
-4. **Do not use `crossOrigin="anonymous"` on TikReel `<video>`**  
-   Firebase Storage often lacks CORS for credentialed/anonymous canvas reads; the browser then fails the media request even when the download URL is valid. Plain `<video src>` does not need CORS.
+1. **Legacy Firebase Storage URLs** locked / free-tier 403 (fixed going forward via Cloudinary/Catbox)
+2. **Firestore read locked to owner** on `user_posts` / `videos`
+3. **Missing `isVideo`** on legacy docs
+4. **Do not use `crossOrigin="anonymous"` on TikReel `<video>`**
 
-Configure Console as below (repo: `storage.rules`, `firestore.rules`).
+Also publish Storage/Firestore rules below if you still want Firebase as a backup host.
 
 ## Storage rules (required)
 
