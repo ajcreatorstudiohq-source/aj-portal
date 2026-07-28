@@ -42,9 +42,9 @@ function reinvokeNativeBanner() {
 }
 
 /**
- * TikReel / Pulse in-feed Adsterra Native Banner.
- * Dark sponsored card with gradient atmosphere — never a blank black screen.
- * Official container id is moved into the visible slot (Adsterra requires exact id).
+ * TikReel / Pulse in-feed Adsterra Native Banner (card variant).
+ * For TikTok-seamless full-bleed ads use `InFeedVideoAd` instead —
+ * that mounts the same Native Banner id inside a reel-look slide.
  */
 export default function AdsterraNativeBanner({ slotKey = 'feed' }: { slotKey?: string }) {
   const hostRef = useRef<HTMLDivElement>(null);
