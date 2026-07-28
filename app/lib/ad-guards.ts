@@ -61,7 +61,8 @@ const BLOCKED_REDIRECT_HOSTS = [
 
 const ALLOWED_AD_HOSTS = [
   'effectivecpmnetwork.com',
-  'bitlabs.ai',
+  'cpx-research.com',
+  'offers.cpx-research.com',
   'monlix.com',
   'offers.monlix.com',
   'netlify.app',

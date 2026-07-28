@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type MouseEvent } from 'react';
+import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import {
   ClipboardCheck,
   ExternalLink,
@@ -11,7 +11,7 @@ import {
 import DailyMathChallenge from './DailyMathChallenge';
 import AlphaCaptchaChallenge from './AlphaCaptchaChallenge';
 import RewardedVideoOffer from './ads/RewardedVideoOffer';
-import { openBitLabsSurveys, openMonlixOffers } from '../lib/offer-hub';
+import { buildCpxResearchUrl, openMonlixOffers } from '../lib/offer-hub';
 import { trackAdEvent } from '../lib/ad-client';
 import { guardClick, startIntrusiveAdGuard } from '../lib/ad-guards';
 
@@ -23,11 +23,10 @@ type Props = {
   onRefreshUser?: () => void;
 };
 
-type HubPanel = 'none' | 'faucet' | 'videos';
+type HubPanel = 'none' | 'faucet' | 'videos' | 'cpx';
 
 /**
- * Offer Hub — Earn More (BitLabs + Monlix) · Math/Captcha · Watch Ads.
- * No CPAGrip lockers / ridefiles links.
+ * Offer Hub — Earn More (CPX Research + Monlix) · Math/Captcha · Watch Ads.
  */
 export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
   const [panel, setPanel] = useState<HubPanel>('none');
@@ -36,7 +35,12 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
     startIntrusiveAdGuard();
   }, []);
 
-  const openBitLabs = (e: MouseEvent) => {
+  const cpxSrc = useMemo(() => {
+    if (!user?.uid) return '';
+    return buildCpxResearchUrl(user.uid);
+  }, [user?.uid]);
+
+  const openCpx = (e: MouseEvent) => {
     guardClick(e);
     if (!user) return onAlert('Please sign in first', '🔒');
     trackAdEvent(
@@ -44,19 +48,11 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
         event: 'click',
         placement: 'offerwall_rewarded_video',
         zoneId: 0,
-        meta: { action: 'open_bitlabs', provider: 'bitlabs' },
+        meta: { action: 'open_cpx_research', provider: 'cpx_research', appId: '34869' },
       },
       user
     ).catch(() => {});
-    const result = openBitLabsSurveys();
-    if (result.ok) {
-      onAlert(
-        'BitLabs opened. Complete verified surveys to earn AJ Coins 🪙.',
-        '🧠'
-      );
-    } else {
-      onAlert(result.error || 'Could not open BitLabs.', '⚠️');
-    }
+    setPanel((cur) => (cur === 'cpx' ? 'none' : 'cpx'));
   };
 
   const openMonlix = (e: MouseEvent) => {
@@ -115,15 +111,19 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
         <div className="grid grid-cols-2 gap-2.5">
           <button
             type="button"
-            onClick={openBitLabs}
-            className="relative overflow-hidden rounded-2xl border border-violet-500/35 bg-gradient-to-br from-[#1a1028] via-[#120a1c] to-[#0a0a0a] p-3.5 text-left active:scale-[0.98] min-h-[108px]"
+            onClick={openCpx}
+            className={`relative overflow-hidden rounded-2xl border p-3.5 text-left active:scale-[0.98] min-h-[108px] ${
+              panel === 'cpx'
+                ? 'border-violet-400/55 bg-gradient-to-br from-[#221038] to-[#0a0a0a]'
+                : 'border-violet-500/35 bg-gradient-to-br from-[#1a1028] via-[#120a1c] to-[#0a0a0a]'
+            }`}
           >
             <div className="relative flex flex-col h-full gap-2">
               <div className="w-9 h-9 rounded-xl bg-violet-500/20 border border-violet-400/30 flex items-center justify-center">
                 <ClipboardCheck size={16} className="text-violet-300" />
               </div>
               <div>
-                <p className="text-[12px] font-black text-white leading-tight">BitLabs</p>
+                <p className="text-[12px] font-black text-white leading-tight">CPX Research</p>
                 <p className="text-[9px] font-black uppercase tracking-wider text-violet-300 mt-1">
                   Surveys
                 </p>
@@ -156,6 +156,34 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
           </button>
         </div>
       </div>
+
+      {panel === 'cpx' && user?.uid && cpxSrc ? (
+        <div className="rounded-2xl border border-violet-500/25 bg-black/40 overflow-hidden">
+          <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-white/5">
+            <p className="text-[9px] font-black uppercase tracking-widest text-violet-300">
+              CPX Research · Surveys
+            </p>
+            <a
+              href={cpxSrc}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-[8px] font-bold text-zinc-400 hover:text-violet-300"
+            >
+              Open full <ExternalLink size={9} />
+            </a>
+          </div>
+          <iframe
+            title="CPX Research"
+            width="100%"
+            height={2000}
+            frameBorder={0}
+            src={cpxSrc}
+            className="w-full bg-[#0a0a0a] min-h-[480px]"
+            allow="clipboard-write; payment"
+            referrerPolicy="no-referrer-when-downgrade"
+          />
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-2.5">
         <button
