@@ -19,7 +19,7 @@ import React, { useState, useEffect, useRef, Component } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import LiveMatchesPanel from './components/LiveMatchesPanel';
 import HubEarnPanel from './components/HubEarnPanel';
-import PremiumGamesHub from './components/PremiumGamesHub';
+import EarnAndPlayPanel from './components/EarnAndPlayPanel';
 import BannerAdSlot from './components/ads/BannerAdSlot';
 import InFeedAdShell from './components/ads/InFeedAdShell';
 import AdsterraNativeBanner from './components/ads/AdsterraNativeBanner';
@@ -5583,10 +5583,22 @@ Tip: Social Hub se copy karo 📤`,
             }}
           />
 
-          {/* Premium Games — CPA unlock links, 0 portal coin credit */}
-          <PremiumGamesHub
+          {/* Earn & Play — games + Watch Ads (Adsterra 30s verify) */}
+          <EarnAndPlayPanel
             user={user}
             onAlert={(msg, icon) => setVvipAlert({ msg, icon: icon || '🎮' })}
+            onRefreshUser={async () => {
+              if (!user?.uid) return;
+              try {
+                const snap = await getDoc(doc(db, 'users', user.uid));
+                if (snap.exists()) {
+                  const d = snap.data() as Record<string, unknown>;
+                  setBalance((d.balance as number) || 0);
+                }
+              } catch {
+                /* live onSnapshot remains source of truth */
+              }
+            }}
           />
 
           {/* Quick Nav — Social, Wallet, AI Bot */}
