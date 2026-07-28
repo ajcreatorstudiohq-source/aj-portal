@@ -44,6 +44,7 @@ import {
 import {
   uploadToCloudinary,
   uploadMediaDurable,
+  toPlayableMediaUrl,
 } from './lib/media-upload';
 import AdminUsersPanel from './components/AdminUsersPanel';
 import { isPortalAdminUser } from './lib/admin-auth';
@@ -5764,7 +5765,7 @@ Tip: Social Hub se copy karo 📤`,
           {/* Video player — fills the screen, plays with sound */}
           <div className="flex-1 flex items-center justify-center relative">
             <video
-              src={profileVideoViewer.url}
+              src={toPlayableMediaUrl(profileVideoViewer.url)}
               className="max-w-full max-h-full object-contain"
               autoPlay
               controls
@@ -6289,7 +6290,7 @@ Tip: Social Hub se copy karo 📤`,
                       isPlayableTikReel(post) ||
                       post.isVideo === true;
                     const altVideoUrl = [post.videoUrl, post.mediaUrl, post.url, post.image]
-                      .map((u: unknown) => String(u || '').trim())
+                      .map((u: unknown) => toPlayableMediaUrl(String(u || '').trim()))
                       .find((u: string) => u && u !== mediaUrl) || '';
                     const contentEl = (
                       <div key={`user_${post.id}`} data-vidx={globalIdx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505] flex flex-col justify-end" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
@@ -6783,7 +6784,7 @@ Tip: Social Hub se copy karo 📤`,
                         isPlayableTikReel(post) ||
                         post.isVideo === true;
                       const altVideoUrl = [post.videoUrl, post.mediaUrl, post.url, post.image]
-                        .map((u: unknown) => String(u || '').trim())
+                        .map((u: unknown) => toPlayableMediaUrl(String(u || '').trim()))
                         .find((u: string) => u && u !== mediaUrl) || '';
                       const contentEl = (
                       <div key={post.id} data-vidx={idx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505] flex flex-col justify-end" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>

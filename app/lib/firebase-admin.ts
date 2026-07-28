@@ -63,6 +63,10 @@ export function getAdminApp(): App | null {
     );
     return null;
   }
+  const storageBucket =
+    process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ||
+    process.env.FIREBASE_STORAGE_BUCKET ||
+    `${sa.projectId}.appspot.com`;
   adminApp = initializeApp({
     credential: cert({
       projectId: sa.projectId,
@@ -70,6 +74,7 @@ export function getAdminApp(): App | null {
       privateKey: sa.privateKey,
     }),
     projectId: sa.projectId,
+    storageBucket,
   });
   return adminApp;
 }

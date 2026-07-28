@@ -1,15 +1,16 @@
 /**
  * Public media hosting for TikReel / Pulse — avoids Firebase Storage 403/CORS.
  *
- * Order (videos & images):
- *  1. Cloudinary (free CDN HTTPS — already configured unsigned preset)
- *  2. Catbox.moe (free anonymous public file host)
- *  3. Firebase Storage last (only if rules allow; optional)
+ * Order:
+ *  1. Same-origin /api/media/upload (server → Cloudinary → Catbox → Litterbox)
+ *  2. Direct Cloudinary (browser unsigned preset)
+ *  3. Direct Catbox (may fail CORS in some browsers)
+ *  Never use Firebase Storage for videos.
  */
 
 import { getApps, initializeApp } from 'firebase/app';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { fileLooksLikeVideo } from './tikreel';
+import { fileLooksLikeVideo, isFirebaseStorageUrl } from './tikreel';
 
 const CLOUDINARY_CLOUD_NAME =
   process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'atm28akz';
@@ -40,6 +41,24 @@ function getStorageClient() {
   return getStorage(app);
 }
 
+/** Server upload — no browser CORS, never Firebase Storage. */
+export async function uploadViaApi(file: File): Promise<string> {
+  try {
+    const fd = new FormData();
+    fd.append('file', file, file.name || (fileLooksLikeVideo(file) ? 'reel.mp4' : 'photo.jpg'));
+    const res = await fetch('/api/media/upload', { method: 'POST', body: fd });
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; url?: string };
+    if (!res.ok || !data?.url) {
+      console.warn('API media upload failed', res.status, data);
+      return '';
+    }
+    return String(data.url);
+  } catch (e) {
+    console.warn('API media upload error', e);
+    return '';
+  }
+}
+
 export async function uploadToCloudinary(file: File): Promise<string> {
   const fd = new FormData();
   fd.append('file', file);
@@ -62,15 +81,15 @@ export async function uploadToCloudinary(file: File): Promise<string> {
   }
 }
 
-/**
- * Free public host (no Firebase / no paid Storage).
- * Returns a direct HTTPS file URL that plays in <video src> without CORS auth.
- */
 export async function uploadToCatbox(file: File): Promise<string> {
   try {
     const fd = new FormData();
     fd.append('reqtype', 'fileupload');
-    fd.append('fileToUpload', file, file.name || (fileLooksLikeVideo(file) ? 'reel.mp4' : 'photo.jpg'));
+    fd.append(
+      'fileToUpload',
+      file,
+      file.name || (fileLooksLikeVideo(file) ? 'reel.mp4' : 'photo.jpg')
+    );
     const res = await fetch('https://catbox.moe/user/api.php', {
       method: 'POST',
       body: fd,
@@ -113,8 +132,7 @@ export async function uploadToFirebaseStorage(file: File, uid: string): Promise<
 
 /**
  * Durable public HTTPS URL for TikReel/Pulse.
- * Prefers Cloudinary + Catbox so other users never hit Firebase Storage 403.
- * Firebase Storage is last-resort only (skipped for video by default).
+ * Server API first; never Firebase Storage for videos.
  */
 export async function uploadMediaDurable(
   file: File,
@@ -122,22 +140,36 @@ export async function uploadMediaDurable(
   opts?: { allowFirebaseStorage?: boolean }
 ): Promise<string> {
   const isVideo = fileLooksLikeVideo(file);
-  const allowFirebase = opts?.allowFirebaseStorage === true || (!isVideo && opts?.allowFirebaseStorage !== false);
 
-  let url = await uploadToCloudinary(file);
+  let url = await uploadViaApi(file);
+  if (url) return url;
+
+  url = await uploadToCloudinary(file);
   if (url) return url;
 
   url = await uploadToCatbox(file);
   if (url) return url;
 
-  // Videos: skip Firebase by default — free tier / locked rules cause 403 for other users
   if (isVideo && opts?.allowFirebaseStorage !== true) {
     console.warn('Public hosts failed; not falling back to Firebase Storage for video');
     return '';
   }
 
-  if (allowFirebase || !isVideo) {
+  if (opts?.allowFirebaseStorage === true || !isVideo) {
     url = await uploadToFirebaseStorage(file, uid);
   }
   return url || '';
+}
+
+/**
+ * Rewrite Firebase Storage media through same-origin proxy (signed URL).
+ * Public CDN URLs pass through unchanged.
+ */
+export function toPlayableMediaUrl(url: string): string {
+  const u = String(url || '').trim();
+  if (!u || u.startsWith('blob:') || u.startsWith('data:') || u.startsWith('/')) return u;
+  if (isFirebaseStorageUrl(u)) {
+    return `/api/media/proxy?u=${encodeURIComponent(u)}`;
+  }
+  return u;
 }
