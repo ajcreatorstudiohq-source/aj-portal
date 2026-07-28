@@ -7,12 +7,12 @@
 export const ADSTERRA_SOCIAL_BAR_SRC =
   'https://pl30561815.effectivecpmnetwork.com/27/52/bb/2752bb08c97718e98b6e804097bf17b9.js';
 
-/** Native Banner — TikReels / Pulse in-feed every 4th post */
+/** Native Banner — TikReels / Pulse in-feed (real Adsterra paid unit) */
 export const ADSTERRA_NATIVE_BANNER_ID = 'container-178c3036bfb7d0d24511c11f8fc26aa5';
 export const ADSTERRA_NATIVE_BANNER_SRC =
   'https://pl30561816.effectivecpmnetwork.com/178c3036bfb7d0d24511c11f8fc26aa5/invoke.js';
 
-/** Direct rewarded / watch-ad smartlink (opens in new tab) */
+/** Direct rewarded / watch-ad smartlink (opens in new tab — paid clicks) */
 export const ADSTERRA_REWARDED_LINK =
   'https://www.effectivecpmnetwork.com/b8jtkn6i4?key=77409a0e0aa4602b6d03798ff53516b3';
 
@@ -21,7 +21,7 @@ export const ADSTERRA_REWARD_COINS = 5;
 /** Watch-ad verification timer before Claim unlocks (high-quality visit) */
 export const ADSTERRA_VERIFY_SECONDS = 30;
 
-/** Insert native banner after every N posts */
+/** Insert TikTok-style Adsterra in-feed slide after every N posts */
 export const INFEED_AD_EVERY_N = 4;
 
 /** Legacy aliases — Monetag disabled (zone 0, empty tag URLs) */
