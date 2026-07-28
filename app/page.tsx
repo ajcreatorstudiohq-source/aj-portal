@@ -327,8 +327,6 @@ const REFERRAL_COINS = REFERRAL_BONUS_COINS;
 
 const ADMIN_EARN_SHARE = PLATFORM_EARN_SHARE; // 70% — owner USD ledger (AdminRevenue + ad networks)
 const USER_EARN_SHARE  = ECONOMY_USER_EARN_SHARE; // 30% — user AJ Coins only
-const GIFT_ADMIN_SHARE = PLATFORM_EARN_SHARE;  // Gifts: same 70% owner keep
-const GIFT_USER_SHARE  = ECONOMY_USER_EARN_SHARE; // Gifts: creator 30%
 
 const PK_ENTRY_COINS = 100;
 const PK_DURATION    = 300;
@@ -3746,7 +3744,13 @@ export function AJSuperPortal() {
       });
       try {
         await addDoc(collection(db,"AdminRevenue"), {
-          type:'pk_match', totalDeducted: PK_ENTRY_COINS * 2,
+          type:'pk_match',
+          currency: 'USD',
+          platformSharePct: ADMIN_EARN_SHARE,
+          userSharePct: USER_EARN_SHARE,
+          totalDeducted: PK_ENTRY_COINS * 2,
+          adminShareCoins: Math.floor(PK_ENTRY_COINS * 2 * ADMIN_EARN_SHARE),
+          ownerUsd: Number(((PK_ENTRY_COINS * 2 * ADMIN_EARN_SHARE) / COIN_RATE).toFixed(4)),
           challenger: user.uid, rival: rivalUid, date:serverTimestamp()
         });
       } catch {}
