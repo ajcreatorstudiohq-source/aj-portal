@@ -21,7 +21,7 @@ import LiveMatchesPanel from './components/LiveMatchesPanel';
 import HubEarnPanel from './components/HubEarnPanel';
 import BannerAdSlot from './components/ads/BannerAdSlot';
 import InFeedAdShell from './components/ads/InFeedAdShell';
-import AdsterraNativeBanner from './components/ads/AdsterraNativeBanner';
+import InFeedVideoAd from './components/ads/InFeedVideoAd';
 import {
   SIGNUP_BONUS_COINS,
   REFERRAL_BONUS_COINS,
@@ -35,6 +35,7 @@ import {
   normalizeTikReelPost,
   mergeTikReelPosts,
   filterOwnedBy,
+  isPlayableTikReel,
   type TikReelPost,
 } from './lib/tikreel';
 import AdminUsersPanel from './components/AdminUsersPanel';
@@ -1010,8 +1011,13 @@ const uploadToCloudinary = async (file: File): Promise<string> => {
 // ============================================================
 const uploadToFirebaseStorage = async (file: File, uid: string): Promise<string> => {
   try {
-    const ref = storageRef(storage, `profile_photos/${uid}/${Date.now()}_${file.name}`);
-    await uploadBytes(ref, file);
+    const isVideo = file.type.startsWith('video/');
+    const folder = isVideo ? 'tikreels' : 'profile_photos';
+    const safeName = String(file.name || 'media').replace(/[^\w.\-]+/g, '_');
+    const ref = storageRef(storage, `${folder}/${uid}/${Date.now()}_${safeName}`);
+    await uploadBytes(ref, file, {
+      contentType: file.type || (isVideo ? 'video/mp4' : 'image/jpeg'),
+    });
     return await getDownloadURL(ref);
   } catch { return ""; }
 };
@@ -2795,7 +2801,7 @@ export function AJSuperPortal() {
           }
         });
       },
-      { threshold: 0.8, root }
+      { threshold: 0.55, root }
     );
     const slides = root.querySelectorAll('[data-vidx]');
     slides.forEach(el => obs.observe(el));
@@ -2845,7 +2851,7 @@ export function AJSuperPortal() {
     }
   }, [activeVideoIdx, socialScreen, tiktabMode, pulseTab]);
 
-  // Audio Kill — when activeVideoIdx changes, blank ALL off-screen YouTube iframes immediately (FIX #6)
+  // Audio Kill + FORCE PLAY active user video (autoPlay prop alone is unreliable)
   useEffect(() => {
     const isTikFeed   = socialScreen === 'tikreels' && tiktabMode === 'feed';
     const isPulseFeed = socialScreen === 'pulse'    && pulseTab   === 'feed';
@@ -2864,9 +2870,23 @@ export function AJSuperPortal() {
     Object.entries(userVideoRefs.current).forEach(([idxStr, el]) => {
       if (!el) return;
       const idx = parseInt(idxStr, 10);
-      if (idx !== activeVideoIdx && !el.paused) el.pause();
+      if (idx === activeVideoIdx) {
+        // Always start muted for autoplay policy, then apply global sound
+        try {
+          el.muted = !globalSoundOn;
+          const p = el.play();
+          if (p && typeof p.then === 'function') {
+            p.catch(() => {
+              el.muted = true;
+              el.play().catch(() => {});
+            });
+          }
+        } catch {}
+      } else if (!el.paused) {
+        el.pause();
+      }
     });
-  }, [activeVideoIdx, socialScreen, tiktabMode, pulseTab]);
+  }, [activeVideoIdx, socialScreen, tiktabMode, pulseTab, globalSoundOn, userPosts, pixaVideos]);
 
   // FIX (Hinglish): `reelPaused` state ko actually video ko pause/resume karne ke liye
   // use karte hain. Pehle sirf state toggle hoti thi lekin video actually pause nahi hoti thi.
@@ -4331,7 +4351,14 @@ export function AJSuperPortal() {
     const file = e.target.files?.[0]; if (!file) return;
     const isVid = file.type.startsWith('video/');
     setTiktokPostIsVideo(isVid);
-    const url = await uploadToCloudinary(file);
+    // Prefer Firebase Storage for videos (reliable playback URL + contentType)
+    let url = '';
+    if (user?.uid) {
+      try { url = await uploadToFirebaseStorage(file, user.uid); } catch {}
+    }
+    if (!url) {
+      try { url = await uploadToCloudinary(file); } catch {}
+    }
     setTiktokPostImg(url || URL.createObjectURL(file));
   };
 
@@ -5979,14 +6006,28 @@ Tip: Social Hub se copy karo 📤`,
                     const isActive  = activeVideoIdx === globalIdx;
                     const mediaUrl = String(post.videoUrl || post.image || post.url || post.mediaUrl || '');
                     const ownerUid = String(post.uid || post.userId || '');
+                    const playAsVideo = isPlayableTikReel(post) || post.isVideo === true;
                     const contentEl = (
                       <div key={`user_${post.id}`} data-vidx={globalIdx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505] flex flex-col justify-end" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
-                        {(post.isVideo || /\.(mp4|webm|mov)(\?|$)/i.test(mediaUrl)) && mediaUrl ? (
+                        {playAsVideo && mediaUrl ? (
                           <video
                             ref={el => { userVideoRefs.current[globalIdx] = el; }}
                             src={mediaUrl}
                             className="absolute inset-0 w-full h-full object-cover"
-                            autoPlay={isActive} loop muted={!globalSoundOn} playsInline
+                            autoPlay={isActive}
+                            loop
+                            muted
+                            playsInline
+                            preload="auto"
+                            onLoadedData={(e) => {
+                              if (!isActive) return;
+                              const v = e.currentTarget;
+                              v.muted = !globalSoundOn;
+                              v.play().catch(() => {
+                                v.muted = true;
+                                v.play().catch(() => {});
+                              });
+                            }}
                             style={{ filter: post.cssFilter && post.cssFilter !== 'none' ? post.cssFilter : undefined, touchAction:'pan-y' }}
                           />
                         ) : mediaUrl ? (
@@ -6070,7 +6111,7 @@ Tip: Social Hub se copy karo 📤`,
                         return [contentEl, (
                           <div key={`ad_user_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden" style={{ scrollSnapAlign:'start', background: 'radial-gradient(ellipse at 50% 30%, #1c1a28 0%, #0a0a10 100%)' }}>
                             <InFeedAdShell placement="tikreel_infeed" user={user}>
-                              <AdsterraNativeBanner slotKey={`tik_user_${idx}`} />
+                              <InFeedVideoAd slotKey={`tik_user_${idx}`} />
                             </InFeedAdShell>
                           </div>
                         )];
@@ -6165,7 +6206,7 @@ Tip: Social Hub se copy karo 📤`,
                         return [contentEl, (
                           <div key={`ad_pixa_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden" style={{ scrollSnapAlign:'start', background: 'radial-gradient(ellipse at 50% 30%, #1c1a28 0%, #0a0a10 100%)' }}>
                             <InFeedAdShell placement="tikreel_infeed" user={user}>
-                              <AdsterraNativeBanner slotKey={`tik_pixa_${idx}`} />
+                              <InFeedVideoAd slotKey={`tik_pixa_${idx}`} />
                             </InFeedAdShell>
                           </div>
                         )];
@@ -6422,7 +6463,20 @@ Tip: Social Hub se copy karo 📤`,
                             ref={el => { userVideoRefs.current[idx] = el; }}
                             src={post.image}
                             className="absolute inset-0 w-full h-full object-cover"
-                            autoPlay={isActive} loop muted={pulseMuted} playsInline
+                            autoPlay={isActive}
+                            loop
+                            muted
+                            playsInline
+                            preload="auto"
+                            onLoadedData={(e) => {
+                              if (!isActive) return;
+                              const v = e.currentTarget;
+                              v.muted = pulseMuted;
+                              v.play().catch(() => {
+                                v.muted = true;
+                                v.play().catch(() => {});
+                              });
+                            }}
                             onClick={() => setReelPaused(p => !p)}
                           />
                         ) : post.image ? (
@@ -6518,7 +6572,7 @@ Tip: Social Hub se copy karo 📤`,
                         return [contentEl, (
                           <div key={`ad_pulse_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden" style={{ scrollSnapAlign:'start', background: 'radial-gradient(ellipse at 50% 30%, #1c1a28 0%, #0a0a10 100%)' }}>
                             <InFeedAdShell placement="pulse_infeed" user={user}>
-                              <AdsterraNativeBanner slotKey={`pulse_${idx}`} />
+                              <InFeedVideoAd slotKey={`pulse_${idx}`} />
                             </InFeedAdShell>
                           </div>
                         )];
