@@ -1,21 +1,23 @@
 'use client';
 
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
-import {
-  ClipboardCheck,
-  Download,
-  ExternalLink,
-  Gamepad2,
-  Sparkles,
-  X,
-} from 'lucide-react';
 import DailyMathChallenge from './DailyMathChallenge';
 import AlphaCaptchaChallenge from './AlphaCaptchaChallenge';
+import RewardedVideoOffer from './ads/RewardedVideoOffer';
 import { ADGEM_APP_ID, buildAdGemUrl } from '../lib/offer-hub';
 import { PREMIUM_DIRECT_GAMES } from '../lib/economy';
 import { handleEarnAndPlayGame } from '../lib/direct-download';
 import { trackAdEvent } from '../lib/ad-client';
 import { guardClick, startIntrusiveAdGuard } from '../lib/ad-guards';
+import {
+  ClipboardCheck,
+  Download,
+  ExternalLink,
+  Gamepad2,
+  Play,
+  Sparkles,
+  X,
+} from 'lucide-react';
 
 type UserLike = { uid: string; getIdToken: () => Promise<string>; email?: string | null } | null;
 
@@ -25,11 +27,10 @@ type Props = {
   onRefreshUser?: () => void;
 };
 
-type HubPanel = 'none' | 'faucet' | 'earnplay' | 'adgem';
+type HubPanel = 'none' | 'faucet' | 'earnplay' | 'adgem' | 'watchads';
 
 /**
- * Offer Hub — ADGem + Earn & Play (games cards) · Math/Captcha.
- * Monlix and Watch Ads removed.
+ * Offer Hub — ADGem + Earn & Play · Watch Ads · Math/Captcha.
  */
 export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
   const [panel, setPanel] = useState<HubPanel>('none');
@@ -120,7 +121,7 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
           Offer Hub
         </p>
         <p className="text-[10px] text-zinc-400 font-bold mt-0.5">
-          ADGem offers · Earn & Play games · AJ Coins 🪙
+          ADGem · Earn & Play · Watch Ads · AJ Coins 🪙
         </p>
       </div>
 
@@ -226,27 +227,51 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
         </div>
       ) : null}
 
-      <button
-        type="button"
-        onClick={(e) => togglePanel(e, 'faucet')}
-        className={`w-full relative overflow-hidden rounded-2xl border p-3.5 text-left active:scale-[0.98] min-h-[100px] ${
-          panel === 'faucet'
-            ? 'border-cyan-400/50 bg-gradient-to-br from-[#06252a] to-[#0a0a0a]'
-            : 'border-cyan-500/30 bg-gradient-to-br from-[#0a1f24] via-[#071416] to-[#0a0a0a]'
-        }`}
-      >
-        <div className="relative flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-cyan-500/20 border border-cyan-400/30 flex items-center justify-center shrink-0">
-            <Sparkles size={16} className="text-cyan-300" />
+      <div className="grid grid-cols-2 gap-2.5">
+        <button
+          type="button"
+          onClick={(e) => togglePanel(e, 'faucet')}
+          className={`relative overflow-hidden rounded-2xl border p-3.5 text-left active:scale-[0.98] min-h-[100px] ${
+            panel === 'faucet'
+              ? 'border-cyan-400/50 bg-gradient-to-br from-[#06252a] to-[#0a0a0a]'
+              : 'border-cyan-500/30 bg-gradient-to-br from-[#0a1f24] via-[#071416] to-[#0a0a0a]'
+          }`}
+        >
+          <div className="relative flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-cyan-500/20 border border-cyan-400/30 flex items-center justify-center shrink-0">
+              <Sparkles size={16} className="text-cyan-300" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[12px] font-black text-white leading-tight">Math & Captcha</p>
+              <p className="text-[9px] font-black uppercase tracking-wider text-cyan-300 mt-1">
+                Daily Faucet · +5 / +10 🪙
+              </p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <p className="text-[12px] font-black text-white leading-tight">Math & Captcha</p>
-            <p className="text-[9px] font-black uppercase tracking-wider text-cyan-300 mt-1">
-              Daily Faucet · +5 / +10 🪙
-            </p>
+        </button>
+
+        <button
+          type="button"
+          onClick={(e) => togglePanel(e, 'watchads')}
+          className={`relative overflow-hidden rounded-2xl border p-3.5 text-left active:scale-[0.98] min-h-[100px] ${
+            panel === 'watchads'
+              ? 'border-rose-400/50 bg-gradient-to-br from-[#2a0a14] to-[#0a0a0a]'
+              : 'border-rose-500/30 bg-gradient-to-br from-[#1f0a12] via-[#14060c] to-[#0a0a0a]'
+          }`}
+        >
+          <div className="relative flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-rose-500/20 border border-rose-400/30 flex items-center justify-center shrink-0">
+              <Play size={16} className="text-rose-300" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[12px] font-black text-white leading-tight">Watch Ads</p>
+              <p className="text-[9px] font-black uppercase tracking-wider text-rose-300 mt-1">
+                30s in-ad · +5 🪙
+              </p>
+            </div>
           </div>
-        </div>
-      </button>
+        </button>
+      </div>
 
       {panel === 'faucet' ? (
         <div className="space-y-3 rounded-2xl border border-cyan-500/20 bg-black/40 p-3">
@@ -255,6 +280,15 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
           </p>
           <DailyMathChallenge user={user} onAlert={onAlert} onRefreshUser={onRefreshUser} />
           <AlphaCaptchaChallenge user={user} onAlert={onAlert} onRefreshUser={onRefreshUser} />
+        </div>
+      ) : null}
+
+      {panel === 'watchads' ? (
+        <div className="rounded-2xl border border-rose-500/20 bg-black/40 p-3 space-y-2">
+          <p className="text-[9px] font-black uppercase tracking-widest text-rose-400">
+            Watch Ads · 30s required · then claim
+          </p>
+          <RewardedVideoOffer user={user} onAlert={onAlert} onRefreshUser={onRefreshUser} />
         </div>
       ) : null}
 
