@@ -33,9 +33,12 @@ import { trackAdEvent } from './lib/ad-client';
 import { INFEED_AD_EVERY_N } from './lib/ads-config';
 import {
   normalizeTikReelPost,
+  normalizePulsePost,
   mergeTikReelPosts,
   filterOwnedBy,
   isPlayableTikReel,
+  getPlayableSrc,
+  fileLooksLikeVideo,
   type TikReelPost,
 } from './lib/tikreel';
 import AdminUsersPanel from './components/AdminUsersPanel';
@@ -995,31 +998,63 @@ const uploadToCloudinary = async (file: File): Promise<string> => {
   const fd = new FormData();
   fd.append('file', file);
   fd.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
-  const isVideo = file.type.startsWith('video/');
+  const isVideo = fileLooksLikeVideo(file);
   const endpoint = isVideo
     ? `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/video/upload`
-    : `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload?f_auto=true&q_auto=true`;
+    : `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`;
   try {
     const res  = await fetch(endpoint, { method: 'POST', body: fd });
-    const data = await res.json();
-    return data.secure_url || "";
-  } catch { return ""; }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      console.warn('Cloudinary upload failed', res.status, data);
+      return '';
+    }
+    return String(data.secure_url || data.url || '');
+  } catch (e) {
+    console.warn('Cloudinary upload error', e);
+    return '';
+  }
 };
 
 // ============================================================
-// FIREBASE STORAGE UPLOADER (for profile DP)
+// FIREBASE STORAGE UPLOADER (TikReel / Pulse / profile)
 // ============================================================
 const uploadToFirebaseStorage = async (file: File, uid: string): Promise<string> => {
   try {
-    const isVideo = file.type.startsWith('video/');
+    const isVideo = fileLooksLikeVideo(file);
     const folder = isVideo ? 'tikreels' : 'profile_photos';
-    const safeName = String(file.name || 'media').replace(/[^\w.\-]+/g, '_');
-    const ref = storageRef(storage, `${folder}/${uid}/${Date.now()}_${safeName}`);
+    const ext = isVideo
+      ? (file.name.match(/\.(mp4|webm|mov|m4v)$/i)?.[0] || '.mp4')
+      : (file.name.match(/\.(jpe?g|png|webp|gif)$/i)?.[0] || '.jpg');
+    const safeBase = String(file.name || 'media')
+      .replace(/\.[^.]+$/, '')
+      .replace(/[^\w.\-]+/g, '_')
+      .slice(0, 40) || 'media';
+    const ref = storageRef(storage, `${folder}/${uid}/${Date.now()}_${safeBase}${ext}`);
     await uploadBytes(ref, file, {
-      contentType: file.type || (isVideo ? 'video/mp4' : 'image/jpeg'),
+      contentType:
+        file.type ||
+        (isVideo ? 'video/mp4' : 'image/jpeg'),
     });
     return await getDownloadURL(ref);
-  } catch { return ""; }
+  } catch (e) {
+    console.warn('Firebase Storage upload error', e);
+    return '';
+  }
+};
+
+/** Durable HTTPS upload: Firebase Storage first, Cloudinary fallback. */
+const uploadMediaDurable = async (file: File, uid: string): Promise<string> => {
+  let url = '';
+  try {
+    url = await uploadToFirebaseStorage(file, uid);
+  } catch {}
+  if (!url) {
+    try {
+      url = await uploadToCloudinary(file);
+    } catch {}
+  }
+  return url;
 };
 
 // ============================================================
@@ -2062,10 +2097,15 @@ export function AJSuperPortal() {
   // ==========================================================
   const fetchSocialAPIs = async () => {
     try {
-      // Unsplash — lifestyle + luxury mix
+      // Unsplash — lifestyle + luxury mix (Pulse filler)
       const pRes  = await fetch(`https://api.unsplash.com/photos/random?client_id=${UNSPLASH_ACCESS_KEY}&query=lifestyle,luxury&count=20`);
-      const pData = await pRes.json();
-      setPixaData(Array.isArray(pData) ? pData : []);
+      const pData = await pRes.json().catch(() => null);
+      if (pRes.ok && Array.isArray(pData)) {
+        setPixaData(pData);
+      } else {
+        console.warn('Unsplash fetch failed', pRes.status, pData);
+        // Keep any existing filler; don't wipe real Firestore posts
+      }
 
       // YouTube — multi-category mix: Hindi Shorts + Cartoons + Funny Clips
       const YT_KEYWORDS = [
@@ -2137,7 +2177,7 @@ export function AJSuperPortal() {
       } catch {}
     }
     if (socialScreen==='tikreels') {
-      // TikTok-style feed: load a large recent window of community uploads + videos col
+      // TikTok-style feed: Firebase user_posts + videos (client-sorted)
       const unsubs: Array<() => void> = [];
       let fromPosts: TikReelPost[] = [];
       let fromVideos: TikReelPost[] = [];
@@ -2148,7 +2188,7 @@ export function AJSuperPortal() {
         const q = query(
           collection(db, 'user_posts'),
           orderBy('createdAt', 'desc'),
-          limit(100)
+          limit(120)
         );
         unsubs.push(
           onSnapshot(
@@ -2159,19 +2199,34 @@ export function AJSuperPortal() {
               );
               publish();
             },
-            (err) => console.warn('tikreels user_posts feed', err)
+            (err) => {
+              console.warn('tikreels user_posts ordered failed', err);
+              try {
+                const q2 = query(collection(db, 'user_posts'), limit(120));
+                unsubs.push(
+                  onSnapshot(q2, (snap) => {
+                    fromPosts = snap.docs.map((d) =>
+                      normalizeTikReelPost(
+                        d.id,
+                        d.data() as Record<string, unknown>,
+                        'user_posts'
+                      )
+                    );
+                    publish();
+                  })
+                );
+              } catch (e2) {
+                console.warn('tikreels user_posts fallback', e2);
+              }
+            }
           )
         );
       } catch (e) {
         console.warn('tikreels user_posts query', e);
       }
       try {
-        // Prefer createdAtMs (no composite index); fall back to unordered snapshot
-        const qv = query(
-          collection(db, 'videos'),
-          orderBy('createdAtMs', 'desc'),
-          limit(100)
-        );
+        // Unordered + client sort so docs missing createdAtMs still appear
+        const qv = query(collection(db, 'videos'), limit(120));
         unsubs.push(
           onSnapshot(
             qv,
@@ -2181,26 +2236,7 @@ export function AJSuperPortal() {
               );
               publish();
             },
-            () => {
-              // Fallback without orderBy if index missing
-              try {
-                const q2 = query(collection(db, 'videos'), limit(100));
-                unsubs.push(
-                  onSnapshot(q2, (snap) => {
-                    fromVideos = snap.docs.map((d) =>
-                      normalizeTikReelPost(
-                        d.id,
-                        d.data() as Record<string, unknown>,
-                        'videos'
-                      )
-                    );
-                    publish();
-                  })
-                );
-              } catch (e2) {
-                console.warn('tikreels videos feed fallback', e2);
-              }
-            }
+            (err) => console.warn('tikreels videos feed', err)
           )
         );
       } catch (e) {
@@ -2209,14 +2245,47 @@ export function AJSuperPortal() {
       return () => unsubs.forEach((u) => u());
     }
     if (socialScreen==='pulse') {
+      const unsubs: Array<() => void> = [];
+      const applyPulse = (docs: { id: string; data: () => Record<string, unknown> }[]) => {
+        const rows = docs.map((d) =>
+          normalizePulsePost(d.id, d.data() as Record<string, unknown>)
+        );
+        rows.sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0));
+        setPulsePosts(rows);
+      };
       try {
-        const q = query(collection(db,"pulse_posts"), orderBy("createdAt","desc"), limit(20));
-        return onSnapshot(q, snap => {
-          const firestorePosts = snap.docs.map(d=>({id:d.id,...d.data()}));
-          // FIX #5: APPEND Firestore posts, do NOT delete Unsplash photos
-          setPulsePosts(firestorePosts);
-        });
-      } catch {}
+        const q = query(
+          collection(db, 'pulse_posts'),
+          orderBy('createdAt', 'desc'),
+          limit(100)
+        );
+        unsubs.push(
+          onSnapshot(
+            q,
+            (snap) => applyPulse(snap.docs),
+            (err) => {
+              console.warn('pulse_posts ordered failed', err);
+              try {
+                const q2 = query(collection(db, 'pulse_posts'), limit(100));
+                unsubs.push(
+                  onSnapshot(q2, (snap) => applyPulse(snap.docs), (e2) =>
+                    console.warn('pulse_posts fallback', e2)
+                  )
+                );
+              } catch (e2) {
+                console.warn('pulse_posts fallback query', e2);
+              }
+            }
+          )
+        );
+      } catch (e) {
+        console.warn('pulse_posts query', e);
+      }
+      // Ensure Unsplash filler loads when opening Pulse directly
+      if (!pixaData.length) {
+        fetchSocialAPIs().catch(() => {});
+      }
+      return () => unsubs.forEach((u) => u());
     }
     if (commentPostId && !commentPostId.startsWith('gift_')) {
       try {
@@ -2421,7 +2490,15 @@ export function AJSuperPortal() {
           );
           lists.push(
             subSnap.docs.map((d) =>
-              normalizeTikReelPost(d.id, d.data() as Record<string, unknown>, 'users_videos')
+              normalizeTikReelPost(
+                d.id,
+                {
+                  ...(d.data() as Record<string, unknown>),
+                  uid: user.uid,
+                  userId: user.uid,
+                },
+                'users_videos'
+              )
             )
           );
         } catch {}
@@ -2861,7 +2938,6 @@ export function AJSuperPortal() {
       if (!el) return;
       const idx = parseInt(idxStr, 10);
       if (idx !== activeVideoIdx) {
-        // Immediately kill audio by blanking src — prevents sound mixing
         if (el.src && (el.src.includes('youtube.com') || el.src.includes('youtube-nocookie.com'))) {
           el.src = '';
         }
@@ -2871,9 +2947,9 @@ export function AJSuperPortal() {
       if (!el) return;
       const idx = parseInt(idxStr, 10);
       if (idx === activeVideoIdx) {
-        // Always start muted for autoplay policy, then apply global sound
         try {
-          el.muted = !globalSoundOn;
+          // Pulse uses pulseMuted; TikReel uses globalSoundOn
+          el.muted = isPulseFeed ? pulseMuted : !globalSoundOn;
           const p = el.play();
           if (p && typeof p.then === 'function') {
             p.catch(() => {
@@ -2886,7 +2962,18 @@ export function AJSuperPortal() {
         el.pause();
       }
     });
-  }, [activeVideoIdx, socialScreen, tiktabMode, pulseTab, globalSoundOn, userPosts, pixaVideos]);
+  }, [
+    activeVideoIdx,
+    socialScreen,
+    tiktabMode,
+    pulseTab,
+    globalSoundOn,
+    pulseMuted,
+    userPosts,
+    pulsePosts,
+    pixaVideos,
+    pixaData,
+  ]);
 
   // FIX (Hinglish): `reelPaused` state ko actually video ko pause/resume karne ke liye
   // use karte hain. Pehle sirf state toggle hoti thi lekin video actually pause nahi hoti thi.
@@ -4205,7 +4292,7 @@ export function AJSuperPortal() {
         const file = new File([blob], `tikreel_${Date.now()}.${ext}`, {
           type: blob.type || (tiktokPostIsVideo ? 'video/mp4' : 'image/jpeg'),
         });
-        mediaUrl = await uploadToFirebaseStorage(file, user.uid);
+        mediaUrl = await uploadMediaDurable(file, user.uid);
         if (!mediaUrl) throw new Error('upload_failed');
         uploadVerified = true;
       } else if (mediaUrl && mediaUrl.startsWith('http')) {
@@ -4341,25 +4428,25 @@ export function AJSuperPortal() {
 
   const handleFileChange = async (e:any) => {
     const file = e.target.files?.[0]; if (!file) return;
-    const isVid = file.type.startsWith('video/');
+    const isVid = fileLooksLikeVideo(file);
     setPulsePostIsVideo(isVid);
-    const url = await uploadToCloudinary(file);
+    let url = '';
+    if (user?.uid) url = await uploadMediaDurable(file, user.uid);
+    if (!url) url = await uploadToCloudinary(file);
     setTempPhoto(url || URL.createObjectURL(file));
   };
 
   const handleTiktokFileChange = async (e:any) => {
     const file = e.target.files?.[0]; if (!file) return;
-    const isVid = file.type.startsWith('video/');
+    const isVid = fileLooksLikeVideo(file);
     setTiktokPostIsVideo(isVid);
-    // Prefer Firebase Storage for videos (reliable playback URL + contentType)
     let url = '';
-    if (user?.uid) {
-      try { url = await uploadToFirebaseStorage(file, user.uid); } catch {}
-    }
+    if (user?.uid) url = await uploadMediaDurable(file, user.uid);
     if (!url) {
-      try { url = await uploadToCloudinary(file); } catch {}
+      setVvipAlert({ msg: 'Upload failed. Check connection and try again.', icon: '⚠️' });
+      return;
     }
-    setTiktokPostImg(url || URL.createObjectURL(file));
+    setTiktokPostImg(url);
   };
 
   const handleGoogleLogin = async () => {
@@ -4544,8 +4631,12 @@ export function AJSuperPortal() {
       if (mediaUrl && (mediaUrl.startsWith('data:') || mediaUrl.startsWith('blob:'))) {
         const res = await fetch(mediaUrl);
         const blob = await res.blob();
-        const file = new File([blob], `pulse_${Date.now()}.jpg`, { type: blob.type || 'image/jpeg' });
-        mediaUrl = await uploadToFirebaseStorage(file, user.uid);
+        const isVid = pulsePostIsVideo || blob.type.startsWith('video/');
+        const ext = isVid ? 'mp4' : 'jpg';
+        const file = new File([blob], `pulse_${Date.now()}.${ext}`, {
+          type: blob.type || (isVid ? 'video/mp4' : 'image/jpeg'),
+        });
+        mediaUrl = await uploadMediaDurable(file, user.uid);
         if (!mediaUrl) throw new Error('upload_failed');
         uploadVerified = true;
       } else if (mediaUrl && mediaUrl.startsWith('http')) {
@@ -4554,16 +4645,46 @@ export function AJSuperPortal() {
         uploadVerified = true;
       }
 
+      const createdAtMs = Date.now();
       const postRef = await addDoc(collection(db,"pulse_posts"), {
-        text:postText, image:mediaUrl, uid:user.uid,
-        username:username||"AJ_Member", photo:user.photoURL||'',
-        likes:0, views:0, isVideo:pulsePostIsVideo, createdAt:serverTimestamp()
+        text: postText,
+        image: mediaUrl,
+        videoUrl: pulsePostIsVideo ? mediaUrl : '',
+        thumbnail: mediaUrl,
+        uid: user.uid,
+        userId: user.uid,
+        username: username || 'AJ_Member',
+        photo: user.photoURL || '',
+        likes: 0,
+        views: 0,
+        isVideo: pulsePostIsVideo,
+        createdAt: serverTimestamp(),
+        createdAtMs,
       });
       const reward = await earnReward(user, 'pulse_post', {
         idempotencyKey: postRef.id,
         meta: { isVideo: pulsePostIsVideo, postId: postRef.id, uploadVerified },
       });
       setPostText(''); setTempPhoto(''); setPulsePostIsVideo(false);
+      // Optimistic local insert so feed updates instantly
+      setPulsePosts((prev: any[]) =>
+        mergeTikReelPosts([
+          [
+            normalizePulsePost(postRef.id, {
+              text: postText,
+              image: mediaUrl,
+              videoUrl: pulsePostIsVideo ? mediaUrl : '',
+              uid: user.uid,
+              userId: user.uid,
+              username: username || 'AJ_Member',
+              photo: user.photoURL || '',
+              isVideo: pulsePostIsVideo,
+              createdAtMs,
+            }),
+          ],
+          prev as TikReelPost[],
+        ])
+      );
       if (reward.ok && !reward.duplicate) {
         setVvipAlert({msg: reward.message || `🚀 Post published! +${reward.creditedCoins} AJ Coins 🪙`, icon:"🚀"});
       } else if (reward.error === 'daily_limit') {
@@ -5384,22 +5505,38 @@ Tip: Social Hub se copy karo 📤`,
   // PULSE UNSPLASH COMBINED FEED — FIX #5: Unsplash + Firestore merged
   // ==========================================================
   const combinedPulseFeed = React.useMemo(() => {
-    const unsplashItems = pixaData.map((img: any, i: number) => ({
-      id: `unsplash_${img.id || i}`,
-      image: img.urls?.regular || img.urls?.small || '',
-      text: img.alt_description || img.description || 'Lifestyle',
-      username: img.user?.name || 'Unsplash',
-      photo: img.user?.profile_image?.small || '/logo.png',
-      uid: 'unsplash',
-      likes: img.likes || 0,
-      views: 0,
-      isUnsplash: true,
-    }));
-    // Merge: interleave Firestore posts with Unsplash images
+    // Real Firebase posts first (TikTok/Instagram style), then Unsplash filler
+    const realPosts = (pulsePosts || [])
+      .map((p: any) => {
+        const media = getPlayableSrc(p);
+        return {
+          ...p,
+          image: media.src || p.image || p.videoUrl || p.thumbnail || '',
+          videoUrl: p.videoUrl || (media.kind === 'video' ? media.src : ''),
+          isVideo: media.kind === 'video' || p.isVideo === true,
+        };
+      })
+      .filter((p: any) => p.image || p.videoUrl || p.text);
+
+    const unsplashItems = (pixaData || [])
+      .map((img: any, i: number) => ({
+        id: `unsplash_${img.id || i}`,
+        image: img.urls?.regular || img.urls?.small || img.urls?.thumb || '',
+        text: img.alt_description || img.description || 'Lifestyle',
+        username: img.user?.name || 'Unsplash',
+        photo: img.user?.profile_image?.small || '/logo.png',
+        uid: 'unsplash',
+        likes: img.likes || 0,
+        views: 0,
+        isUnsplash: true,
+        isVideo: false,
+      }))
+      .filter((p: any) => !!p.image);
+
     const merged: any[] = [];
-    const maxLen = Math.max(pulsePosts.length, unsplashItems.length);
+    const maxLen = Math.max(realPosts.length, unsplashItems.length);
     for (let i = 0; i < maxLen; i++) {
-      if (i < pulsePosts.length) merged.push(pulsePosts[i]);
+      if (i < realPosts.length) merged.push(realPosts[i]);
       if (i < unsplashItems.length) merged.push(unsplashItems[i]);
     }
     return merged;
@@ -6004,13 +6141,15 @@ Tip: Social Hub se copy karo 📤`,
                   {userPosts.flatMap((post:any, idx:number) => {
                     const globalIdx = idx;
                     const isActive  = activeVideoIdx === globalIdx;
-                    const mediaUrl = String(post.videoUrl || post.image || post.url || post.mediaUrl || '');
+                    const media = getPlayableSrc(post);
+                    const mediaUrl = media.src;
                     const ownerUid = String(post.uid || post.userId || '');
-                    const playAsVideo = isPlayableTikReel(post) || post.isVideo === true;
+                    const playAsVideo = media.kind === 'video' || isPlayableTikReel(post);
                     const contentEl = (
                       <div key={`user_${post.id}`} data-vidx={globalIdx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505] flex flex-col justify-end" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
                         {playAsVideo && mediaUrl ? (
                           <video
+                            key={`vid_${post.id}_${mediaUrl.slice(-24)}`}
                             ref={el => { userVideoRefs.current[globalIdx] = el; }}
                             src={mediaUrl}
                             className="absolute inset-0 w-full h-full object-cover"
@@ -6028,10 +6167,21 @@ Tip: Social Hub se copy karo 📤`,
                                 v.play().catch(() => {});
                               });
                             }}
+                            onError={() => {
+                              // If video fails, keep slide visible with poster/gradient via state-less fallback text
+                              console.warn('TikReel video failed', post.id, mediaUrl);
+                            }}
                             style={{ filter: post.cssFilter && post.cssFilter !== 'none' ? post.cssFilter : undefined, touchAction:'pan-y' }}
                           />
                         ) : mediaUrl ? (
-                          <img src={mediaUrl} className="absolute inset-0 w-full h-full object-cover"/>
+                          <img
+                            src={mediaUrl}
+                            alt=""
+                            className="absolute inset-0 w-full h-full object-cover"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.opacity = '0.3';
+                            }}
+                          />
                         ) : (
                           <div className="absolute inset-0 bg-gradient-to-br from-purple-900/50 to-pink-900/50"/>
                         )}
@@ -6456,12 +6606,16 @@ Tip: Social Hub se copy karo 📤`,
                     // and free-coin triggers (cooldown-gated), so revenue stays.
                     return combinedPulseFeed.flatMap((post:any, idx:number) => {
                       const isActive = activeVideoIdx === idx;
+                      const media = getPlayableSrc(post);
+                      const mediaUrl = media.src || String(post.image || post.videoUrl || post.thumbnail || '');
+                      const playAsVideo = media.kind === 'video' || isPlayableTikReel(post);
                       const contentEl = (
                       <div key={post.id} data-vidx={idx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505] flex flex-col justify-end" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
-                        {post.isVideo && post.image ? (
+                        {playAsVideo && mediaUrl ? (
                           <video
+                            key={`pulse_vid_${post.id}`}
                             ref={el => { userVideoRefs.current[idx] = el; }}
-                            src={post.image}
+                            src={mediaUrl}
                             className="absolute inset-0 w-full h-full object-cover"
                             autoPlay={isActive}
                             loop
@@ -6479,10 +6633,19 @@ Tip: Social Hub se copy karo 📤`,
                             }}
                             onClick={() => setReelPaused(p => !p)}
                           />
-                        ) : post.image ? (
-                          <img src={post.image} className="absolute inset-0 w-full h-full object-cover"/>
+                        ) : mediaUrl ? (
+                          <img
+                            src={mediaUrl}
+                            alt=""
+                            className="absolute inset-0 w-full h-full object-cover"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.opacity = '0.35';
+                            }}
+                          />
                         ) : (
-                          <div className="absolute inset-0 bg-gradient-to-br from-purple-900/50 to-pink-900/50"/>
+                          <div className="absolute inset-0 bg-gradient-to-br from-purple-900/50 to-pink-900/50 flex items-center justify-center">
+                            <p className="text-zinc-400 text-xs font-bold px-6 text-center">{post.text || 'Pulse post'}</p>
+                          </div>
                         )}
                         {/* Neon glowing border frame — cyan/cyberpunk aesthetic */}
                         <div className="absolute inset-2 rounded-3xl pointer-events-none z-5" style={{ border: "2px solid rgba(34,211,238,0.3)", boxShadow: "0 0 20px rgba(34,211,238,0.15)", borderRadius: "1.5rem" }}/>
@@ -6632,27 +6795,29 @@ Tip: Social Hub se copy karo 📤`,
                     <p className="text-white font-black text-lg mt-3">@{username||'AJ_Member'}</p>
                     <p className="text-gray-400 text-xs mt-1 text-center max-w-xs">{bio||'No bio yet.'}</p>
                     <div className="flex gap-8 mt-4">
-                      <div className="text-center"><p className="text-white font-black text-lg">{pulsePosts.filter((p:any) => p.uid===user?.uid).length}</p><p className="text-gray-400 text-[10px]">Posts</p></div>
+                      <div className="text-center"><p className="text-white font-black text-lg">{pulsePosts.filter((p:any) => p.uid===user?.uid || p.userId===user?.uid).length}</p><p className="text-gray-400 text-[10px]">Posts</p></div>
                       <div className="text-center"><p className="text-white font-black text-lg">0</p><p className="text-gray-400 text-[10px]">Followers</p></div>
                       <div className="text-center"><p className="text-white font-black text-lg">0</p><p className="text-gray-400 text-[10px]">Following</p></div>
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-0.5 p-0.5">
-                    {pulsePosts.filter((p:any) => p.uid===user?.uid).map((post:any) => (
+                    {pulsePosts.filter((p:any) => p.uid===user?.uid || p.userId===user?.uid).map((post:any) => {
+                      const media = getPlayableSrc(post);
+                      const url = media.src || post.videoUrl || post.image || post.thumbnail || '';
+                      return (
                       <div
                         key={post.id}
                         className="relative aspect-square bg-white/5 overflow-hidden cursor-pointer active:scale-95 transition-all"
                         onClick={() => {
-                          const url = post.videoUrl || post.image;
-                          if (post.isVideo && url) {
+                          if (url && (media.kind === 'video' || post.isVideo)) {
                             setProfileVideoViewer({ url, text: post.text || post.textOverlay });
                           }
                         }}
                       >
-                        {post.isVideo ? (
-                          (post.thumbnail || post.videoUrl || post.image) ? (
+                        {media.kind === 'video' || post.isVideo ? (
+                          url ? (
                             <video
-                              src={post.thumbnail || post.videoUrl || post.image}
+                              src={url}
                               className="w-full h-full object-cover pointer-events-none"
                               muted
                               playsInline
@@ -6662,24 +6827,24 @@ Tip: Social Hub se copy karo 📤`,
                             <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">📝</span></div>
                           )
                         ) : (
-                          (post.thumbnail || post.image || post.videoUrl)
-                            ? <img src={post.thumbnail || post.image || post.videoUrl} className="w-full h-full object-cover pointer-events-none" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}/>
+                          url
+                            ? <img src={url} className="w-full h-full object-cover pointer-events-none" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}/>
                             : <div className="w-full h-full flex items-center justify-center bg-white/5"><span className="text-gray-500 text-xs">📝</span></div>
                         )}
-                        {post.isVideo && (
+                        {(media.kind === 'video' || post.isVideo) && (
                           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                             <div className="w-9 h-9 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center">
                               <span className="text-white text-sm ml-0.5">▶</span>
                             </div>
                           </div>
                         )}
-                        {post.isVideo && <div className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5"><Film size={10} className="text-white"/></div>}
+                        {(media.kind === 'video' || post.isVideo) && <div className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5"><Film size={10} className="text-white"/></div>}
                         <div className="absolute bottom-1 left-1 bg-black/60 rounded-full px-1.5 py-0.5 flex items-center gap-0.5">
                           <Eye size={8} className="text-white"/>
                           <span className="text-white text-[8px] font-black">{formatViews(post.views||0)}</span>
                         </div>
                       </div>
-                    ))}
+                    );})}
                   </div>
                 </div>
               )}
