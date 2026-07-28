@@ -50,14 +50,19 @@ import AdminUsersPanel from './components/AdminUsersPanel';
 import { isPortalAdminUser } from './lib/admin-auth';
 import { BAN_FORBIDDEN_MESSAGE, DEFAULT_ACCOUNT_BAN_FIELDS, isUserBanned } from './lib/user-ban';
 import { startIntrusiveAdGuard, stripIntrusiveAdNodes } from './lib/ad-guards';
-import { REEL_COMMENTS_COL, sortCommentsAsc, mergeCommentLists } from './lib/reel-comments';
+import {
+  REEL_COMMENTS_COL,
+  sortCommentsAsc,
+  mergeCommentLists,
+  resolveCommentPostIds,
+  dedupeComments,
+} from './lib/reel-comments';
 import {
   CHATS_COL,
   CHAT_PARTNERS_SUB,
   buildDmChatId,
   normalizePartnerProfile,
 } from './lib/dm-chat';
-import { REEL_COMMENTS_COL, sortCommentsAsc, mergeCommentLists, resolveCommentPostIds, dedupeComments } from './lib/reel-comments';
 
 // ============================================================
 // GLOBAL ERROR SHIELD (FIX: "Page couldn't load" error)
