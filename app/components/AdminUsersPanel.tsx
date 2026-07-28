@@ -18,6 +18,7 @@ import { auth, db } from '../firebase';
 import { isPortalAdminUser } from '../lib/admin-auth';
 import { ACCOUNT_STATUS, buildBanUpdate, isUserBanned } from '../lib/user-ban';
 import { isRtdbPresenceOnline, isUserOnlineNow, type PresenceSnapshot } from '../lib/presence';
+import { COIN_RATE, CASH_RATE, formatUsd, coinsToUsd } from '../lib/economy';
 import { COIN_RATE, formatUsd, coinsToUsd } from '../lib/economy';
 import { ensureUserReferralId } from '../lib/referral';
 
@@ -455,7 +456,7 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
               {earnings?.totalOwnerUsdLabel || formatUsd(earnings?.totalOwnerUsd || 0)}
             </p>
             <p className="text-[9px] text-gray-500 mt-1">
-              Running total · {COIN_RATE} 🪙 = $1 · {earnings?.eventCount ?? 0} events
+              Running total · ledger {COIN_RATE} 🪙≈$1 · withdraw {CASH_RATE} 🪙=$1 · {earnings?.eventCount ?? 0} events
             </p>
             <div className="mt-3 grid grid-cols-2 gap-2">
               <div className="bg-white/5 rounded-xl p-2.5">
@@ -581,7 +582,7 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
                   <p className="text-[9px] text-yellow-500/80 font-black mt-0.5">
                     {(u.balance ?? 0).toLocaleString()} 🪙
                     <span className="text-emerald-400/80 text-[9px] font-bold ml-1">
-                      ({formatUsd(coinsToUsd(u.balance ?? 0))})
+                      ({formatUsd(coinsToUsd(u.balance ?? 0))} withdraw)
                     </span>
                   </p>
                 </div>

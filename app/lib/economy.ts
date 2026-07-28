@@ -1,21 +1,24 @@
 /**
  * AJ Super Portal — economy & games catalog.
- * Wallet shows AJ Coins 🪙 plus USD display value (coins ÷ COIN_RATE).
+ * Wallet USD value uses withdraw rate: CASH_RATE (1000 🪙 = $1).
  */
 
-/** Purchase / display rate: COIN_RATE AJ Coins = $1.00 USD */
+/** Purchase rate: $1 buy → COIN_RATE AJ Coins (top-up only) */
 export const COIN_RATE = 100;
-/** Cash-out divisor: CASH_RATE AJ Coins ≈ $1.00 withdraw value */
+/** Withdraw / wallet dollar value: CASH_RATE AJ Coins = $1.00 */
 export const CASH_RATE = 1000;
 
-/** Convert wallet coins → USD display (purchase / ledger rate). */
+/**
+ * Wallet / withdraw USD value — always 1000:1.
+ * Example: 20,000 🪙 ≈ $20.00
+ */
 export function coinsToUsd(coins: number): number {
-  return Number((Math.max(0, Number(coins) || 0) / COIN_RATE).toFixed(2));
+  return Number((Math.max(0, Number(coins) || 0) / CASH_RATE).toFixed(2));
 }
 
-/** Convert wallet coins → withdraw cash USD estimate. */
+/** Alias — same as coinsToUsd (withdraw rate 1000:1). */
 export function coinsToCashUsd(coins: number): number {
-  return Number((Math.max(0, Number(coins) || 0) / CASH_RATE).toFixed(2));
+  return coinsToUsd(coins);
 }
 
 /** Format USD for UI, e.g. `$12.50`. */
