@@ -7097,10 +7097,9 @@ Tip: Social Hub se copy karo 📤`,
               </div>
               <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
                 {[ { icon: '🎬', label: 'AJ TikReels', sub: 'Short Videos', action: () => { setSocialScreen('tikreels'); setTiktabMode('feed'); } },
-                  { icon: '🎬', label: 'AJ Pulse', sub: 'Social features', action: () => { setSocialScreen('pulse'); setPulseTab('feed'); } },
+                  { icon: '🎬', label: 'AJ Pulse', sub: 'Photos', action: () => { setSocialScreen('pulse'); setPulseTab('feed'); } },
                   { icon: 'G', label: 'Go Live', sub: 'Social features', action: () => { setSocialScreen('golive'); } },
                   { icon: 'J', label: 'Join Live', sub: 'Social features', action: () => { setSocialScreen('joinlive'); } },
-                  { icon: 'M', label: 'My Profile', sub: 'Social features', action: () => { openProfile(user.uid); } },
                 ].map(item => (
                   <button key={item.label} onClick={item.action} className="w-full flex items-center gap-4 bg-white/5 border border-white/10 rounded-2xl p-4 active:scale-95 transition-all hover:border-pink-500/30">
                     <span className="text-2xl">{item.icon}</span>
@@ -7554,17 +7553,9 @@ Tip: Social Hub se copy karo 📤`,
                         <MessageCircle size={12} />
                         Message
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => setTikProfileSubTab('posts')}
-                        className={`px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${tikProfileSubTab==='posts' ? 'bg-pink-600 text-white' : 'bg-white/5 border border-white/10 text-gray-400'}`}
-                      >
-                        posts
-                      </button>
                     </div>
                   </div>
-                  {tikProfileSubTab === 'posts' && (
-                    <div className="grid grid-cols-3 gap-0.5 p-0.5">
+                  <div className="grid grid-cols-3 gap-0.5 p-0.5">
                       {tikProfileMyPosts.length === 0 && (
                         <div className="col-span-3 flex flex-col items-center justify-center py-16 gap-3">
                           <span className="text-4xl">🎬</span>
@@ -7647,21 +7638,6 @@ Tip: Social Hub se copy karo 📤`,
                         );
                       })}
                     </div>
-                  )}
-                  {tikProfileSubTab === 'following' && (
-                    <div className="px-4 py-4 space-y-3">
-                      {followingList.length === 0 && <p className="text-gray-500 text-sm text-center mt-10">Not following anyone yet.</p>}
-                      {followingList.map((u:any) => (
-                        <button key={u.uid} onClick={() => openProfile(u.uid)} className="w-full flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl p-3 active:scale-95 transition-all">
-                          <img src={u.photo||'/logo.png'} className="w-10 h-10 rounded-full border border-white/20 object-cover"/>
-                          <div className="text-left">
-                            <p className="text-xs font-black text-white">@{u.username||u.uid}</p>
-                            <p className="text-[9px] text-gray-400">{u.bio||''}</p>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
                 </div>
               )}
             </div>
