@@ -18,7 +18,7 @@ import {
   verifyFirebaseIdToken,
 } from '../../../lib/verify-id-token';
 
-const SESSION_TTL_MS = 3 * 60 * 1000;
+const SESSION_TTL_MS = 10 * 60 * 1000;
 
 function dayKeyUtc() {
   return new Date().toISOString().slice(0, 10);
@@ -58,7 +58,7 @@ export async function POST(request: Request) {
     const dailyCount =
       ud.offerwallVideoDayKey === dayKey ? Number(ud.offerwallVideoDayCount || 0) : 0;
 
-    // ── Adsterra claim: open link → Claim 5 Coins → increment(5)
+    // ── Adsterra claim: require prepare session + min 30s elapsed
     if (action === 'claim_adsterra') {
       if (dailyCount >= OFFERWALL_VIDEO_MAX_DAILY) {
         return NextResponse.json(
@@ -66,6 +66,48 @@ export async function POST(request: Request) {
           { status: 429 }
         );
       }
+
+      const sessionId = String(body.sessionId || '').trim();
+      const VERIFY_MS = 30 * 1000;
+      if (sessionId) {
+        const sessionRef = doc(db, 'ad_reward_sessions', sessionId);
+        const sessionSnap = await getDoc(sessionRef);
+        if (!sessionSnap.exists()) {
+          return NextResponse.json(
+            { ok: false, error: 'invalid_session', message: 'Start Watch Ads again.' },
+            { status: 400 }
+          );
+        }
+        const session = sessionSnap.data() as {
+          uid: string;
+          expiresAt: number;
+          consumed?: boolean;
+          createdAtMs?: number;
+        };
+        if (session.uid !== user.uid) {
+          return NextResponse.json({ ok: false, error: 'session_mismatch' }, { status: 403 });
+        }
+        if (session.consumed) {
+          return NextResponse.json({
+            ok: true,
+            duplicate: true,
+            creditedCoins: 0,
+            message: 'Already claimed for this ad session',
+          });
+        }
+        const startedMs = Number(session.createdAtMs || 0);
+        if (startedMs > 0 && Date.now() - startedMs < VERIFY_MS) {
+          return NextResponse.json(
+            {
+              ok: false,
+              error: 'verify_too_fast',
+              message: 'Stay on the ad for 30s before claiming. Early return = no coins.',
+            },
+            { status: 403 }
+          );
+        }
+      }
+
       const coins = ADSTERRA_REWARD_COINS || REWARDED_VIDEO_COINS || 5;
       const txId = `adsterra_claim_${user.uid}_${dayKey}_${dailyCount}`;
       const ledgerRef = doc(db, 'offerwall_ledger', txId);
@@ -86,6 +128,15 @@ export async function POST(request: Request) {
         const count =
           u.offerwallVideoDayKey === dayKey ? Number(u.offerwallVideoDayCount || 0) : 0;
         if (count >= OFFERWALL_VIDEO_MAX_DAILY) throw new Error('daily_limit');
+
+        if (sessionId) {
+          const sref = doc(db, 'ad_reward_sessions', sessionId);
+          tx.set(
+            sref,
+            { consumed: true, consumedAt: serverTimestamp() },
+            { merge: true }
+          );
+        }
 
         tx.set(ledgerRef, {
           uid: user.uid,
@@ -137,19 +188,23 @@ export async function POST(request: Request) {
       }
       const sessionId = `rv_${user.uid}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const expiresAt = Date.now() + SESSION_TTL_MS;
+      const createdAtMs = Date.now();
       await setDoc(doc(db, 'ad_reward_sessions', sessionId), {
         uid: user.uid,
         placement,
         createdAt: serverTimestamp(),
+        createdAtMs,
         expiresAt,
         dayKey,
         consumed: false,
         slot: dailyCount,
+        verifySeconds: 30,
       });
       return NextResponse.json({
         ok: true,
         sessionId,
         expiresAt,
+        createdAtMs,
         remainingToday: Math.max(0, OFFERWALL_VIDEO_MAX_DAILY - dailyCount),
       });
     }
