@@ -1912,7 +1912,6 @@ export function AJSuperPortal() {
 
   // ── TIKREELS
   const [tiktabMode,       setTiktabMode]       = useState<'feed'|'create'|'profile'>('feed');
-  const [tikProfileSubTab, setTikProfileSubTab] = useState<'posts'|'following'>('posts');
   // FIX: TikReels profile — fetch ALL of the current user's posts (not just latest 20 from global feed)
   const [tikProfileMyPosts, setTikProfileMyPosts] = useState<any[]>([]);
   const [tikProfileFollowers, setTikProfileFollowers] = useState(0);
