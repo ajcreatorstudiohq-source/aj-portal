@@ -1783,6 +1783,7 @@ export function AJSuperPortal() {
   const [showNotifs,    setShowNotifs]    = useState(false);
   const [isMutualFriend,setIsMutualFriend]= useState(false);
   const [commentPostId, setCommentPostId] = useState<string|null>(null);
+  const [commentCollection, setCommentCollection] = useState<string>('user_posts');
   const [keyboardHeight, setKeyboardHeight] = useState(0); // FIX: track keyboard height for comment input padding
   const [postComments,  setPostComments]  = useState<any[]>([]);
   const [newComment,    setNewComment]    = useState('');
@@ -1952,8 +1953,9 @@ export function AJSuperPortal() {
   const [tiktokPostText, setTiktokPostText] = useState('');
   const [tiktokPostImg,  setTiktokPostImg]  = useState('');
 
-  // ── PULSE GIFT PANEL
+  // ── PULSE / TIKREEL GIFT PANEL (shared)
   const [pulseGiftPostId, setPulseGiftPostId] = useState<string|null>(null);
+  const [giftTargetUid, setGiftTargetUid] = useState<string|null>(null);
 
   // ── LIVE GIFT PANEL (for both host and viewer)
   const [liveGifting, setLiveGifting] = useState(false);
@@ -2289,17 +2291,33 @@ export function AJSuperPortal() {
     }
     if (commentPostId && !commentPostId.startsWith('gift_')) {
       try {
-        // FIX (Hinglish): Agar yeh YouTube/pixa video hai toh `yt_posts` collection se
-        // comments load karo, warna regular user_posts/pulse_posts se.
-        const isPixaVideo = pixaVideos.some((v:any) => v.id === commentPostId);
-        const col = isPixaVideo ? "yt_posts" : (pulsePosts.find(p => p.id === commentPostId) ? "pulse_posts" : "user_posts");
+        const col = commentCollection || (
+          pixaVideos.some((v:any) => v.id === commentPostId)
+            ? 'yt_posts'
+            : pulsePosts.find((p:any) => p.id === commentPostId)
+              ? 'pulse_posts'
+              : 'user_posts'
+        );
         const q = query(collection(db, col, commentPostId, "comments"), orderBy("createdAt","asc"));
-        const unsub = onSnapshot(q, snap => setPostComments(snap.docs.map(d=>({id:d.id,...d.data()}))));
+        const unsub = onSnapshot(
+          q,
+          (snap) => setPostComments(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+          (err) => {
+            console.warn('comments listen', err);
+            // Fallback without orderBy
+            try {
+              const q2 = query(collection(db, col, commentPostId, 'comments'), limit(80));
+              onSnapshot(q2, (snap) =>
+                setPostComments(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+              );
+            } catch {}
+          }
+        );
         return unsub;
       } catch(e) { console.error("Comment sub error", e); }
     }
     return () => {};
-  }, [socialScreen, activeContact, commentPostId]);
+  }, [socialScreen, activeContact, commentPostId, commentCollection]);
 
   // FIX ROUND 6: Comment keyboard open nahi ho raha tha — ab PROPER fix.
   // Mobile pe input focus karne ke liye multiple strategies use karte hain:
@@ -3918,6 +3936,109 @@ export function AJSuperPortal() {
     } catch(e) { console.error('sendGift', e); setVvipAlert({msg:'Gift failed. Please try again.'}); }
   };
 
+  /** Open comments — must run inside tap handler so mobile keyboard can open. */
+  const openComments = (
+    postOrId: any,
+    e?: { stopPropagation?: () => void; preventDefault?: () => void }
+  ) => {
+    try {
+      e?.stopPropagation?.();
+    } catch {}
+    const post = typeof postOrId === 'object' && postOrId ? postOrId : null;
+    let id = typeof postOrId === 'string' ? postOrId : String(post?.postId || post?.id || '');
+    let col = 'user_posts';
+    if (post) {
+      if (
+        post._source === 'pulse_posts' ||
+        pulsePosts.some((p: any) => p.id === post.id)
+      ) {
+        col = 'pulse_posts';
+        id = String(post.id);
+      } else if (pixaVideos.some((v: any) => v.id === post.id)) {
+        col = 'yt_posts';
+        id = String(post.id);
+      } else if (post._source === 'videos' && !post.postId) {
+        col = 'videos';
+        id = String(post.id);
+      } else {
+        col = 'user_posts';
+        id = String(post.postId || post.id);
+      }
+    } else if (pulsePosts.some((p: any) => p.id === id)) {
+      col = 'pulse_posts';
+    } else if (pixaVideos.some((v: any) => v.id === id)) {
+      col = 'yt_posts';
+    }
+    if (!id) return;
+
+    // Keep focus chain alive for iOS/Android keyboard
+    let tmp: HTMLInputElement | null = null;
+    try {
+      tmp = document.createElement('input');
+      tmp.type = 'text';
+      tmp.setAttribute('inputmode', 'text');
+      tmp.autocomplete = 'off';
+      tmp.style.cssText =
+        'position:fixed;bottom:0;left:0;width:1px;height:1px;opacity:0.01;font-size:16px;border:0;padding:0;z-index:999999;';
+      document.body.appendChild(tmp);
+      tmp.focus();
+    } catch {}
+
+    setCommentCollection(col);
+    setCommentPostId(id);
+    setNewComment('');
+    setPostComments([]);
+
+    const moveFocus = () => {
+      const real = commentInputRef.current;
+      if (!real) return;
+      try {
+        real.focus({ preventScroll: false });
+        real.click();
+      } catch {
+        try {
+          real.focus();
+        } catch {}
+      }
+    };
+    requestAnimationFrame(() => {
+      moveFocus();
+      window.setTimeout(moveFocus, 60);
+      window.setTimeout(moveFocus, 180);
+      window.setTimeout(moveFocus, 360);
+      window.setTimeout(() => {
+        moveFocus();
+        if (tmp) {
+          try {
+            document.body.removeChild(tmp);
+          } catch {}
+        }
+      }, 500);
+    });
+  };
+
+  /** Open gift picker for a real creator post (TikReel or Pulse). */
+  const openGiftPanel = (
+    post: any,
+    e?: { stopPropagation?: () => void }
+  ) => {
+    try {
+      e?.stopPropagation?.();
+    } catch {}
+    if (!user) {
+      setVvipAlert({ msg: 'Please sign in to send gifts.', icon: '🔒' });
+      return;
+    }
+    const uid = String(post?.uid || post?.userId || '');
+    const id = String(post?.postId || post?.id || '');
+    if (!uid || uid === 'unsplash' || post?.isUnsplash) {
+      setVvipAlert({ msg: 'Gifts are for real creators only.', icon: '🎁' });
+      return;
+    }
+    setGiftTargetUid(uid);
+    setPulseGiftPostId(id || uid);
+  };
+
   // ==========================================================
   // ADMIN REVENUE LOGGER
   // ==========================================================
@@ -4062,20 +4183,35 @@ export function AJSuperPortal() {
       }
       setViewProfile(userData);
       try {
-        // Pulse photo posts (non-video)
-        const pq1 = query(collection(db, 'pulse_posts'), orderBy('createdAt', 'desc'), limit(40));
-        const ps1 = await getDocs(pq1);
-        const pulseAll = ps1.docs.map((d) => ({
-          id: d.id,
-          ...(d.data() as Record<string, unknown>),
-          views: Number((d.data() as { views?: number }).views || 0),
-        }));
-        setProfilePosts(
-          pulseAll.filter((p: any) => (p.uid === uid || p.userId === uid) && !p.isVideo)
-        );
+        // Pulse posts owned by this profile (uid / userId queries — not global scan)
+        const pulseLists: any[] = [];
+        try {
+          const psUid = await getDocs(
+            query(collection(db, 'pulse_posts'), where('uid', '==', uid), limit(80))
+          );
+          pulseLists.push(
+            ...psUid.docs.map((d) =>
+              normalizePulsePost(d.id, d.data() as Record<string, unknown>)
+            )
+          );
+        } catch {}
+        try {
+          const psUserId = await getDocs(
+            query(collection(db, 'pulse_posts'), where('userId', '==', uid), limit(80))
+          );
+          pulseLists.push(
+            ...psUserId.docs.map((d) =>
+              normalizePulsePost(d.id, d.data() as Record<string, unknown>)
+            )
+          );
+        } catch {}
+        const pulseMerged = filterOwnedBy(mergeTikReelPosts([pulseLists]), uid);
+        setProfilePosts(pulseMerged.filter((p) => !p.isVideo));
 
         // Primary: top-level `videos` where userId / uid matches the profile
         const lists: TikReelPost[][] = [];
+        // Include pulse videos in profile video grid too
+        lists.push(pulseMerged.filter((p) => p.isVideo));
         try {
           const videosSnap = await getDocs(
             query(collection(db, 'videos'), where('userId', '==', uid), limit(120))
@@ -4137,7 +4273,15 @@ export function AJSuperPortal() {
           );
         } catch {}
 
-        setProfileVideos(filterOwnedBy(mergeTikReelPosts(lists), uid));
+        const mergedVideos = filterOwnedBy(mergeTikReelPosts(lists), uid);
+        setProfileVideos(mergedVideos);
+        // Keep postsCount in sync with what we actually show
+        try {
+          const total = pulseMerged.length + mergedVideos.filter((v) => v._source !== 'pulse_posts').length;
+          if (typeof userData.postsCount !== 'number' || userData.postsCount < total) {
+            setViewProfile((prev: any) => (prev ? { ...prev, postsCount: total } : prev));
+          }
+        } catch {}
       } catch (e) {
         console.error('openProfile posts', e);
       }
@@ -4701,43 +4845,56 @@ export function AJSuperPortal() {
   // Aur `pixaVideoComments` local state se comments turant dikh bhi jaate hain.
   const submitComment = async () => {
     if (!newComment.trim() || !commentPostId) return;
+    if (!user) {
+      setVvipAlert({ msg: 'Please sign in to comment.', icon: '🔒' });
+      return;
+    }
     try {
       const commentData = {
-        text: newComment,
-        username: username || "AJ_Member",
+        text: newComment.trim(),
+        uid: user.uid,
+        username: username || 'AJ_Member',
         photo: user?.photoURL || '',
         createdAt: serverTimestamp(),
         createdAtMs: Date.now(),
       };
-      // FIX: Check if this is a YouTube/pixa video comment
-      const isPixaVideo = pixaVideos.some((v:any) => v.id === commentPostId);
-      if (isPixaVideo) {
-        // YouTube video comment — use a separate 'yt_comments' collection
-        // so it doesn't conflict with user_posts. Also auto-create the doc.
+      const col =
+        commentCollection ||
+        (pixaVideos.some((v: any) => v.id === commentPostId)
+          ? 'yt_posts'
+          : pulsePosts.find((p: any) => p.id === commentPostId)
+            ? 'pulse_posts'
+            : 'user_posts');
+
+      if (col === 'yt_posts') {
         try {
-          await setDoc(doc(db, 'yt_posts', commentPostId), {
-            id: commentPostId,
-            type: 'youtube',
-            createdAt: serverTimestamp(),
-          }, { merge: true });
+          await setDoc(
+            doc(db, 'yt_posts', commentPostId),
+            { id: commentPostId, type: 'youtube', createdAt: serverTimestamp() },
+            { merge: true }
+          );
           await addDoc(collection(db, 'yt_posts', commentPostId, 'comments'), commentData);
-        } catch(e2) {
+        } catch (e2) {
           console.error('yt comment error', e2);
+          throw e2;
         }
       } else {
-        const col = pulsePosts.find(p => p.id === commentPostId) ? "pulse_posts" : "user_posts";
-        await addDoc(collection(db, col, commentPostId, "comments"), commentData);
-        // Also increment commentCount on the post
+        await addDoc(collection(db, col, commentPostId, 'comments'), commentData);
         try {
-          const col2 = pulsePosts.find(p => p.id === commentPostId) ? "pulse_posts" : "user_posts";
-          await updateDoc(doc(db, col2, commentPostId), { commentCount: increment(1) });
+          await updateDoc(doc(db, col, commentPostId), { commentCount: increment(1) });
         } catch {}
       }
-      // FIX: Add comment to local state immediately (instant feedback)
-      setPostComments(prev => [...prev, { id: `local_${Date.now()}`, ...commentData, createdAt: null }]);
+      setPostComments((prev) => [
+        ...prev,
+        { id: `local_${Date.now()}`, ...commentData, createdAt: null },
+      ]);
       setNewComment('');
-      setVvipAlert({msg:`💬 Comment posted!`,icon:'💬'});
-    } catch(e) { console.error('submitComment', e); setVvipAlert({msg:'Failed to post comment. Try again.',icon:'⚠️'}); }
+      // Keep keyboard open for next comment
+      requestAnimationFrame(() => commentInputRef.current?.focus());
+    } catch (e) {
+      console.error('submitComment', e);
+      setVvipAlert({ msg: 'Failed to post comment. Try again.', icon: '⚠️' });
+    }
   };
 
   const handleDeleteNotification = async (id:string) => {
@@ -6203,7 +6360,7 @@ Tip: Social Hub se copy karo 📤`,
                         )}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none"/>
                         <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-[110]">
-                          <button onClick={e => { e.stopPropagation(); setPulseGiftPostId(post.postId || post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => openGiftPanel(post, e)} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <Gift size={18} className="text-yellow-400"/>
                             </div>
@@ -6215,7 +6372,7 @@ Tip: Social Hub se copy karo 📤`,
                             </div>
                             <span className="text-white text-[9px] font-black">{(likedPosts[post.postId || post.id] ? (post.likes||0) + 1 : post.likes||0)}</span>
                           </button>
-                          <button onClick={e => { e.stopPropagation(); setCommentPostId(String(post.postId || post.id)); let _tmp: any = null; try { _tmp = document.createElement('input'); _tmp.setAttribute('type','text'); _tmp.style.cssText='position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px;border:0;'; document.body.appendChild(_tmp); _tmp.focus(); } catch {} setTimeout(() => { if (commentInputRef.current) commentInputRef.current.focus(); if (_tmp) try { document.body.removeChild(_tmp); } catch {} }, 120); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => openComments(post, e)} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <MessageSquare size={18} className="text-white"/>
                             </div>
@@ -6308,7 +6465,7 @@ Tip: Social Hub se copy karo 📤`,
                         )}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none"/>
                         <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 z-[110]">
-                          <button onClick={e => { e.stopPropagation(); setPulseGiftPostId(vid.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => { e.stopPropagation(); setVvipAlert({msg:'Gifts are for real creators only.', icon:'🎁'}); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <Gift size={18} className="text-yellow-400"/>
                             </div>
@@ -6320,7 +6477,7 @@ Tip: Social Hub se copy karo 📤`,
                             </div>
                             <span className="text-white text-[9px] font-black">{formatViews((likedPosts[vid.id] ? (vid.likes||0) + 1 : vid.likes||0))}</span>
                           </button>
-                          <button onClick={e => { e.stopPropagation(); setCommentPostId(vid.id); let _tmp: any = null; try { _tmp = document.createElement('input'); _tmp.setAttribute('type','text'); _tmp.style.cssText='position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px;border:0;'; document.body.appendChild(_tmp); _tmp.focus(); } catch {} setTimeout(() => { if (commentInputRef.current) commentInputRef.current.focus(); if (_tmp) try { document.body.removeChild(_tmp); } catch {} }, 120); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                          <button onClick={e => openComments(vid, e)} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                               <MessageSquare size={18} className="text-white"/>
                             </div>
@@ -6667,7 +6824,7 @@ Tip: Social Hub se copy karo 📤`,
                               </div>
                               <span className="text-white text-[9px] font-black">{formatViews((likedPosts[post.id] ? (post.likes||0) + 1 : post.likes||0))}</span>
                             </button>
-                            <button onClick={e => { e.stopPropagation(); setCommentPostId(post.id); let _tmp: any = null; try { _tmp = document.createElement('input'); _tmp.setAttribute('type','text'); _tmp.style.cssText='position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px;border:0;'; document.body.appendChild(_tmp); _tmp.focus(); } catch {} setTimeout(() => { if (commentInputRef.current) commentInputRef.current.focus(); if (_tmp) try { document.body.removeChild(_tmp); } catch {} }, 120); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <button onClick={e => openComments(post, e)} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                               <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                                 <MessageSquare size={18} className="text-white"/>
                               </div>
@@ -6679,7 +6836,7 @@ Tip: Social Hub se copy karo 📤`,
                               </div>
                               <span className="text-white text-[9px] font-black">Share</span>
                             </button>
-                            <button onClick={e => { e.stopPropagation(); setPulseGiftPostId(post.id); }} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
+                            <button onClick={e => openGiftPanel(post, e)} className="flex flex-col items-center gap-1 active:scale-90 transition-all">
                               <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                                 <Bookmark size={18} className="text-white"/>
                               </div>
@@ -6717,7 +6874,7 @@ Tip: Social Hub se copy karo 📤`,
                           {/* Action buttons — Tip AJ Coins + Share to WhatsApp */}
                           {!post.isUnsplash && (
                             <div className="flex items-center gap-2">
-                              <button onClick={e => { e.stopPropagation(); setPulseGiftPostId(post.id); }} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all" style={{ background: 'linear-gradient(135deg,#f59e0b,#d97706)', boxShadow: '0 0 14px rgba(245,158,11,0.3)' }}>
+                              <button onClick={e => openGiftPanel(post, e)} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all" style={{ background: 'linear-gradient(135deg,#f59e0b,#d97706)', boxShadow: '0 0 14px rgba(245,158,11,0.3)' }}>
                                 <span className="text-sm">🪙</span>
                                 <span className="text-white">Tip AJ Coins</span>
                               </button>
@@ -6849,26 +7006,6 @@ Tip: Social Hub se copy karo 📤`,
                 </div>
               )}
 
-              {/* Pulse Gift Panel */}
-              {pulseGiftPostId && (
-                <div className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end" onClick={() => setPulseGiftPostId(null)}>
-                  <div className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl p-6" onClick={e => e.stopPropagation()}>
-                    <div className="flex items-center justify-between mb-4">
-                      <p className="text-sm font-black text-white">Send a Gift 🎁</p>
-                      <button onClick={() => setPulseGiftPostId(null)}><X size={18} className="text-gray-400"/></button>
-                    </div>
-                    <div className="grid grid-cols-3 gap-3">
-                      {giftItems.map(g => (
-                        <button key={g.id} onClick={() => { const post = combinedPulseFeed.find((p:any) => p.id===pulseGiftPostId); if (post && !post.isUnsplash) { sendGift(post.uid, g); setPulseGiftPostId(null); } }} className="flex flex-col items-center gap-1.5 bg-white/5 border border-white/10 rounded-2xl p-3 active:scale-90 transition-all">
-                          <span className="text-2xl">{g.icon}</span>
-                          <span className="text-white text-[9px] font-black">{g.name}</span>
-                          <span className="text-yellow-400 text-[9px] font-black">{g.cost.toLocaleString()} 🪙</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
 
 
             </div>
@@ -7528,7 +7665,8 @@ Tip: Social Hub se copy karo 📤`,
                       </div>
                     ))}
                     {profileVideos.map((vid:any) => {
-                      const playUrl = String(
+                      const media = getPlayableSrc(vid);
+                      const playUrl = media.src || String(
                         vid.videoUrl || vid.url || vid.src || vid.image || vid.mediaUrl || ''
                       );
                       const thumb = String(
@@ -7562,12 +7700,11 @@ Tip: Social Hub se copy karo 📤`,
                           }
                         }}
                       >
-                        {thumb ? (
+                        {thumb || playUrl ? (
                           <>
-                            {/* Prefer static thumb image; fall back to muted video frame */}
-                            {/\.(mp4|webm|mov)(\?|$)/i.test(thumb) || (!vid.thumbnail && playUrl) ? (
+                            {media.kind === 'video' || /\.(mp4|webm|mov)(\?|$)/i.test(thumb || playUrl) || vid.isVideo ? (
                               <video
-                                src={thumb || playUrl}
+                                src={playUrl || thumb}
                                 className="w-full h-full object-cover pointer-events-none"
                                 muted
                                 playsInline
@@ -7575,7 +7712,7 @@ Tip: Social Hub se copy karo 📤`,
                               />
                             ) : (
                               <img
-                                src={thumb}
+                                src={thumb || playUrl}
                                 alt=""
                                 className="w-full h-full object-cover pointer-events-none"
                                 onError={(e) => {
@@ -7617,58 +7754,117 @@ Tip: Social Hub se copy karo 📤`,
                 </div>
               )}
 
-              {/* Shared Comment Sheet — works for TikReels AND Pulse */}
-              {commentPostId && (
-                <div className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end" onClick={() => { setCommentPostId(null); setPostComments([]); setKeyboardHeight(0); }}>
-                  <div className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl p-6 max-h-[70vh] flex flex-col" style={{ position: 'fixed', bottom: 0, left: 0, right: 0, paddingBottom: keyboardHeight > 0 ? keyboardHeight : 'env(safe-area-inset-bottom, 8px)', zIndex: 9001, transition: 'padding-bottom 0.1s ease-out' }} onClick={e => e.stopPropagation()}>
-                    <div className="flex items-center justify-between mb-4">
-                      <p className="text-sm font-black text-white">💬 Comments</p>
-                      <button onClick={() => { setCommentPostId(null); setPostComments([]); setKeyboardHeight(0); }}><X size={18} className="text-gray-400"/></button>
-                    </div>
-                    <div className="flex-1 overflow-y-auto space-y-3 mb-4">
-                      {postComments.length === 0 && <p className="text-gray-500 text-xs text-center mt-4">No comments yet. Be the first to comment!</p>}
-                      {postComments.map((c:any) => (
-                        <div key={c.id} className="flex items-start gap-2">
-                          <img src={c.photo||'/logo.png'} className="w-7 h-7 rounded-full border border-white/20 object-cover flex-shrink-0"/>
-                          <div className="bg-white/5 rounded-2xl px-3 py-2 flex-1">
-                            <p className="text-[9px] text-pink-400 font-black">@{c.username}</p>
-                            <p className="text-white text-xs mt-0.5">{c.text}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="flex gap-2" style={{ position: 'sticky', bottom: 0, zIndex: 9002, background: '#0a0a1a', paddingTop: 8 }}>
-                      {/* FIX ROUND 3: Comment input — keyboard open nahi ho raha tha.
-                          Pehle autoFocus hata diya tha aur ref+setTimeout se focus karte the
-                          jo mobile pe reliable nahi tha. Ab useRef + useEffect se proper
-                          focus kar rahe hain jab comment sheet khulta hai. */}
-                      <input
-                        value={newComment}
-                        onChange={e => setNewComment(e.target.value)}
-                        placeholder="Add a comment…"
-                        inputMode="text"
-                        enterKeyHint="send"
-                        autoCapitalize="sentences"
-                        autoComplete="off"
-                        spellCheck={false}
-                        className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-3 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"
-                        style={{ touchAction: 'manipulation', fontSize: '16px', WebkitAppearance: 'none', appearance: 'none', minHeight: '44px', caretColor: '#ec4899' }}
-                        onKeyDown={e => e.key==='Enter' && submitComment()}
-                        ref={commentInputRef}
-                        // FIX: Tap pe turant focus karo — keyboard open ho jaaye
-                        onClick={(e) => { e.stopPropagation(); e.currentTarget.focus(); }}
-                        onTouchStart={(e) => { e.stopPropagation(); }}
-                        // FIX: Touchend pe bhi focus — agar touchstart se keyboard na khule
-                        // NOTE: e.preventDefault() REMOVED — it was blocking keyboard on iOS!
-                        onTouchEnd={(e) => { e.stopPropagation(); e.currentTarget.focus(); }}
-                      />
-                      <button onClick={submitComment} className="w-10 h-10 bg-pink-600 rounded-2xl flex items-center justify-center active:scale-90 transition-all shadow-[0_0_12px_rgba(236,72,153,0.4)]">
-                        <Send size={14} className="text-white"/>
-                      </button>
-                    </div>
-                  </div>
+            </div>
+          )}
+
+          {/* ── GLOBAL Gift Panel (TikReel + Pulse) ── */}
+          {pulseGiftPostId && (
+            <div className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end" onClick={() => { setPulseGiftPostId(null); setGiftTargetUid(null); }}>
+              <div className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl p-6" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between mb-4">
+                  <p className="text-sm font-black text-white">Send a Gift 🎁</p>
+                  <button onClick={() => { setPulseGiftPostId(null); setGiftTargetUid(null); }}><X size={18} className="text-gray-400"/></button>
                 </div>
-              )}
+                <div className="grid grid-cols-3 gap-3">
+                  {giftItems.map(g => (
+                    <button
+                      key={g.id}
+                      onClick={() => {
+                        const uid =
+                          giftTargetUid ||
+                          userPosts.find((p:any) => p.id === pulseGiftPostId || p.postId === pulseGiftPostId)?.uid ||
+                          userPosts.find((p:any) => p.id === pulseGiftPostId || p.postId === pulseGiftPostId)?.userId ||
+                          pulsePosts.find((p:any) => p.id === pulseGiftPostId)?.uid ||
+                          pulsePosts.find((p:any) => p.id === pulseGiftPostId)?.userId ||
+                          combinedPulseFeed.find((p:any) => p.id === pulseGiftPostId && !p.isUnsplash)?.uid ||
+                          null;
+                        if (!uid) {
+                          setVvipAlert({ msg: 'Could not find creator for this gift.', icon: '⚠️' });
+                          return;
+                        }
+                        sendGift(String(uid), g);
+                        setPulseGiftPostId(null);
+                        setGiftTargetUid(null);
+                      }}
+                      className="flex flex-col items-center gap-1.5 bg-white/5 border border-white/10 rounded-2xl p-3 active:scale-90 transition-all"
+                    >
+                      <span className="text-2xl">{g.icon}</span>
+                      <span className="text-white text-[9px] font-black">{g.name}</span>
+                      <span className="text-yellow-400 text-[9px] font-black">{g.cost.toLocaleString()} 🪙</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── GLOBAL Comment Sheet (TikReel + Pulse + Profile) ── */}
+          {commentPostId && (
+            <div
+              className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end"
+              onClick={() => { setCommentPostId(null); setPostComments([]); setKeyboardHeight(0); setCommentCollection('user_posts'); }}
+            >
+              <div
+                className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl p-4 max-h-[75vh] flex flex-col"
+                style={{
+                  position: 'fixed',
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  paddingBottom: keyboardHeight > 0 ? keyboardHeight : 'env(safe-area-inset-bottom, 8px)',
+                  zIndex: 9001,
+                  transition: 'padding-bottom 0.1s ease-out',
+                }}
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between mb-3 px-2">
+                  <p className="text-sm font-black text-white">💬 Comments</p>
+                  <button onClick={() => { setCommentPostId(null); setPostComments([]); setKeyboardHeight(0); setCommentCollection('user_posts'); }}>
+                    <X size={18} className="text-gray-400"/>
+                  </button>
+                </div>
+                <div className="flex-1 overflow-y-auto space-y-3 mb-3 px-2">
+                  {postComments.length === 0 && (
+                    <p className="text-gray-500 text-xs text-center mt-4">No comments yet. Be the first!</p>
+                  )}
+                  {postComments.map((c:any) => (
+                    <div key={c.id} className="flex items-start gap-2">
+                      <img src={c.photo||'/logo.png'} className="w-7 h-7 rounded-full border border-white/20 object-cover flex-shrink-0"/>
+                      <div className="bg-white/5 rounded-2xl px-3 py-2 flex-1">
+                        <p className="text-[9px] text-pink-400 font-black">@{c.username}</p>
+                        <p className="text-white text-xs mt-0.5">{c.text}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2 px-1" style={{ position: 'sticky', bottom: 0, zIndex: 9002, background: '#0a0a1a', paddingTop: 8 }}>
+                  <input
+                    ref={commentInputRef}
+                    value={newComment}
+                    onChange={e => setNewComment(e.target.value)}
+                    placeholder="Add a comment…"
+                    inputMode="text"
+                    enterKeyHint="send"
+                    autoCapitalize="sentences"
+                    autoComplete="off"
+                    autoCorrect="on"
+                    spellCheck
+                    autoFocus
+                    className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-3 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"
+                    style={{ touchAction: 'manipulation', fontSize: '16px', WebkitAppearance: 'none', appearance: 'none', minHeight: '48px', caretColor: '#ec4899' }}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submitComment(); } }}
+                    onClick={(e) => { e.stopPropagation(); e.currentTarget.focus(); }}
+                    onTouchEnd={(e) => { e.stopPropagation(); e.currentTarget.focus(); }}
+                  />
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); submitComment(); }}
+                    className="w-12 h-12 bg-pink-600 rounded-2xl flex items-center justify-center active:scale-90 transition-all shadow-[0_0_12px_rgba(236,72,153,0.4)]"
+                  >
+                    <Send size={14} className="text-white"/>
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
