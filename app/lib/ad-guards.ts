@@ -61,8 +61,8 @@ const BLOCKED_REDIRECT_HOSTS = [
 
 const ALLOWED_AD_HOSTS = [
   'effectivecpmnetwork.com',
-  'cpx-research.com',
-  'offers.cpx-research.com',
+  'adgem.com',
+  'adunits.adgem.com',
   'monlix.com',
   'offers.monlix.com',
   'netlify.app',
