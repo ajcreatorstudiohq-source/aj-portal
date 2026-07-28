@@ -1,0 +1,104 @@
+rules_version = '2';
+
+/**
+ * AJ Super Portal — Firestore rules (social + ads subset)
+ * Deploy: Firebase Console → Firestore → Rules → paste/merge → Publish
+ *
+ * TikReel feed reads `user_posts` + `videos` for ALL creators.
+ * Owner-only read on these collections is the #1 reason other users'
+ * clips appear as stills / fail to open on profiles.
+ */
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function postOwner() {
+      return request.resource.data.uid == request.auth.uid
+          || request.resource.data.userId == request.auth.uid;
+    }
+
+    function existingPostOwner() {
+      return resource.data.uid == request.auth.uid
+          || resource.data.userId == request.auth.uid;
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn();
+      allow write: if isOwner(userId);
+      match /videos/{videoId} {
+        allow read: if signedIn();
+        allow write: if isOwner(userId);
+      }
+      match /followers/{fid} {
+        allow read: if signedIn();
+        allow write: if signedIn();
+      }
+      match /following/{fid} {
+        allow read: if signedIn();
+        allow write: if isOwner(userId);
+      }
+    }
+
+    // Community TikReels — must be readable by every signed-in user
+    match /user_posts/{postId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && postOwner();
+      allow update, delete: if signedIn() && existingPostOwner();
+      match /likes/{likerId} {
+        allow read: if signedIn();
+        allow write: if signedIn() && request.auth.uid == likerId;
+      }
+      match /comments/{commentId} {
+        allow read: if signedIn();
+        allow create: if signedIn();
+        allow update, delete: if signedIn()
+          && resource.data.uid == request.auth.uid;
+      }
+    }
+
+    match /videos/{videoId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && postOwner();
+      allow update, delete: if signedIn() && existingPostOwner();
+    }
+
+    match /pulse_posts/{postId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && postOwner();
+      allow update, delete: if signedIn() && existingPostOwner();
+      match /likes/{likerId} {
+        allow read: if signedIn();
+        allow write: if signedIn() && request.auth.uid == likerId;
+      }
+      match /comments/{commentId} {
+        allow read: if signedIn();
+        allow create: if signedIn();
+        allow update, delete: if signedIn()
+          && resource.data.uid == request.auth.uid;
+      }
+    }
+
+    match /ad_reward_sessions/{sessionId} {
+      allow read: if signedIn() && resource.data.uid == request.auth.uid;
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
+      allow update: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+
+    match /offerwall_ledger/{txId} {
+      allow read: if signedIn() && resource.data.uid == request.auth.uid;
+      allow write: if false; // server / Admin SDK only
+    }
+
+    // Default deny — merge carefully with your existing rules for wallet, admin, etc.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

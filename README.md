@@ -9,6 +9,7 @@ Gaming, social, wallet, and offerwall hub built with Next.js.
 - **Live & Pakistan matches** — Multi-viewer WebRTC audio, smoother RTDB frames, YouTube live match panel.
 - **Offerwall** — Postbacks + in-app completes with validation.
 - **Firebase Google Auth** — See [docs/FIREBASE_AUTH_DOMAINS.md](docs/FIREBASE_AUTH_DOMAINS.md).
+- **TikReels Storage / Firestore rules** — See [docs/FIREBASE_STORAGE_FIRESTORE_RULES.md](docs/FIREBASE_STORAGE_FIRESTORE_RULES.md) (`storage.rules`, `firestore.rules`).
 - **Schema** — See [docs/SCHEMA.md](docs/SCHEMA.md).
 
 ## Getting Started

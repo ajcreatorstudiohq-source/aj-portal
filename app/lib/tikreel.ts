@@ -29,20 +29,49 @@ export type TikReelPost = {
 };
 
 const VIDEO_EXT_RE = /\.(mp4|webm|mov|m4v|mkv|3gp|avi)([.?&#_]|$)/i;
-const VIDEO_EXT_ENC_RE = /%(2e|2E)(mp4|webm|mov|m4v|mkv)/i;
+const VIDEO_EXT_ENC_RE = /%(2e|2E)(mp4|webm|mov|m4v|mkv|3gp|avi)/i;
+const IMAGE_EXT_RE = /\.(jpe?g|png|gif|webp|avif|bmp)([.?&#_]|$)/i;
+
+/** Firebase Storage download / app URLs (encoded path or path style). */
+export function isFirebaseStorageUrl(url: string): boolean {
+  if (!url) return false;
+  return (
+    /firebasestorage\.googleapis\.com/i.test(url) ||
+    /firebasestorage\.app/i.test(url) ||
+    /\.appspot\.com\/o\//i.test(url) ||
+    /storage\.googleapis\.com\//i.test(url)
+  );
+}
 
 /** True when a URL itself is a playable video asset (not a JPEG poster). */
 export function urlLooksLikeVideo(url: string): boolean {
   if (!url) return false;
   const u = url.trim();
+  if (/^blob:/i.test(u) || /^data:video\//i.test(u)) return true;
   if (/\/video\/upload\//i.test(u)) return true; // Cloudinary video
+  // Free public hosts (Catbox etc.) — treat as video when file ext matches
+  if (/files\.catbox\.moe|litter\.catbox\.moe|i\.ibb\.co/i.test(u) && VIDEO_EXT_RE.test(u)) {
+    return true;
+  }
+  // Cloudinary image delivery of a still — not a video (unless file ext is video)
   if (/\/image\/upload\//i.test(u) && !VIDEO_EXT_RE.test(u)) return false;
   if (VIDEO_EXT_RE.test(u) || VIDEO_EXT_ENC_RE.test(u)) return true;
   // Firebase Storage folders used by this portal for videos
   if (/tikreels%2F|\/tikreels\//i.test(u)) return true;
-  if (/videos%2F|\/o\/videos%/i.test(u)) return true;
-  if (/firebasestorage\.googleapis\.com/i.test(u) && /video/i.test(u)) return true;
-  if (/firebasestorage\.app/i.test(u) && (/tikreels|video/i.test(u) || VIDEO_EXT_RE.test(u))) {
+  if (/videos%2F|\/o\/videos%2F|\/o\/videos\//i.test(u)) return true;
+  // Legacy uploads put clips under profile_photos/ — treat as video when ext matches
+  // (ext already handled above). Also match explicit video_* object names.
+  if (
+    /profile_photos%2F|\/profile_photos\//i.test(u) &&
+    (/video|tikreel|reel|clip|mp4|webm|mov/i.test(u) || VIDEO_EXT_ENC_RE.test(u))
+  ) {
+    return true;
+  }
+  if (isFirebaseStorageUrl(u) && /(?:^|[\/_%-])video(?:[\/_%-]|$)/i.test(u)) return true;
+  if (
+    isFirebaseStorageUrl(u) &&
+    (/tikreels|\/video\//i.test(u) || VIDEO_EXT_RE.test(u) || VIDEO_EXT_ENC_RE.test(u))
+  ) {
     return true;
   }
   return false;
@@ -53,19 +82,25 @@ function mimeLooksLikeVideo(data: Record<string, unknown>): boolean {
   return mime.startsWith('video/');
 }
 
+export function urlLooksLikeImage(url: string): boolean {
+  if (!url) return false;
+  if (/^data:image\//i.test(url)) return true;
+  if (/\/image\/upload\//i.test(url) && !VIDEO_EXT_RE.test(url)) return true;
+  if (IMAGE_EXT_RE.test(url) && !VIDEO_EXT_RE.test(url)) return true;
+  return false;
+}
+
 export function looksLikeVideo(url: string, data: Record<string, unknown> = {}): boolean {
   if (mimeLooksLikeVideo(data)) return true;
   if (urlLooksLikeVideo(url)) return true;
   if (data.isVideo === true && urlLooksLikeVideo(String(data.videoUrl || ''))) return true;
+  // Flag + Firebase Storage object that is NOT a clear still → treat as video
+  // (legacy profile_photos uploads often omit .mp4 in the download URL name)
+  if (data.isVideo === true && url && isFirebaseStorageUrl(url) && !urlLooksLikeImage(url)) {
+    return true;
+  }
   // Flag alone is not enough if the only URL is a still image
   if (data.isVideo === true && url && !urlLooksLikeImage(url)) return true;
-  return false;
-}
-
-function urlLooksLikeImage(url: string): boolean {
-  if (!url) return false;
-  if (/\/image\/upload\//i.test(url)) return true;
-  if (/\.(jpe?g|png|gif|webp|avif|bmp)([.?&#_]|$)/i.test(url)) return true;
   return false;
 }
 
@@ -94,11 +129,19 @@ export function resolveMediaUrls(data: Record<string, unknown>): {
   isVideo: boolean;
 } {
   const candidates = collectCandidates(data);
+  const flagged = data.isVideo === true;
+
   const videoUrl =
     candidates.find((u) => urlLooksLikeVideo(u)) ||
     (mimeLooksLikeVideo(data) ? candidates[0] || '' : '') ||
-    (data.isVideo === true
-      ? candidates.find((u) => !urlLooksLikeImage(u)) || ''
+    (flagged
+      ? candidates.find(
+          (u) =>
+            !urlLooksLikeImage(u) &&
+            (isFirebaseStorageUrl(u) || looksLikeVideo(u, data))
+        ) ||
+        candidates.find((u) => !urlLooksLikeImage(u)) ||
+        ''
       : '');
 
   const imageUrl =
@@ -108,15 +151,31 @@ export function resolveMediaUrls(data: Record<string, unknown>): {
     videoUrl ||
     '';
 
+  // Prefer a real playable URL; keep isVideo true when Firestore says so and
+  // we have any non-still candidate (including Firebase Storage without ext).
+  const resolvedVideo =
+    videoUrl ||
+    (flagged && candidates[0] && !urlLooksLikeImage(candidates[0])
+      ? candidates[0]
+      : '') ||
+    (flagged && isFirebaseStorageUrl(candidates[0] || '') ? candidates[0] || '' : '');
+
   const isVideo =
-    Boolean(videoUrl) ||
+    Boolean(resolvedVideo) ||
     mimeLooksLikeVideo(data) ||
-    (data.isVideo === true && Boolean(videoUrl || candidates[0]));
+    (flagged && Boolean(resolvedVideo || (candidates[0] && !urlLooksLikeImage(candidates[0]))));
 
   return {
-    videoUrl: videoUrl || (isVideo && !urlLooksLikeImage(candidates[0] || '') ? candidates[0] || '' : ''),
-    imageUrl: imageUrl || videoUrl || '',
-    isVideo: Boolean(videoUrl) || (data.isVideo === true && !urlLooksLikeImage(String(data.image || ''))),
+    videoUrl: resolvedVideo,
+    imageUrl: imageUrl || resolvedVideo || '',
+    isVideo:
+      Boolean(resolvedVideo) ||
+      (flagged &&
+        Boolean(
+          resolvedVideo ||
+            (candidates[0] &&
+              (!urlLooksLikeImage(candidates[0]) || isFirebaseStorageUrl(candidates[0])))
+        )),
   };
 }
 
@@ -137,10 +196,24 @@ export function normalizeTikReelPost(
   const media = resolveMediaUrls(data);
   const owner = String(data.uid || data.userId || '');
   const forceVideo =
-    source === 'videos' || source === 'users_videos' || data.isVideo === true;
-  const isVideo = media.isVideo || (forceVideo && Boolean(media.videoUrl || media.imageUrl));
-  const playUrl = media.videoUrl || (isVideo ? media.imageUrl : '');
-  const display = media.imageUrl || playUrl;
+    source === 'videos' ||
+    source === 'users_videos' ||
+    data.isVideo === true;
+  const isVideo =
+    media.isVideo || (forceVideo && Boolean(media.videoUrl || media.imageUrl));
+  // Prefer non-image URL for playback when forceVideo (videos collection / flag)
+  const playUrl =
+    media.videoUrl ||
+    (isVideo
+      ? [media.imageUrl, String(data.videoUrl || ''), String(data.image || ''), String(data.url || '')]
+          .map((u) => u.trim())
+          .find((u) => u && (urlLooksLikeVideo(u) || (forceVideo && !urlLooksLikeImage(u)) || (forceVideo && isFirebaseStorageUrl(u)))) ||
+        media.imageUrl
+      : '');
+  const display =
+    (urlLooksLikeImage(media.imageUrl) ? media.imageUrl : '') ||
+    media.imageUrl ||
+    playUrl;
 
   return {
     ...data,
@@ -188,7 +261,9 @@ export function mergeTikReelPosts(lists: TikReelPost[][]): TikReelPost[] {
     ].filter(Boolean);
 
   const score = (p: TikReelPost) =>
-    (p.isVideo && urlLooksLikeVideo(String(p.videoUrl || p.image || '')) ? 2 : 0) +
+    (p.isVideo && urlLooksLikeVideo(String(p.videoUrl || p.image || '')) ? 3 : 0) +
+    (p.isVideo && isFirebaseStorageUrl(String(p.videoUrl || p.image || '')) ? 2 : 0) +
+    (p.isVideo ? 1 : 0) +
     (p.videoUrl || p.image ? 1 : 0);
 
   for (const list of lists) {
@@ -235,9 +310,22 @@ export function isPlayableTikReel(post: {
   image?: string;
   url?: string;
   mediaUrl?: string;
+  _source?: string;
 }): boolean {
   const url = String(post.videoUrl || post.image || post.url || post.mediaUrl || '');
-  return urlLooksLikeVideo(url) || (post.isVideo === true && !!url && !urlLooksLikeImage(url));
+  if (urlLooksLikeVideo(url)) return true;
+  if (post.isVideo === true && !!url && !urlLooksLikeImage(url)) return true;
+  // Flagged video on Firebase Storage (any folder) — play as video for all users
+  if (post.isVideo === true && !!url && isFirebaseStorageUrl(url)) return true;
+  // Dual-written `videos` / users_videos rows are always intended as video
+  if (
+    (post._source === 'videos' || post._source === 'users_videos') &&
+    !!url &&
+    !urlLooksLikeImage(url)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /** Best src for <video> or <img>. */
@@ -248,12 +336,39 @@ export function getPlayableSrc(post: {
   url?: string;
   mediaUrl?: string;
   thumbnail?: string;
+  _source?: string;
 }): { src: string; kind: 'video' | 'image' | 'none' } {
   const video = String(post.videoUrl || '').trim();
   const image = String(post.image || post.url || post.mediaUrl || post.thumbnail || '').trim();
+  const candidates = [video, image, String(post.thumbnail || '').trim()].filter(Boolean);
+
   if (urlLooksLikeVideo(video)) return { src: video, kind: 'video' };
   if (urlLooksLikeVideo(image)) return { src: image, kind: 'video' };
+
+  const nonStill = candidates.find((u) => !urlLooksLikeImage(u));
+  const storageHit = candidates.find((u) => isFirebaseStorageUrl(u) && !urlLooksLikeImage(u));
+
+  if (post.isVideo && storageHit) return { src: storageHit, kind: 'video' };
+  if (post.isVideo && nonStill) return { src: nonStill, kind: 'video' };
+  if (
+    (post._source === 'videos' || post._source === 'users_videos') &&
+    (storageHit || nonStill)
+  ) {
+    return { src: storageHit || nonStill || '', kind: 'video' };
+  }
   if (post.isVideo && image && !urlLooksLikeImage(image)) return { src: image, kind: 'video' };
+  if (post.isVideo && video && !urlLooksLikeImage(video)) return { src: video, kind: 'video' };
+  // Last resort for flagged videos: still use Firebase / any URL as <video>
+  // (never render as <img> — that showed "pics" instead of reels for other users)
+  if (post.isVideo && candidates.find((u) => isFirebaseStorageUrl(u))) {
+    return {
+      src: candidates.find((u) => isFirebaseStorageUrl(u)) || '',
+      kind: 'video',
+    };
+  }
+  if (post.isVideo && (video || image)) {
+    return { src: video || image, kind: 'video' };
+  }
   if (image) return { src: image, kind: 'image' };
   if (video) return { src: video, kind: urlLooksLikeVideo(video) ? 'video' : 'image' };
   return { src: '', kind: 'none' };

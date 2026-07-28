@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Ban, Check, RefreshCw, Search, Shield, X } from 'lucide-react';
 import {
   collection,
@@ -11,13 +11,16 @@ import {
 } from 'firebase/firestore';
 import { getAuth, onAuthStateChanged, type User } from 'firebase/auth';
 import { getApps, initializeApp } from 'firebase/app';
+import { getDatabase, ref, onValue, off } from 'firebase/database';
 import { db } from '../firebase';
 import { isPortalAdminUser } from '../lib/admin-auth';
 import { ACCOUNT_STATUS } from '../lib/user-ban';
+import { isRtdbPresenceOnline, isUserOnlineNow, type PresenceSnapshot } from '../lib/presence';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyDp2od-lrfAhEHV5oAIqBW5rWjaRbnAdFM',
   authDomain: 'aj-super-portal.firebaseapp.com',
+  databaseURL: 'https://aj-super-portal-default-rtdb.firebaseio.com',
   projectId: 'aj-super-portal',
   appId: '1:288191292906:web:bc31cb072948533f88fe93',
 };
@@ -35,6 +38,8 @@ type UserRow = {
   balance: number;
   isBanned: boolean;
   accountStatus: string;
+  status?: string;
+  lastSeenMs?: number;
 };
 
 type WithdrawRow = {
@@ -54,6 +59,7 @@ export default function AjAdminPage() {
   const [allowed, setAllowed] = useState(false);
   const [tab, setTab] = useState<'users' | 'withdrawals'>('users');
   const [users, setUsers] = useState<UserRow[]>([]);
+  const [presenceByUid, setPresenceByUid] = useState<Record<string, boolean>>({});
   const [withdrawals, setWithdrawals] = useState<WithdrawRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -92,6 +98,8 @@ export default function AjAdminPage() {
             balance: typeof data.balance === 'number' ? data.balance : 0,
             isBanned: Boolean(data.isBanned) || data.accountStatus === ACCOUNT_STATUS.BANNED,
             accountStatus: String(data.accountStatus || ACCOUNT_STATUS.ACTIVE),
+            status: String(data.status || 'offline'),
+            lastSeenMs: Number(data.lastSeenMs || 0) || undefined,
           };
         })
       );
@@ -101,6 +109,26 @@ export default function AjAdminPage() {
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (!allowed) return;
+    const app = getApps()[0] || initializeApp(firebaseConfig);
+    const rtdb = getDatabase(app);
+    const presenceRef = ref(rtdb, 'presence');
+    onValue(
+      presenceRef,
+      (snap) => {
+        const next: Record<string, boolean> = {};
+        snap.forEach((child) => {
+          if (!child.key) return;
+          next[child.key] = isRtdbPresenceOnline(child.val() as PresenceSnapshot);
+        });
+        setPresenceByUid(next);
+      },
+      (err) => console.warn('aj-admin presence', err)
+    );
+    return () => off(presenceRef);
+  }, [allowed]);
 
   const loadWithdrawals = useCallback(async () => {
     if (!user) return;
@@ -184,6 +212,35 @@ export default function AjAdminPage() {
     }
   };
 
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const rows = users.filter(
+      (u) =>
+        !q ||
+        u.uid.toLowerCase().includes(q) ||
+        u.email.toLowerCase().includes(q) ||
+        u.username.toLowerCase().includes(q) ||
+        u.name.toLowerCase().includes(q)
+    );
+    return [...rows].sort((a, b) => {
+      const aOn = isUserOnlineNow({
+        rtdbOnline: presenceByUid[a.uid],
+        status: a.status,
+        lastSeenMs: a.lastSeenMs,
+      })
+        ? 1
+        : 0;
+      const bOn = isUserOnlineNow({
+        rtdbOnline: presenceByUid[b.uid],
+        status: b.status,
+        lastSeenMs: b.lastSeenMs,
+      })
+        ? 1
+        : 0;
+      return bOn - aOn;
+    });
+  }, [users, search, presenceByUid]);
+
   if (!user) {
     return (
       <div className="min-h-screen bg-[#050505] text-white flex items-center justify-center px-6">
@@ -204,38 +261,22 @@ export default function AjAdminPage() {
     );
   }
 
-  const filtered = users.filter((u) => {
-    const q = search.trim().toLowerCase();
-    if (!q) return true;
-    return (
-      u.uid.toLowerCase().includes(q) ||
-      u.email.toLowerCase().includes(q) ||
-      u.username.toLowerCase().includes(q) ||
-      u.name.toLowerCase().includes(q)
-    );
-  });
-
   return (
     <div className="min-h-screen bg-[#050505] text-white flex flex-col">
-      <header className="sticky top-0 z-20 border-b border-white/10 bg-black/80 backdrop-blur-xl px-4 py-3 flex items-center gap-3">
-        <a
-          href="/"
-          className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center"
-        >
-          <ArrowLeft size={16} />
+      <header className="sticky top-0 z-40 bg-[#050505]/95 backdrop-blur border-b border-white/10 px-4 py-3 flex items-center gap-3">
+        <a href="/" className="p-1.5 rounded-xl bg-white/5 border border-white/10">
+          <ArrowLeft size={14} className="text-gray-400" />
         </a>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-black truncate" style={{ fontFamily: 'var(--font-aj-display), sans-serif' }}>
-            AJ Admin
-          </p>
-          <p className="text-[10px] text-gray-400 truncate">{user.email}</p>
+        <div className="flex items-center gap-2">
+          <Shield size={16} className="text-red-400" />
+          <h1 className="text-sm font-black uppercase tracking-widest">AJ Admin</h1>
         </div>
         <button
           type="button"
           onClick={() => (tab === 'users' ? void loadUsers() : void loadWithdrawals())}
-          className="p-2 rounded-xl bg-white/5 border border-white/10"
+          className="ml-auto p-2 rounded-xl bg-white/5 border border-white/10"
         >
-          <RefreshCw size={14} className={loading ? 'animate-spin text-gray-400' : 'text-gray-400'} />
+          <RefreshCw size={14} className={`text-gray-400 ${loading ? 'animate-spin' : ''}`} />
         </button>
       </header>
 
@@ -243,7 +284,7 @@ export default function AjAdminPage() {
         <button
           type="button"
           onClick={() => setTab('users')}
-          className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase ${tab === 'users' ? 'bg-pink-600 text-white' : 'bg-white/5 text-gray-400 border border-white/10'}`}
+          className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase ${tab === 'users' ? 'bg-pink-500 text-black' : 'bg-white/5 text-gray-400 border border-white/10'}`}
         >
           Users
         </button>
@@ -274,32 +315,56 @@ export default function AjAdminPage() {
                 className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 py-2.5 text-sm text-white focus:outline-none focus:border-pink-500/40"
               />
             </div>
-            {filtered.map((u) => (
-              <div
-                key={u.uid}
-                className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 flex items-center gap-3"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-black truncate">{u.username || u.name || 'User'}</p>
-                  <p className="text-[10px] text-gray-500 truncate">{u.email || u.uid}</p>
-                  <p className="text-[11px] text-amber-300 font-bold mt-1">
-                    {u.balance.toLocaleString()} AJ Coins 🪙
-                  </p>
+            {filtered.map((u) => {
+              const online = isUserOnlineNow({
+                rtdbOnline: presenceByUid[u.uid],
+                status: u.status,
+                lastSeenMs: u.lastSeenMs,
+              });
+              return (
+                <div
+                  key={u.uid}
+                  className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 flex items-center gap-3"
+                >
+                  <span
+                    className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                      online ? 'bg-emerald-400 animate-pulse' : 'bg-red-500'
+                    }`}
+                    title={online ? 'Online in portal' : 'Offline'}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-black truncate flex items-center gap-2">
+                      {u.username || u.name || 'User'}
+                      <span
+                        className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full border ${
+                          online
+                            ? 'text-emerald-300 border-emerald-500/40 bg-emerald-600/20'
+                            : 'text-red-400 border-red-500/35 bg-red-600/15'
+                        }`}
+                      >
+                        {online ? 'Online' : 'Offline'}
+                      </span>
+                    </p>
+                    <p className="text-[10px] text-gray-500 truncate">{u.email || u.uid}</p>
+                    <p className="text-[11px] text-amber-300 font-bold mt-1">
+                      {u.balance.toLocaleString()} AJ Coins 🪙
+                    </p>
+                  </div>
+                  {u.isBanned ? (
+                    <span className="text-[9px] font-black text-red-400 uppercase">Banned</span>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={busyId === u.uid}
+                      onClick={() => void banUser(u.uid)}
+                      className="px-3 py-2 rounded-xl bg-red-600/90 text-white text-[10px] font-black flex items-center gap-1 disabled:opacity-50"
+                    >
+                      <Ban size={12} /> Ban
+                    </button>
+                  )}
                 </div>
-                {u.isBanned ? (
-                  <span className="text-[9px] font-black text-red-400 uppercase">Banned</span>
-                ) : (
-                  <button
-                    type="button"
-                    disabled={busyId === u.uid}
-                    onClick={() => void banUser(u.uid)}
-                    className="px-3 py-2 rounded-xl bg-red-600/90 text-white text-[10px] font-black flex items-center gap-1 disabled:opacity-50"
-                  >
-                    <Ban size={12} /> Ban
-                  </button>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </>
         ) : (
           <>
@@ -333,7 +398,7 @@ export default function AjAdminPage() {
                     type="button"
                     disabled={!!busyId}
                     onClick={() => void reviewWithdraw(w.id, 'reject')}
-                    className="flex-1 py-2 rounded-xl bg-white/5 border border-white/10 text-red-300 text-[10px] font-black flex items-center justify-center gap-1 disabled:opacity-50"
+                    className="flex-1 py-2 rounded-xl bg-white/10 text-red-300 text-[10px] font-black flex items-center justify-center gap-1 disabled:opacity-50"
                   >
                     <X size={12} /> Reject
                   </button>

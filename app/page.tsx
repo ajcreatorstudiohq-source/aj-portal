@@ -41,6 +41,10 @@ import {
   fileLooksLikeVideo,
   type TikReelPost,
 } from './lib/tikreel';
+import {
+  uploadToCloudinary,
+  uploadMediaDurable,
+} from './lib/media-upload';
 import AdminUsersPanel from './components/AdminUsersPanel';
 import { isPortalAdminUser } from './lib/admin-auth';
 import { BAN_FORBIDDEN_MESSAGE, DEFAULT_ACCOUNT_BAN_FIELDS, isUserBanned } from './lib/user-ban';
@@ -259,9 +263,6 @@ import {
   getMessaging, getToken, onMessage
 } from 'firebase/messaging';
 import {
-  getStorage, ref as storageRef, uploadBytes, getDownloadURL
-} from 'firebase/storage';
-import {
   MessageCircle, Trophy, Zap, Bot, LogOut, ChevronRight,
   Send, X, Download, Video, Users, Heart, MessageSquare, Camera,
   Settings, Edit3, Mail, DollarSign, Share2, Music, PlusSquare,
@@ -285,7 +286,6 @@ const firebaseConfig = {
 const app            = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 const auth           = getAuth(app);
 const db             = getFirestore(app);
-const storage        = getStorage(app);
 const googleProvider = new GoogleAuthProvider();
 
 // ============================================================
@@ -294,8 +294,6 @@ const googleProvider = new GoogleAuthProvider();
 const UNSPLASH_ACCESS_KEY      = "W4x76VphkyY9fzP3DbJPfXLhdD6x063gW--Voifn_UE";
 const YOUTUBE_API_KEY          = "AIzaSyD9vR3hNLt7pBNlm6PMaZWbJOB9QGcrD1Y";
 const NOWPAYMENTS_API_KEY      = "3THXNSZ-AYVMTP6-HQ9KGKK-9J6CQD7";
-const CLOUDINARY_CLOUD_NAME    = "atm28akz";
-const CLOUDINARY_UPLOAD_PRESET = "aj_portal";
 const CEO_WHATSAPP             = "https://wa.me/96878994093";
 const AGORA_APP_ID             = "7863c5369b3648bf931893a52ebaa6db";
 const AGORA_APP_CERTIFICATE    = "dc66528c5a5646da8e3ce5d2426759af";
@@ -921,9 +919,6 @@ const WITHDRAW_METHODS = [
 ];
 
 // ============================================================
-// CLOUDINARY UPLOADER
-// ============================================================
-// ============================================================
 // IMAGE COMPRESSION HELPER (FIX: DP update nahi ho raha tha)
 // ============================================================
 // FIX (Hinglish): Mobile phones se 3-10MB ki photos aati hain jo:
@@ -994,69 +989,6 @@ const dataURLtoFile = (dataURL: string, filename: string): File => {
   }
 };
 
-const uploadToCloudinary = async (file: File): Promise<string> => {
-  const fd = new FormData();
-  fd.append('file', file);
-  fd.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
-  const isVideo = fileLooksLikeVideo(file);
-  const endpoint = isVideo
-    ? `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/video/upload`
-    : `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`;
-  try {
-    const res  = await fetch(endpoint, { method: 'POST', body: fd });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      console.warn('Cloudinary upload failed', res.status, data);
-      return '';
-    }
-    return String(data.secure_url || data.url || '');
-  } catch (e) {
-    console.warn('Cloudinary upload error', e);
-    return '';
-  }
-};
-
-// ============================================================
-// FIREBASE STORAGE UPLOADER (TikReel / Pulse / profile)
-// ============================================================
-const uploadToFirebaseStorage = async (file: File, uid: string): Promise<string> => {
-  try {
-    const isVideo = fileLooksLikeVideo(file);
-    const folder = isVideo ? 'tikreels' : 'profile_photos';
-    const ext = isVideo
-      ? (file.name.match(/\.(mp4|webm|mov|m4v)$/i)?.[0] || '.mp4')
-      : (file.name.match(/\.(jpe?g|png|webp|gif)$/i)?.[0] || '.jpg');
-    const safeBase = String(file.name || 'media')
-      .replace(/\.[^.]+$/, '')
-      .replace(/[^\w.\-]+/g, '_')
-      .slice(0, 40) || 'media';
-    const ref = storageRef(storage, `${folder}/${uid}/${Date.now()}_${safeBase}${ext}`);
-    await uploadBytes(ref, file, {
-      contentType:
-        file.type ||
-        (isVideo ? 'video/mp4' : 'image/jpeg'),
-    });
-    return await getDownloadURL(ref);
-  } catch (e) {
-    console.warn('Firebase Storage upload error', e);
-    return '';
-  }
-};
-
-/** Durable HTTPS upload: Firebase Storage first, Cloudinary fallback. */
-const uploadMediaDurable = async (file: File, uid: string): Promise<string> => {
-  let url = '';
-  try {
-    url = await uploadToFirebaseStorage(file, uid);
-  } catch {}
-  if (!url) {
-    try {
-      url = await uploadToCloudinary(file);
-    } catch {}
-  }
-  return url;
-};
-
 // ============================================================
 // PRESENCE + FCM HELPERS
 // ============================================================
@@ -1084,6 +1016,7 @@ const registerFcmToken = async (uid: string) => {
 
 const setUserOnlinePresence = async (currentUser: any) => {
   if (typeof window === 'undefined' || !currentUser?.uid) return;
+  const now = Date.now();
   try {
     const rtdb = getDatabase(app);
     const presenceRef = ref(rtdb, `presence/${currentUser.uid}`);
@@ -1091,21 +1024,48 @@ const setUserOnlinePresence = async (currentUser: any) => {
       state: 'online',
       uid: currentUser.uid,
       username: currentUser.displayName || 'AJ Member',
-      lastChanged: Date.now(),
+      lastChanged: now,
     };
     await set(presenceRef, presenceData);
-    onDisconnect(presenceRef).set({ ...presenceData, state: 'offline', lastChanged: Date.now() });
-    await updateDoc(doc(db, 'users', currentUser.uid), { status: 'online' });
-    registerFcmToken(currentUser.uid);
+    onDisconnect(presenceRef).set({
+      state: 'offline',
+      uid: currentUser.uid,
+      username: presenceData.username,
+      lastChanged: Date.now(),
+    });
   } catch (e) {
-    console.error('setUserOnlinePresence', e);
+    console.warn('RTDB presence write failed (publish database.rules presence)', e);
+  }
+  try {
+    await updateDoc(doc(db, 'users', currentUser.uid), {
+      status: 'online',
+      lastSeenMs: now,
+    });
+  } catch (e) {
+    console.error('Firestore presence write failed', e);
+  }
+  try {
+    registerFcmToken(currentUser.uid);
+  } catch {
+    /* ignore */
   }
 };
 
 const setUserOfflineStatus = async (uid: string | null) => {
   if (!uid) return;
+  const now = Date.now();
   try {
-    await updateDoc(doc(db, 'users', uid), { status: 'offline' });
+    const rtdb = getDatabase(app);
+    await set(ref(rtdb, `presence/${uid}`), {
+      state: 'offline',
+      uid,
+      lastChanged: now,
+    });
+  } catch {
+    /* RTDB may be locked — Firestore below still marks offline */
+  }
+  try {
+    await updateDoc(doc(db, 'users', uid), { status: 'offline', lastSeenMs: now });
   } catch (e) {
     console.error('setUserOfflineStatus', e);
   }
@@ -2692,11 +2652,25 @@ export function AJSuperPortal() {
     if (!user) return;
     setupForegroundNotificationListener();
     setUserOnlinePresence(user);
-    const handleUnload = () => { setUserOfflineStatus(user.uid); };
+    // Heartbeat keeps admin green light accurate while the portal tab is open
+    const heartbeat = window.setInterval(() => {
+      void setUserOnlinePresence(user);
+    }, 25000);
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void setUserOnlinePresence(user);
+    };
+    document.addEventListener('visibilitychange', onVis);
+    const handleUnload = () => {
+      void setUserOfflineStatus(user.uid);
+    };
     window.addEventListener('beforeunload', handleUnload);
+    window.addEventListener('pagehide', handleUnload);
     return () => {
+      window.clearInterval(heartbeat);
+      document.removeEventListener('visibilitychange', onVis);
       window.removeEventListener('beforeunload', handleUnload);
-      setUserOfflineStatus(user.uid);
+      window.removeEventListener('pagehide', handleUnload);
+      void setUserOfflineStatus(user.uid);
     };
   }, [user]);
 
@@ -4448,10 +4422,15 @@ export function AJSuperPortal() {
 
       const createdAtMs = Date.now();
       const postRef = await addDoc(collection(db,"user_posts"), {
-        text:tiktokPostText, image:mediaUrl, videoUrl: mediaUrl,
+        text:tiktokPostText,
+        // Always persist playable URL in videoUrl for TikReel videos (other clients must not rely on image alone)
+        image: mediaUrl,
+        videoUrl: tiktokPostIsVideo ? mediaUrl : '',
         uid:user.uid, userId:user.uid,
         username:username||"AJ_Member", photo:user.photoURL||'',
         likes:0, views:0, isVideo:tiktokPostIsVideo,
+        contentType: tiktokPostIsVideo ? 'video/mp4' : 'image/jpeg',
+        mime: tiktokPostIsVideo ? 'video/mp4' : 'image/jpeg',
         selectedSound: selectedSound || null,
         textOverlay: tikEditorTextOverlay || null,
         cssFilter: tikEditorFilter || 'none',
@@ -4474,6 +4453,8 @@ export function AJSuperPortal() {
             likes: 0,
             views: 0,
             isVideo: true,
+            contentType: 'video/mp4',
+            mime: 'video/mp4',
             postId: postRef.id,
             createdAt: serverTimestamp(),
             createdAtMs,
@@ -4491,6 +4472,8 @@ export function AJSuperPortal() {
             text: tiktokPostText || '',
             postId: postRef.id,
             isVideo: true,
+            contentType: 'video/mp4',
+            mime: 'video/mp4',
             createdAt: serverTimestamp(),
             createdAtMs,
           });
@@ -4663,10 +4646,12 @@ export function AJSuperPortal() {
     } catch (err) {
       console.error('handlePhotoUpdate: compression failed, using original file', err);
     }
-    // Layer 1: Firebase Storage
-    try { url = await uploadToFirebaseStorage(uploadFile, user.uid); } catch (err) { console.error('handlePhotoUpdate: Firebase Storage failed', err); }
-    // Layer 2: Cloudinary
-    if (!url) { try { url = await uploadToCloudinary(uploadFile); } catch (err) { console.error('handlePhotoUpdate: Cloudinary failed', err); } }
+    // Public CDN first (Cloudinary/Catbox) — avoid Firebase Storage 403 for other viewers
+    try {
+      url = await uploadMediaDurable(uploadFile, user.uid);
+    } catch (err) {
+      console.error('handlePhotoUpdate: public upload failed', err);
+    }
     // Layer 3: Compressed base64 data URL (Firestore-safe because we compressed it)
     if (!url) {
       if (compressedDataURL) {
@@ -4723,17 +4708,12 @@ export function AJSuperPortal() {
     }
 
     let url = '';
-    // Layer 1: Firebase Storage
+    // Public CDN first (Cloudinary → Catbox) so photos load for all users without Storage 403
     try {
-      url = await uploadToFirebaseStorage(uploadFile, user.uid);
-      if (url) console.log('handleDpUpdate: Firebase Storage upload success');
-    } catch (err) { console.error('handleDpUpdate: Firebase Storage failed', err); }
-    // Layer 2: Cloudinary
-    if (!url) {
-      try {
-        url = await uploadToCloudinary(uploadFile);
-        if (url) console.log('handleDpUpdate: Cloudinary upload success');
-      } catch (err) { console.error('handleDpUpdate: Cloudinary failed', err); }
+      url = await uploadMediaDurable(uploadFile, user.uid);
+      if (url) console.log('handleDpUpdate: public CDN upload success');
+    } catch (err) {
+      console.error('handleDpUpdate: public upload failed', err);
     }
     // Layer 3: Compressed base64 data URL (Firestore-safe because we compressed it to <1MB)
     if (!url) {
@@ -4802,6 +4782,8 @@ export function AJSuperPortal() {
         likes: 0,
         views: 0,
         isVideo: pulsePostIsVideo,
+        contentType: pulsePostIsVideo ? 'video/mp4' : 'image/jpeg',
+        mime: pulsePostIsVideo ? 'video/mp4' : 'image/jpeg',
         createdAt: serverTimestamp(),
         createdAtMs,
       });
@@ -6301,7 +6283,14 @@ Tip: Social Hub se copy karo 📤`,
                     const media = getPlayableSrc(post);
                     const mediaUrl = media.src;
                     const ownerUid = String(post.uid || post.userId || '');
-                    const playAsVideo = media.kind === 'video' || isPlayableTikReel(post);
+                    // Trust isVideo / videos-collection for EVERY user (not only the signed-in owner)
+                    const playAsVideo =
+                      media.kind === 'video' ||
+                      isPlayableTikReel(post) ||
+                      post.isVideo === true;
+                    const altVideoUrl = [post.videoUrl, post.mediaUrl, post.url, post.image]
+                      .map((u: unknown) => String(u || '').trim())
+                      .find((u: string) => u && u !== mediaUrl) || '';
                     const contentEl = (
                       <div key={`user_${post.id}`} data-vidx={globalIdx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505] flex flex-col justify-end" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
                         {playAsVideo && mediaUrl ? (
@@ -6324,9 +6313,28 @@ Tip: Social Hub se copy karo 📤`,
                                 v.play().catch(() => {});
                               });
                             }}
-                            onError={() => {
-                              // If video fails, keep slide visible with poster/gradient via state-less fallback text
-                              console.warn('TikReel video failed', post.id, mediaUrl);
+                            onError={(e) => {
+                              const v = e.currentTarget;
+                              console.warn('TikReel video failed', post.id, v.src);
+                              // Try alternate field (other users may store playable URL in videoUrl vs image)
+                              if (altVideoUrl && !v.dataset.retried) {
+                                v.dataset.retried = '1';
+                                v.src = altVideoUrl;
+                                v.load();
+                                if (isActive) v.play().catch(() => {});
+                                return;
+                              }
+                              // Do NOT swap to <img> — that made other users' reels look like photos.
+                              // Keep <video> and let user tap to retry load (Storage 403 = publish rules).
+                              if (!v.dataset.retryTap) {
+                                v.dataset.retryTap = '1';
+                                v.poster = '';
+                                const retry = () => {
+                                  v.load();
+                                  if (isActive) v.play().catch(() => {});
+                                };
+                                v.addEventListener('click', retry, { once: true });
+                              }
                             }}
                             style={{ filter: post.cssFilter && post.cssFilter !== 'none' ? post.cssFilter : undefined, touchAction:'pan-y' }}
                           />
@@ -6628,12 +6636,17 @@ Tip: Social Hub se copy karo 📤`,
                         </div>
                       )}
                       {tikProfileMyPosts.map((post:any) => {
-                        const playUrl = String(
+                        const media = getPlayableSrc(post);
+                        const playUrl = media.src || String(
                           post.videoUrl || post.image || post.url || post.mediaUrl || ''
                         );
                         const thumb = String(
                           post.thumbnail || post.thumb || post.poster || playUrl || ''
                         );
+                        const asVideo =
+                          media.kind === 'video' ||
+                          isPlayableTikReel(post) ||
+                          post.isVideo === true;
                         return (
                         <div
                           key={post.id}
@@ -6663,10 +6676,10 @@ Tip: Social Hub se copy karo 📤`,
                             }
                           }}
                         >
-                          {post.isVideo || /\.(mp4|webm|mov)(\?|$)/i.test(thumb || playUrl) ? (
-                            (thumb || playUrl) ? (
+                          {asVideo ? (
+                            (playUrl || thumb) ? (
                               <video
-                                src={thumb || playUrl}
+                                src={playUrl || thumb}
                                 className="w-full h-full object-cover pointer-events-none"
                                 muted
                                 playsInline
@@ -6765,7 +6778,13 @@ Tip: Social Hub se copy karo 📤`,
                       const isActive = activeVideoIdx === idx;
                       const media = getPlayableSrc(post);
                       const mediaUrl = media.src || String(post.image || post.videoUrl || post.thumbnail || '');
-                      const playAsVideo = media.kind === 'video' || isPlayableTikReel(post);
+                      const playAsVideo =
+                        media.kind === 'video' ||
+                        isPlayableTikReel(post) ||
+                        post.isVideo === true;
+                      const altVideoUrl = [post.videoUrl, post.mediaUrl, post.url, post.image]
+                        .map((u: unknown) => String(u || '').trim())
+                        .find((u: string) => u && u !== mediaUrl) || '';
                       const contentEl = (
                       <div key={post.id} data-vidx={idx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505] flex flex-col justify-end" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
                         {playAsVideo && mediaUrl ? (
@@ -6787,6 +6806,28 @@ Tip: Social Hub se copy karo 📤`,
                                 v.muted = true;
                                 v.play().catch(() => {});
                               });
+                            }}
+                            onError={(e) => {
+                              const v = e.currentTarget;
+                              if (altVideoUrl && !v.dataset.retried) {
+                                v.dataset.retried = '1';
+                                v.src = altVideoUrl;
+                                v.load();
+                                if (isActive) v.play().catch(() => {});
+                                return;
+                              }
+                              // Keep as video — never fall back to a still for Pulse clips
+                              if (!v.dataset.retryTap) {
+                                v.dataset.retryTap = '1';
+                                v.addEventListener(
+                                  'click',
+                                  () => {
+                                    v.load();
+                                    if (isActive) v.play().catch(() => {});
+                                  },
+                                  { once: true }
+                                );
+                              }
                             }}
                             onClick={() => setReelPaused(p => !p)}
                           />
@@ -7672,6 +7713,10 @@ Tip: Social Hub se copy karo 📤`,
                       const thumb = String(
                         vid.thumbnail || vid.thumb || vid.poster || vid.cover || playUrl || ''
                       );
+                      const asVideo =
+                        media.kind === 'video' ||
+                        isPlayableTikReel(vid) ||
+                        vid.isVideo === true;
                       return (
                       <div
                         key={`vid_${vid.id}`}
@@ -7679,21 +7724,22 @@ Tip: Social Hub se copy karo 📤`,
                         tabIndex={0}
                         className="relative aspect-square bg-white/5 overflow-hidden cursor-pointer active:scale-95 transition-all"
                         onClick={() => {
-                          if (!playUrl) {
+                          const url = playUrl || thumb;
+                          if (!url) {
                             setVvipAlert({ msg: 'Video URL missing for this post.', icon: '⚠️' });
                             return;
                           }
                           setProfileVideoViewer({
-                            url: playUrl,
+                            url,
                             text: vid.text || vid.textOverlay || vid.caption || '',
                           });
                         }}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault();
-                            if (playUrl) {
+                            if (playUrl || thumb) {
                               setProfileVideoViewer({
-                                url: playUrl,
+                                url: playUrl || thumb,
                                 text: vid.text || vid.textOverlay || vid.caption || '',
                               });
                             }
@@ -7702,7 +7748,7 @@ Tip: Social Hub se copy karo 📤`,
                       >
                         {thumb || playUrl ? (
                           <>
-                            {media.kind === 'video' || /\.(mp4|webm|mov)(\?|$)/i.test(thumb || playUrl) || vid.isVideo ? (
+                            {asVideo ? (
                               <video
                                 src={playUrl || thumb}
                                 className="w-full h-full object-cover pointer-events-none"
