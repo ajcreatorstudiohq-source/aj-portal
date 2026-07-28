@@ -1,25 +1,19 @@
 # Permanent TikTok-style comments (`reel_comments`)
 
-Comments are stored in a **top-level** Firestore collection so every signed-in user can read/write them (not nested under posts — those rules often aren’t published).
+Comments are stored in a **top-level** Firestore collection so every signed-in user can read/write them.
 
-## Collection
+## Why comments vanished after 2–3s
 
-`reel_comments/{id}`
+Client `addDoc` can resolve against the **local cache**, then the **server rejects** the write (rules). `onSnapshot` then replaces the list without that doc → comment disappears.
 
-| Field | Type |
-|---|---|
-| `postId` | string (user_posts / pulse_posts / yt id) |
-| `postType` | `user_posts` \| `pulse_posts` \| `yt_posts` |
-| `text` | string |
-| `uid` | string |
-| `username` | string |
-| `photo` | string |
-| `createdAt` | timestamp |
-| `createdAtMs` | number |
+## Fix in the app
 
-## Console setup (required once)
+1. Pending local comments kept in a ref and **merged** into every snapshot (never wiped by an empty/partial server list).
+2. Submit clears **only the input**, not the comment list.
+3. Write prefers **`POST /api/comments`** (Admin SDK) so rules cannot roll back.
+4. Client write is verified with `waitForPendingWrites` + `getDocFromServer`.
 
-1. Firebase Console → **Firestore → Rules** → merge `firestore.rules` (includes `match /reel_comments/{commentId}`) → **Publish**
-2. Optional: set `FIREBASE_SERVICE_ACCOUNT_JSON` on Vercel so `/api/comments` can save if client rules lag
+## Console setup
 
-No composite index needed (query is `where postId == …` only; client sorts by `createdAtMs`).
+1. Publish `firestore.rules` including `match /reel_comments/{commentId}`.
+2. Set `FIREBASE_SERVICE_ACCOUNT_JSON` on Vercel for reliable API writes.

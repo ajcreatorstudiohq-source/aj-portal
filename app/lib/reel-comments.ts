@@ -44,3 +44,34 @@ export function sortCommentsAsc<T extends { createdAtMs?: number; createdAt?: un
     return am - bm;
   });
 }
+
+/** Merge server snapshot with pending local comments so UI never blinks empty. */
+export function mergeCommentLists(
+  serverRows: Array<Record<string, unknown> & { id: string }>,
+  pendingRows: Array<Record<string, unknown> & { id: string }>,
+  postId: string
+): Array<Record<string, unknown> & { id: string }> {
+  const byKey = new Map<string, Record<string, unknown> & { id: string }>();
+
+  for (const row of serverRows) {
+    byKey.set(String(row.id), { ...row, pending: false });
+  }
+
+  for (const pending of pendingRows) {
+    if (String(pending.postId || '') !== String(postId)) continue;
+    const matched = serverRows.find((s) => {
+      if (String(s.id) === String(pending.id)) return true;
+      return (
+        String(s.uid || '') === String(pending.uid || '') &&
+        String(s.text || '') === String(pending.text || '') &&
+        Math.abs(Number(s.createdAtMs || 0) - Number(pending.createdAtMs || 0)) < 20000
+      );
+    });
+    if (matched) continue;
+    byKey.set(String(pending.id), { ...pending, pending: true });
+  }
+
+  return sortCommentsAsc(
+    [...byKey.values()] as Array<{ createdAtMs?: number; createdAt?: unknown; id: string }>
+  ) as Array<Record<string, unknown> & { id: string }>;
+}

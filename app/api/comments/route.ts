@@ -8,10 +8,62 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 /**
- * POST /api/comments
- * Body: { postId, postType?, text }
- * Auth: Bearer <Firebase ID token>
- * Writes a permanent comment via Admin SDK (bypasses client rules).
+ * GET /api/comments?postId=...
+ * Returns permanent comments for a post (Admin SDK).
+ */
+export async function GET(request: Request) {
+  try {
+    const authHeader = request.headers.get('authorization') || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+    if (!token) {
+      return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 });
+    }
+    const decoded = await verifyFirebaseIdToken(token);
+    if (!decoded?.uid) {
+      return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 });
+    }
+
+    const postId = new URL(request.url).searchParams.get('postId') || '';
+    if (!postId) {
+      return NextResponse.json({ ok: false, error: 'missing_postId' }, { status: 400 });
+    }
+
+    const db = getAdminDb();
+    if (!db) {
+      return NextResponse.json({ ok: false, error: 'admin_unavailable' }, { status: 503 });
+    }
+
+    const snap = await db
+      .collection(REEL_COMMENTS_COL)
+      .where('postId', '==', postId)
+      .limit(200)
+      .get();
+
+    const comments = snap.docs
+      .map((d) => {
+        const data = d.data();
+        return {
+          id: d.id,
+          postId: data.postId,
+          postType: data.postType,
+          text: data.text,
+          uid: data.uid,
+          username: data.username,
+          photo: data.photo,
+          createdAtMs: Number(data.createdAtMs || 0),
+        };
+      })
+      .sort((a, b) => a.createdAtMs - b.createdAtMs);
+
+    return NextResponse.json({ ok: true, comments });
+  } catch (e) {
+    console.error('[api/comments GET]', e);
+    return NextResponse.json({ ok: false, error: 'server_error' }, { status: 500 });
+  }
+}
+
+/**
+ * POST /api/comments — permanent write via Admin SDK (bypasses client rules).
  */
 export async function POST(request: Request) {
   try {
@@ -68,7 +120,6 @@ export async function POST(request: Request) {
       createdAtMs,
     });
 
-    // Best-effort commentCount bump on parent
     try {
       if (['user_posts', 'pulse_posts', 'videos'].includes(postType)) {
         await db
