@@ -107,6 +107,31 @@ service cloud.firestore {
       }
     }
 
+    // TikTok-style permanent comments (top-level — all signed-in users read/write)
+    match /reel_comments/{commentId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 1000
+        && request.resource.data.postId is string;
+      allow update, delete: if signedIn()
+        && resource.data.uid == request.auth.uid;
+    }
+
+    // YouTube / pixa comment parents (optional)
+    match /yt_posts/{postId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn();
+      match /comments/{commentId} {
+        allow read: if signedIn();
+        allow create: if signedIn();
+        allow update, delete: if signedIn()
+          && resource.data.uid == request.auth.uid;
+      }
+    }
+
     match /ad_reward_sessions/{sessionId} {
       allow read: if signedIn() && resource.data.uid == request.auth.uid;
       allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
