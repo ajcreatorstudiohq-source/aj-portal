@@ -2,3 +2,8 @@
 node_modules/
 node_modules/tsconfig.tsbuildinfo
 tsconfig.tsbuildinfo
+.env
+.env.local
+.env.*.local
+*.pem
+serviceAccount*.json

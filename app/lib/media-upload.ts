@@ -74,7 +74,7 @@ export async function uploadToCloudinary(file: File): Promise<string> {
       console.warn('Cloudinary upload failed', res.status, data);
       return '';
     }
-    return String(data.secure_url || data.url || '');
+    return String(data.secure_url || data.url || '').replace(/^http:\/\//i, 'https://');
   } catch (e) {
     console.warn('Cloudinary upload error', e);
     return '';
