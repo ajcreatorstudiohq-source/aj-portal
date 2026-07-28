@@ -24,6 +24,7 @@ import {
   DAILY_CAPS,
   type RewardSource,
 } from './reward-sources';
+import { creditAdminEarnings } from './admin-earnings';
 
 export type { RewardSource };
 
@@ -181,6 +182,15 @@ export async function applySplitReward(opts: {
         );
       } catch {
         // Non-fatal — user credit already committed
+      }
+      try {
+        await creditAdminEarnings({
+          ownerUsd: result.split.adminUsd,
+          ownerCoins: result.split.adminCoins,
+          source,
+        });
+      } catch {
+        /* non-fatal */
       }
     }
 

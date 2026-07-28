@@ -29,7 +29,11 @@ import {
   COIN_RATE as ECONOMY_COIN_RATE,
   PLATFORM_EARN_SHARE,
   USER_EARN_SHARE as ECONOMY_USER_EARN_SHARE,
+  coinsToUsd,
+  coinsToCashUsd,
+  formatUsd,
 } from './lib/economy';
+import { creditAdminEarnings } from './lib/admin-earnings';
 import { earnReward } from './lib/client-rewards';
 import { trackAdEvent } from './lib/ad-client';
 import { INFEED_AD_EVERY_N } from './lib/ads-config';
@@ -3753,6 +3757,11 @@ export function AJSuperPortal() {
           ownerUsd: Number(((PK_ENTRY_COINS * 2 * ADMIN_EARN_SHARE) / COIN_RATE).toFixed(4)),
           challenger: user.uid, rival: rivalUid, date:serverTimestamp()
         });
+        await creditAdminEarnings({
+          ownerUsd: Number(((PK_ENTRY_COINS * 2 * ADMIN_EARN_SHARE) / COIN_RATE).toFixed(4)),
+          ownerCoins: Math.floor(PK_ENTRY_COINS * 2 * ADMIN_EARN_SHARE),
+          source: 'pk_match',
+        });
       } catch {}
       // FIX: PK session ka unique room ID — dono users ke liye common
       const newPkRoomId = `pk_${user.uid}_${rivalUid}_${Date.now()}`;
@@ -4372,6 +4381,7 @@ export function AJSuperPortal() {
   const logAdminRevenue = async (type:string, totalPool:number, userNet:number) => {
     try {
       const adminShare = Number((totalPool * ADMIN_EARN_SHARE).toFixed(4));
+      const adminCoins = Math.floor(adminShare * COIN_RATE);
       await addDoc(collection(db,"AdminRevenue"), {
         type,
         currency: 'USD',
@@ -4380,9 +4390,15 @@ export function AJSuperPortal() {
         totalPool,
         adminShare,
         ownerUsd: adminShare,
+        adminShareCoins: adminCoins,
         userNet,
         uid:user?.uid||'',
         date:serverTimestamp()
+      });
+      await creditAdminEarnings({
+        ownerUsd: adminShare,
+        ownerCoins: adminCoins,
+        source: type,
       });
     } catch {}
   };
@@ -6855,8 +6871,12 @@ Tip: Social Hub se copy karo 📤`,
               <div className="p-5">
                 <p className="text-[10px] text-gray-400 uppercase tracking-widest font-black">Total Balance · AJ Coins</p>
                 <p className="text-4xl font-black bg-gradient-to-r from-yellow-300 to-yellow-500 bg-clip-text text-transparent mt-1">{parseFloat(displayBalance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} <span className="text-lg text-yellow-400/70">AJ Coins 🪙</span></p>
+                <p className="text-sm font-black text-emerald-400 mt-1">
+                  ≈ {formatUsd(coinsToUsd(Number(displayBalance) || balance))}
+                  <span className="text-[10px] text-gray-500 font-bold ml-2">({COIN_RATE} 🪙 = $1)</span>
+                </p>
                 <p className="text-xs text-gray-400 mt-1">
-                  Min withdraw 20,000 AJ Coins 🪙
+                  Min withdraw 20,000 AJ Coins 🪙 ({formatUsd(coinsToCashUsd(20000))} cash)
                 </p>
                 {botTier !== 'none' && (
                   <div className="mt-3 flex items-center gap-2 bg-green-500/10 border border-green-500/20 rounded-2xl px-3 py-2">
@@ -9257,17 +9277,21 @@ Tip: Social Hub se copy karo 📤`,
                   <div className="p-5">
                     <p className="text-[10px] text-gray-400 uppercase tracking-widest font-black">Total Balance · AJ Coins</p>
                     <p className="text-4xl font-black bg-gradient-to-r from-yellow-300 to-yellow-500 bg-clip-text text-transparent mt-1">{parseFloat(displayBalance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} <span className="text-lg text-yellow-400/70">AJ Coins 🪙</span></p>
+                    <p className="text-sm font-black text-emerald-400 mt-1">
+                      ≈ {formatUsd(coinsToUsd(Number(displayBalance) || balance))}
+                      <span className="text-[10px] text-gray-500 font-bold ml-2">({COIN_RATE} 🪙 = $1)</span>
+                    </p>
                     <p className="text-xs text-gray-400 mt-1">
-                  Min withdraw 20,000 AJ Coins 🪙
+                  Min withdraw 20,000 AJ Coins 🪙 ({formatUsd(coinsToCashUsd(20000))} cash)
                 </p>
                     <div className="mt-4 grid grid-cols-2 gap-2">
                       <div className="bg-white/5 rounded-2xl p-3 text-center">
                         <p className="text-[9px] text-gray-400 font-black uppercase">Rate</p>
-                        <p className="text-white font-black text-xs mt-1">{COIN_RATE} 🪙 / unit</p>
+                        <p className="text-white font-black text-xs mt-1">{COIN_RATE} 🪙 = $1</p>
                       </div>
                       <div className="bg-white/5 rounded-2xl p-3 text-center">
                         <p className="text-[9px] text-gray-400 font-black uppercase">Cash Out</p>
-                        <p className="text-white font-black text-xs mt-1">Min 20,000 AJ Coins 🪙</p>
+                        <p className="text-white font-black text-xs mt-1">{formatUsd(coinsToCashUsd(balance))}</p>
                       </div>
                     </div>
                   </div>
@@ -9315,7 +9339,8 @@ Tip: Social Hub se copy karo 📤`,
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
                   <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">Available Balance</p>
                   <p className="text-2xl font-black text-yellow-400">{balance.toFixed(0)} 🪙</p>
-                  <p className="text-[10px] text-gray-400 mt-1">AJ Coins 🪙 balance</p>
+                  <p className="text-sm font-black text-emerald-400 mt-1">≈ {formatUsd(coinsToUsd(balance))} · cash {formatUsd(coinsToCashUsd(balance))}</p>
+                  <p className="text-[10px] text-gray-400 mt-1">AJ Coins 🪙 · {COIN_RATE} 🪙 = $1</p>
                   <p className="text-[9px] text-orange-400 mt-2 font-black">
                     Min withdraw 20,000 AJ Coins 🪙
                   </p>

@@ -18,6 +18,7 @@ import {
   USER_EARN_SHARE,
   type GameProgressDoc,
 } from '../../../lib/economy';
+import { creditAdminEarnings } from '../../../lib/admin-earnings';
 import {
   bearerFromRequest,
   verifyFirebaseIdToken,
@@ -124,6 +125,11 @@ export async function POST(request: Request) {
           gameId,
           level,
           date: serverTimestamp(),
+        });
+        await creditAdminEarnings({
+          ownerUsd: outcome.split.adminUsd,
+          ownerCoins: outcome.split.adminCoins,
+          source: 'game_milestone',
         });
       } catch {}
     }

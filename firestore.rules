@@ -29,6 +29,13 @@ service cloud.firestore {
           || resource.data.userId == request.auth.uid;
     }
 
+    // Portal CEO — email must match admin Google account
+    function isCeoAdmin() {
+      return signedIn()
+        && request.auth.token.email is string
+        && request.auth.token.email.lower() == 'ajcreatorstudio.hq@gmail.com';
+    }
+
     match /users/{userId} {
       allow read: if signedIn();
       allow write: if isOwner(userId);
@@ -217,6 +224,20 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create: if signedIn();
       allow update, delete: if signedIn();
+    }
+
+    // Owner platform share ledger — CEO read; signed-in may append rows
+    match /AdminRevenue/{revId} {
+      allow read: if isCeoAdmin();
+      allow create: if signedIn();
+      allow update, delete: if false;
+    }
+
+    // Running owner totals (coins + USD) on the portal admin panel
+    match /admin_stats/{docId} {
+      allow read: if isCeoAdmin();
+      allow create, update: if signedIn();
+      allow delete: if false;
     }
 
     // Default deny — merge carefully with your existing rules for wallet, admin, etc.
