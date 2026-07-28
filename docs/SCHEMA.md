@@ -27,7 +27,9 @@ See [OWNER_EARNINGS.md](./OWNER_EARNINGS.md) for how the owner receives dollars.
 
 | Field | Type | Description |
 |---|---|---|
-| `balance` | number | AJ Coins wallet |
+| `balance` | number | AJ Coins wallet (signup bonus = **0**) |
+| `referralId` | string | Unique share code (`AJ########`) |
+| `referredBy` | string | Referrer uid (once) |
 | `unlockedGames` | string[] | Downloaded/installed game ids |
 | `gameProgress.{gameId}` | map | `{ installed, level, claimedMilestones, … }` |
 | `dailyRewards.{source}` | map | `{ dayKey, count }` per-source daily caps |
@@ -53,8 +55,9 @@ See `docs/TIKTOK_DM.md`.
 - `ad_reward_sessions/{sessionId}` — short-lived rewarded-video anti-replay sessions
 - `AdminRevenue/{autoId}` — owner share USD (`ownerUsd`, `adminShareCoins`) + `platformSharePct`
 - `admin_stats/earnings` — running owner total (`totalOwnerUsd`, `totalOwnerCoins`) for Admin panel
+- `referral_ids/{code}` — unique referral code → `{ uid }`
 
-See [OWNER_EARNINGS.md](./OWNER_EARNINGS.md).
+**Referral:** `REFERRAL_BONUS_COINS = 25` per successful invite. Signup bonus = **0**.
 
 ## Wallet display
 
@@ -73,6 +76,7 @@ See [OWNER_EARNINGS.md](./OWNER_EARNINGS.md).
 | POST | `/api/offerwall/complete` | In-app offer complete |
 | POST | `/api/ads/track` | Ad impression / click / complete tracking |
 | POST | `/api/ads/rewarded` | Offerwall rewarded video prepare + complete |
+| POST | `/api/admin/backfill-referrals` | CEO: assign referralId to all users missing one |
 | POST | `/api/callback` · `/api/nowpayments-callback` | Purchase IPN |
 
 ## Ad placements

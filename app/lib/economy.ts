@@ -30,10 +30,10 @@ export function formatUsd(usd: number): string {
   })}`;
 }
 
-/** New-user wallet credit on first profile create — strictly zero */
+/** New-user wallet credit on first profile create — strictly zero (no signup bonus) */
 export const SIGNUP_BONUS_COINS = 0;
 /** Coins credited to the referrer per successful referral */
-export const REFERRAL_BONUS_COINS = 50;
+export const REFERRAL_BONUS_COINS = 25;
 
 /**
  * Premium Games — direct HTML / Netlify / APK URLs (NO ridefiles lockers).

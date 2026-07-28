@@ -39,6 +39,11 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if signedIn();
       allow write: if isOwner(userId);
+      // CEO may only stamp missing referralId on any user (backfill)
+      allow update: if isOwner(userId)
+        || (isCeoAdmin()
+            && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['referralId', 'referralIdCreatedAt']));
       match /videos/{videoId} {
         allow read: if signedIn();
         allow write: if isOwner(userId);
@@ -224,6 +229,15 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create: if signedIn();
       allow update, delete: if signedIn();
+    }
+
+    // Unique referral codes (AJ########) → uid map
+    match /referral_ids/{code} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.uid is string
+        && (request.resource.data.uid == request.auth.uid || isCeoAdmin());
+      allow update, delete: if false;
     }
 
     // Owner platform share ledger — CEO read; signed-in may append rows
