@@ -2,46 +2,54 @@
 
 ## Short answer (Roman Urdu)
 
-**Aapke 70% coins nahi — dollars / real money hain.**
+**Activity / ads earn pe aapka 70% dollars / platform share hai — coins nahi.**
 
 1. **Asal dollars** Adsterra, CPAGrip / offerwall, aur dusre ad networks ke **apne dashboard** se aate hain (PayPal / bank / network payout).
-2. App users ko sirf **30% AJ Coins** deti hai. **70% user wallet mein kabhi nahi jata.**
+2. App users ko activity earn pe sirf **30% AJ Coins** deti hai. **70% user wallet mein kabhi nahi jata.**
 3. Har earn event pe Firestore `AdminRevenue` mein aapka hissa **`ownerUsd` / `adminShare` (USD)** ke naam se record hota hai — yeh hisaab / ledger hai.
-4. Coins ka faida aapko is tarah milta hai: users jab coins **kharidte** hain (real money), gift/spend se **70% economy se nikal jata hai** (creator ko sirf 30%).
 
 ## Exact split (code)
+
+### Activity earn (ads, offerwall, games, live view/host, etc.)
 
 | Party | Share | Where it goes |
 |---|---|---|
 | **Owner (aap)** | **70%** | Real: ad/offerwall dashboards. Ledger: `AdminRevenue.ownerUsd` |
-| **User / creator** | **30%** | `users/{uid}.balance` as **AJ Coins only** (UI never shows `$`) |
+| **User** | **30%** | `users/{uid}.balance` as **AJ Coins only** |
 
-Constants: `PLATFORM_EARN_SHARE = 0.7`, `USER_EARN_SHARE = 0.3` in `app/lib/economy.ts`.
+Constants: `PLATFORM_EARN_SHARE = 0.7`, `USER_EARN_SHARE = 0.3`
 
-- Activity pool (`computeRewardSplit`): pool ~$5–$7 → **always** `adminUsd = total × 0.70`, `userUsd = total × 0.30`.
-- Gifts (`splitCoinPool`): gift cost coins → creator **30%**, owner keep **70%** (logged as USD via `COIN_RATE`).
+### Gifting (alagsplit)
 
-## How you “get” the 70% in every case
-
-| Money source | What happens | Your 70% |
+| Party | Share | Example: **500** gift |
 |---|---|---|
-| Ads (Adsterra etc.) | Network pays **you** full eCPM/click | You withdraw from **network dashboard**. App may log estimate in `AdminRevenue`. Users get **0** from raw ad track events. |
-| Offerwall / CPA | Partner pays **you**; postback credits user **30% coin share** only | Remainder stays with you (partner payout − user coin liability). |
-| Games / live / feed earn | Server credits user **30% coins**; writes **70% USD** to `AdminRevenue` | Ledger = your platform share; do not pay that 70% to anyone. |
-| Gifts | Sender pays full gift; creator gets **30%**; **70% burned/kept** | Same — logged as `ownerUsd`. |
-| Coin purchases | User pays real $ → gets coins | Your margin is purchase payout minus future 30% redemptions. |
+| **Admin (aap)** | **40%** | **200** coins (ledger `ownerUsd`) |
+| **Creator** | **60%** | **300** AJ Coins to creator wallet |
+
+Constants: `GIFT_ADMIN_SHARE = 0.4`, `GIFT_CREATOR_SHARE = 0.6`  
+Engine: `splitGiftCoins(giftCost)` → `POST /api/rewards/earn` (`live_gift`)
+
+## How you “get” money
+
+| Money source | What happens | Your share |
+|---|---|---|
+| Ads (Adsterra etc.) | Network pays **you** | Withdraw from **network dashboard** |
+| Offerwall / CPA | Partner pays **you**; user gets **30% coins** | Remainder stays with you |
+| Games / live / feed earn | User **30% coins**; **70% USD** → `AdminRevenue` | Do not pay that 70% to anyone |
+| **Gifts** | Sender pays full; creator **60%**; you **40%** | Logged as `ownerUsd` / `adminShareCoins` |
+| Coin purchases | User pays real $ → gets coins | Your margin after future payouts |
 
 ## What is *not* automatic
 
 Firebase / this app **does not** wire-transfer USD into your bank.  
 **Real cash-out = Adsterra / CPAGrip / payment provider dashboards.**  
-`AdminRevenue` is the in-app **dollar ledger** so you always see that 70% was reserved for you.
+`AdminRevenue` is the in-app **dollar / coin ledger**.
 
 ## Firestore fields to check
 
 `AdminRevenue/{id}`:
 
 - `currency: "USD"`
-- `platformSharePct: 0.7`
+- `platformSharePct` — `0.7` (activity) or `0.4` (gifts)
 - `ownerUsd` / `adminShare` — your dollars
-- `userNet` / `userNetCoins` — what the user got (30%)
+- `userNet` / `userNetCoins` — what the user/creator got

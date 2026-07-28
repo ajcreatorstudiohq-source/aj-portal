@@ -40,12 +40,16 @@ function dayKeyUtc() {
   return new Date().toISOString().slice(0, 10);
 }
 
-/** Fields written on every AdminRevenue row so owner 70% is always clear in USD. */
-function adminRevenueFields(split: RewardSplit, extra: Record<string, unknown> = {}) {
+/** Fields written on every AdminRevenue row so owner share is clear in USD. */
+function adminRevenueFields(
+  split: RewardSplit,
+  extra: Record<string, unknown> = {},
+  shares?: { platformSharePct?: number; userSharePct?: number }
+) {
   return {
     currency: 'USD',
-    platformSharePct: PLATFORM_EARN_SHARE,
-    userSharePct: USER_EARN_SHARE,
+    platformSharePct: shares?.platformSharePct ?? PLATFORM_EARN_SHARE,
+    userSharePct: shares?.userSharePct ?? USER_EARN_SHARE,
     totalPool: split.totalUsd,
     adminShare: split.adminUsd,
     ownerUsd: split.adminUsd,
@@ -59,7 +63,8 @@ function adminRevenueFields(split: RewardSplit, extra: Record<string, unknown> =
 
 /**
  * Credit user wallet + log platform revenue. Idempotent on `txId`.
- * User gets only 30% (AJ Coins). Owner 70% is logged as USD in AdminRevenue — never paid to users.
+ * Default: user 30% AJ Coins, owner 70% USD ledger.
+ * Gifts may pass splitOverride + share pct overrides (40/60).
  */
 export async function applySplitReward(opts: {
   uid: string;
@@ -70,8 +75,10 @@ export async function applySplitReward(opts: {
   ledgerCollection?: string;
   /** When true, enforce per-source daily caps on users/{uid} */
   enforceDailyCap?: boolean;
-  /** Override split (e.g. gifts = 70/30 of giftCost coins). */
+  /** Override split (e.g. gifts = 40% admin / 60% creator of giftCost). */
   splitOverride?: RewardSplit;
+  platformSharePct?: number;
+  userSharePct?: number;
 }): Promise<ApplyRewardResult> {
   const {
     uid,
@@ -82,6 +89,8 @@ export async function applySplitReward(opts: {
     ledgerCollection = 'reward_ledger',
     enforceDailyCap = true,
     splitOverride,
+    platformSharePct,
+    userSharePct,
   } = opts;
 
   if (!uid || !txId) {
@@ -158,13 +167,17 @@ export async function applySplitReward(opts: {
       try {
         await addDoc(
           collection(db, 'AdminRevenue'),
-          adminRevenueFields(result.split, {
-            type: source,
-            uid,
-            txId,
-            meta,
-            date: serverTimestamp(),
-          })
+          adminRevenueFields(
+            result.split,
+            {
+              type: source,
+              uid,
+              txId,
+              meta,
+              date: serverTimestamp(),
+            },
+            { platformSharePct, userSharePct }
+          )
         );
       } catch {
         // Non-fatal — user credit already committed
