@@ -28,25 +28,41 @@ export type TikReelPost = {
   [key: string]: unknown;
 };
 
-function pickMediaUrl(data: Record<string, unknown>): string {
-  return String(
-    data.videoUrl ||
-      data.image ||
-      data.url ||
-      data.src ||
-      data.mediaUrl ||
-      data.thumbnail ||
-      data.thumb ||
-      ''
-  );
-}
-
 function looksLikeVideo(url: string, data: Record<string, unknown>): boolean {
   if (data.isVideo === true) return true;
-  if (data.isVideo === false) return false;
+  // Explicit false only wins when there is no strong video URL signal
   const mime = String(data.mime || data.contentType || data.type || '');
   if (mime.startsWith('video/')) return true;
-  return /\.(mp4|webm|mov|m4v)(\?|$)/i.test(url);
+  if (!url) return data.isVideo === true;
+  // Cloudinary video delivery
+  if (/\/video\/upload\//i.test(url)) return true;
+  // Common extensions (also works with Firebase ?alt=media and %2F encoding)
+  if (/\.(mp4|webm|mov|m4v|mkv)([.?&#_]|$)/i.test(url)) return true;
+  if (/%2e(mp4|webm|mov|m4v)/i.test(url)) return true;
+  // Firebase / storage paths that include video
+  if (/firebasestorage\.googleapis\.com/i.test(url) && /video/i.test(url)) return true;
+  if (data.isVideo === false) return false;
+  return false;
+}
+
+/** Prefer a playable video URL over a still thumbnail when both exist. */
+function pickMediaUrl(data: Record<string, unknown>): string {
+  const candidates = [
+    data.videoUrl,
+    data.image,
+    data.url,
+    data.src,
+    data.mediaUrl,
+    data.thumbnail,
+    data.thumb,
+  ]
+    .map((v) => String(v || '').trim())
+    .filter(Boolean);
+
+  const videoish = candidates.find((u) =>
+    looksLikeVideo(u, { ...data, isVideo: data.isVideo === true ? true : undefined })
+  );
+  return videoish || candidates[0] || '';
 }
 
 export function createdAtMs(data: Record<string, unknown>): number {
@@ -65,7 +81,10 @@ export function normalizeTikReelPost(
 ): TikReelPost {
   const media = pickMediaUrl(data);
   const owner = String(data.uid || data.userId || '');
-  const isVideo = looksLikeVideo(media, data);
+  const isVideo =
+    source === 'videos' ||
+    source === 'users_videos' ||
+    looksLikeVideo(media, data);
   const thumb = String(
     data.thumbnail || data.thumb || data.poster || data.cover || media || ''
   );
@@ -93,25 +112,62 @@ export function normalizeTikReelPost(
   };
 }
 
-/** Merge + dedupe by id / postId / media URL, newest first. */
+/** Merge + dedupe by id / postId / media URL, newest first. Prefer video rows. */
 export function mergeTikReelPosts(lists: TikReelPost[][]): TikReelPost[] {
-  const seen = new Set<string>();
-  const out: TikReelPost[] = [];
+  const byKey = new Map<string, TikReelPost>();
+  const order: string[] = [];
+
+  const primaryKeys = (p: TikReelPost) =>
+    [
+      p.id,
+      p.postId ? `post:${p.postId}` : '',
+      p.videoUrl || p.image ? `media:${p.videoUrl || p.image}` : '',
+    ].filter(Boolean);
+
   for (const list of lists) {
     for (const p of list) {
-      const keys = [
-        p.id,
-        p.postId ? `post:${p.postId}` : '',
-        p.videoUrl || p.image ? `media:${p.videoUrl || p.image}` : '',
-      ].filter(Boolean);
-      if (keys.some((k) => seen.has(k))) continue;
       if (!p.videoUrl && !p.image && !p.thumbnail) continue;
-      keys.forEach((k) => seen.add(k));
-      out.push(p);
+      const keys = primaryKeys(p);
+      const existingKey = keys.find((k) => byKey.has(k));
+      if (existingKey) {
+        const prev = byKey.get(existingKey)!;
+        // Upgrade still → video if duplicate media
+        if (!prev.isVideo && p.isVideo) {
+          const upgraded = { ...prev, ...p, isVideo: true, videoUrl: p.videoUrl || prev.videoUrl, image: p.videoUrl || p.image || prev.image };
+          byKey.set(existingKey, upgraded);
+          keys.forEach((k) => byKey.set(k, upgraded));
+        }
+        continue;
+      }
+      keys.forEach((k) => byKey.set(k, p));
+      order.push(keys[0]);
     }
   }
-  out.sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0));
-  return out;
+
+  const out = order
+    .map((k) => byKey.get(k))
+    .filter((p): p is TikReelPost => !!p);
+  // unique by identity
+  const seen = new Set<TikReelPost>();
+  const unique = out.filter((p) => {
+    if (seen.has(p)) return false;
+    seen.add(p);
+    return true;
+  });
+  unique.sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0));
+  return unique;
+}
+
+/** Public helper for UI — detect playable video media. */
+export function isPlayableTikReel(post: {
+  isVideo?: boolean;
+  videoUrl?: string;
+  image?: string;
+  url?: string;
+  mediaUrl?: string;
+}): boolean {
+  const url = String(post.videoUrl || post.image || post.url || post.mediaUrl || '');
+  return looksLikeVideo(url, { isVideo: post.isVideo });
 }
 
 /** Keep only posts owned by uid (accepts uid or userId field). */
