@@ -43,7 +43,7 @@ Open [http://localhost:3000](http://localhost:3000).
 - **Owner 70%** — real dollars from Adsterra / offerwall dashboards; in-app ledger `AdminRevenue.ownerUsd`
 - **User 30%** — AJ Coins only (`COIN_RATE = 100`)
 - Activity pool: **$5.00 – $7.00**, always split 70/30
-- Gifts: creator gets **30%** of gift cost; owner keeps **70%**
+- Gifts: admin **40%** / creator **60%** of gift cost (e.g. 500 → 200 admin, 300 creator)
 
 ## Scripts
 

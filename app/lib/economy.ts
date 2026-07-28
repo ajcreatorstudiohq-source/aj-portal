@@ -61,12 +61,19 @@ export const PREMIUM_DIRECT_GAMES = [
 export const PREMIUM_CPA_GAMES = PREMIUM_DIRECT_GAMES;
 
 /**
- * Hard revenue split — every earn path must keep this ratio.
+ * Hard revenue split — every non-gift earn path must keep this ratio.
  * Owner / platform: 70% (USD ledger in AdminRevenue + real ad-network payouts).
  * User / creator: 30% (AJ Coins only — never shown as $ in UI).
  */
 export const PLATFORM_EARN_SHARE = 0.7;
 export const USER_EARN_SHARE = 0.3;
+
+/**
+ * Gifting split (separate from activity earn).
+ * Example: 500 coin gift → admin 200 (40%) + creator 300 (60%).
+ */
+export const GIFT_ADMIN_SHARE = 0.4;
+export const GIFT_CREATOR_SHARE = 0.6;
 
 /** Internal activity pool band (server ledger only — not shown in UI). Always split 70/30. */
 const PROVIDER_BAND_MIN = 5.0;
@@ -193,12 +200,29 @@ export function splitPoolUsd(totalUsd: number): RewardSplit {
 }
 
 /**
- * Exact 70/30 split on a coin pool (gifts, entry fees, etc.).
- * Sender pays `totalCoins`; creator gets 30%; platform keeps 70% out of circulation.
+ * Exact 70/30 split on a generic coin pool (non-gift).
+ * Sender pays `totalCoins`; user gets 30%; platform keeps 70%.
  */
 export function splitCoinPool(totalCoins: number): RewardSplit {
   const total = Math.max(0, Math.floor(Number(totalCoins) || 0));
   const userCoins = Math.floor(total * USER_EARN_SHARE);
+  const adminCoins = total - userCoins;
+  return {
+    totalUsd: Number((total / COIN_RATE).toFixed(4)),
+    userUsd: Number((userCoins / COIN_RATE).toFixed(4)),
+    adminUsd: Number((adminCoins / COIN_RATE).toFixed(4)),
+    userCoins,
+    adminCoins,
+  };
+}
+
+/**
+ * Gift split: admin 40% / creator 60% of gift cost coins.
+ * Example: 500 → admin 200, creator 300.
+ */
+export function splitGiftCoins(totalCoins: number): RewardSplit {
+  const total = Math.max(0, Math.floor(Number(totalCoins) || 0));
+  const userCoins = Math.floor(total * GIFT_CREATOR_SHARE);
   const adminCoins = total - userCoins;
   return {
     totalUsd: Number((total / COIN_RATE).toFixed(4)),
