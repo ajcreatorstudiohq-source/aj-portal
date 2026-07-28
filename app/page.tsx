@@ -1977,7 +1977,7 @@ export function AJSuperPortal() {
   const [dmInput,           setDmInput]           = useState('');
   const [dmInbox,           setDmInbox]           = useState<any[]>([]);
   const [dmInboxLoading,    setDmInboxLoading]    = useState(false);
-  const [dmBackScreen,      setDmBackScreen]      = useState<'messages' | 'profile' | 'hub'>('messages');
+  const [dmBackScreen,      setDmBackScreen]      = useState<'messages' | 'profile' | 'hub' | 'tikreels'>('messages');
   const dmUnsubRef = useRef<any>(null);
   const dmInboxUnsubRef = useRef<any>(null);
   const dmEndRef   = useRef<HTMLDivElement>(null);
@@ -4423,7 +4423,7 @@ export function AJSuperPortal() {
     );
   };
 
-  const openMessagesInbox = () => {
+  const openMessagesInbox = (back: 'messages' | 'profile' | 'hub' | 'tikreels' = 'hub') => {
     if (!user) {
       setVvipAlert({ msg: 'Please sign in to view messages.', icon: '🔒' });
       return;
@@ -4431,13 +4431,33 @@ export function AJSuperPortal() {
     setScreen('social');
     setSocialScreen('messages');
     setActiveChatId(null);
-    setDmBackScreen('messages');
+    setDmBackScreen(back);
+    if (back === 'tikreels') {
+      setTiktabMode('profile');
+    }
+  };
+
+  const leaveMessagesToBack = () => {
+    if (dmBackScreen === 'tikreels') {
+      setSocialScreen('tikreels');
+      setTiktabMode('profile');
+      return;
+    }
+    if (dmBackScreen === 'profile') {
+      setSocialScreen('profile');
+      return;
+    }
+    if (dmBackScreen === 'hub') {
+      setSocialScreen('hub');
+      return;
+    }
+    setSocialScreen(viewingUid ? 'profile' : 'hub');
   };
 
   const openOrCreateChat = async (
     otherUid: string,
     otherData: any,
-    back: 'messages' | 'profile' | 'hub' = 'messages'
+    back: 'messages' | 'profile' | 'hub' | 'tikreels' = 'messages'
   ) => {
     if (!user) {
       setVvipAlert({ msg: 'Please sign in to message.', icon: '🔒' });
@@ -7314,7 +7334,7 @@ Tip: Social Hub se copy karo 📤`,
                         <p className="text-gray-400 text-[10px]">Following</p>
                       </button>
                     </div>
-                    <div className="flex gap-2 mt-4">
+                    <div className="flex gap-2 mt-4 items-center">
                       <button
                         type="button"
                         onClick={() => {
@@ -7325,11 +7345,23 @@ Tip: Social Hub se copy karo 📤`,
                       >
                         <Edit3 size={11} className="inline mr-1" /> Edit
                       </button>
-                      {(['posts', 'following'] as const).map((tab) => (
-                        <button key={tab} onClick={() => setTikProfileSubTab(tab)} className={`px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${tikProfileSubTab===tab ? 'bg-pink-600 text-white' : 'bg-white/5 border border-white/10 text-gray-400'}`}>
-                          {tab}
-                        </button>
-                      ))}
+                      {/* Message replaces the old Following tab next to Edit */}
+                      <button
+                        type="button"
+                        title="Messages"
+                        onClick={() => openMessagesInbox('tikreels')}
+                        className="px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 flex items-center gap-1.5 active:scale-90 transition-all shadow-[0_0_12px_rgba(34,211,238,0.3)]"
+                      >
+                        <MessageCircle size={12} />
+                        Message
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTikProfileSubTab('posts')}
+                        className={`px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${tikProfileSubTab==='posts' ? 'bg-pink-600 text-white' : 'bg-white/5 border border-white/10 text-gray-400'}`}
+                      >
+                        posts
+                      </button>
                     </div>
                   </div>
                   {tikProfileSubTab === 'posts' && (
@@ -8219,7 +8251,7 @@ Tip: Social Hub se copy karo 📤`,
               <div className="sticky top-0 z-40 bg-[#050505]/95 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <button
-                    onClick={() => setSocialScreen(viewingUid ? 'profile' : 'hub')}
+                    onClick={leaveMessagesToBack}
                     className="p-1.5 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all"
                   >
                     <ArrowLeft size={14} className="text-gray-400"/>
@@ -8349,7 +8381,15 @@ Tip: Social Hub se copy karo 📤`,
                     }
                     setActiveChatId(null);
                     setDmMessages([]);
-                    setSocialScreen(dmBackScreen === 'profile' ? 'profile' : dmBackScreen === 'hub' ? 'hub' : 'messages');
+                    if (dmBackScreen === 'messages' || dmBackScreen === 'tikreels' || dmBackScreen === 'hub' || dmBackScreen === 'profile') {
+                      if (dmBackScreen === 'messages') {
+                        setSocialScreen('messages');
+                      } else {
+                        leaveMessagesToBack();
+                      }
+                    } else {
+                      setSocialScreen('messages');
+                    }
                   }}
                   className="p-1.5 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all"
                 >
@@ -8461,7 +8501,7 @@ Tip: Social Hub se copy karo 📤`,
                         <button
                           type="button"
                           title="Messages"
-                          onClick={() => openMessagesInbox()}
+                          onClick={() => openMessagesInbox('profile')}
                           className="w-10 h-10 rounded-2xl bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 flex items-center justify-center active:scale-90 transition-all shadow-[0_0_14px_rgba(34,211,238,0.35)]"
                         >
                           <MessageCircle size={18} />
