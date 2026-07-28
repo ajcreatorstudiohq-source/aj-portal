@@ -51,6 +51,12 @@ import { isPortalAdminUser } from './lib/admin-auth';
 import { BAN_FORBIDDEN_MESSAGE, DEFAULT_ACCOUNT_BAN_FIELDS, isUserBanned } from './lib/user-ban';
 import { startIntrusiveAdGuard, stripIntrusiveAdNodes } from './lib/ad-guards';
 import { REEL_COMMENTS_COL, sortCommentsAsc, mergeCommentLists } from './lib/reel-comments';
+import {
+  CHATS_COL,
+  CHAT_PARTNERS_SUB,
+  buildDmChatId,
+  normalizePartnerProfile,
+} from './lib/dm-chat';
 
 // ============================================================
 // GLOBAL ERROR SHIELD (FIX: "Page couldn't load" error)
@@ -1960,7 +1966,11 @@ export function AJSuperPortal() {
   const [activeChatUser,    setActiveChatUser]    = useState<any>(null);
   const [dmMessages,        setDmMessages]        = useState<any[]>([]);
   const [dmInput,           setDmInput]           = useState('');
+  const [dmInbox,           setDmInbox]           = useState<any[]>([]);
+  const [dmInboxLoading,    setDmInboxLoading]    = useState(false);
+  const [dmBackScreen,      setDmBackScreen]      = useState<'messages' | 'profile' | 'hub'>('messages');
   const dmUnsubRef = useRef<any>(null);
+  const dmInboxUnsubRef = useRef<any>(null);
   const dmEndRef   = useRef<HTMLDivElement>(null);
 
   // ── COMPUTED
@@ -4212,45 +4222,245 @@ export function AJSuperPortal() {
   };
 
   // ==========================================================
-  // OPEN OR CREATE CHAT
+  // TIKTOK-STYLE DM — shared chat + saved friend ids
   // ==========================================================
-  const openOrCreateChat = async (otherUid:string, otherData:any) => {
-    if (!user) return;
+  const upsertChatPartners = async (
+    otherUid: string,
+    otherData: any,
+    extra: { lastMessage?: string; lastAtMs?: number; lastSenderUid?: string } = {}
+  ) => {
+    if (!user || !otherUid || otherUid === user.uid) return;
+    const chatId = buildDmChatId(user.uid, otherUid);
+    const me = normalizePartnerProfile(user.uid, {
+      username: username || user.displayName || 'AJ_Member',
+      name: profileDisplayName || user.displayName || username || 'AJ Member',
+      photo: tempPhoto || user.photoURL || '/logo.png',
+    });
+    const them = normalizePartnerProfile(otherUid, {
+      ...(otherData || {}),
+      uid: otherUid,
+      username: otherData?.username || otherData?.name || 'AJ_Member',
+      photo: otherData?.photo || otherData?.photoURL || '/logo.png',
+    });
+    const lastMessage = extra.lastMessage ?? '';
+    const lastAtMs = extra.lastAtMs ?? Date.now();
+    const lastSenderUid = extra.lastSenderUid || '';
+    const base = {
+      chatId,
+      lastMessage,
+      lastAt: serverTimestamp(),
+      lastAtMs,
+      lastSenderUid,
+      updatedAt: serverTimestamp(),
+    };
+    // My inbox → their id
+    await setDoc(
+      doc(db, 'users', user.uid, CHAT_PARTNERS_SUB, otherUid),
+      {
+        ...base,
+        uid: them.uid,
+        username: them.username,
+        name: them.name,
+        photo: them.photo,
+      },
+      { merge: true }
+    );
+    // Their inbox → my id (so both see each other in the list)
+    await setDoc(
+      doc(db, 'users', otherUid, CHAT_PARTNERS_SUB, user.uid),
+      {
+        ...base,
+        uid: me.uid,
+        username: me.username,
+        name: me.name,
+        photo: me.photo,
+      },
+      { merge: true }
+    );
+  };
+
+  const openMessagesInbox = () => {
+    if (!user) {
+      setVvipAlert({ msg: 'Please sign in to view messages.', icon: '🔒' });
+      return;
+    }
+    setScreen('social');
+    setSocialScreen('messages');
+    setActiveChatId(null);
+    setDmBackScreen('messages');
+  };
+
+  const openOrCreateChat = async (
+    otherUid: string,
+    otherData: any,
+    back: 'messages' | 'profile' | 'hub' = 'messages'
+  ) => {
+    if (!user) {
+      setVvipAlert({ msg: 'Please sign in to message.', icon: '🔒' });
+      return;
+    }
+    if (!otherUid || otherUid === user.uid) return;
     try {
-      const chatId = [user.uid, otherUid].sort().join('_');
-      const chatRef = doc(db,'chats',chatId);
+      const chatId = buildDmChatId(user.uid, otherUid);
+      const chatRef = doc(db, CHATS_COL, chatId);
+      const partner = normalizePartnerProfile(otherUid, {
+        ...(otherData || {}),
+        uid: otherUid,
+      });
+      const me = normalizePartnerProfile(user.uid, {
+        username: username || user.displayName || 'AJ_Member',
+        name: profileDisplayName || user.displayName || username || 'AJ Member',
+        photo: tempPhoto || user.photoURL || '/logo.png',
+      });
       const cs = await getDoc(chatRef);
       if (!cs.exists()) {
         await setDoc(chatRef, {
-          participants:[user.uid,otherUid],
-          createdAt:serverTimestamp(), lastMessage:'', lastAt:serverTimestamp()
+          participants: [user.uid, otherUid],
+          participantProfiles: {
+            [user.uid]: me,
+            [otherUid]: partner,
+          },
+          createdAt: serverTimestamp(),
+          lastMessage: '',
+          lastAt: serverTimestamp(),
+          lastAtMs: Date.now(),
         });
+      } else {
+        try {
+          await updateDoc(chatRef, {
+            [`participantProfiles.${user.uid}`]: me,
+            [`participantProfiles.${otherUid}`]: partner,
+          });
+        } catch {
+          /* optional profile refresh */
+        }
       }
+
+      await upsertChatPartners(otherUid, partner);
+
+      setDmBackScreen(back);
       setActiveChatId(chatId);
-      setActiveChatUser(otherData);
-      if (dmUnsubRef.current) { dmUnsubRef.current(); dmUnsubRef.current=null; }
+      setActiveChatUser({ ...partner, uid: otherUid });
+      setDmMessages([]);
+      if (dmUnsubRef.current) {
+        dmUnsubRef.current();
+        dmUnsubRef.current = null;
+      }
       dmUnsubRef.current = onSnapshot(
-        query(collection(db,'chats',chatId,'messages'), orderBy('createdAt','asc')),
-        s => {
-          setDmMessages(s.docs.map(d=>({id:d.id,...d.data()})));
-          setTimeout(()=>dmEndRef.current?.scrollIntoView({behavior:'smooth'}),60);
+        query(collection(db, CHATS_COL, chatId, 'messages'), orderBy('createdAt', 'asc'), limit(300)),
+        (s) => {
+          setDmMessages(s.docs.map((d) => ({ id: d.id, ...d.data() })));
+          setTimeout(() => dmEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 60);
+        },
+        (err) => {
+          console.warn('dm listen', err);
+          setVvipAlert({
+            msg: 'Chat could not load. Publish firestore.rules for chats.',
+            icon: '⚠️',
+          });
         }
       );
+      setScreen('social');
       setSocialScreen('dm');
-    } catch(e) { console.error('openOrCreateChat', e); setVvipAlert({msg:'Could not open chat. Please try again.'}); }
+    } catch (e) {
+      console.error('openOrCreateChat', e);
+      setVvipAlert({
+        msg: 'Could not open chat. Publish firestore.rules for chats / chat_partners.',
+        icon: '⚠️',
+      });
+    }
   };
 
   const sendDmMessage = async () => {
-    if (!dmInput.trim() || !activeChatId || !user) return;
-    const text = dmInput.trim(); setDmInput('');
+    if (!dmInput.trim() || !activeChatId || !user || !activeChatUser?.uid) return;
+    const text = dmInput.trim();
+    if (text.length > 2000) {
+      setVvipAlert({ msg: 'Message is too long.', icon: '⚠️' });
+      return;
+    }
+    setDmInput('');
+    const createdAtMs = Date.now();
     try {
-      await addDoc(collection(db,'chats',activeChatId,'messages'), {
-        uid:user.uid, username:username||user.displayName||'AJ Member',
-        photo:tempPhoto||user.photoURL||'', text, createdAt:serverTimestamp()
+      await addDoc(collection(db, CHATS_COL, activeChatId, 'messages'), {
+        uid: user.uid,
+        username: username || user.displayName || 'AJ_Member',
+        photo: tempPhoto || user.photoURL || '',
+        text,
+        createdAt: serverTimestamp(),
+        createdAtMs,
       });
-      await updateDoc(doc(db,'chats',activeChatId), { lastMessage:text, lastAt:serverTimestamp() });
-    } catch(e) { console.error('sendDmMessage', e); }
+      await updateDoc(doc(db, CHATS_COL, activeChatId), {
+        lastMessage: text,
+        lastAt: serverTimestamp(),
+        lastAtMs: createdAtMs,
+        lastSenderUid: user.uid,
+      });
+      await upsertChatPartners(String(activeChatUser.uid), activeChatUser, {
+        lastMessage: text,
+        lastAtMs: createdAtMs,
+        lastSenderUid: user.uid,
+      });
+    } catch (e) {
+      console.error('sendDmMessage', e);
+      setDmInput(text);
+      setVvipAlert({
+        msg: 'Message not saved. Publish firestore.rules for chats.',
+        icon: '⚠️',
+      });
+    }
   };
+
+  // Live inbox list (friend ids + last message)
+  useEffect(() => {
+    if (!user || socialScreen !== 'messages') {
+      if (dmInboxUnsubRef.current) {
+        dmInboxUnsubRef.current();
+        dmInboxUnsubRef.current = null;
+      }
+      return;
+    }
+    setDmInboxLoading(true);
+    try {
+      const q = query(
+        collection(db, 'users', user.uid, CHAT_PARTNERS_SUB),
+        orderBy('lastAtMs', 'desc'),
+        limit(100)
+      );
+      dmInboxUnsubRef.current = onSnapshot(
+        q,
+        (snap) => {
+          setDmInbox(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+          setDmInboxLoading(false);
+        },
+        async (err) => {
+          console.warn('dm inbox ordered', err);
+          // Fallback without orderBy (missing index / lastAtMs)
+          try {
+            const snap = await getDocs(
+              query(collection(db, 'users', user.uid, CHAT_PARTNERS_SUB), limit(100))
+            );
+            const rows = snap.docs
+              .map((d) => ({ id: d.id, ...d.data() } as any))
+              .sort((a, b) => Number(b.lastAtMs || 0) - Number(a.lastAtMs || 0));
+            setDmInbox(rows);
+          } catch (e2) {
+            console.warn('dm inbox fallback', e2);
+            setDmInbox([]);
+          }
+          setDmInboxLoading(false);
+        }
+      );
+    } catch (e) {
+      console.error('dm inbox', e);
+      setDmInboxLoading(false);
+    }
+    return () => {
+      if (dmInboxUnsubRef.current) {
+        dmInboxUnsubRef.current();
+        dmInboxUnsubRef.current = null;
+      }
+    };
+  }, [user, socialScreen]);
 
   // ==========================================================
   // OPEN PROFILE
@@ -6507,7 +6717,8 @@ Tip: Social Hub se copy karo 📤`,
               <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
                 {[ { icon: '🎬', label: 'AJ TikReels', sub: 'Short Videos', action: () => { setSocialScreen('tikreels'); setTiktabMode('feed'); } },
                   { icon: '🎬', label: 'AJ Pulse', sub: 'Social features', action: () => { setSocialScreen('pulse'); setPulseTab('feed'); } },
-                  { icon: '🎬', label: 'AJ WeChat', sub: 'Social features', action: () => { setSocialScreen('wechat'); } },
+                  { icon: '💬', label: 'Messages', sub: 'TikTok-style chat', action: () => { openMessagesInbox(); } },
+                  { icon: '🎬', label: 'AJ WeChat', sub: 'Contacts & chat', action: () => { openMessagesInbox(); } },
                   { icon: 'G', label: 'Go Live', sub: 'Social features', action: () => { setSocialScreen('golive'); } },
                   { icon: 'J', label: 'Join Live', sub: 'Social features', action: () => { setSocialScreen('joinlive'); } },
                   { icon: 'M', label: 'My Profile', sub: 'Social features', action: () => { openProfile(user.uid); } },
@@ -7842,6 +8053,82 @@ Tip: Social Hub se copy karo 📤`,
             </div>
           )}
 
+          {/* ── MESSAGES INBOX (TikTok-style friend ids + chats) ── */}
+          {socialScreen === 'messages' && !activeChatId && (
+            <div className="flex flex-col h-full">
+              <div className="sticky top-0 z-40 bg-[#050505]/95 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setSocialScreen(viewingUid ? 'profile' : 'hub')}
+                    className="p-1.5 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all"
+                  >
+                    <ArrowLeft size={14} className="text-gray-400"/>
+                  </button>
+                  <div>
+                    <span className="text-sm font-black text-white">Messages</span>
+                    <p className="text-[9px] text-white/40">Saved chats & friend IDs</p>
+                  </div>
+                </div>
+                <MessageCircle size={16} className="text-cyan-400" />
+              </div>
+              <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                {dmInboxLoading && (
+                  <p className="text-gray-500 text-xs text-center py-10">Loading chats…</p>
+                )}
+                {!dmInboxLoading && dmInbox.length === 0 && (
+                  <div className="flex flex-col items-center justify-center gap-3 pt-16 px-6">
+                    <div className="w-14 h-14 rounded-full bg-cyan-500/10 border border-cyan-400/30 flex items-center justify-center">
+                      <MessageCircle size={24} className="text-cyan-400" />
+                    </div>
+                    <p className="text-white text-sm font-black text-center">No chats yet</p>
+                    <p className="text-gray-500 text-xs text-center">
+                      Open someone’s profile and tap the message icon. Their ID stays here and both of you see the same real-time chat.
+                    </p>
+                  </div>
+                )}
+                {dmInbox.map((p: any) => (
+                  <button
+                    key={p.id || p.uid}
+                    type="button"
+                    onClick={() =>
+                      void openOrCreateChat(
+                        String(p.uid || p.id),
+                        p,
+                        'messages'
+                      )
+                    }
+                    className="w-full flex items-center gap-3 bg-white/[0.04] border border-white/10 rounded-2xl p-3 active:scale-[0.98] transition-all text-left"
+                  >
+                    <img
+                      src={p.photo || p.photoURL || '/logo.png'}
+                      alt=""
+                      className="w-12 h-12 rounded-full border border-white/15 object-cover flex-shrink-0"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-white text-sm font-black truncate">
+                          {p.name || p.username || 'AJ Member'}
+                        </p>
+                        {p.lastAtMs ? (
+                          <span className="text-[9px] text-white/35 flex-shrink-0">
+                            {new Date(Number(p.lastAtMs)).toLocaleDateString()}
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="text-[10px] text-cyan-400/90 truncate">@{p.username || 'user'}</p>
+                      <p className="text-[9px] text-white/30 font-mono truncate mt-0.5">
+                        ID: {String(p.uid || p.id)}
+                      </p>
+                      <p className="text-[11px] text-white/55 truncate mt-1">
+                        {p.lastMessage || 'Tap to open chat'}
+                      </p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* ── WECHAT ── */}
           {socialScreen === 'wechat' && !activeChatId && (
             <div className="flex flex-col h-full">
@@ -7894,13 +8181,33 @@ Tip: Social Hub se copy karo 📤`,
           {socialScreen === 'dm' && activeChatId && (
             <div className="flex flex-col h-full">
               <div className="sticky top-0 z-40 bg-[#050505]/95 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center gap-3">
-                <button onClick={() => { setSocialScreen('profile'); if (dmUnsubRef.current) { dmUnsubRef.current(); dmUnsubRef.current=null; } setActiveChatId(null); }} className="p-1.5 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all">
+                <button
+                  onClick={() => {
+                    if (dmUnsubRef.current) {
+                      dmUnsubRef.current();
+                      dmUnsubRef.current = null;
+                    }
+                    setActiveChatId(null);
+                    setDmMessages([]);
+                    setSocialScreen(dmBackScreen === 'profile' ? 'profile' : dmBackScreen === 'hub' ? 'hub' : 'messages');
+                  }}
+                  className="p-1.5 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all"
+                >
                   <ArrowLeft size={14} className="text-gray-400"/>
                 </button>
-                <img src={activeChatUser?.photo||'/logo.png'} className="w-8 h-8 rounded-full border border-white/20 object-cover"/>
-                <div>
-                  <p className="text-xs font-black text-white">@{activeChatUser?.username||'User'}</p>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (activeChatUser?.uid) void openProfile(String(activeChatUser.uid));
+                  }}
+                  className="flex items-center gap-2 min-w-0 flex-1 text-left active:opacity-80"
+                >
+                  <img src={activeChatUser?.photo||activeChatUser?.photoURL||'/logo.png'} className="w-8 h-8 rounded-full border border-white/20 object-cover flex-shrink-0" alt=""/>
+                  <div className="min-w-0">
+                    <p className="text-xs font-black text-white truncate">@{activeChatUser?.username||'User'}</p>
+                    <p className="text-[8px] text-white/35 font-mono truncate">ID: {activeChatUser?.uid || ''}</p>
+                  </div>
+                </button>
                 <div className="ml-auto flex gap-2">
                   <button onClick={() => startZegoCall('audio')} className="p-2 rounded-xl bg-green-500/10 border border-green-500/20 active:scale-90 transition-all">
                     <Phone size={14} className="text-green-400"/>
@@ -7910,19 +8217,29 @@ Tip: Social Hub se copy karo 📤`,
                   </button>
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[radial-gradient(ellipse_at_top,_rgba(34,211,238,0.06),_transparent_55%)]">
+                {dmMessages.length === 0 && (
+                  <p className="text-center text-white/35 text-xs py-10">Say hi — messages stay saved for both of you.</p>
+                )}
                 {dmMessages.map((m:any) => (
                   <div key={m.id} className={`flex ${m.uid===user?.uid ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[75%] rounded-2xl px-4 py-2.5 ${m.uid===user?.uid ? 'bg-pink-600 text-white' : 'bg-white/10 text-white'}`}>
-                      <p className="text-sm">{m.text}</p>
+                    <div className={`max-w-[78%] rounded-2xl px-3.5 py-2.5 ${m.uid===user?.uid ? 'bg-pink-600 text-white rounded-br-md' : 'bg-white/10 text-white rounded-bl-md'}`}>
+                      <p className="text-sm whitespace-pre-wrap break-words">{m.text}</p>
                     </div>
                   </div>
                 ))}
                 <div ref={dmEndRef}/>
               </div>
-              <div className="flex gap-2 p-4 border-t border-white/5">
-                <input value={dmInput} onChange={e => setDmInput(e.target.value)} placeholder="Message…" className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-4 py-2.5 text-white text-sm focus:outline-none" onKeyDown={e => e.key==='Enter' && sendDmMessage()}/>
-                <button onClick={sendDmMessage} className="w-10 h-10 bg-pink-600 rounded-2xl flex items-center justify-center active:scale-90 transition-all">
+              <div className="flex gap-2 p-4 border-t border-white/5 pb-[max(1rem,env(safe-area-inset-bottom))]">
+                <input
+                  value={dmInput}
+                  onChange={e => setDmInput(e.target.value)}
+                  placeholder="Message…"
+                  className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-cyan-400/40"
+                  style={{ fontSize: '16px' }}
+                  onKeyDown={e => { if (e.key==='Enter') { e.preventDefault(); void sendDmMessage(); } }}
+                />
+                <button onClick={() => void sendDmMessage()} className="w-10 h-10 bg-pink-600 rounded-2xl flex items-center justify-center active:scale-90 transition-all disabled:opacity-40" disabled={!dmInput.trim()}>
                   <Send size={14} className="text-white"/>
                 </button>
               </div>
@@ -7973,14 +8290,23 @@ Tip: Social Hub se copy karo 📤`,
                         <button
                           type="button"
                           title="Message"
-                          onClick={() => openOrCreateChat(viewingUid!, viewProfile)}
+                          onClick={() => openOrCreateChat(viewingUid!, { ...viewProfile, uid: viewingUid }, 'profile')}
                           className="w-10 h-10 rounded-2xl bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 flex items-center justify-center active:scale-90 transition-all shadow-[0_0_14px_rgba(34,211,238,0.35)]"
                         >
                           <MessageCircle size={18} />
                         </button>
                       </div>
                     ) : (
-                      <button
+                      <div className="flex gap-2 pb-2 items-center">
+                        <button
+                          type="button"
+                          title="Messages"
+                          onClick={() => openMessagesInbox()}
+                          className="w-10 h-10 rounded-2xl bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 flex items-center justify-center active:scale-90 transition-all shadow-[0_0_14px_rgba(34,211,238,0.35)]"
+                        >
+                          <MessageCircle size={18} />
+                        </button>
+                        <button
                         onClick={() => {
                           setProfileDisplayName(
                             viewProfile?.name ||
@@ -8000,10 +8326,11 @@ Tip: Social Hub se copy karo 📤`,
                           );
                           setSocialScreen('setup');
                         }}
-                        className="pb-2 px-4 py-2 rounded-2xl text-[11px] font-black uppercase tracking-widest bg-white/10 border border-white/20 text-gray-300 active:scale-95 transition-all"
+                        className="px-4 py-2 rounded-2xl text-[11px] font-black uppercase tracking-widest bg-white/10 border border-white/20 text-gray-300 active:scale-95 transition-all"
                       >
                         <Edit3 size={12} className="inline mr-1"/>Edit Profile
                       </button>
+                      </div>
                     )}
                   </div>
                   {/* Info */}
