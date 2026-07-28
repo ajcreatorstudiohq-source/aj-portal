@@ -19,6 +19,7 @@ import { isPortalAdminUser } from '../lib/admin-auth';
 import { ACCOUNT_STATUS, buildBanUpdate, isUserBanned } from '../lib/user-ban';
 import { isRtdbPresenceOnline, isUserOnlineNow, type PresenceSnapshot } from '../lib/presence';
 import { COIN_RATE, formatUsd, coinsToUsd } from '../lib/economy';
+import { ensureUserReferralId } from '../lib/referral';
 
 export type AdminUserRow = {
   uid: string;
@@ -61,6 +62,7 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
   const [allowed, setAllowed] = useState(false);
   const [earnings, setEarnings] = useState<AdminEarningsView | null>(null);
   const [earningsLoading, setEarningsLoading] = useState(false);
+  const [backfillBusy, setBackfillBusy] = useState(false);
 
   // Hard client gate — never render admin tools for normal users
   useEffect(() => {
@@ -308,6 +310,59 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
     }
   };
 
+  const handleBackfillReferrals = useCallback(async () => {
+    const current = auth.currentUser;
+    if (!current || !isPortalAdminUser(adminUser || { uid: current.uid, email: current.email })) {
+      return;
+    }
+    setBackfillBusy(true);
+    try {
+      // Prefer API when available; always also run client ensure (CEO rules)
+      try {
+        const token = await current.getIdToken();
+        await fetch('/api/admin/backfill-referrals', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch {
+        /* optional */
+      }
+
+      let snap;
+      try {
+        snap = await getDocs(query(collection(db, 'users'), orderBy('lastSync', 'desc'), limit(500)));
+      } catch {
+        snap = await getDocs(query(collection(db, 'users'), limit(500)));
+      }
+      let assigned = 0;
+      let skipped = 0;
+      let failed = 0;
+      for (const d of snap.docs) {
+        const existing = String((d.data() as { referralId?: string }).referralId || '').trim();
+        if (existing) {
+          skipped += 1;
+          continue;
+        }
+        try {
+          await ensureUserReferralId(d.id);
+          assigned += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      onAlert?.(
+        `Referral IDs: +${assigned} assigned · ${skipped} already had · ${failed} failed`,
+        '👥'
+      );
+      void loadUsers();
+    } catch (e) {
+      console.error('backfill referrals', e);
+      onAlert?.('Backfill failed — publish firestore.rules first', '⚠️');
+    } finally {
+      setBackfillBusy(false);
+    }
+  }, [adminUser, onAlert, loadUsers]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const rows = users.filter((u) => {
@@ -422,6 +477,16 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
             </div>
           </div>
         </div>
+
+        <button
+          type="button"
+          onClick={() => void handleBackfillReferrals()}
+          disabled={backfillBusy}
+          className="w-full py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest text-white active:scale-95 transition-all disabled:opacity-50"
+          style={{ background: 'linear-gradient(135deg,#ec4899,#8b5cf6)' }}
+        >
+          {backfillBusy ? 'Assigning referral IDs…' : 'Assign Unique Referral IDs (all users)'}
+        </button>
 
         <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-2xl px-3 py-2.5">
           <Search size={14} className="text-gray-500" />

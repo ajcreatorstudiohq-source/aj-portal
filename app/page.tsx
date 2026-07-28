@@ -35,6 +35,7 @@ import {
 } from './lib/economy';
 import { creditAdminEarnings } from './lib/admin-earnings';
 import { earnReward } from './lib/client-rewards';
+import { ensureUserReferralId, resolveReferrerUid } from './lib/referral';
 import { trackAdEvent } from './lib/ad-client';
 import { INFEED_AD_EVERY_N } from './lib/ads-config';
 import {
@@ -1830,6 +1831,7 @@ export function AJSuperPortal() {
   const [cardCountry, setCardCountry] = useState('');
   const [payoutId,     setPayoutId]     = useState('');
   const [referralCode, setReferralCode] = useState('');
+  const [myReferralId, setMyReferralId] = useState('');
 
   // ── NOTIFICATIONS
   const [notifOpen,   setNotifOpen]   = useState(false);
@@ -2783,28 +2785,45 @@ export function AJSuperPortal() {
           setBio((d.bio as string) || '');
           setProfileDisplayName((d.name as string) || (cu.displayName as string) || '');
           setTempPhoto((d.photo as string) || cu.photoURL || '');
+          // Existing users — ensure unique referral ID
+          try {
+            const code = await ensureUserReferralId(cu.uid);
+            setMyReferralId(code);
+          } catch (e) {
+            console.warn('ensureUserReferralId', e);
+            setMyReferralId(String(d.referralId || ''));
+          }
         } else {
-          // NEW USER — create profile + show camera permission prompt
-          await setDoc(userRef, {
-            name: cu.displayName,
-            email: cu.email,
-            balance: SIGNUP_BONUS_COINS,
-            botTier: 'none',
-            invested: 0,
-            uid: cu.uid,
-            lastSync: serverTimestamp(),
-            hasSocialProfile: true,
-            photo: cu.photoURL || '',
-            followers: 0,
-            following: 0,
-            postsCount: 0,
-            followersCount: 0,
-            followingCount: 0,
-            totalLikes: 0,
-            status: 'online',
-            fcmToken: '',
-            ...DEFAULT_ACCOUNT_BAN_FIELDS,
-          });
+          // NEW USER — 0 signup bonus; unique referral ID; camera prompt
+          const newRefId = await (async () => {
+            // Create user first with placeholder, then allocate unique code
+            await setDoc(userRef, {
+              name: cu.displayName,
+              email: cu.email,
+              balance: SIGNUP_BONUS_COINS, // always 0
+              botTier: 'none',
+              invested: 0,
+              uid: cu.uid,
+              lastSync: serverTimestamp(),
+              hasSocialProfile: true,
+              photo: cu.photoURL || '',
+              followers: 0,
+              following: 0,
+              postsCount: 0,
+              followersCount: 0,
+              followingCount: 0,
+              totalLikes: 0,
+              status: 'online',
+              fcmToken: '',
+              ...DEFAULT_ACCOUNT_BAN_FIELDS,
+            });
+            try {
+              return await ensureUserReferralId(cu.uid);
+            } catch {
+              return '';
+            }
+          })();
+          setMyReferralId(newRefId);
           setHasSocialProfile(true);
           setBanNotice(null);
           setShowCameraPermissionPrompt(true);
@@ -2818,6 +2837,7 @@ export function AJSuperPortal() {
           setBalance((data.balance as number) || 0);
           setBotTier((data.botTier as string) || 'none');
           setInvested((data.invested as number) || 0);
+          if (data.referralId) setMyReferralId(String(data.referralId));
         });
       } catch (err) {
         console.error('Auth init error', err);
@@ -6181,20 +6201,48 @@ export function AJSuperPortal() {
     if (!referralCode.trim()) return setVvipAlert({msg:"Enter referral code."});
     if (!user) return;
     try {
-      const referrerId = referralCode.trim();
+      const mySnap = await getDoc(doc(db, 'users', user.uid));
+      if (mySnap.exists()) {
+        const already = String(
+          (mySnap.data() as { referredBy?: string }).referredBy || ''
+        ).trim();
+        if (already) {
+          return setVvipAlert({ msg: 'You already used a referral code.', icon: 'ℹ️' });
+        }
+      }
+
+      const referrerId = await resolveReferrerUid(referralCode.trim());
+      if (!referrerId) return setVvipAlert({msg:"Referral Code not found."});
       if (referrerId === user.uid) return setVvipAlert({msg:"You can't refer yourself!"});
+
       const rSnap = await getDoc(doc(db,"users",referrerId));
       if (!rSnap.exists()) return setVvipAlert({msg:"Referral Code not found."});
+
       const reward = await earnReward(user, 'referral', {
         idempotencyKey: `${user.uid}_referred_by_${referrerId}`,
         beneficiaryUid: referrerId,
-        meta: { inviteeUid: user.uid, referrerId },
+        meta: {
+          inviteeUid: user.uid,
+          referrerId,
+          referralCode: referralCode.trim().toUpperCase(),
+        },
       });
+
+      if (reward.ok) {
+        try {
+          await updateDoc(doc(db, 'users', user.uid), {
+            referredBy: referrerId,
+            referredAt: serverTimestamp(),
+            referredWithCode: referralCode.trim().toUpperCase(),
+          });
+        } catch {}
+      }
+
       try {
         await addDoc(collection(db,"notifications"), {
           title:"Referral Claimed",
           message: reward.ok
-            ? `+${reward.creditedCoins || 0} AJ Coins credited to referrer.`
+            ? `+${reward.creditedCoins || REFERRAL_COINS} AJ Coins credited to referrer.`
             : 'Referral claimed.',
           date:serverTimestamp()
         });
@@ -6204,7 +6252,9 @@ export function AJSuperPortal() {
           ? `Referral Applied! Referrer +${reward.creditedCoins || REFERRAL_COINS} AJ Coins`
           : reward.error === 'daily_limit'
             ? 'Referral recorded — daily referral reward limit reached.'
-            : 'Referral Applied!',
+            : reward.duplicate
+              ? 'Referral already applied.'
+              : 'Referral Applied!',
         icon: '🎉',
       });
       setReferralCode('');
@@ -6471,7 +6521,7 @@ Wallet → Purchase 💰`,
 • You receive +${REFERRAL_COINS} Coins per successful referral 🎉\\\\\\\\
 • No limit — refer as many as you want!\\\\\\\\
 \\\\\\\\
-Tip: Copy your ID from the Social Hub referral card 📤`,
+Tip: Copy your Referral ID from Hub or Wallet → Refer 📤`,
       hin: `👥 Referral:\\\\\\\\
 \\\\\\\\
 • Tera ID = Referral Code\\\\\\\\
@@ -7000,10 +7050,16 @@ Tip: Social Hub se copy karo 📤`,
             <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex items-center gap-3">
               <span className="text-2xl">👥</span>
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-black text-white">Refer & Earn</p>
-                <p className="text-[9px] text-gray-400 truncate">Your ID: {user?.uid?.slice(0,16)}…</p>
+                <p className="text-xs font-black text-white">Refer & Earn · +{REFERRAL_COINS} 🪙 each</p>
+                <p className="text-[9px] text-gray-400 truncate">
+                  Your ID: {myReferralId || '…generating…'}
+                </p>
               </div>
-              <button onClick={() => copyToClipboard(user?.uid||'')} className="bg-pink-600/20 border border-pink-500/30 text-pink-400 text-[9px] font-black px-3 py-1.5 rounded-xl active:scale-90 transition-all">
+              <button
+                onClick={() => copyToClipboard(myReferralId || '')}
+                disabled={!myReferralId}
+                className="bg-pink-600/20 border border-pink-500/30 text-pink-400 text-[9px] font-black px-3 py-1.5 rounded-xl active:scale-90 transition-all disabled:opacity-40"
+              >
                 {copied ? '✓ Copied' : 'Copy ID'}
               </button>
             </div>
@@ -9404,18 +9460,28 @@ Tip: Social Hub se copy karo 📤`,
             {walletTab === 'referral' && (
               <div className="space-y-4">
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
-                  <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2">Your Referral Code</p>
+                  <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2">Your Unique Referral ID</p>
                   <div className="flex items-center gap-2">
-                    <p className="text-white text-xs font-black flex-1 truncate">{user?.uid}</p>
-                    <button onClick={() => copyToClipboard(user?.uid||'')} className="bg-pink-600/20 border border-pink-500/30 text-pink-400 text-[9px] font-black px-3 py-1.5 rounded-xl active:scale-90 transition-all">
+                    <p className="text-white text-sm font-black flex-1 tracking-widest">
+                      {myReferralId || 'Generating…'}
+                    </p>
+                    <button
+                      onClick={() => copyToClipboard(myReferralId || '')}
+                      disabled={!myReferralId}
+                      className="bg-pink-600/20 border border-pink-500/30 text-pink-400 text-[9px] font-black px-3 py-1.5 rounded-xl active:scale-90 transition-all disabled:opacity-40"
+                    >
                       {copied ? '✓' : 'Copy'}
                     </button>
                   </div>
-                  <p className="text-[9px] text-gray-400 mt-2">Share your ID. When friends enter it, you earn {REFERRAL_COINS} Coins!</p>
+                  <p className="text-[9px] text-gray-400 mt-2">
+                    Share this ID. Each friend who signs up and enters it → you get{' '}
+                    <span className="text-yellow-400 font-black">+{REFERRAL_COINS} AJ Coins</span>.
+                    No signup bonus.
+                  </p>
                 </div>
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3">
-                  <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Enter Referral Code</p>
-                  <input value={referralCode} onChange={e => setReferralCode(e.target.value)} placeholder="Paste referral code here" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"/>
+                  <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Enter Friend&apos;s Referral ID</p>
+                  <input value={referralCode} onChange={e => setReferralCode(e.target.value)} placeholder="e.g. AJ7K2M9X4P" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50 uppercase tracking-widest"/>
                   <button onClick={handleApplyReferral} className="w-full py-3 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all" style={{background:'linear-gradient(135deg,#ec4899,#8b5cf6)'}}>
                     Apply Referral
                   </button>
