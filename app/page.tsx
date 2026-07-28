@@ -50,7 +50,7 @@ import AdminUsersPanel from './components/AdminUsersPanel';
 import { isPortalAdminUser } from './lib/admin-auth';
 import { BAN_FORBIDDEN_MESSAGE, DEFAULT_ACCOUNT_BAN_FIELDS, isUserBanned } from './lib/user-ban';
 import { startIntrusiveAdGuard, stripIntrusiveAdNodes } from './lib/ad-guards';
-import { REEL_COMMENTS_COL, sortCommentsAsc } from './lib/reel-comments';
+import { REEL_COMMENTS_COL, sortCommentsAsc, mergeCommentLists } from './lib/reel-comments';
 
 // ============================================================
 // GLOBAL ERROR SHIELD (FIX: "Page couldn't load" error)
@@ -256,7 +256,7 @@ import {
   getFirestore,
   doc, setDoc, onSnapshot, updateDoc, increment, collection,
   addDoc, getDoc, serverTimestamp, query, orderBy, limit, deleteDoc, getDocs, where,
-  runTransaction
+  runTransaction, waitForPendingWrites, getDocFromServer
 } from 'firebase/firestore';
 import {
   getDatabase, ref, onDisconnect, set, onValue, remove, push, onChildAdded, off
@@ -1748,6 +1748,9 @@ export function AJSuperPortal() {
   const [commentCollection, setCommentCollection] = useState<string>('user_posts');
   const [keyboardHeight, setKeyboardHeight] = useState(0); // FIX: track keyboard height for comment input padding
   const [postComments,  setPostComments]  = useState<any[]>([]);
+  // Pending local comments — survive snapshot wipes when server rejects optimistic writes
+  const pendingCommentsRef = useRef<Record<string, any>>({});
+  const commentListenPostIdRef = useRef<string | null>(null);
   const [newComment,    setNewComment]    = useState('');
   // FIX ROUND 3: Comment input ke liye dedicated ref — keyboard focus ke liye
   const commentInputRef = useRef<HTMLInputElement>(null);
@@ -2262,37 +2265,78 @@ export function AJSuperPortal() {
       return () => unsubs.forEach((u) => u());
     }
     if (commentPostId && !commentPostId.startsWith('gift_')) {
+      commentListenPostIdRef.current = commentPostId;
+      const listeningPostId = commentPostId;
       try {
-        // Top-level reel_comments — permanent, visible to every signed-in user
+        // Merge server snapshot with pending locals — never wipe a just-posted comment
         const q = query(
           collection(db, REEL_COMMENTS_COL),
-          where('postId', '==', commentPostId),
+          where('postId', '==', listeningPostId),
           limit(200)
         );
+
+        const applyServerRows = (rows: any[]) => {
+          if (commentListenPostIdRef.current !== listeningPostId) return;
+          const pending = Object.values(pendingCommentsRef.current);
+          for (const p of pending) {
+            if (String(p.postId) !== listeningPostId) continue;
+            const matched = rows.some(
+              (s) =>
+                String(s.id) === String(p.id) ||
+                (String(s.uid) === String(p.uid) &&
+                  String(s.text) === String(p.text) &&
+                  Math.abs(Number(s.createdAtMs || 0) - Number(p.createdAtMs || 0)) < 20000)
+            );
+            if (matched) delete pendingCommentsRef.current[p.id];
+          }
+          setPostComments(
+            mergeCommentLists(
+              rows,
+              Object.values(pendingCommentsRef.current),
+              listeningPostId
+            ) as any[]
+          );
+        };
+
         const unsub = onSnapshot(
           q,
           (snap) => {
-            const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-            setPostComments(sortCommentsAsc(rows as any[]));
+            applyServerRows(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
           },
           (err) => {
             console.warn('reel_comments listen', err);
-            // One-shot fallback
             getDocs(q)
               .then((snap) => {
-                const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-                setPostComments(sortCommentsAsc(rows as any[]));
+                applyServerRows(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
               })
               .catch(() => {});
+            if (user) {
+              user
+                .getIdToken()
+                .then((token: string) =>
+                  fetch(`/api/comments?postId=${encodeURIComponent(listeningPostId)}`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                  })
+                )
+                .then((r: Response) => r.json())
+                .then((data: { ok?: boolean; comments?: any[] }) => {
+                  if (data?.ok && Array.isArray(data.comments)) {
+                    applyServerRows(data.comments);
+                  }
+                })
+                .catch(() => {});
+            }
           }
         );
-        return unsub;
+        return () => {
+          unsub();
+        };
       } catch (e) {
         console.error('Comment sub error', e);
       }
     }
     return () => {};
-  }, [socialScreen, activeContact, commentPostId, commentCollection]);
+  }, [commentPostId, user]);
 
   // FIX ROUND 6: Comment keyboard open nahi ho raha tha — ab PROPER fix.
   // Mobile pe input focus karne ke liye multiple strategies use karte hain:
@@ -3973,9 +4017,15 @@ export function AJSuperPortal() {
     } catch {}
 
     setCommentCollection(col);
+    // Switching posts: clear list for the new post only (keep pending for same post)
+    if (commentListenPostIdRef.current !== id) {
+      setPostComments(
+        Object.values(pendingCommentsRef.current).filter((c) => String(c.postId) === id)
+      );
+    }
     setCommentPostId(id);
     setNewComment('');
-    setPostComments([]);
+    // Do NOT setPostComments([]) here — that caused visible wipe; listener fills the list.
 
     const moveFocus = () => {
       const real = commentInputRef.current;
@@ -4923,8 +4973,8 @@ export function AJSuperPortal() {
     } catch(e) { console.error('handleCreatePost', e); setVvipAlert({msg:'Post failed. Upload must succeed before coins.'}); }
   };
 
-  // Permanent TikTok-style comments → top-level `reel_comments` (all users see them).
-  // Server API fallback if client Firestore rules block the write.
+  // Permanent comments: pending local row stays until server confirms.
+  // Only clear the input field — never wipe the comment list on submit.
   const submitComment = async () => {
     if (!newComment.trim() || !commentPostId) return;
     if (!user) {
@@ -4944,74 +4994,111 @@ export function AJSuperPortal() {
           ? 'pulse_posts'
           : 'user_posts');
     const createdAtMs = Date.now();
-    const commentData = {
+    const localId = `pending_${createdAtMs}_${user.uid}`;
+    const localComment = {
+      id: localId,
       postId: commentPostId,
       postType,
       text,
       uid: user.uid,
       username: username || 'AJ_Member',
       photo: tempPhoto || user.photoURL || '',
-      createdAt: serverTimestamp(),
       createdAtMs,
+      pending: true,
     };
 
+    // 1) Show immediately + keep in pending map (survives snapshot wipes)
+    pendingCommentsRef.current[localId] = localComment;
+    setPostComments((prev) =>
+      mergeCommentLists(prev as any[], Object.values(pendingCommentsRef.current), commentPostId) as any[]
+    );
+    // 2) Clear ONLY the input — never reset the list
+    setNewComment('');
+    requestAnimationFrame(() => commentInputRef.current?.focus());
+
     let savedId = '';
+    const payload = {
+      postId: commentPostId,
+      postType,
+      text,
+      username: username || 'AJ_Member',
+      photo: tempPhoto || user.photoURL || '',
+    };
+
+    // 3) Prefer server API (Admin SDK) so rules cannot roll back the write
     try {
-      const ref = await addDoc(collection(db, REEL_COMMENTS_COL), commentData);
-      savedId = ref.id;
-    } catch (clientErr) {
-      console.warn('reel_comments client write failed, trying API', clientErr);
+      const token = await user.getIdToken();
+      const res = await fetch('/api/comments', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.ok && data?.id) {
+        savedId = String(data.id);
+      } else {
+        throw new Error(data?.error || 'api_comment_failed');
+      }
+    } catch (apiErr) {
+      console.warn('API comment write failed, trying client Firestore', apiErr);
       try {
-        const token = await user.getIdToken();
-        const res = await fetch('/api/comments', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            postId: commentPostId,
-            postType,
-            text,
-            username: username || 'AJ_Member',
-            photo: tempPhoto || user.photoURL || '',
-          }),
+        const ref = await addDoc(collection(db, REEL_COMMENTS_COL), {
+          ...payload,
+          uid: user.uid,
+          createdAt: serverTimestamp(),
+          createdAtMs,
         });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data?.ok) {
-          throw new Error(data?.error || 'api_comment_failed');
+        // Wait for server ack — if rules reject, doc vanishes
+        try {
+          await waitForPendingWrites(db);
+        } catch {}
+        let confirmedSnap;
+        try {
+          confirmedSnap = await getDocFromServer(ref);
+        } catch {
+          confirmedSnap = await getDoc(ref);
         }
-        savedId = String(data.id || `api_${createdAtMs}`);
-      } catch (apiErr) {
-        console.error('submitComment', apiErr);
+        if (!confirmedSnap.exists()) {
+          throw new Error('firestore_write_rejected');
+        }
+        savedId = ref.id;
+      } catch (clientErr) {
+        console.error('submitComment', clientErr);
+        delete pendingCommentsRef.current[localId];
+        setPostComments((prev) => prev.filter((c: any) => c.id !== localId));
         setVvipAlert({
-          msg: 'Comment failed to save. Publish firestore.rules (reel_comments) or set FIREBASE_SERVICE_ACCOUNT_JSON.',
+          msg: 'Comment could not be saved permanently. Publish reel_comments rules or set FIREBASE_SERVICE_ACCOUNT_JSON.',
           icon: '⚠️',
         });
         return;
       }
     }
 
-    // Best-effort dual-write + commentCount (legacy subcollections / badge)
-    try {
-      if (postType === 'yt_posts') {
-        await setDoc(
-          doc(db, 'yt_posts', commentPostId),
-          { id: commentPostId, type: 'youtube', createdAt: serverTimestamp() },
-          { merge: true }
-        );
-      }
-      await addDoc(collection(db, postType, commentPostId, 'comments'), {
-        text,
-        uid: user.uid,
-        username: username || 'AJ_Member',
-        photo: tempPhoto || user.photoURL || '',
-        createdAt: serverTimestamp(),
-        createdAtMs,
-      });
-    } catch {
-      /* nested path optional */
-    }
+    // 4) Promote pending → confirmed id (list stays; no wipe)
+    delete pendingCommentsRef.current[localId];
+    const confirmed = {
+      ...localComment,
+      id: savedId,
+      pending: false,
+    };
+    pendingCommentsRef.current[savedId] = confirmed;
+    setPostComments((prev) => {
+      const withoutLocal = prev.filter((c: any) => c.id !== localId && c.id !== savedId);
+      return mergeCommentLists(
+        withoutLocal as any[],
+        Object.values(pendingCommentsRef.current),
+        commentPostId
+      ) as any[];
+    });
+    // After a short delay, pending entry can drop once listener has the server doc
+    window.setTimeout(() => {
+      delete pendingCommentsRef.current[savedId];
+    }, 8000);
+
+    // Best-effort commentCount bump
     try {
       if (postType === 'user_posts' || postType === 'pulse_posts' || postType === 'videos') {
         await updateDoc(doc(db, postType, commentPostId), {
@@ -5019,17 +5106,8 @@ export function AJSuperPortal() {
         });
       }
     } catch {
-      /* parent count optional */
+      /* optional */
     }
-
-    setPostComments((prev) => {
-      if (prev.some((c: any) => c.id === savedId)) return prev;
-      return sortCommentsAsc([
-        ...prev,
-        { id: savedId || `local_${createdAtMs}`, ...commentData, createdAt: null },
-      ]);
-    });
-    setNewComment('');
     const bump = (list: any[]) =>
       list.map((p) =>
         String(p.id) === commentPostId || String(p.postId) === commentPostId
@@ -5038,7 +5116,6 @@ export function AJSuperPortal() {
       );
     setUserPosts((prev) => bump(prev));
     setPulsePosts((prev) => bump(prev));
-    requestAnimationFrame(() => commentInputRef.current?.focus());
   };
 
   const handleDeleteNotification = async (id:string) => {
