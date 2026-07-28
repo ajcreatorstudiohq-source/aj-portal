@@ -27,6 +27,8 @@ import {
   REFERRAL_BONUS_COINS,
   MIN_WITHDRAW_COINS,
   COIN_RATE as ECONOMY_COIN_RATE,
+  PLATFORM_EARN_SHARE,
+  USER_EARN_SHARE as ECONOMY_USER_EARN_SHARE,
 } from './lib/economy';
 import { earnReward } from './lib/client-rewards';
 import { trackAdEvent } from './lib/ad-client';
@@ -323,10 +325,8 @@ const MIN_PURCHASE   = 20;
 const WITHDRAW_MIN   = MIN_WITHDRAW_COINS;
 const REFERRAL_COINS = REFERRAL_BONUS_COINS;
 
-const ADMIN_EARN_SHARE = 0.70;  // Admin (aap) gets 70% of revenue
-const USER_EARN_SHARE  = 0.30;  // User/creator gets 30% of revenue
-const GIFT_ADMIN_SHARE = 0.60;  // Gifting: admin (aap) gets 60%
-const GIFT_USER_SHARE  = 0.40;  // Gifting: creator gets 40%
+const ADMIN_EARN_SHARE = PLATFORM_EARN_SHARE; // 70% — owner USD ledger (AdminRevenue + ad networks)
+const USER_EARN_SHARE  = ECONOMY_USER_EARN_SHARE; // 30% — user AJ Coins only
 
 const PK_ENTRY_COINS = 100;
 const PK_DURATION    = 300;
@@ -3744,7 +3744,13 @@ export function AJSuperPortal() {
       });
       try {
         await addDoc(collection(db,"AdminRevenue"), {
-          type:'pk_match', totalDeducted: PK_ENTRY_COINS * 2,
+          type:'pk_match',
+          currency: 'USD',
+          platformSharePct: ADMIN_EARN_SHARE,
+          userSharePct: USER_EARN_SHARE,
+          totalDeducted: PK_ENTRY_COINS * 2,
+          adminShareCoins: Math.floor(PK_ENTRY_COINS * 2 * ADMIN_EARN_SHARE),
+          ownerUsd: Number(((PK_ENTRY_COINS * 2 * ADMIN_EARN_SHARE) / COIN_RATE).toFixed(4)),
           challenger: user.uid, rival: rivalUid, date:serverTimestamp()
         });
       } catch {}
@@ -4365,10 +4371,18 @@ export function AJSuperPortal() {
   // ==========================================================
   const logAdminRevenue = async (type:string, totalPool:number, userNet:number) => {
     try {
-      const adminShare = totalPool * ADMIN_EARN_SHARE;
+      const adminShare = Number((totalPool * ADMIN_EARN_SHARE).toFixed(4));
       await addDoc(collection(db,"AdminRevenue"), {
-        type, totalPool, adminShare, userNet,
-        uid:user?.uid||'', date:serverTimestamp()
+        type,
+        currency: 'USD',
+        platformSharePct: ADMIN_EARN_SHARE,
+        userSharePct: USER_EARN_SHARE,
+        totalPool,
+        adminShare,
+        ownerUsd: adminShare,
+        userNet,
+        uid:user?.uid||'',
+        date:serverTimestamp()
       });
     } catch {}
   };

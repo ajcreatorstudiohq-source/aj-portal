@@ -60,9 +60,15 @@ export const PREMIUM_DIRECT_GAMES = [
 /** @deprecated use PREMIUM_DIRECT_GAMES */
 export const PREMIUM_CPA_GAMES = PREMIUM_DIRECT_GAMES;
 
-/** Internal reward band (server ledger only — not shown in UI) */
-const USER_REWARD_BAND_MIN = 1.0;
-const USER_REWARD_BAND_MAX = 1.5;
+/**
+ * Hard revenue split — every earn path must keep this ratio.
+ * Owner / platform: 70% (USD ledger in AdminRevenue + real ad-network payouts).
+ * User / creator: 30% (AJ Coins only — never shown as $ in UI).
+ */
+export const PLATFORM_EARN_SHARE = 0.7;
+export const USER_EARN_SHARE = 0.3;
+
+/** Internal activity pool band (server ledger only — not shown in UI). Always split 70/30. */
 const PROVIDER_BAND_MIN = 5.0;
 const PROVIDER_BAND_MAX = 7.0;
 
@@ -159,10 +165,6 @@ export type RewardSplit = {
   adminCoins: number;
 };
 
-function clamp(n: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, n));
-}
-
 /** Stable 0–1 hash from a string (for deterministic reward bands per tx). */
 export function hashUnit(seed: string): number {
   let h = 2166136261;
@@ -174,27 +176,49 @@ export function hashUnit(seed: string): number {
 }
 
 /**
+ * Exact 70% platform / 30% user split on any USD pool.
+ * Owner share is always `adminUsd` (dollars ledger) — never credited to user wallets.
+ */
+export function splitPoolUsd(totalUsd: number): RewardSplit {
+  const total = Math.max(0, Number(Number(totalUsd).toFixed(4)));
+  const userUsd = Number((total * USER_EARN_SHARE).toFixed(4));
+  const adminUsd = Number((total - userUsd).toFixed(4));
+  return {
+    totalUsd: total,
+    userUsd,
+    adminUsd,
+    userCoins: Math.floor(userUsd * COIN_RATE),
+    adminCoins: Math.floor(adminUsd * COIN_RATE),
+  };
+}
+
+/**
+ * Exact 70/30 split on a coin pool (gifts, entry fees, etc.).
+ * Sender pays `totalCoins`; creator gets 30%; platform keeps 70% out of circulation.
+ */
+export function splitCoinPool(totalCoins: number): RewardSplit {
+  const total = Math.max(0, Math.floor(Number(totalCoins) || 0));
+  const userCoins = Math.floor(total * USER_EARN_SHARE);
+  const adminCoins = total - userCoins;
+  return {
+    totalUsd: Number((total / COIN_RATE).toFixed(4)),
+    userUsd: Number((userCoins / COIN_RATE).toFixed(4)),
+    adminUsd: Number((adminCoins / COIN_RATE).toFixed(4)),
+    userCoins,
+    adminCoins,
+  };
+}
+
+/**
  * Compute user / admin ledger split for server rewards (AJ Coins only in UI).
+ * Pool band $5–$7, but ratio is always exactly 70% owner / 30% user.
  * Deterministic when `seed` is provided (idempotent postbacks).
  */
 export function computeRewardSplit(seed: string): RewardSplit {
   const u = hashUnit(seed);
-  const v = hashUnit(seed + ':admin');
   const totalUsd =
     PROVIDER_BAND_MIN + u * (PROVIDER_BAND_MAX - PROVIDER_BAND_MIN);
-  let userUsd =
-    USER_REWARD_BAND_MIN + v * (USER_REWARD_BAND_MAX - USER_REWARD_BAND_MIN);
-  userUsd = clamp(userUsd, USER_REWARD_BAND_MIN, Math.min(USER_REWARD_BAND_MAX, totalUsd - 0.5));
-  const adminUsd = Number((totalUsd - userUsd).toFixed(4));
-  const userCoins = Math.floor(userUsd * COIN_RATE);
-  const adminCoins = Math.floor(adminUsd * COIN_RATE);
-  return {
-    totalUsd: Number(totalUsd.toFixed(4)),
-    userUsd: Number(userUsd.toFixed(4)),
-    adminUsd,
-    userCoins,
-    adminCoins,
-  };
+  return splitPoolUsd(Number(totalUsd.toFixed(4)));
 }
 
 export function getGameById(gameId: string): GameCatalogItem | undefined {

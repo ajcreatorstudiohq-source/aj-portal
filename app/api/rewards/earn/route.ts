@@ -11,6 +11,7 @@ import {
   bearerFromRequest,
   verifyFirebaseIdToken,
 } from '../../../lib/verify-id-token';
+import { splitCoinPool } from '../../../lib/economy';
 
 const POST_REWARD_COINS = 5;
 const BOT_CLAIM_LOCK_MS = 24 * 60 * 60 * 1000;
@@ -174,6 +175,31 @@ export async function POST(request: Request) {
         source,
         coins: 50,
         meta: { ...meta, actorUid: actor.uid, label: SOURCE_LABELS[source] },
+        enforceDailyCap: true,
+      });
+    } else if (source === 'live_gift') {
+      // Gift cost is paid by sender; creator gets exactly 30%, owner keeps 70% (USD ledger).
+      const giftCost = Math.floor(Number(meta.giftCost) || 0);
+      if (giftCost < 1) {
+        return NextResponse.json(
+          { ok: false, error: 'invalid_gift_cost', message: 'Gift cost required.' },
+          { status: 400 }
+        );
+      }
+      const giftSplit = splitCoinPool(giftCost);
+      result = await applySplitReward({
+        uid: creditUid,
+        txId,
+        source,
+        seed: txId,
+        splitOverride: giftSplit,
+        meta: {
+          ...meta,
+          actorUid: actor.uid,
+          label: SOURCE_LABELS[source],
+          giftCost,
+        },
+        ledgerCollection: 'reward_ledger',
         enforceDailyCap: true,
       });
     } else {
