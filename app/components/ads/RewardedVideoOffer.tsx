@@ -17,18 +17,59 @@ type Props = {
   onRefreshUser?: () => void;
 };
 
-type SessionTiming = {
+type PersistedWatch = {
+  sessionId: string;
+  uid: string;
+  preparedAt: number;
+  /** First time portal went to background after Watch Ads */
   enteredAdAt: number | null;
-  leftAdAt: number | null;
+  /** Accumulated ms spent away from portal */
   totalAwayMs: number;
+  /** Timestamp when current away chunk started (portal hidden) */
+  awayStartedAt: number | null;
+  claimReady: boolean;
 };
 
-/** Ignore blur/focus flicker right after window.open (not a real ad visit). */
-const MIN_AWAY_MS_TO_JUDGE = 1200;
+const STORAGE_KEY = 'aj_watch_ad_session_v2';
+const NEED_MS = ADSTERRA_VERIFY_SECONDS * 1000;
+/** Ignore tiny visibility blips (< 400ms) so we don't false-fail */
+const MIN_AWAY_MS_TO_JUDGE = 400;
 
-/**
- * Stylish glass popup — early exit / status messages (English).
- */
+function readPersisted(uid: string): PersistedWatch | null {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw) as PersistedWatch;
+    if (!data?.sessionId || data.uid !== uid) return null;
+    // Sessions older than 10 minutes are dead
+    if (Date.now() - Number(data.preparedAt || 0) > 10 * 60 * 1000) {
+      sessionStorage.removeItem(STORAGE_KEY);
+      return null;
+    }
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+function writePersisted(data: PersistedWatch | null) {
+  try {
+    if (!data) sessionStorage.removeItem(STORAGE_KEY);
+    else sessionStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch {
+    /* private mode */
+  }
+}
+
+function currentAwayMs(p: {
+  totalAwayMs: number;
+  awayStartedAt: number | null;
+}): number {
+  let ms = p.totalAwayMs;
+  if (p.awayStartedAt != null) ms += Date.now() - p.awayStartedAt;
+  return ms;
+}
+
 function AdWatchPopup({
   title,
   message,
@@ -125,9 +166,11 @@ function AdWatchPopup({
 }
 
 /**
- * Watch Ads — portal tracks when user enters/leaves the Adsterra tab.
- * - Leave early (< 30s) → stylish English popup, no claim
- * - Stay 30s+ then return → Claim AJ Coins unlocks
+ * Watch Ads — reliable 30s tracking via Page Visibility + sessionStorage.
+ * - Counts time only while portal tab is hidden (user on Adsterra)
+ * - Unlocks Claim as soon as 30s away is reached (even before return)
+ * - Early return (< 30s) → English popup, no claim
+ * - No window blur/focus (those false-cancel on mobile/desktop)
  */
 export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Props) {
   const [busy, setBusy] = useState(false);
@@ -138,31 +181,50 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
   const [remaining, setRemaining] = useState<number | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [portalHidden, setPortalHidden] = useState(false);
+  const [timingLabel, setTimingLabel] = useState('');
   const [popup, setPopup] = useState<{
     title: string;
     message: string;
     icon: string;
     variant: 'warn' | 'ok';
   } | null>(null);
-  const [timingLabel, setTimingLabel] = useState('');
 
   const verifyingRef = useRef(false);
   const claimReadyRef = useRef(false);
-  const elapsedAwayMsRef = useRef(0);
-  const awayStartedAtRef = useRef<number | null>(null);
-  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const sessionIdRef = useRef<string | null>(null);
-  const timingRef = useRef<SessionTiming>({
-    enteredAdAt: null,
-    leftAdAt: null,
-    totalAwayMs: 0,
-  });
+  const totalAwayMsRef = useRef(0);
+  const awayStartedAtRef = useRef<number | null>(null);
+  const enteredAdAtRef = useRef<number | null>(null);
+  const leftAdAtRef = useRef<number | null>(null);
+  const preparedAtRef = useRef(0);
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const uidRef = useRef<string | null>(null);
+  const verifiedPopupShownRef = useRef(false);
+
+  uidRef.current = user?.uid ?? null;
 
   const clearTick = useCallback(() => {
     if (tickRef.current) {
       clearInterval(tickRef.current);
       tickRef.current = null;
     }
+  }, []);
+
+  const persist = useCallback(() => {
+    const uid = uidRef.current;
+    const sid = sessionIdRef.current;
+    if (!uid || !sid || (!verifyingRef.current && !claimReadyRef.current)) {
+      return;
+    }
+    writePersisted({
+      sessionId: sid,
+      uid,
+      preparedAt: preparedAtRef.current || Date.now(),
+      enteredAdAt: enteredAdAtRef.current,
+      totalAwayMs: totalAwayMsRef.current,
+      awayStartedAt: awayStartedAtRef.current,
+      claimReady: claimReadyRef.current,
+    });
   }, []);
 
   const showWarnPopup = useCallback((title: string, message: string) => {
@@ -174,135 +236,244 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
   }, []);
 
   const resetVerification = useCallback(
-    (opts?: { popupTitle?: string; popupMessage?: string; alertAlso?: boolean }) => {
+    (opts?: { popupTitle?: string; popupMessage?: string }) => {
       clearTick();
       verifyingRef.current = false;
       claimReadyRef.current = false;
-      elapsedAwayMsRef.current = 0;
+      totalAwayMsRef.current = 0;
       awayStartedAtRef.current = null;
-      timingRef.current = { enteredAdAt: null, leftAdAt: null, totalAwayMs: 0 };
+      enteredAdAtRef.current = null;
+      leftAdAtRef.current = null;
+      preparedAtRef.current = 0;
+      sessionIdRef.current = null;
+      writePersisted(null);
+      verifiedPopupShownRef.current = false;
       setVerifying(false);
       setClaimReady(false);
       setSecondsLeft(0);
       setSessionId(null);
-      sessionIdRef.current = null;
       setTimingLabel('');
+      setPortalHidden(false);
       if (opts?.popupTitle && opts?.popupMessage) {
         showWarnPopup(opts.popupTitle, opts.popupMessage);
       }
-      if (opts?.alertAlso && opts.popupMessage) {
-        onAlert(opts.popupMessage, '⏱️');
-      }
     },
-    [clearTick, onAlert, showWarnPopup]
+    [clearTick, showWarnPopup]
   );
 
-  const flushAwayTime = useCallback(() => {
-    if (awayStartedAtRef.current != null) {
-      const chunk = Date.now() - awayStartedAtRef.current;
-      elapsedAwayMsRef.current += chunk;
-      timingRef.current.totalAwayMs = elapsedAwayMsRef.current;
+  const unlockClaim = useCallback(
+    (elapsedMs: number, opts?: { silent?: boolean }) => {
+      clearTick();
+      verifyingRef.current = false;
+      claimReadyRef.current = true;
       awayStartedAtRef.current = null;
-    }
-  }, []);
+      leftAdAtRef.current = Date.now();
+      totalAwayMsRef.current = Math.max(totalAwayMsRef.current, elapsedMs);
+      setVerifying(false);
+      setClaimReady(true);
+      setSecondsLeft(0);
+      const sec = Math.floor(elapsedMs / 1000);
+      setTimingLabel(`Completed ${sec}s in ad · Claim ready`);
+      persist();
+      if (!opts?.silent && !verifiedPopupShownRef.current) {
+        verifiedPopupShownRef.current = true;
+        showOkPopup(
+          'Ad Verified',
+          `You completed ${ADSTERRA_VERIFY_SECONDS} seconds on the ad.\n\nTap Claim to receive +${ADSTERRA_REWARD_COINS} AJ Coins 🪙.`
+        );
+      }
+    },
+    [clearTick, persist, showOkPopup]
+  );
 
-  const updateSecondsUi = useCallback(() => {
-    let elapsed = elapsedAwayMsRef.current;
-    if (awayStartedAtRef.current != null) {
-      elapsed += Date.now() - awayStartedAtRef.current;
-    }
-    const left = Math.max(
-      0,
-      ADSTERRA_VERIFY_SECONDS - Math.floor(elapsed / 1000)
-    );
+  const syncUiFromAway = useCallback(() => {
+    const elapsed = currentAwayMs({
+      totalAwayMs: totalAwayMsRef.current,
+      awayStartedAt: awayStartedAtRef.current,
+    });
+    const left = Math.max(0, ADSTERRA_VERIFY_SECONDS - Math.floor(elapsed / 1000));
     setSecondsLeft(left);
     setTimingLabel(
       `In ad: ${Math.floor(elapsed / 1000)}s · Need: ${ADSTERRA_VERIFY_SECONDS}s`
     );
-    return { elapsed, left };
+
+    // Unlock as soon as 30s is reached while still on the ad tab
+    if (verifyingRef.current && !claimReadyRef.current && elapsed >= NEED_MS) {
+      unlockClaim(elapsed, { silent: true });
+    }
+    return elapsed;
+  }, [unlockClaim]);
+
+  const flushAwayChunk = useCallback(() => {
+    if (awayStartedAtRef.current != null) {
+      totalAwayMsRef.current += Date.now() - awayStartedAtRef.current;
+      awayStartedAtRef.current = null;
+    }
   }, []);
 
-  useEffect(() => () => clearTick(), [clearTick]);
+  const onPortalHidden = useCallback(() => {
+    setPortalHidden(true);
+    if (!verifyingRef.current || claimReadyRef.current) return;
+    if (awayStartedAtRef.current == null) {
+      awayStartedAtRef.current = Date.now();
+      if (!enteredAdAtRef.current) enteredAdAtRef.current = Date.now();
+      persist();
+    }
+  }, [persist]);
 
-  /**
-   * Track enter/exit of ad tab via Page Visibility + window blur/focus.
-   * Timer only advances while the portal is in the background (user on Adsterra).
-   * Brief blur/focus after opening the ad is ignored so we don't false-fail.
-   */
+  const onPortalVisible = useCallback(() => {
+    setPortalHidden(false);
+    if (claimReadyRef.current) {
+      flushAwayChunk();
+      persist();
+      if (!verifiedPopupShownRef.current) {
+        verifiedPopupShownRef.current = true;
+        showOkPopup(
+          'Ad Verified',
+          `You completed ${ADSTERRA_VERIFY_SECONDS} seconds on the ad.\n\nTap Claim to receive +${ADSTERRA_REWARD_COINS} AJ Coins 🪙.`
+        );
+      }
+      return;
+    }
+    if (!verifyingRef.current) return;
+
+    const hadAway =
+      awayStartedAtRef.current != null || totalAwayMsRef.current > 0;
+    if (!hadAway) return;
+
+    flushAwayChunk();
+    const elapsed = totalAwayMsRef.current;
+    persist();
+
+    // Tiny blip — keep waiting, do not cancel
+    if (elapsed < MIN_AWAY_MS_TO_JUDGE) {
+      setTimingLabel('Switch to the Adsterra tab and stay for 30s…');
+      return;
+    }
+
+    leftAdAtRef.current = Date.now();
+
+    if (elapsed >= NEED_MS) {
+      unlockClaim(elapsed);
+      return;
+    }
+
+    // Real early return — fail this attempt
+    const secondsDone = Math.floor(elapsed / 1000);
+    resetVerification({
+      popupTitle: '30 Seconds Not Completed',
+      popupMessage: `You did not complete ${ADSTERRA_VERIFY_SECONDS} seconds on the ad.\n\nYou stayed about ${secondsDone}s. Stay on the Adsterra page for the full ${ADSTERRA_VERIFY_SECONDS} seconds, then return here to unlock your coin claim.\n\nNo AJ Coins were credited.`,
+    });
+  }, [
+    flushAwayChunk,
+    persist,
+    unlockClaim,
+    resetVerification,
+    showOkPopup,
+  ]);
+
+  // Restore session after remount / same-tab back
   useEffect(() => {
-    const onLeavePortal = () => {
-      setPortalHidden(true);
-      if (!verifyingRef.current) return;
+    if (!user?.uid) return;
+    const saved = readPersisted(user.uid);
+    if (!saved) return;
+
+    sessionIdRef.current = saved.sessionId;
+    setSessionId(saved.sessionId);
+    preparedAtRef.current = saved.preparedAt;
+    enteredAdAtRef.current = saved.enteredAdAt;
+    totalAwayMsRef.current = saved.totalAwayMs || 0;
+    awayStartedAtRef.current = saved.awayStartedAt;
+    leftAdAtRef.current = null;
+
+    // If tab was hidden when we persisted, continue the away chunk from then
+    if (typeof document !== 'undefined' && document.hidden) {
       if (awayStartedAtRef.current == null) {
         awayStartedAtRef.current = Date.now();
-        if (!timingRef.current.enteredAdAt) {
-          timingRef.current.enteredAdAt = Date.now();
-        }
       }
-    };
+      setPortalHidden(true);
+    } else if (awayStartedAtRef.current != null) {
+      // Was away, now visible — fold chunk in
+      totalAwayMsRef.current += Date.now() - awayStartedAtRef.current;
+      awayStartedAtRef.current = null;
+    }
 
-    const onReturnToPortal = () => {
-      setPortalHidden(false);
-      if (!verifyingRef.current) return;
+    const elapsed = currentAwayMs({
+      totalAwayMs: totalAwayMsRef.current,
+      awayStartedAt: awayStartedAtRef.current,
+    });
 
-      // Never left for real yet (still waiting for user to switch to Adsterra)
-      const hadStartedAway =
-        awayStartedAtRef.current != null || elapsedAwayMsRef.current > 0;
-      if (!hadStartedAway) return;
-
-      flushAwayTime();
-      const { elapsed } = updateSecondsUi();
-
-      // Accidental focus flicker right after window.open — keep waiting
-      if (elapsed < MIN_AWAY_MS_TO_JUDGE) {
-        setTimingLabel('Switch to the Adsterra tab and stay for 30s…');
-        return;
-      }
-
-      timingRef.current.leftAdAt = Date.now();
-      const secondsDone = Math.floor(elapsed / 1000);
-
-      if (elapsed < ADSTERRA_VERIFY_SECONDS * 1000) {
-        resetVerification({
-          popupTitle: '30 Seconds Not Completed',
-          popupMessage: `You did not complete ${ADSTERRA_VERIFY_SECONDS} seconds on the ad.\n\nYou stayed about ${secondsDone}s. Stay on the Adsterra page for the full ${ADSTERRA_VERIFY_SECONDS} seconds, then return here to unlock your coin claim.\n\nNo AJ Coins were credited.`,
-        });
-        return;
-      }
-
-      // Full 30s in ad → unlock claim
-      clearTick();
-      verifyingRef.current = false;
+    if (saved.claimReady || elapsed >= NEED_MS) {
       claimReadyRef.current = true;
-      setVerifying(false);
+      verifyingRef.current = false;
       setClaimReady(true);
+      setVerifying(false);
       setSecondsLeft(0);
-      setTimingLabel(`Completed ${secondsDone}s in ad · Claim ready`);
-      showOkPopup(
-        'Ad Verified',
-        `You completed ${ADSTERRA_VERIFY_SECONDS} seconds on the ad.\n\nTap Claim to receive +${ADSTERRA_REWARD_COINS} AJ Coins 🪙.`
-      );
-    };
+      setTimingLabel(`Completed ${Math.floor(elapsed / 1000)}s in ad · Claim ready`);
+      writePersisted({
+        ...saved,
+        totalAwayMs: totalAwayMsRef.current,
+        awayStartedAt: null,
+        claimReady: true,
+      });
+      return;
+    }
 
+    verifyingRef.current = true;
+    claimReadyRef.current = false;
+    setVerifying(true);
+    setClaimReady(false);
+    setSecondsLeft(
+      Math.max(0, ADSTERRA_VERIFY_SECONDS - Math.floor(elapsed / 1000))
+    );
+    setTimingLabel(
+      `In ad: ${Math.floor(elapsed / 1000)}s · Need: ${ADSTERRA_VERIFY_SECONDS}s`
+    );
+  }, [user?.uid]);
+
+  // Visibility-only tracking (blur/focus caused false early fails)
+  useEffect(() => {
     const onVisibility = () => {
-      if (document.hidden) onLeavePortal();
-      else onReturnToPortal();
+      if (document.hidden) onPortalHidden();
+      else onPortalVisible();
     };
-
-    const onBlur = () => onLeavePortal();
-    const onFocus = () => {
-      if (!document.hidden) onReturnToPortal();
+    const onPageShow = () => {
+      if (!document.hidden) onPortalVisible();
+    };
+    const onPageHide = () => {
+      // Persist before mobile unloads / freezes the tab
+      if (document.hidden || verifyingRef.current) {
+        onPortalHidden();
+        persist();
+      }
     };
 
     document.addEventListener('visibilitychange', onVisibility);
-    window.addEventListener('blur', onBlur);
-    window.addEventListener('focus', onFocus);
+    window.addEventListener('pageshow', onPageShow);
+    window.addEventListener('pagehide', onPageHide);
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
-      window.removeEventListener('blur', onBlur);
-      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('pageshow', onPageShow);
+      window.removeEventListener('pagehide', onPageHide);
     };
-  }, [flushAwayTime, updateSecondsUi, resetVerification, clearTick, showOkPopup]);
+  }, [onPortalHidden, onPortalVisible, persist]);
+
+  useEffect(() => () => clearTick(), [clearTick]);
+
+  // Live progress while verifying
+  useEffect(() => {
+    if (!verifying || claimReady) {
+      clearTick();
+      return;
+    }
+    clearTick();
+    tickRef.current = setInterval(() => {
+      if (!verifyingRef.current) return;
+      syncUiFromAway();
+      persist();
+    }, 250);
+    return () => clearTick();
+  }, [verifying, claimReady, clearTick, syncUiFromAway, persist]);
 
   const openAdsterra = useCallback(
     async (e?: { preventDefault?: () => void; stopPropagation?: () => void }) => {
@@ -310,14 +481,20 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
       startIntrusiveAdGuard();
       if (!user) return onAlert('Please sign in to earn AJ Coins 🪙', '🔒');
       if (verifyingRef.current) return;
+      if (claimReadyRef.current) {
+        return onAlert('Claim your coins first, then start another ad.', '🎁');
+      }
 
       const now = Date.now();
       if (now - lastWatchAt < REWARDED_VIDEO_COOLDOWN_MS) {
-        const wait = Math.ceil((REWARDED_VIDEO_COOLDOWN_MS - (now - lastWatchAt)) / 1000);
+        const wait = Math.ceil(
+          (REWARDED_VIDEO_COOLDOWN_MS - (now - lastWatchAt)) / 1000
+        );
         return onAlert(`Please wait ${wait}s before another ad`, '⏱️');
       }
 
       let sid: string | null = null;
+      let preparedAt = Date.now();
       try {
         const token = await user.getIdToken();
         const res = await fetch('/api/ads/rewarded', {
@@ -335,6 +512,7 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.ok && data.sessionId) {
           sid = String(data.sessionId);
+          preparedAt = Number(data.createdAtMs) || Date.now();
           if (typeof data.remainingToday === 'number') setRemaining(data.remainingToday);
         } else if (data.error === 'daily_limit') {
           onAlert(`Daily ad claim limit (${OFFERWALL_VIDEO_MAX_DAILY}) reached.`, '⚠️');
@@ -353,49 +531,74 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
         return;
       }
 
-      try {
-        const win = window.open(ADSTERRA_REWARDED_LINK, '_blank', 'noopener,noreferrer');
-        if (!win) {
-          window.location.assign(ADSTERRA_REWARDED_LINK);
-          return;
-        }
-      } catch {
-        onAlert('Could not open ad link. Allow popups and try again.', '⚠️');
-        return;
-      }
-
       sessionIdRef.current = sid;
-      setSessionId(sid);
+      preparedAtRef.current = preparedAt;
       claimReadyRef.current = false;
       verifyingRef.current = true;
-      elapsedAwayMsRef.current = 0;
-      timingRef.current = {
-        enteredAdAt: document.hidden ? Date.now() : null,
-        leftAdAt: null,
-        totalAwayMs: 0,
-      };
-      awayStartedAtRef.current = document.hidden ? Date.now() : null;
+      totalAwayMsRef.current = 0;
+      enteredAdAtRef.current = null;
+      leftAdAtRef.current = null;
+      awayStartedAtRef.current = null;
+      setSessionId(sid);
       setClaimReady(false);
       setVerifying(true);
       setSecondsLeft(ADSTERRA_VERIFY_SECONDS);
       setLastWatchAt(Date.now());
-      setTimingLabel(`Waiting for you to open the ad…`);
+      setTimingLabel('Opening Adsterra… switch to that tab and stay 30s');
       setPopup(null);
-      clearTick();
+      verifiedPopupShownRef.current = false;
 
-      tickRef.current = setInterval(() => {
-        if (!verifyingRef.current) return;
-        updateSecondsUi();
-      }, 250);
+      writePersisted({
+        sessionId: sid,
+        uid: user.uid,
+        preparedAt,
+        enteredAdAt: null,
+        totalAwayMs: 0,
+        awayStartedAt: null,
+        claimReady: false,
+      });
+
+      let opened = false;
+      try {
+        const win = window.open(ADSTERRA_REWARDED_LINK, '_blank');
+        if (win) {
+          opened = true;
+          try {
+            win.opener = null;
+          } catch {
+            /* ignore */
+          }
+        }
+      } catch {
+        opened = false;
+      }
+
+      // If popup blocked: same-tab open — session is persisted for back-navigation
+      if (!opened) {
+        onAlert(
+          'Popup blocked. Opening ad in this tab — stay 30s, then press Back to claim.',
+          'ℹ️'
+        );
+        window.location.assign(ADSTERRA_REWARDED_LINK);
+        return;
+      }
+
+      // If browser already hid this tab, start counting immediately
+      if (typeof document !== 'undefined' && document.hidden) {
+        awayStartedAtRef.current = Date.now();
+        enteredAdAtRef.current = Date.now();
+        setPortalHidden(true);
+        persist();
+      }
     },
-    [user, lastWatchAt, onAlert, clearTick, updateSecondsUi]
+    [user, lastWatchAt, onAlert, persist]
   );
 
   const claimCoins = useCallback(
     async (e?: { preventDefault?: () => void; stopPropagation?: () => void }) => {
       guardClick(e);
       if (!user) return onAlert('Please sign in first', '🔒');
-      if (verifyingRef.current) {
+      if (verifyingRef.current && !claimReadyRef.current) {
         showWarnPopup(
           'Still Verifying',
           `Stay on the Adsterra page for the full ${ADSTERRA_VERIFY_SECONDS} seconds, then return here to claim.`
@@ -405,7 +608,7 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
       if (!claimReadyRef.current && !claimReady) {
         showWarnPopup(
           'Claim Locked',
-          `You must complete ${ADSTERRA_VERIFY_SECONDS} seconds on the ad first. Open Watch Ads, stay on Adsterra for ${ADSTERRA_VERIFY_SECONDS}s, then come back.`
+          `You must complete ${ADSTERRA_VERIFY_SECONDS} seconds on the ad first.`
         );
         return;
       }
@@ -415,11 +618,18 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
           'Session Expired',
           'Start Watch Ads again so the portal can track your 30s ad time.'
         );
-        setClaimReady(false);
-        claimReadyRef.current = false;
+        resetVerification();
         return;
       }
       if (busy) return;
+
+      const awayMs = Math.max(
+        totalAwayMsRef.current,
+        currentAwayMs({
+          totalAwayMs: totalAwayMsRef.current,
+          awayStartedAt: awayStartedAtRef.current,
+        })
+      );
 
       setBusy(true);
       try {
@@ -439,15 +649,16 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
               provider: 'adsterra',
               link: ADSTERRA_REWARDED_LINK,
               verifySeconds: ADSTERRA_VERIFY_SECONDS,
-              enteredAdAt: timingRef.current.enteredAdAt,
-              leftAdAt: timingRef.current.leftAdAt,
-              totalAwayMs: timingRef.current.totalAwayMs,
+              enteredAdAt: enteredAdAtRef.current,
+              leftAdAt: leftAdAtRef.current,
+              totalAwayMs: awayMs,
             },
           }),
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.ok) {
           if (typeof data.remainingToday === 'number') setRemaining(data.remainingToday);
+          writePersisted(null);
           claimReadyRef.current = false;
           setClaimReady(false);
           setSessionId(null);
@@ -462,8 +673,7 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
         }
         if (data.error === 'daily_limit') {
           onAlert(`Daily ad claim limit (${OFFERWALL_VIDEO_MAX_DAILY}) reached.`, '⚠️');
-          setClaimReady(false);
-          claimReadyRef.current = false;
+          resetVerification();
           return;
         }
         if (
@@ -471,23 +681,32 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
           data.error === 'session_too_soon' ||
           data.error === 'away_too_short'
         ) {
-          claimReadyRef.current = false;
-          setClaimReady(false);
           showWarnPopup(
             '30 Seconds Not Completed',
             data.message ||
               `You did not complete ${ADSTERRA_VERIFY_SECONDS} seconds on the ad. No AJ Coins were credited.`
           );
+          // Keep claim UI if server clock is wrong-side; user can retry after waiting
           return;
         }
-        onAlert(data.message || data.error || 'Claim failed. Try Watch Ads again.', '⚠️');
+        onAlert(data.message || data.error || 'Claim failed. Try again.', '⚠️');
       } catch (err: unknown) {
         onAlert(err instanceof Error ? err.message : 'Claim failed', '⚠️');
       } finally {
         setBusy(false);
       }
     },
-    [user, claimReady, busy, onAlert, onRefreshUser, sessionId, showWarnPopup, showOkPopup]
+    [
+      user,
+      claimReady,
+      busy,
+      onAlert,
+      onRefreshUser,
+      sessionId,
+      showWarnPopup,
+      showOkPopup,
+      resetVerification,
+    ]
   );
 
   return (
@@ -499,8 +718,8 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
         <div className="min-w-0 flex-1">
           <p className="text-sm font-black text-white">Watch Ads</p>
           <p className="text-[11px] text-gray-300 leading-relaxed mt-0.5">
-            Open Adsterra and stay on the ad for {ADSTERRA_VERIFY_SECONDS}s. Return only after that
-            to unlock{' '}
+            Open Adsterra and stay on that tab for {ADSTERRA_VERIFY_SECONDS}s. Come back after
+            the timer finishes to claim{' '}
             <span className="text-sky-300 font-bold">+{ADSTERRA_REWARD_COINS} AJ Coins 🪙</span>.
           </p>
           <p className="text-[9px] text-gray-500 mt-1">
@@ -528,7 +747,7 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
           <p className="text-[11px] text-sky-100 font-bold text-center leading-relaxed">
             {portalHidden
               ? `You are on the ad… ${secondsLeft}s left`
-              : `Switch to the Adsterra tab now. Leaving early cancels your reward.`}
+              : `Switch to the Adsterra tab now. Stay there ${ADSTERRA_VERIFY_SECONDS}s — leaving early cancels.`}
           </p>
           {timingLabel ? (
             <p className="text-[9px] text-sky-200/70 font-bold text-center">{timingLabel}</p>
