@@ -15,9 +15,14 @@ const PAYOUT_TO_USER_COINS = 200;
 
 /**
  * GET|POST /api/postback
- * CPAGrip S2S postback with profit-margin multiplier.
+ * Partner S2S postback with profit-margin multiplier (×200 AJ Coins).
  *
- * Recommended CPAGrip Global Postback:
+ * AdGem dashboard postback (app 33088):
+ *   https://aj-portal-one.vercel.app/api/postback?payout={amount}&status={state}&userId={player_id}
+ * Recommended (with secret):
+ *   https://aj-portal-one.vercel.app/api/postback?payout={amount}&status={state}&userId={player_id}&secret=AJ_SUPER_SECURE_786_PORTAL
+ *
+ * Legacy CPAGrip:
  *   https://YOUR_DOMAIN/api/postback?userId={tracking_id}&payout={payout}&txid={offer_id}&status={status}&secret=AJ_SUPER_SECURE_786_PORTAL
  *
  * userReward = Math.floor(parseFloat(payout) * 200)
@@ -29,6 +34,8 @@ function readParams(url: URL, body: Record<string, unknown>) {
       g('userId') ||
       g('user_id') ||
       g('uid') ||
+      g('player_id') ||
+      g('playerid') ||
       g('tracking_id') ||
       g('external_id') ||
       g('ymid') ||
@@ -41,6 +48,7 @@ function readParams(url: URL, body: Record<string, unknown>) {
       g('offer_id') ||
       g('click_id') ||
       g('lead_id') ||
+      g('adgem_transaction_id') ||
       '',
     points: Math.floor(Number(g('points') || g('coins') || g('reward') || 0)) || 0,
     payout: parseFloat(g('payout') || g('amount') || g('revenue') || '0') || 0,
@@ -58,7 +66,9 @@ function safeEqual(a: string, b: string) {
 }
 
 function verifySecret(params: ReturnType<typeof readParams>): boolean {
-  if (params.secret && safeEqual(params.secret, POSTBACK_SECRET)) return true;
+  if (params.secret) {
+    return safeEqual(params.secret, POSTBACK_SECRET);
+  }
   if (params.sig) {
     const payload = `${params.uid}:${params.txId}:${POSTBACK_SECRET}`;
     const digest = createHash('sha256').update(payload).digest('hex');
@@ -68,7 +78,11 @@ function verifySecret(params: ReturnType<typeof readParams>): boolean {
       return false;
     }
   }
-  return false;
+  // AdGem dashboard URL may omit secret — allow when explicitly enabled (default on)
+  const allowUnsigned =
+    process.env.OFFERWALL_ALLOW_UNSIGNED_POSTBACK !== '0' &&
+    process.env.OFFERWALL_REQUIRE_SECRET !== '1';
+  return allowUnsigned && !!params.uid;
 }
 
 function isSuccessStatus(status: string): boolean {
@@ -137,7 +151,7 @@ async function handle(request: Request) {
     const txRaw =
       params.txId ||
       `${params.uid}_${params.status}_${userReward}_${url.searchParams.get('offer_id') || Date.now()}`;
-    const txId = `cpagrip_${txRaw}`.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 180);
+    const txId = `offer_${txRaw}`.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 180);
 
     const result = await applyFlatCoins({
       uid: params.uid,
@@ -149,7 +163,7 @@ async function handle(request: Request) {
         multiplier: PAYOUT_TO_USER_COINS,
         userReward,
         status: params.status,
-        via: 'cpagrip_postback',
+        via: 'adgem_postback',
         fromPostback: true,
       },
       ledgerCollection: 'offerwall_ledger',

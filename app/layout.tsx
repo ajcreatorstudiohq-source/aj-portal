@@ -98,7 +98,7 @@ export default function RootLayout({
                 var _open = window.open;
                 window.open = function (url, name, specs) {
                   var href = String(url || '').toLowerCase();
-                  if (allowAdsterra(href) || href.indexOf('cpx-research') !== -1 || href.indexOf('monlix') !== -1 || href.indexOf('netlify.app') !== -1) {
+                  if (allowAdsterra(href) || href.indexOf('adgem') !== -1 || href.indexOf('monlix') !== -1 || href.indexOf('netlify.app') !== -1) {
                     return _open.call(window, url, name, specs);
                   }
                   for (var i = 0; i < BLOCKED_OPEN.length; i++) {
