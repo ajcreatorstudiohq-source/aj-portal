@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ExternalLink, Gift, Loader2 } from 'lucide-react';
 import { getAuth, onAuthStateChanged, type User } from 'firebase/auth';
 import { getApps, initializeApp } from 'firebase/app';
-import { MONLIX_OFFERS_URL, openMonlixOffers } from '../lib/offer-hub';
+import { ADGEM_APP_ID, buildAdGemUrl, openAdGem } from '../lib/offer-hub';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyDp2od-lrfAhEHV5oAIqBW5rWjaRbnAdFM',
@@ -22,26 +22,14 @@ function readQueryUid(): string {
   if (typeof window === 'undefined') return '';
   try {
     const q = new URLSearchParams(window.location.search);
-    return q.get('uid') || q.get('userId') || q.get('tracking_id') || '';
+    return q.get('uid') || q.get('userId') || q.get('playerid') || q.get('tracking_id') || '';
   } catch {
     return '';
   }
 }
 
-function buildMonlixUrl(uid?: string | null): string {
-  try {
-    const url = new URL(MONLIX_OFFERS_URL);
-    if (uid) url.searchParams.set('userid', uid);
-    return url.toString();
-  } catch {
-    if (!uid) return MONLIX_OFFERS_URL;
-    const sep = MONLIX_OFFERS_URL.includes('?') ? '&' : '?';
-    return `${MONLIX_OFFERS_URL}${sep}userid=${encodeURIComponent(uid)}`;
-  }
-}
-
 /**
- * Offer Partners bridge — opens Monlix / BitLabs-style CPA wall (NO ridefiles lockers).
+ * Offer Partners bridge — opens ADGem wall (app 33088).
  * Credits only via /api/postback.
  */
 export default function OfferwallPage() {
@@ -56,11 +44,11 @@ export default function OfferwallPage() {
   }, []);
 
   const trackingUid = useMemo(() => user?.uid || queryUid || '', [user?.uid, queryUid]);
-  const wallUrl = useMemo(() => buildMonlixUrl(trackingUid || null), [trackingUid]);
+  const wallUrl = useMemo(() => buildAdGemUrl(trackingUid || 'guest'), [trackingUid]);
 
   useEffect(() => {
     if (!trackingUid || opened) return;
-    const result = openMonlixOffers(trackingUid);
+    const result = openAdGem(trackingUid);
     setOpened(true);
     if (!result.ok && wallUrl) {
       try {
@@ -96,27 +84,29 @@ export default function OfferwallPage() {
           >
             AJ · Offer Hub
           </p>
-          <p className="text-[10px] text-gray-400 truncate">Monlix · Earn More AJ Coins 🪙</p>
+          <p className="text-[10px] text-gray-400 truncate">
+            ADGem · app {ADGEM_APP_ID} · Earn AJ Coins 🪙
+          </p>
         </div>
       </header>
 
       <main className="flex-1 flex flex-col items-center justify-center gap-5 px-6 py-12 text-center">
-        <Gift size={28} className="text-sky-300" />
+        <Gift size={28} className="text-violet-300" />
         <h1
           className="text-xl font-black"
           style={{ fontFamily: 'var(--font-aj-display), sans-serif' }}
         >
-          Opening Monlix…
+          Opening ADGem…
         </h1>
         <p className="text-[12px] text-gray-400 max-w-sm leading-relaxed">
-          Want more coins? Complete real app installs in our Offer Hub. AJ Coins 🪙 credit only after
-          verified postback — never from opening the link.
+          Complete offers to earn AJ Coins 🪙. Credits only after verified postback — never from
+          opening the link alone.
         </p>
         {!trackingUid ? (
           <p className="text-[10px] text-sky-300">Sign in on the hub so credits bind to your wallet.</p>
         ) : (
           <p className="text-[10px] text-cyan-400/80 font-mono truncate max-w-xs">
-            userid · {trackingUid}
+            playerid · {trackingUid}
           </p>
         )}
         <a

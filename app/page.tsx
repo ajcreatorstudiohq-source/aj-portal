@@ -19,7 +19,6 @@ import React, { useState, useEffect, useRef, Component } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import LiveMatchesPanel from './components/LiveMatchesPanel';
 import HubEarnPanel from './components/HubEarnPanel';
-import EarnAndPlayPanel from './components/EarnAndPlayPanel';
 import BannerAdSlot from './components/ads/BannerAdSlot';
 import InFeedAdShell from './components/ads/InFeedAdShell';
 import AdsterraNativeBanner from './components/ads/AdsterraNativeBanner';
@@ -5565,28 +5564,10 @@ Tip: Social Hub se copy karo 📤`,
             </div>
           </div>
 
-          {/* Offer Hub — Surveys, Math, Ads */}
+          {/* Offer Hub — ADGem, Earn & Play, Math/Captcha */}
           <HubEarnPanel
             user={user}
             onAlert={(msg, icon) => setVvipAlert({ msg, icon: icon || '💰' })}
-            onRefreshUser={async () => {
-              if (!user?.uid) return;
-              try {
-                const snap = await getDoc(doc(db, 'users', user.uid));
-                if (snap.exists()) {
-                  const d = snap.data() as Record<string, unknown>;
-                  setBalance((d.balance as number) || 0);
-                }
-              } catch {
-                /* live onSnapshot remains source of truth */
-              }
-            }}
-          />
-
-          {/* Earn & Play — games + Watch Ads (Adsterra 30s verify) */}
-          <EarnAndPlayPanel
-            user={user}
-            onAlert={(msg, icon) => setVvipAlert({ msg, icon: icon || '🎮' })}
             onRefreshUser={async () => {
               if (!user?.uid) return;
               try {
