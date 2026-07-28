@@ -4,23 +4,26 @@ Project: **`aj-super-portal`**. Repo files: `storage.rules`, `firestore.rules`.
 
 ## Public media hosting (no paid Firebase Storage)
 
-Uploads no longer depend on Firebase Storage for TikReels.
+### New uploads
+`uploadMediaDurable` → **`POST /api/media/upload`** (server) → Cloudinary → Catbox → Litterbox.  
+Never stores Firebase Storage URLs for videos.
 
-Order in `app/lib/media-upload.ts`:
+### Existing Firebase Storage videos (403 fix)
+`<video>` uses `getPlayableSrc` which rewrites Firebase URLs to:
 
-1. **Cloudinary** unsigned preset (`atm28akz` / `aj_portal`) — free CDN HTTPS
-2. **Catbox.moe** — free anonymous public file URL
-3. Firebase Storage — **skipped for videos** (403 / free-tier / locked rules)
+`/api/media/proxy?u=<firebasestorage-url>`
 
-New posts store public `https://…` URLs in `videoUrl` + `image`, so every user’s `<video src>` works without CORS/403.
+The proxy uses **Firebase Admin** signed GCS URLs (bypasses Storage rules). Requires `FIREBASE_SERVICE_ACCOUNT_JSON` on the host (Vercel/env).
 
-**Note:** Old posts that already point at locked Firebase Storage URLs may still 403 until re-uploaded. New uploads are fixed.
+### Cloudinary dashboard (recommended)
+1. Settings → Upload → Upload presets → `aj_portal` → **Signing mode = Unsigned** (allow video)
+2. Optional (best): set `CLOUDINARY_API_KEY` + `CLOUDINARY_API_SECRET` on the server for signed uploads
 
 ---
 
 ## Why other users' videos look like photos / won't open
 
-1. **Legacy Firebase Storage URLs** locked / free-tier 403 (fixed going forward via Cloudinary/Catbox)
+1. **Legacy Firebase Storage URLs** locked / free-tier 403 → fixed via `/api/media/proxy` signed URLs
 2. **Firestore read locked to owner** on `user_posts` / `videos`
 3. **Missing `isVideo`** on legacy docs
 4. **Do not use `crossOrigin="anonymous"` on TikReel `<video>`**

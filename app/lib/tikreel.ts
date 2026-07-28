@@ -342,36 +342,50 @@ export function getPlayableSrc(post: {
   const image = String(post.image || post.url || post.mediaUrl || post.thumbnail || '').trim();
   const candidates = [video, image, String(post.thumbnail || '').trim()].filter(Boolean);
 
-  if (urlLooksLikeVideo(video)) return { src: video, kind: 'video' };
-  if (urlLooksLikeVideo(image)) return { src: image, kind: 'video' };
+  if (urlLooksLikeVideo(video)) return { src: toClientPlayable(video), kind: 'video' };
+  if (urlLooksLikeVideo(image)) return { src: toClientPlayable(image), kind: 'video' };
 
   const nonStill = candidates.find((u) => !urlLooksLikeImage(u));
   const storageHit = candidates.find((u) => isFirebaseStorageUrl(u) && !urlLooksLikeImage(u));
 
-  if (post.isVideo && storageHit) return { src: storageHit, kind: 'video' };
-  if (post.isVideo && nonStill) return { src: nonStill, kind: 'video' };
+  if (post.isVideo && storageHit) return { src: toClientPlayable(storageHit), kind: 'video' };
+  if (post.isVideo && nonStill) return { src: toClientPlayable(nonStill), kind: 'video' };
   if (
     (post._source === 'videos' || post._source === 'users_videos') &&
     (storageHit || nonStill)
   ) {
-    return { src: storageHit || nonStill || '', kind: 'video' };
+    return { src: toClientPlayable(storageHit || nonStill || ''), kind: 'video' };
   }
-  if (post.isVideo && image && !urlLooksLikeImage(image)) return { src: image, kind: 'video' };
-  if (post.isVideo && video && !urlLooksLikeImage(video)) return { src: video, kind: 'video' };
-  // Last resort for flagged videos: still use Firebase / any URL as <video>
-  // (never render as <img> — that showed "pics" instead of reels for other users)
+  if (post.isVideo && image && !urlLooksLikeImage(image))
+    return { src: toClientPlayable(image), kind: 'video' };
+  if (post.isVideo && video && !urlLooksLikeImage(video))
+    return { src: toClientPlayable(video), kind: 'video' };
   if (post.isVideo && candidates.find((u) => isFirebaseStorageUrl(u))) {
     return {
-      src: candidates.find((u) => isFirebaseStorageUrl(u)) || '',
+      src: toClientPlayable(candidates.find((u) => isFirebaseStorageUrl(u)) || ''),
       kind: 'video',
     };
   }
   if (post.isVideo && (video || image)) {
-    return { src: video || image, kind: 'video' };
+    return { src: toClientPlayable(video || image), kind: 'video' };
   }
-  if (image) return { src: image, kind: 'image' };
-  if (video) return { src: video, kind: urlLooksLikeVideo(video) ? 'video' : 'image' };
+  if (image) return { src: toClientPlayable(image), kind: 'image' };
+  if (video)
+    return {
+      src: toClientPlayable(video),
+      kind: urlLooksLikeVideo(video) ? 'video' : 'image',
+    };
   return { src: '', kind: 'none' };
+}
+
+/** Route Firebase Storage through /api/media/proxy so 403 rules don't block TikReel. */
+function toClientPlayable(url: string): string {
+  const u = String(url || '').trim();
+  if (!u) return '';
+  if (isFirebaseStorageUrl(u)) {
+    return `/api/media/proxy?u=${encodeURIComponent(u)}`;
+  }
+  return u;
 }
 
 export function filterOwnedBy(posts: TikReelPost[], uid: string): TikReelPost[] {
