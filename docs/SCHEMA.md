@@ -13,7 +13,9 @@
 | User wallet credit | **exactly 30% of pool** | ~150–210 |
 | Platform / admin | **exactly 70% of pool** | logged in `AdminRevenue` |
 
-Engine: `computeRewardSplit(seed)` / `splitCoinPool(giftCost)` → `applySplitReward` / `POST /api/rewards/earn`
+Engine: `computeRewardSplit(seed)` / `splitGiftCoins(giftCost)` → `applySplitReward` / `POST /api/rewards/earn`
+
+**Gifts:** admin **40%** / creator **60%** of gift cost (e.g. 500 → admin 200, creator 300).
 
 See [OWNER_EARNINGS.md](./OWNER_EARNINGS.md) for how the owner receives dollars.
 

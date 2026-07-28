@@ -11,7 +11,7 @@ import {
   bearerFromRequest,
   verifyFirebaseIdToken,
 } from '../../../lib/verify-id-token';
-import { splitCoinPool } from '../../../lib/economy';
+import { splitGiftCoins, GIFT_ADMIN_SHARE, GIFT_CREATOR_SHARE } from '../../../lib/economy';
 
 const POST_REWARD_COINS = 5;
 const BOT_CLAIM_LOCK_MS = 24 * 60 * 60 * 1000;
@@ -178,7 +178,8 @@ export async function POST(request: Request) {
         enforceDailyCap: true,
       });
     } else if (source === 'live_gift') {
-      // Gift cost is paid by sender; creator gets exactly 30%, owner keeps 70% (USD ledger).
+      // Gift cost paid by sender: creator 60%, admin (owner) 40%.
+      // Example: 500 gift → creator 300, admin 200.
       const giftCost = Math.floor(Number(meta.giftCost) || 0);
       if (giftCost < 1) {
         return NextResponse.json(
@@ -186,13 +187,15 @@ export async function POST(request: Request) {
           { status: 400 }
         );
       }
-      const giftSplit = splitCoinPool(giftCost);
+      const giftSplit = splitGiftCoins(giftCost);
       result = await applySplitReward({
         uid: creditUid,
         txId,
         source,
         seed: txId,
         splitOverride: giftSplit,
+        platformSharePct: GIFT_ADMIN_SHARE,
+        userSharePct: GIFT_CREATOR_SHARE,
         meta: {
           ...meta,
           actorUid: actor.uid,
@@ -235,11 +238,18 @@ export async function POST(request: Request) {
       );
     }
 
+    const isGift = source === 'live_gift';
     return NextResponse.json({
       ok: true,
       duplicate: !!result.duplicate,
       source,
       creditedCoins: result.balanceCredited ?? 0,
+      userUsd: result.split?.userUsd,
+      adminUsd: result.split?.adminUsd,
+      ownerUsd: result.split?.adminUsd,
+      totalPoolUsd: result.split?.totalUsd,
+      platformSharePct: isGift ? GIFT_ADMIN_SHARE : 0.7,
+      userSharePct: isGift ? GIFT_CREATOR_SHARE : 0.3,
       message: result.duplicate
         ? 'Already credited'
         : `${SOURCE_LABELS[source]}: +${result.balanceCredited} AJ Coins 🪙`,
