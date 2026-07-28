@@ -69,44 +69,93 @@ export async function POST(request: Request) {
 
       const sessionId = String(body.sessionId || '').trim();
       const VERIFY_MS = 30 * 1000;
-      if (sessionId) {
-        const sessionRef = doc(db, 'ad_reward_sessions', sessionId);
-        const sessionSnap = await getDoc(sessionRef);
-        if (!sessionSnap.exists()) {
-          return NextResponse.json(
-            { ok: false, error: 'invalid_session', message: 'Start Watch Ads again.' },
-            { status: 400 }
-          );
-        }
-        const session = sessionSnap.data() as {
-          uid: string;
-          expiresAt: number;
-          consumed?: boolean;
-          createdAtMs?: number;
-        };
-        if (session.uid !== user.uid) {
-          return NextResponse.json({ ok: false, error: 'session_mismatch' }, { status: 403 });
-        }
-        if (session.consumed) {
-          return NextResponse.json({
-            ok: true,
-            duplicate: true,
-            creditedCoins: 0,
-            message: 'Already claimed for this ad session',
-          });
-        }
-        const startedMs = Number(session.createdAtMs || 0);
-        if (startedMs > 0 && Date.now() - startedMs < VERIFY_MS) {
-          return NextResponse.json(
-            {
-              ok: false,
-              error: 'verify_too_fast',
-              message: 'Stay on the ad for 30s before claiming. Early return = no coins.',
-            },
-            { status: 403 }
-          );
-        }
+      if (!sessionId) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: 'missing_session',
+            message: 'Start Watch Ads again so the portal can track your ad time.',
+          },
+          { status: 400 }
+        );
       }
+
+      const sessionRef = doc(db, 'ad_reward_sessions', sessionId);
+      const sessionSnap = await getDoc(sessionRef);
+      if (!sessionSnap.exists()) {
+        return NextResponse.json(
+          { ok: false, error: 'invalid_session', message: 'Start Watch Ads again.' },
+          { status: 400 }
+        );
+      }
+      const session = sessionSnap.data() as {
+        uid: string;
+        expiresAt: number;
+        consumed?: boolean;
+        createdAtMs?: number;
+        verifySeconds?: number;
+      };
+      if (session.uid !== user.uid) {
+        return NextResponse.json({ ok: false, error: 'session_mismatch' }, { status: 403 });
+      }
+      if (session.consumed) {
+        return NextResponse.json({
+          ok: true,
+          duplicate: true,
+          creditedCoins: 0,
+          message: 'Already claimed for this ad session',
+        });
+      }
+      if (Date.now() > Number(session.expiresAt || 0)) {
+        return NextResponse.json(
+          { ok: false, error: 'session_expired', message: 'Ad session expired. Start Watch Ads again.' },
+          { status: 400 }
+        );
+      }
+
+      const needMs =
+        (Number(session.verifySeconds) > 0 ? Number(session.verifySeconds) : 30) * 1000;
+      const startedMs = Number(session.createdAtMs || 0);
+      if (!startedMs || Date.now() - startedMs < needMs) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: 'verify_too_fast',
+            message:
+              'You did not complete 30 seconds on the ad. Stay on Adsterra for the full 30s, then claim. No AJ Coins were credited.',
+          },
+          { status: 403 }
+        );
+      }
+
+      const meta =
+        body.meta && typeof body.meta === 'object'
+          ? (body.meta as { totalAwayMs?: number; enteredAdAt?: number; leftAdAt?: number })
+          : {};
+      const reportedAway = Number(meta.totalAwayMs || 0);
+      // Client timing is advisory; if reported, it must also meet 30s
+      if (reportedAway > 0 && reportedAway < VERIFY_MS) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: 'away_too_short',
+            message:
+              'You did not complete 30 seconds on the ad. Early return = no coins. Try Watch Ads again.',
+          },
+          { status: 403 }
+        );
+      }
+
+      await setDoc(
+        sessionRef,
+        {
+          enteredAdAt: meta.enteredAdAt ?? null,
+          leftAdAt: meta.leftAdAt ?? null,
+          totalAwayMs: reportedAway || null,
+          claimAttemptAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
 
       const coins = ADSTERRA_REWARD_COINS || REWARDED_VIDEO_COINS || 5;
       const txId = `adsterra_claim_${user.uid}_${dayKey}_${dailyCount}`;

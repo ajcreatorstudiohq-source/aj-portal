@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ExternalLink, Gift, Loader2, Play } from 'lucide-react';
+import { ExternalLink, Gift, Loader2, Play, X } from 'lucide-react';
 import {
   ADSTERRA_REWARD_COINS,
   ADSTERRA_REWARDED_LINK,
@@ -10,8 +10,6 @@ import {
   REWARDED_VIDEO_COOLDOWN_MS,
 } from '../../lib/ads-config';
 import { guardClick, startIntrusiveAdGuard } from '../../lib/ad-guards';
-import { doc, increment, runTransaction, serverTimestamp } from 'firebase/firestore';
-import { db } from '../../firebase';
 
 type Props = {
   user: { uid: string; getIdToken: () => Promise<string> } | null;
@@ -19,10 +17,117 @@ type Props = {
   onRefreshUser?: () => void;
 };
 
+type SessionTiming = {
+  enteredAdAt: number | null;
+  leftAdAt: number | null;
+  totalAwayMs: number;
+};
+
+/** Ignore blur/focus flicker right after window.open (not a real ad visit). */
+const MIN_AWAY_MS_TO_JUDGE = 1200;
+
 /**
- * Watch Ads — Adsterra Direct Link.
- * Reward ONLY after 30s spent away on the ad tab, then return to claim.
- * Coming back early cancels the reward.
+ * Stylish glass popup — early exit / status messages (English).
+ */
+function AdWatchPopup({
+  title,
+  message,
+  icon,
+  onClose,
+  variant = 'warn',
+}: {
+  title: string;
+  message: string;
+  icon: string;
+  onClose: () => void;
+  variant?: 'warn' | 'ok';
+}) {
+  const border =
+    variant === 'ok' ? 'rgba(34,211,238,0.55)' : 'rgba(251,191,36,0.55)';
+  const glow =
+    variant === 'ok'
+      ? '0 0 50px rgba(34,211,238,0.25)'
+      : '0 0 50px rgba(251,191,36,0.28)';
+
+  return (
+    <div
+      className="fixed inset-0 z-[99999] flex items-center justify-center px-4"
+      style={{
+        background: 'rgba(0,0,0,0.68)',
+        backdropFilter: 'blur(12px)',
+        WebkitBackdropFilter: 'blur(12px)',
+      }}
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="w-full max-w-sm rounded-3xl overflow-hidden pointer-events-auto"
+        style={{
+          background:
+            'linear-gradient(160deg, rgba(18,16,28,0.94) 0%, rgba(8,8,14,0.96) 100%)',
+          border: `1px solid ${border}`,
+          boxShadow: glow,
+          backdropFilter: 'blur(16px)',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          className="h-[2px] w-full"
+          style={{
+            background:
+              variant === 'ok'
+                ? 'linear-gradient(90deg,#22d3ee,#818cf8,#a78bfa)'
+                : 'linear-gradient(90deg,#fbbf24,#f59e0b,#ef4444)',
+          }}
+        />
+        <div className="p-6 flex flex-col items-center gap-3 text-center relative">
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute top-3 right-3 w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center"
+            aria-label="Close"
+          >
+            <X size={14} className="text-zinc-400" />
+          </button>
+          <div
+            className="w-16 h-16 rounded-2xl flex items-center justify-center border"
+            style={{
+              borderColor: border,
+              background:
+                variant === 'ok' ? 'rgba(34,211,238,0.12)' : 'rgba(251,191,36,0.12)',
+              boxShadow: glow,
+            }}
+          >
+            <span className="text-4xl leading-none">{icon}</span>
+          </div>
+          <p className="text-white font-black text-base tracking-wide">{title}</p>
+          <p className="text-zinc-300 text-[13px] leading-relaxed font-medium whitespace-pre-wrap">
+            {message}
+          </p>
+          <button
+            type="button"
+            onClick={onClose}
+            className="mt-2 px-8 py-2.5 rounded-full text-[11px] font-black uppercase tracking-[0.18em] text-black active:scale-95"
+            style={{
+              background:
+                variant === 'ok'
+                  ? 'linear-gradient(135deg,#22d3ee,#818cf8)'
+                  : 'linear-gradient(135deg,#fbbf24,#f59e0b)',
+            }}
+          >
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Watch Ads — portal tracks when user enters/leaves the Adsterra tab.
+ * - Leave early (< 30s) → stylish English popup, no claim
+ * - Stay 30s+ then return → Claim AJ Coins unlocks
  */
 export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Props) {
   const [busy, setBusy] = useState(false);
@@ -33,6 +138,13 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
   const [remaining, setRemaining] = useState<number | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [portalHidden, setPortalHidden] = useState(false);
+  const [popup, setPopup] = useState<{
+    title: string;
+    message: string;
+    icon: string;
+    variant: 'warn' | 'ok';
+  } | null>(null);
+  const [timingLabel, setTimingLabel] = useState('');
 
   const verifyingRef = useRef(false);
   const claimReadyRef = useRef(false);
@@ -40,6 +152,11 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
   const awayStartedAtRef = useRef<number | null>(null);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const timingRef = useRef<SessionTiming>({
+    enteredAdAt: null,
+    leftAdAt: null,
+    totalAwayMs: 0,
+  });
 
   const clearTick = useCallback(() => {
     if (tickRef.current) {
@@ -48,26 +165,43 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
     }
   }, []);
 
+  const showWarnPopup = useCallback((title: string, message: string) => {
+    setPopup({ title, message, icon: '⏱️', variant: 'warn' });
+  }, []);
+
+  const showOkPopup = useCallback((title: string, message: string) => {
+    setPopup({ title, message, icon: '✅', variant: 'ok' });
+  }, []);
+
   const resetVerification = useCallback(
-    (reason?: string) => {
+    (opts?: { popupTitle?: string; popupMessage?: string; alertAlso?: boolean }) => {
       clearTick();
       verifyingRef.current = false;
       claimReadyRef.current = false;
       elapsedAwayMsRef.current = 0;
       awayStartedAtRef.current = null;
+      timingRef.current = { enteredAdAt: null, leftAdAt: null, totalAwayMs: 0 };
       setVerifying(false);
       setClaimReady(false);
       setSecondsLeft(0);
       setSessionId(null);
       sessionIdRef.current = null;
-      if (reason) onAlert(reason, '⏱️');
+      setTimingLabel('');
+      if (opts?.popupTitle && opts?.popupMessage) {
+        showWarnPopup(opts.popupTitle, opts.popupMessage);
+      }
+      if (opts?.alertAlso && opts.popupMessage) {
+        onAlert(opts.popupMessage, '⏱️');
+      }
     },
-    [clearTick, onAlert]
+    [clearTick, onAlert, showWarnPopup]
   );
 
   const flushAwayTime = useCallback(() => {
     if (awayStartedAtRef.current != null) {
-      elapsedAwayMsRef.current += Date.now() - awayStartedAtRef.current;
+      const chunk = Date.now() - awayStartedAtRef.current;
+      elapsedAwayMsRef.current += chunk;
+      timingRef.current.totalAwayMs = elapsedAwayMsRef.current;
       awayStartedAtRef.current = null;
     }
   }, []);
@@ -82,53 +216,93 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
       ADSTERRA_VERIFY_SECONDS - Math.floor(elapsed / 1000)
     );
     setSecondsLeft(left);
+    setTimingLabel(
+      `In ad: ${Math.floor(elapsed / 1000)}s · Need: ${ADSTERRA_VERIFY_SECONDS}s`
+    );
     return { elapsed, left };
   }, []);
 
   useEffect(() => () => clearTick(), [clearTick]);
 
-  // Only count time while the portal tab is hidden (user is on the ad).
+  /**
+   * Track enter/exit of ad tab via Page Visibility + window blur/focus.
+   * Timer only advances while the portal is in the background (user on Adsterra).
+   * Brief blur/focus after opening the ad is ignored so we don't false-fail.
+   */
   useEffect(() => {
-    const onVisibility = () => {
-      setPortalHidden(!!document.hidden);
+    const onLeavePortal = () => {
+      setPortalHidden(true);
+      if (!verifyingRef.current) return;
+      if (awayStartedAtRef.current == null) {
+        awayStartedAtRef.current = Date.now();
+        if (!timingRef.current.enteredAdAt) {
+          timingRef.current.enteredAdAt = Date.now();
+        }
+      }
+    };
+
+    const onReturnToPortal = () => {
+      setPortalHidden(false);
       if (!verifyingRef.current) return;
 
-      if (document.hidden) {
-        // User left portal → start counting ad time
-        if (awayStartedAtRef.current == null) {
-          awayStartedAtRef.current = Date.now();
-        }
+      // Never left for real yet (still waiting for user to switch to Adsterra)
+      const hadStartedAway =
+        awayStartedAtRef.current != null || elapsedAwayMsRef.current > 0;
+      if (!hadStartedAway) return;
+
+      flushAwayTime();
+      const { elapsed } = updateSecondsUi();
+
+      // Accidental focus flicker right after window.open — keep waiting
+      if (elapsed < MIN_AWAY_MS_TO_JUDGE) {
+        setTimingLabel('Switch to the Adsterra tab and stay for 30s…');
         return;
       }
 
-      // User came back to portal
-      flushAwayTime();
-      const { elapsed, left } = updateSecondsUi();
+      timingRef.current.leftAdAt = Date.now();
+      const secondsDone = Math.floor(elapsed / 1000);
 
       if (elapsed < ADSTERRA_VERIFY_SECONDS * 1000) {
-        // Early return — no reward
-        resetVerification(
-          `Ad incomplete — stay on the ad for ${ADSTERRA_VERIFY_SECONDS}s. You came back too early (${Math.floor(elapsed / 1000)}s). No AJ Coins 🪙.`
-        );
+        resetVerification({
+          popupTitle: '30 Seconds Not Completed',
+          popupMessage: `You did not complete ${ADSTERRA_VERIFY_SECONDS} seconds on the ad.\n\nYou stayed about ${secondsDone}s. Stay on the Adsterra page for the full ${ADSTERRA_VERIFY_SECONDS} seconds, then return here to unlock your coin claim.\n\nNo AJ Coins were credited.`,
+        });
         return;
       }
 
-      // Full 30s spent away — unlock claim after return
+      // Full 30s in ad → unlock claim
       clearTick();
       verifyingRef.current = false;
       claimReadyRef.current = true;
       setVerifying(false);
       setClaimReady(true);
       setSecondsLeft(0);
-      onAlert(
-        `Ad verified ✅ Claim your +${ADSTERRA_REWARD_COINS} AJ Coins 🪙 now.`,
-        '💰'
+      setTimingLabel(`Completed ${secondsDone}s in ad · Claim ready`);
+      showOkPopup(
+        'Ad Verified',
+        `You completed ${ADSTERRA_VERIFY_SECONDS} seconds on the ad.\n\nTap Claim to receive +${ADSTERRA_REWARD_COINS} AJ Coins 🪙.`
       );
     };
 
+    const onVisibility = () => {
+      if (document.hidden) onLeavePortal();
+      else onReturnToPortal();
+    };
+
+    const onBlur = () => onLeavePortal();
+    const onFocus = () => {
+      if (!document.hidden) onReturnToPortal();
+    };
+
     document.addEventListener('visibilitychange', onVisibility);
-    return () => document.removeEventListener('visibilitychange', onVisibility);
-  }, [flushAwayTime, updateSecondsUi, resetVerification, clearTick, onAlert]);
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [flushAwayTime, updateSecondsUi, resetVerification, clearTick, showOkPopup]);
 
   const openAdsterra = useCallback(
     async (e?: { preventDefault?: () => void; stopPropagation?: () => void }) => {
@@ -143,7 +317,6 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
         return onAlert(`Please wait ${wait}s before another ad`, '⏱️');
       }
 
-      // Server prepare session (enforces min 30s wall-clock on claim)
       let sid: string | null = null;
       try {
         const token = await user.getIdToken();
@@ -166,9 +339,18 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
         } else if (data.error === 'daily_limit') {
           onAlert(`Daily ad claim limit (${OFFERWALL_VIDEO_MAX_DAILY}) reached.`, '⚠️');
           return;
+        } else {
+          onAlert(data.message || 'Could not start ad session. Try again.', '⚠️');
+          return;
         }
       } catch {
-        /* claim will still try; prepare preferred */
+        onAlert('Could not start ad session. Check your connection and try again.', '⚠️');
+        return;
+      }
+
+      if (!sid) {
+        onAlert('Could not start ad session. Try again.', '⚠️');
+        return;
       }
 
       try {
@@ -187,28 +369,24 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
       claimReadyRef.current = false;
       verifyingRef.current = true;
       elapsedAwayMsRef.current = 0;
+      timingRef.current = {
+        enteredAdAt: document.hidden ? Date.now() : null,
+        leftAdAt: null,
+        totalAwayMs: 0,
+      };
       awayStartedAtRef.current = document.hidden ? Date.now() : null;
       setClaimReady(false);
       setVerifying(true);
       setSecondsLeft(ADSTERRA_VERIFY_SECONDS);
       setLastWatchAt(Date.now());
+      setTimingLabel(`Waiting for you to open the ad…`);
+      setPopup(null);
       clearTick();
 
       tickRef.current = setInterval(() => {
         if (!verifyingRef.current) return;
-        const { elapsed, left } = updateSecondsUi();
-        if (elapsed >= ADSTERRA_VERIFY_SECONDS * 1000 && document.hidden) {
-          // Completed while still on ad — wait until they return (visibility handler unlocks)
-          setSecondsLeft(0);
-        } else {
-          setSecondsLeft(left);
-        }
+        updateSecondsUi();
       }, 250);
-
-      onAlert(
-        `Stay on the Adsterra page for ${ADSTERRA_VERIFY_SECONDS}s. Coming back early = no coins.`,
-        '📺'
-      );
     },
     [user, lastWatchAt, onAlert, clearTick, updateSecondsUi]
   );
@@ -217,103 +395,99 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
     async (e?: { preventDefault?: () => void; stopPropagation?: () => void }) => {
       guardClick(e);
       if (!user) return onAlert('Please sign in first', '🔒');
-      if (verifyingRef.current || secondsLeft > 0) {
-        return onAlert(
-          `Stay on the ad for ${secondsLeft || ADSTERRA_VERIFY_SECONDS}s more, then come back to claim.`,
-          '⏱️'
+      if (verifyingRef.current) {
+        showWarnPopup(
+          'Still Verifying',
+          `Stay on the Adsterra page for the full ${ADSTERRA_VERIFY_SECONDS} seconds, then return here to claim.`
         );
+        return;
       }
       if (!claimReadyRef.current && !claimReady) {
-        return onAlert(
-          `Open the ad and stay ${ADSTERRA_VERIFY_SECONDS}s. Early return = no reward.`,
-          '📺'
+        showWarnPopup(
+          'Claim Locked',
+          `You must complete ${ADSTERRA_VERIFY_SECONDS} seconds on the ad first. Open Watch Ads, stay on Adsterra for ${ADSTERRA_VERIFY_SECONDS}s, then come back.`
         );
+        return;
+      }
+      const sid = sessionIdRef.current || sessionId;
+      if (!sid) {
+        showWarnPopup(
+          'Session Expired',
+          'Start Watch Ads again so the portal can track your 30s ad time.'
+        );
+        setClaimReady(false);
+        claimReadyRef.current = false;
+        return;
       }
       if (busy) return;
 
       setBusy(true);
       try {
-        let credited = false;
-        try {
-          const token = await user.getIdToken();
-          const res = await fetch('/api/ads/rewarded', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`,
+        const token = await user.getIdToken();
+        const res = await fetch('/api/ads/rewarded', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            action: 'claim_adsterra',
+            status: 'completed',
+            networkShown: true,
+            sessionId: sid,
+            meta: {
+              provider: 'adsterra',
+              link: ADSTERRA_REWARDED_LINK,
+              verifySeconds: ADSTERRA_VERIFY_SECONDS,
+              enteredAdAt: timingRef.current.enteredAdAt,
+              leftAdAt: timingRef.current.leftAdAt,
+              totalAwayMs: timingRef.current.totalAwayMs,
             },
-            body: JSON.stringify({
-              action: 'claim_adsterra',
-              status: 'completed',
-              networkShown: true,
-              sessionId: sessionIdRef.current || sessionId,
-              meta: {
-                provider: 'adsterra',
-                link: ADSTERRA_REWARDED_LINK,
-                verifySeconds: ADSTERRA_VERIFY_SECONDS,
-                requireAwaySeconds: ADSTERRA_VERIFY_SECONDS,
-              },
-            }),
-          });
-          const data = await res.json().catch(() => ({}));
-          if (res.ok && data.ok) {
-            credited = true;
-            if (typeof data.remainingToday === 'number') setRemaining(data.remainingToday);
-            onAlert(
-              data.message || `+${data.creditedCoins || ADSTERRA_REWARD_COINS} AJ Coins 🪙`,
-              data.duplicate ? 'ℹ️' : '💰'
-            );
-            claimReadyRef.current = false;
-            setClaimReady(false);
-            setSessionId(null);
-            sessionIdRef.current = null;
-            onRefreshUser?.();
-          } else if (data.error === 'daily_limit') {
-            onAlert(`Daily ad claim limit (${OFFERWALL_VIDEO_MAX_DAILY}) reached.`, '⚠️');
-            setClaimReady(false);
-            claimReadyRef.current = false;
-            return;
-          } else if (data.error === 'verify_too_fast' || data.error === 'session_too_soon') {
-            onAlert(
-              data.message ||
-                `Wait full ${ADSTERRA_VERIFY_SECONDS}s on the ad before claiming.`,
-              '⏱️'
-            );
-            return;
-          }
-        } catch {
-          /* fall through */
-        }
-
-        if (!credited) {
-          // Client fallback only if session already verified locally
-          if (!claimReadyRef.current && !claimReady) {
-            onAlert('Verification incomplete — no coins.', '⚠️');
-            return;
-          }
-          await runTransaction(db, async (tx) => {
-            const uref = doc(db, 'users', user.uid);
-            const snap = await tx.get(uref);
-            if (!snap.exists()) throw new Error('user_not_found');
-            tx.update(uref, {
-              balance: increment(ADSTERRA_REWARD_COINS),
-              lastAdsterraClaimAt: serverTimestamp(),
-              lastRewardAt: serverTimestamp(),
-              lastRewardSource: 'adsterra_watch',
-            });
-          });
-          onAlert(`+${ADSTERRA_REWARD_COINS} AJ Coins 🪙 claimed!`, '💰');
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.ok) {
+          if (typeof data.remainingToday === 'number') setRemaining(data.remainingToday);
           claimReadyRef.current = false;
           setClaimReady(false);
+          setSessionId(null);
+          sessionIdRef.current = null;
+          showOkPopup(
+            'Coins Claimed',
+            data.message ||
+              `+${data.creditedCoins || ADSTERRA_REWARD_COINS} AJ Coins 🪙 added to your wallet.`
+          );
           onRefreshUser?.();
+          return;
         }
+        if (data.error === 'daily_limit') {
+          onAlert(`Daily ad claim limit (${OFFERWALL_VIDEO_MAX_DAILY}) reached.`, '⚠️');
+          setClaimReady(false);
+          claimReadyRef.current = false;
+          return;
+        }
+        if (
+          data.error === 'verify_too_fast' ||
+          data.error === 'session_too_soon' ||
+          data.error === 'away_too_short'
+        ) {
+          claimReadyRef.current = false;
+          setClaimReady(false);
+          showWarnPopup(
+            '30 Seconds Not Completed',
+            data.message ||
+              `You did not complete ${ADSTERRA_VERIFY_SECONDS} seconds on the ad. No AJ Coins were credited.`
+          );
+          return;
+        }
+        onAlert(data.message || data.error || 'Claim failed. Try Watch Ads again.', '⚠️');
       } catch (err: unknown) {
         onAlert(err instanceof Error ? err.message : 'Claim failed', '⚠️');
       } finally {
         setBusy(false);
       }
     },
-    [user, claimReady, busy, onAlert, onRefreshUser, secondsLeft, sessionId]
+    [user, claimReady, busy, onAlert, onRefreshUser, sessionId, showWarnPopup, showOkPopup]
   );
 
   return (
@@ -325,9 +499,9 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
         <div className="min-w-0 flex-1">
           <p className="text-sm font-black text-white">Watch Ads</p>
           <p className="text-[11px] text-gray-300 leading-relaxed mt-0.5">
-            Open Adsterra and stay on the ad for {ADSTERRA_VERIFY_SECONDS}s, then return to claim{' '}
+            Open Adsterra and stay on the ad for {ADSTERRA_VERIFY_SECONDS}s. Return only after that
+            to unlock{' '}
             <span className="text-sky-300 font-bold">+{ADSTERRA_REWARD_COINS} AJ Coins 🪙</span>.
-            Early back = no reward.
           </p>
           <p className="text-[9px] text-gray-500 mt-1">
             Adsterra · up to {OFFERWALL_VIDEO_MAX_DAILY}/day
@@ -353,9 +527,12 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
         <div className="rounded-xl border border-sky-400/30 bg-sky-500/10 px-3 py-3 space-y-2">
           <p className="text-[11px] text-sky-100 font-bold text-center leading-relaxed">
             {portalHidden
-              ? `Stay on the ad… ${secondsLeft}s left`
-              : `Switch to the Adsterra tab and stay ${secondsLeft || ADSTERRA_VERIFY_SECONDS}s. Coming back early cancels reward.`}
+              ? `You are on the ad… ${secondsLeft}s left`
+              : `Switch to the Adsterra tab now. Leaving early cancels your reward.`}
           </p>
+          {timingLabel ? (
+            <p className="text-[9px] text-sky-200/70 font-bold text-center">{timingLabel}</p>
+          ) : null}
           <div className="h-1.5 rounded-full bg-black/40 overflow-hidden">
             <div
               className="h-full bg-gradient-to-r from-blue-500 to-violet-500 transition-all duration-200 ease-linear"
@@ -391,6 +568,16 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
             </>
           )}
         </button>
+      ) : null}
+
+      {popup ? (
+        <AdWatchPopup
+          title={popup.title}
+          message={popup.message}
+          icon={popup.icon}
+          variant={popup.variant}
+          onClose={() => setPopup(null)}
+        />
       ) : null}
     </div>
   );
