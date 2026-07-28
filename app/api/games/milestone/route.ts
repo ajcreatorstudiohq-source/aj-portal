@@ -14,6 +14,8 @@ import {
   computeRewardSplit,
   getGameById,
   isValidMilestone,
+  PLATFORM_EARN_SHARE,
+  USER_EARN_SHARE,
   type GameProgressDoc,
 } from '../../../lib/economy';
 import {
@@ -107,8 +109,12 @@ export async function POST(request: Request) {
       try {
         await addDoc(collection(db, 'AdminRevenue'), {
           type: 'game_milestone',
+          currency: 'USD',
+          platformSharePct: PLATFORM_EARN_SHARE,
+          userSharePct: USER_EARN_SHARE,
           totalPool: outcome.split.totalUsd,
           adminShare: outcome.split.adminUsd,
+          ownerUsd: outcome.split.adminUsd,
           userNet: outcome.split.userUsd,
           totalPoolCoins: outcome.split.userCoins + outcome.split.adminCoins,
           adminShareCoins: outcome.split.adminCoins,

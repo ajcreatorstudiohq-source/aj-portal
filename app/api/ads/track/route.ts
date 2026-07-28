@@ -8,6 +8,7 @@ import {
   MONETAG_INTERSTITIAL_ZONE,
   type AdEventType,
 } from '../../../lib/ads-config';
+import { PLATFORM_EARN_SHARE, USER_EARN_SHARE } from '../../../lib/economy';
 import {
   bearerFromRequest,
   verifyFirebaseIdToken,
@@ -65,10 +66,14 @@ export async function POST(request: Request) {
         await addDoc(collection(db, 'AdminRevenue'), {
           type: `ad_${event}`,
           source: 'ad_network',
+          currency: 'USD',
+          platformSharePct: PLATFORM_EARN_SHARE,
+          userSharePct: USER_EARN_SHARE,
           placement,
           zoneId,
           uid,
           adminShare: adminUsd,
+          ownerUsd: adminUsd,
           userNet: 0,
           totalPool: adminUsd,
           eventId: eventRef.id,

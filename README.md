@@ -5,7 +5,7 @@ Gaming, social, wallet, and offerwall hub built with Next.js.
 ## Features
 
 - **Download & Level Unlock** — Download/install games, then clear milestones to earn.
-- **Unified earn engine** — TikReels, Pulse, Live view/host, gifts, AI bot sync, Offerwall, referrals all use **$5–$7 pool → user $1–$1.50**, remainder → `AdminRevenue`.
+- **Unified earn engine** — TikReels, Pulse, Live view/host, gifts, AI bot sync, Offerwall, referrals: pool **$5–$7** split **exactly 70% owner (USD ledger) / 30% user (AJ Coins)**. See [docs/OWNER_EARNINGS.md](docs/OWNER_EARNINGS.md).
 - **Live & Pakistan matches** — Multi-viewer WebRTC audio, smoother RTDB frames, YouTube live match panel.
 - **Offerwall** — Postbacks + in-app completes with validation.
 - **Firebase Google Auth** — See [docs/FIREBASE_AUTH_DOMAINS.md](docs/FIREBASE_AUTH_DOMAINS.md).
@@ -40,9 +40,10 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Revenue split
 
-- Provider pool: **$5.00 – $7.00**
-- User wallet: **$1.00 – $1.50** (AJ Coins via `COIN_RATE = 100`)
-- Remainder logged to `AdminRevenue` as platform share
+- **Owner 70%** — real dollars from Adsterra / offerwall dashboards; in-app ledger `AdminRevenue.ownerUsd`
+- **User 30%** — AJ Coins only (`COIN_RATE = 100`)
+- Activity pool: **$5.00 – $7.00**, always split 70/30
+- Gifts: creator gets **30%** of gift cost; owner keeps **70%**
 
 ## Scripts
 

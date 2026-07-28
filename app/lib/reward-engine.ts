@@ -15,6 +15,8 @@ import {
 import { db } from '../../firebaseConfig';
 import {
   computeRewardSplit,
+  PLATFORM_EARN_SHARE,
+  USER_EARN_SHARE,
   type RewardSplit,
   type GameProgressDoc,
 } from './economy';
@@ -38,8 +40,26 @@ function dayKeyUtc() {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** Fields written on every AdminRevenue row so owner 70% is always clear in USD. */
+function adminRevenueFields(split: RewardSplit, extra: Record<string, unknown> = {}) {
+  return {
+    currency: 'USD',
+    platformSharePct: PLATFORM_EARN_SHARE,
+    userSharePct: USER_EARN_SHARE,
+    totalPool: split.totalUsd,
+    adminShare: split.adminUsd,
+    ownerUsd: split.adminUsd,
+    userNet: split.userUsd,
+    totalPoolCoins: split.userCoins + split.adminCoins,
+    adminShareCoins: split.adminCoins,
+    userNetCoins: split.userCoins,
+    ...extra,
+  };
+}
+
 /**
  * Credit user wallet + log platform revenue. Idempotent on `txId`.
+ * User gets only 30% (AJ Coins). Owner 70% is logged as USD in AdminRevenue — never paid to users.
  */
 export async function applySplitReward(opts: {
   uid: string;
@@ -50,6 +70,8 @@ export async function applySplitReward(opts: {
   ledgerCollection?: string;
   /** When true, enforce per-source daily caps on users/{uid} */
   enforceDailyCap?: boolean;
+  /** Override split (e.g. gifts = 70/30 of giftCost coins). */
+  splitOverride?: RewardSplit;
 }): Promise<ApplyRewardResult> {
   const {
     uid,
@@ -59,6 +81,7 @@ export async function applySplitReward(opts: {
     meta = {},
     ledgerCollection = 'reward_ledger',
     enforceDailyCap = true,
+    splitOverride,
   } = opts;
 
   if (!uid || !txId) {
@@ -67,7 +90,7 @@ export async function applySplitReward(opts: {
 
   const ledgerRef = doc(db, ledgerCollection, txId);
   const userRef = doc(db, 'users', uid);
-  const split = computeRewardSplit(seed);
+  const split = splitOverride ?? computeRewardSplit(seed);
   const dayKey = dayKeyUtc();
   const cap = DAILY_CAPS[source] ?? 5;
 
@@ -133,19 +156,16 @@ export async function applySplitReward(opts: {
 
     if (!result.duplicate) {
       try {
-        await addDoc(collection(db, 'AdminRevenue'), {
-          type: source,
-          totalPool: result.split.totalUsd,
-          adminShare: result.split.adminUsd,
-          userNet: result.split.userUsd,
-          totalPoolCoins: result.split.userCoins + result.split.adminCoins,
-          adminShareCoins: result.split.adminCoins,
-          userNetCoins: result.split.userCoins,
-          uid,
-          txId,
-          meta,
-          date: serverTimestamp(),
-        });
+        await addDoc(
+          collection(db, 'AdminRevenue'),
+          adminRevenueFields(result.split, {
+            type: source,
+            uid,
+            txId,
+            meta,
+            date: serverTimestamp(),
+          })
+        );
       } catch {
         // Non-fatal — user credit already committed
       }

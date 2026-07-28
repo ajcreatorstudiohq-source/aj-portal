@@ -2,13 +2,20 @@
 
 ## Reward model (all channels)
 
+| Party | Share | Form |
+|---|---|---|
+| **Owner / platform** | **70%** | USD ledger (`AdminRevenue.ownerUsd`) + real ad/offerwall network payouts |
+| **User / creator** | **30%** | AJ Coins only (`users.balance`) — never shown as `$` in UI |
+
 | Band | USD | Coins (`COIN_RATE=100`) |
 |---|---|---|
 | Provider / activity pool | **$5.00 – $7.00** | ~500–700 |
-| User wallet credit | **$1.00 – $1.50** | ~100–150 |
-| Platform / admin | remainder | logged in `AdminRevenue` |
+| User wallet credit | **exactly 30% of pool** | ~150–210 |
+| Platform / admin | **exactly 70% of pool** | logged in `AdminRevenue` |
 
-Engine: `computeRewardSplit(seed)` → `applySplitReward` / `POST /api/rewards/earn`
+Engine: `computeRewardSplit(seed)` / `splitCoinPool(giftCost)` → `applySplitReward` / `POST /api/rewards/earn`
+
+See [OWNER_EARNINGS.md](./OWNER_EARNINGS.md) for how the owner receives dollars.
 
 ### Sources (`reward_sources.ts`)
 
@@ -42,7 +49,7 @@ See `docs/TIKTOK_DM.md`.
 - `offerwall_ledger/{txId}` — offerwall postbacks / completes / rewarded video
 - `ad_events/{autoId}` — Monetag impression / click / complete / fail
 - `ad_reward_sessions/{sessionId}` — short-lived rewarded-video anti-replay sessions
-- `AdminRevenue/{autoId}` — platform share of every $5–$7 pool + ad eCPM/click estimates
+- `AdminRevenue/{autoId}` — owner **70% USD** (`ownerUsd`, `adminShare`, `platformSharePct: 0.7`) + ad eCPM/click estimates. See [OWNER_EARNINGS.md](./OWNER_EARNINGS.md).
 
 ## APIs
 
