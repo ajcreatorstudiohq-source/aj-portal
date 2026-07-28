@@ -11,7 +11,7 @@ import {
   bearerFromRequest,
   verifyFirebaseIdToken,
 } from '../../../lib/verify-id-token';
-import { splitGiftCoins, GIFT_ADMIN_SHARE, GIFT_CREATOR_SHARE } from '../../../lib/economy';
+import { splitGiftCoins, GIFT_ADMIN_SHARE, GIFT_CREATOR_SHARE, REFERRAL_BONUS_COINS } from '../../../lib/economy';
 
 const POST_REWARD_COINS = 5;
 const BOT_CLAIM_LOCK_MS = 24 * 60 * 60 * 1000;
@@ -173,7 +173,7 @@ export async function POST(request: Request) {
         uid: creditUid,
         txId,
         source,
-        coins: 50,
+        coins: REFERRAL_BONUS_COINS,
         meta: { ...meta, actorUid: actor.uid, label: SOURCE_LABELS[source] },
         enforceDailyCap: true,
       });
