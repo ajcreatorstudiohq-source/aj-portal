@@ -8,7 +8,8 @@ import {
   MONETAG_INTERSTITIAL_ZONE,
   type AdEventType,
 } from '../../../lib/ads-config';
-import { PLATFORM_EARN_SHARE, USER_EARN_SHARE } from '../../../lib/economy';
+import { PLATFORM_EARN_SHARE, USER_EARN_SHARE, COIN_RATE } from '../../../lib/economy';
+import { creditAdminEarnings } from '../../../lib/admin-earnings';
 import {
   bearerFromRequest,
   verifyFirebaseIdToken,
@@ -74,10 +75,16 @@ export async function POST(request: Request) {
           uid,
           adminShare: adminUsd,
           ownerUsd: adminUsd,
+          adminShareCoins: Math.floor(adminUsd * COIN_RATE),
           userNet: 0,
           totalPool: adminUsd,
           eventId: eventRef.id,
           createdAt: serverTimestamp(),
+        });
+        await creditAdminEarnings({
+          ownerUsd: adminUsd,
+          ownerCoins: Math.floor(adminUsd * COIN_RATE),
+          source: `ad_${event}`,
         });
       } catch {
         /* non-fatal */

@@ -45,6 +45,19 @@ Firebase / this app **does not** wire-transfer USD into your bank.
 **Real cash-out = Adsterra / CPAGrip / payment provider dashboards.**  
 `AdminRevenue` is the in-app **dollar / coin ledger**.
 
+## Portal admin panel
+
+Hub → Admin (shield) shows **Your Admin Earnings**:
+- Total owner coins 🪙 + USD
+- Gift share (40%) breakdown
+- Ad estimates (real cash still from Adsterra dashboard)
+
+Ledger: `admin_stats/earnings` + `AdminRevenue` rows.
+
+## User wallet
+
+Users see coins **and** USD (`100 🪙 = $1`). Withdraw cash estimate uses `1000 🪙 ≈ $1`.
+
 ## Firestore fields to check
 
 `AdminRevenue/{id}`:
@@ -52,4 +65,5 @@ Firebase / this app **does not** wire-transfer USD into your bank.
 - `currency: "USD"`
 - `platformSharePct` — `0.7` (activity) or `0.4` (gifts)
 - `ownerUsd` / `adminShare` — your dollars
+- `adminShareCoins` — your coins ledger
 - `userNet` / `userNetCoins` — what the user/creator got

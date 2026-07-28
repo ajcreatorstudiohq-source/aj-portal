@@ -1,12 +1,31 @@
 /**
  * AJ Super Portal — economy & games catalog.
- * User-facing currency is strictly AJ Coins 🪙 (never show $ / USD in UI).
+ * Wallet shows AJ Coins 🪙 plus USD display value (coins ÷ COIN_RATE).
  */
 
-/** Purchase rate: 1 purchase unit → COIN_RATE AJ Coins */
+/** Purchase / display rate: COIN_RATE AJ Coins = $1.00 USD */
 export const COIN_RATE = 100;
-/** Internal cash-out divisor (1,000 AJ Coins ≈ 1 cash unit) — never show $ in UI */
+/** Cash-out divisor: CASH_RATE AJ Coins ≈ $1.00 withdraw value */
 export const CASH_RATE = 1000;
+
+/** Convert wallet coins → USD display (purchase / ledger rate). */
+export function coinsToUsd(coins: number): number {
+  return Number((Math.max(0, Number(coins) || 0) / COIN_RATE).toFixed(2));
+}
+
+/** Convert wallet coins → withdraw cash USD estimate. */
+export function coinsToCashUsd(coins: number): number {
+  return Number((Math.max(0, Number(coins) || 0) / CASH_RATE).toFixed(2));
+}
+
+/** Format USD for UI, e.g. `$12.50`. */
+export function formatUsd(usd: number): string {
+  const n = Number(usd) || 0;
+  return `$${n.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
 
 /** New-user wallet credit on first profile create — strictly zero */
 export const SIGNUP_BONUS_COINS = 0;

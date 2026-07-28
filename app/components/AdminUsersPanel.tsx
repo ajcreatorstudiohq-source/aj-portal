@@ -18,6 +18,7 @@ import { auth, db } from '../firebase';
 import { isPortalAdminUser } from '../lib/admin-auth';
 import { ACCOUNT_STATUS, buildBanUpdate, isUserBanned } from '../lib/user-ban';
 import { isRtdbPresenceOnline, isUserOnlineNow, type PresenceSnapshot } from '../lib/presence';
+import { COIN_RATE, formatUsd, coinsToUsd } from '../lib/economy';
 
 export type AdminUserRow = {
   uid: string;
@@ -31,6 +32,16 @@ export type AdminUserRow = {
   banReason?: string;
   status?: string;
   lastSeenMs?: number;
+};
+
+type AdminEarningsView = {
+  totalOwnerUsd: number;
+  totalOwnerCoins: number;
+  giftOwnerUsd: number;
+  giftOwnerCoins: number;
+  adOwnerUsd: number;
+  eventCount: number;
+  totalOwnerUsdLabel?: string;
 };
 
 type Props = {
@@ -48,6 +59,8 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
   const [search, setSearch] = useState('');
   const [error, setError] = useState('');
   const [allowed, setAllowed] = useState(false);
+  const [earnings, setEarnings] = useState<AdminEarningsView | null>(null);
+  const [earningsLoading, setEarningsLoading] = useState(false);
 
   // Hard client gate — never render admin tools for normal users
   useEffect(() => {
@@ -63,6 +76,77 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
     }
     setAllowed(true);
   }, [adminUser, onBack]);
+
+  const loadEarnings = useCallback(async () => {
+    const current = auth.currentUser;
+    if (!current || !isPortalAdminUser(adminUser || { uid: current.uid, email: current.email })) {
+      return;
+    }
+    setEarningsLoading(true);
+    try {
+      const token = await current.getIdToken();
+      const res = await fetch('/api/admin/earnings', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = (await res.json().catch(() => ({}))) as AdminEarningsView & {
+        ok?: boolean;
+      };
+      if (res.ok && data.ok !== false && (Number(data.totalOwnerUsd) > 0 || Number(data.totalOwnerCoins) > 0 || Number(data.eventCount) > 0)) {
+        setEarnings({
+          totalOwnerUsd: Number(data.totalOwnerUsd || 0),
+          totalOwnerCoins: Number(data.totalOwnerCoins || 0),
+          giftOwnerUsd: Number(data.giftOwnerUsd || 0),
+          giftOwnerCoins: Number(data.giftOwnerCoins || 0),
+          adOwnerUsd: Number(data.adOwnerUsd || 0),
+          eventCount: Number(data.eventCount || 0),
+          totalOwnerUsdLabel: data.totalOwnerUsdLabel,
+        });
+        return;
+      }
+
+      // Client fallback — sum AdminRevenue (CEO-only via Firestore rules)
+      let snap;
+      try {
+        snap = await getDocs(
+          query(collection(db, 'AdminRevenue'), orderBy('date', 'desc'), limit(500))
+        );
+      } catch {
+        snap = await getDocs(query(collection(db, 'AdminRevenue'), limit(500)));
+      }
+      let usd = 0;
+      let coins = 0;
+      let giftsUsd = 0;
+      let giftsCoins = 0;
+      let adsUsd = 0;
+      snap.forEach((r) => {
+        const d = r.data() as Record<string, unknown>;
+        const rowUsd = Number(d.ownerUsd ?? d.adminShare ?? 0) || 0;
+        const rowCoins =
+          Number(d.adminShareCoins ?? 0) || Math.floor(rowUsd * COIN_RATE);
+        usd += rowUsd;
+        coins += rowCoins;
+        const type = String(d.type || '');
+        if (type === 'live_gift' || type.includes('gift')) {
+          giftsUsd += rowUsd;
+          giftsCoins += rowCoins;
+        }
+        if (type.startsWith('ad_')) adsUsd += rowUsd;
+      });
+      setEarnings({
+        totalOwnerUsd: Number(usd.toFixed(4)),
+        totalOwnerCoins: coins,
+        giftOwnerUsd: Number(giftsUsd.toFixed(4)),
+        giftOwnerCoins: giftsCoins,
+        adOwnerUsd: Number(adsUsd.toFixed(4)),
+        eventCount: snap.size,
+        totalOwnerUsdLabel: formatUsd(usd),
+      });
+    } catch (e) {
+      console.error('AdminUsersPanel loadEarnings', e);
+    } finally {
+      setEarningsLoading(false);
+    }
+  }, [adminUser]);
 
   const loadUsers = useCallback(async () => {
     const current = auth.currentUser;
@@ -109,12 +193,14 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
   useEffect(() => {
     if (!allowed) return;
     loadUsers();
+    loadEarnings();
     // Refresh Firestore lastSeen periodically so lights stay accurate
     const t = window.setInterval(() => {
       void loadUsers();
+      void loadEarnings();
     }, 45000);
     return () => window.clearInterval(t);
-  }, [allowed, loadUsers]);
+  }, [allowed, loadUsers, loadEarnings]);
 
   // Real-time RTDB presence — who is actually in the portal right now
   useEffect(() => {
@@ -284,17 +370,59 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
           Full Dashboard →
         </a>
         <button
-          onClick={loadUsers}
-          disabled={loading}
+          onClick={() => {
+            void loadUsers();
+            void loadEarnings();
+          }}
+          disabled={loading || earningsLoading}
           className="p-2 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all"
           type="button"
           title="Refresh"
         >
-          <RefreshCw size={14} className={`text-gray-400 ${loading ? 'animate-spin' : ''}`} />
+          <RefreshCw size={14} className={`text-gray-400 ${loading || earningsLoading ? 'animate-spin' : ''}`} />
         </button>
       </div>
 
-      <div className="px-4 pt-4 pb-2">
+      <div className="px-4 pt-4 pb-2 space-y-3">
+        <div
+          className="rounded-3xl overflow-hidden border border-emerald-500/25"
+          style={{ background: 'linear-gradient(135deg,#052e1a,#0a0a1a,#0d1a2e)' }}
+        >
+          <div className="h-[2px] w-full bg-gradient-to-r from-emerald-400 via-yellow-400 to-cyan-400" />
+          <div className="p-4">
+            <p className="text-[10px] text-emerald-400/80 uppercase tracking-widest font-black">
+              Your Admin Earnings · Portal Ledger
+            </p>
+            <p className="text-3xl font-black text-yellow-300 mt-1">
+              {(earnings?.totalOwnerCoins ?? 0).toLocaleString()} 🪙
+            </p>
+            <p className="text-lg font-black text-emerald-400 mt-0.5">
+              {earnings?.totalOwnerUsdLabel || formatUsd(earnings?.totalOwnerUsd || 0)}
+            </p>
+            <p className="text-[9px] text-gray-500 mt-1">
+              Running total · {COIN_RATE} 🪙 = $1 · {earnings?.eventCount ?? 0} events
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <div className="bg-white/5 rounded-xl p-2.5">
+                <p className="text-[8px] text-gray-500 font-black uppercase">Gifts (40%)</p>
+                <p className="text-white text-xs font-black">
+                  {(earnings?.giftOwnerCoins ?? 0).toLocaleString()} 🪙
+                </p>
+                <p className="text-emerald-400/90 text-[10px] font-bold">
+                  {formatUsd(earnings?.giftOwnerUsd || 0)}
+                </p>
+              </div>
+              <div className="bg-white/5 rounded-xl p-2.5">
+                <p className="text-[8px] text-gray-500 font-black uppercase">Ads estimate</p>
+                <p className="text-white text-xs font-black">
+                  {formatUsd(earnings?.adOwnerUsd || 0)}
+                </p>
+                <p className="text-gray-500 text-[9px]">Adsterra dashboard = real $</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-2xl px-3 py-2.5">
           <Search size={14} className="text-gray-500" />
           <input
@@ -387,6 +515,9 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
                   <p className="text-[9px] text-gray-500 truncate mt-0.5">{u.email || u.uid}</p>
                   <p className="text-[9px] text-yellow-500/80 font-black mt-0.5">
                     {(u.balance ?? 0).toLocaleString()} 🪙
+                    <span className="text-emerald-400/80 text-[9px] font-bold ml-1">
+                      ({formatUsd(coinsToUsd(u.balance ?? 0))})
+                    </span>
                   </p>
                 </div>
                 {banned ? (

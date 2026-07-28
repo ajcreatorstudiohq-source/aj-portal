@@ -51,7 +51,15 @@ See `docs/TIKTOK_DM.md`.
 - `offerwall_ledger/{txId}` — offerwall postbacks / completes / rewarded video
 - `ad_events/{autoId}` — Monetag impression / click / complete / fail
 - `ad_reward_sessions/{sessionId}` — short-lived rewarded-video anti-replay sessions
-- `AdminRevenue/{autoId}` — owner **70% USD** (`ownerUsd`, `adminShare`, `platformSharePct: 0.7`) + ad eCPM/click estimates. See [OWNER_EARNINGS.md](./OWNER_EARNINGS.md).
+- `AdminRevenue/{autoId}` — owner share USD (`ownerUsd`, `adminShareCoins`) + `platformSharePct`
+- `admin_stats/earnings` — running owner total (`totalOwnerUsd`, `totalOwnerCoins`) for Admin panel
+
+See [OWNER_EARNINGS.md](./OWNER_EARNINGS.md).
+
+## Wallet display
+
+- Users see **AJ Coins** + **USD** (`coins ÷ COIN_RATE`, 100 🪙 = $1)
+- Withdraw cash estimate uses `CASH_RATE` (1000 🪙 ≈ $1)
 
 ## APIs
 
