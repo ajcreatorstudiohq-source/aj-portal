@@ -4448,10 +4448,15 @@ export function AJSuperPortal() {
 
       const createdAtMs = Date.now();
       const postRef = await addDoc(collection(db,"user_posts"), {
-        text:tiktokPostText, image:mediaUrl, videoUrl: mediaUrl,
+        text:tiktokPostText,
+        // Always persist playable URL in videoUrl for TikReel videos (other clients must not rely on image alone)
+        image: mediaUrl,
+        videoUrl: tiktokPostIsVideo ? mediaUrl : '',
         uid:user.uid, userId:user.uid,
         username:username||"AJ_Member", photo:user.photoURL||'',
         likes:0, views:0, isVideo:tiktokPostIsVideo,
+        contentType: tiktokPostIsVideo ? 'video/mp4' : 'image/jpeg',
+        mime: tiktokPostIsVideo ? 'video/mp4' : 'image/jpeg',
         selectedSound: selectedSound || null,
         textOverlay: tikEditorTextOverlay || null,
         cssFilter: tikEditorFilter || 'none',
@@ -4474,6 +4479,8 @@ export function AJSuperPortal() {
             likes: 0,
             views: 0,
             isVideo: true,
+            contentType: 'video/mp4',
+            mime: 'video/mp4',
             postId: postRef.id,
             createdAt: serverTimestamp(),
             createdAtMs,
@@ -4491,6 +4498,8 @@ export function AJSuperPortal() {
             text: tiktokPostText || '',
             postId: postRef.id,
             isVideo: true,
+            contentType: 'video/mp4',
+            mime: 'video/mp4',
             createdAt: serverTimestamp(),
             createdAtMs,
           });
@@ -6301,7 +6310,14 @@ Tip: Social Hub se copy karo 📤`,
                     const media = getPlayableSrc(post);
                     const mediaUrl = media.src;
                     const ownerUid = String(post.uid || post.userId || '');
-                    const playAsVideo = media.kind === 'video' || isPlayableTikReel(post);
+                    // Trust isVideo / videos-collection for EVERY user (not only the signed-in owner)
+                    const playAsVideo =
+                      media.kind === 'video' ||
+                      isPlayableTikReel(post) ||
+                      post.isVideo === true;
+                    const altVideoUrl = [post.videoUrl, post.mediaUrl, post.url, post.image]
+                      .map((u: unknown) => String(u || '').trim())
+                      .find((u: string) => u && u !== mediaUrl) || '';
                     const contentEl = (
                       <div key={`user_${post.id}`} data-vidx={globalIdx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505] flex flex-col justify-end" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
                         {playAsVideo && mediaUrl ? (
@@ -6315,6 +6331,7 @@ Tip: Social Hub se copy karo 📤`,
                             muted
                             playsInline
                             preload="auto"
+                            crossOrigin="anonymous"
                             onLoadedData={(e) => {
                               if (!isActive) return;
                               const v = e.currentTarget;
@@ -6324,9 +6341,24 @@ Tip: Social Hub se copy karo 📤`,
                                 v.play().catch(() => {});
                               });
                             }}
-                            onError={() => {
-                              // If video fails, keep slide visible with poster/gradient via state-less fallback text
-                              console.warn('TikReel video failed', post.id, mediaUrl);
+                            onError={(e) => {
+                              const v = e.currentTarget;
+                              console.warn('TikReel video failed', post.id, v.src);
+                              // Try alternate field (other users may store playable URL in videoUrl vs image)
+                              if (altVideoUrl && !v.dataset.retried) {
+                                v.dataset.retried = '1';
+                                v.src = altVideoUrl;
+                                v.load();
+                                if (isActive) v.play().catch(() => {});
+                                return;
+                              }
+                              // Last resort: show still so the slide is not blank
+                              v.style.display = 'none';
+                              const img = document.createElement('img');
+                              img.src = String(post.thumbnail || post.image || mediaUrl);
+                              img.className = 'absolute inset-0 w-full h-full object-cover';
+                              img.alt = '';
+                              v.parentElement?.insertBefore(img, v);
                             }}
                             style={{ filter: post.cssFilter && post.cssFilter !== 'none' ? post.cssFilter : undefined, touchAction:'pan-y' }}
                           />
@@ -6628,12 +6660,17 @@ Tip: Social Hub se copy karo 📤`,
                         </div>
                       )}
                       {tikProfileMyPosts.map((post:any) => {
-                        const playUrl = String(
+                        const media = getPlayableSrc(post);
+                        const playUrl = media.src || String(
                           post.videoUrl || post.image || post.url || post.mediaUrl || ''
                         );
                         const thumb = String(
                           post.thumbnail || post.thumb || post.poster || playUrl || ''
                         );
+                        const asVideo =
+                          media.kind === 'video' ||
+                          isPlayableTikReel(post) ||
+                          post.isVideo === true;
                         return (
                         <div
                           key={post.id}
@@ -6663,10 +6700,10 @@ Tip: Social Hub se copy karo 📤`,
                             }
                           }}
                         >
-                          {post.isVideo || /\.(mp4|webm|mov)(\?|$)/i.test(thumb || playUrl) ? (
-                            (thumb || playUrl) ? (
+                          {asVideo ? (
+                            (playUrl || thumb) ? (
                               <video
-                                src={thumb || playUrl}
+                                src={playUrl || thumb}
                                 className="w-full h-full object-cover pointer-events-none"
                                 muted
                                 playsInline
@@ -6765,7 +6802,13 @@ Tip: Social Hub se copy karo 📤`,
                       const isActive = activeVideoIdx === idx;
                       const media = getPlayableSrc(post);
                       const mediaUrl = media.src || String(post.image || post.videoUrl || post.thumbnail || '');
-                      const playAsVideo = media.kind === 'video' || isPlayableTikReel(post);
+                      const playAsVideo =
+                        media.kind === 'video' ||
+                        isPlayableTikReel(post) ||
+                        post.isVideo === true;
+                      const altVideoUrl = [post.videoUrl, post.mediaUrl, post.url, post.image]
+                        .map((u: unknown) => String(u || '').trim())
+                        .find((u: string) => u && u !== mediaUrl) || '';
                       const contentEl = (
                       <div key={post.id} data-vidx={idx} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505] flex flex-col justify-end" style={{ scrollSnapAlign:'start', touchAction:'pan-y' }}>
                         {playAsVideo && mediaUrl ? (
@@ -6779,6 +6822,7 @@ Tip: Social Hub se copy karo 📤`,
                             muted
                             playsInline
                             preload="auto"
+                            crossOrigin="anonymous"
                             onLoadedData={(e) => {
                               if (!isActive) return;
                               const v = e.currentTarget;
@@ -6787,6 +6831,15 @@ Tip: Social Hub se copy karo 📤`,
                                 v.muted = true;
                                 v.play().catch(() => {});
                               });
+                            }}
+                            onError={(e) => {
+                              const v = e.currentTarget;
+                              if (altVideoUrl && !v.dataset.retried) {
+                                v.dataset.retried = '1';
+                                v.src = altVideoUrl;
+                                v.load();
+                                if (isActive) v.play().catch(() => {});
+                              }
                             }}
                             onClick={() => setReelPaused(p => !p)}
                           />
@@ -7672,6 +7725,10 @@ Tip: Social Hub se copy karo 📤`,
                       const thumb = String(
                         vid.thumbnail || vid.thumb || vid.poster || vid.cover || playUrl || ''
                       );
+                      const asVideo =
+                        media.kind === 'video' ||
+                        isPlayableTikReel(vid) ||
+                        vid.isVideo === true;
                       return (
                       <div
                         key={`vid_${vid.id}`}
@@ -7679,21 +7736,22 @@ Tip: Social Hub se copy karo 📤`,
                         tabIndex={0}
                         className="relative aspect-square bg-white/5 overflow-hidden cursor-pointer active:scale-95 transition-all"
                         onClick={() => {
-                          if (!playUrl) {
+                          const url = playUrl || thumb;
+                          if (!url) {
                             setVvipAlert({ msg: 'Video URL missing for this post.', icon: '⚠️' });
                             return;
                           }
                           setProfileVideoViewer({
-                            url: playUrl,
+                            url,
                             text: vid.text || vid.textOverlay || vid.caption || '',
                           });
                         }}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault();
-                            if (playUrl) {
+                            if (playUrl || thumb) {
                               setProfileVideoViewer({
-                                url: playUrl,
+                                url: playUrl || thumb,
                                 text: vid.text || vid.textOverlay || vid.caption || '',
                               });
                             }
@@ -7702,13 +7760,14 @@ Tip: Social Hub se copy karo 📤`,
                       >
                         {thumb || playUrl ? (
                           <>
-                            {media.kind === 'video' || /\.(mp4|webm|mov)(\?|$)/i.test(thumb || playUrl) || vid.isVideo ? (
+                            {asVideo ? (
                               <video
                                 src={playUrl || thumb}
                                 className="w-full h-full object-cover pointer-events-none"
                                 muted
                                 playsInline
                                 preload="metadata"
+                                crossOrigin="anonymous"
                               />
                             ) : (
                               <img
