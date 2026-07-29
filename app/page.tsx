@@ -1686,23 +1686,10 @@ function AJFooter() {
               >
                 <img
                   src="/founder_card.jpg"
-                  alt="Ali Asim — Founder & CEO"
+                  alt="Ali Asim"
                   className="w-full h-full object-cover"
                   style={{ display: 'block' }}
                 />
-                {/* Gradient overlay at bottom */}
-                <div
-                  className="absolute bottom-0 left-0 right-0 p-4"
-                  style={{ background: 'linear-gradient(to top, rgba(5,5,5,0.95) 0%, transparent 100%)' }}
-                >
-                  <p className="text-white font-black text-base tracking-wide">Ali Asim</p>
-                  <p
-                    className="text-xs font-black uppercase tracking-[0.2em] mt-0.5"
-                    style={{ background: 'linear-gradient(90deg,#ec4899,#22d3ee)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}
-                  >
-                    Founder &amp; CEO — AJ Super Portal
-                  </p>
-                </div>
               </div>
             </div>
           </div>
