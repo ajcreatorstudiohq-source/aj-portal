@@ -1220,7 +1220,7 @@ function PkNotEnoughCoinsAlert({
             Not Enough Coins
           </p>
           <p className="text-white text-lg font-black leading-tight">
-            You don’t have enough coins for a PK match
+            You do not have enough coins for a PK match
           </p>
           <p className="text-[11px] text-gray-400 font-bold leading-relaxed">
             A match starts only when you have the full entry fee. Add coins first, then send or accept a challenge.
@@ -7031,7 +7031,7 @@ Tip: Social Hub se copy karo 📤`,
               <span className="text-2xl font-black text-white">VS</span>
               <img src={tempPhoto || user?.photoURL || '/logo.png'} className="w-14 h-14 rounded-full border-2 border-orange-500 object-cover" alt="You"/>
             </div>
-            <p className="text-center text-[10px] text-gray-400 mb-4">Entry: {pkIncomingChallenge.entryCoins || PK_ENTRY_COINS} Coins · 5-min battle · coins pure hone chahiye</p>
+            <p className="text-center text-[10px] text-gray-400 mb-4">Entry: {pkIncomingChallenge.entryCoins || PK_ENTRY_COINS} Coins · 5-min battle · Full entry fee required</p>
             <div className="flex gap-3">
               <button
                 onClick={() => void acceptPkChallenge(pkIncomingChallenge)}
