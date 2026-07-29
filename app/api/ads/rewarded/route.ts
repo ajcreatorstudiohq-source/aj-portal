@@ -256,7 +256,14 @@ export async function POST(request: Request) {
         }
       }
 
-      const sessionFresh = (await sessionRef.get()).data() as {
+      const sessionFreshSnap = await sessionRef.get();
+      if (!sessionFreshSnap.exists) {
+        return NextResponse.json(
+          { ok: false, error: 'invalid_session', message: 'Start Watch Ads again.' },
+          { status: 400 }
+        );
+      }
+      const sessionFresh = sessionFreshSnap.data() as {
         uid: string;
         expiresAt: number;
         consumed?: boolean;
