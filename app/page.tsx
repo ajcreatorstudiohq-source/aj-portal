@@ -36,6 +36,12 @@ import {
 } from './lib/economy';
 import { creditAdminEarnings } from './lib/admin-earnings';
 import { earnReward } from './lib/client-rewards';
+import {
+  notifyUser,
+  writeUserNotification,
+  displayNotificationTitle,
+  displayNotificationMessage,
+} from './lib/user-notifications';
 import { ensureUserReferralId, resolveReferrerUid } from './lib/referral';
 import { trackAdEvent } from './lib/ad-client';
 import { INFEED_AD_EVERY_N, ADSTERRA_REWARD_COINS, ADSTERRA_REWARDED_LINK } from './lib/ads-config';
@@ -320,7 +326,7 @@ const NOWPAYMENTS_API_KEY      = "3THXNSZ-AYVMTP6-HQ9KGKK-9J6CQD7";
 const CEO_WHATSAPP             = "https://wa.me/96878994093";
 const AGORA_APP_ID             = "7863c5369b3648bf931893a52ebaa6db";
 const AGORA_APP_CERTIFICATE    = "dc66528c5a5646da8e3ce5d2426759af";
-const VAPID_KEY                = "BMaPMtGtA2VtDsj_JH_yv5dOv66Mpguf9v4TkqY96dcS-gwqgs-r5OlqRJQmZbNkaj-7_iMFbGGN0Qc4xH0qvKg";
+const VAPID_KEY                = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY || "BMaPMtGtA2VDsj_JH_yv5dOv66Mpguf9v4TkqY96dcs-gwqS-r50IQrJQmZbNkaj-7_iMfBGGN0qc4H0qx4H0qvKg";
 const PULSE_AD_VIDEO_ID        = 'aqz-KE-bpKQ';
 const NOWPAYMENTS_IPN_SECRET   = '9eeeBo6K1ljJSQtUCb1Up88Gv6n1AreU';
 
@@ -1214,7 +1220,7 @@ function PkNotEnoughCoinsAlert({
             Not Enough Coins
           </p>
           <p className="text-white text-lg font-black leading-tight">
-            Not enough coins for PK match
+            You have not enough coins for PK match
           </p>
           <p className="text-[11px] text-gray-400 font-bold leading-relaxed">
             Match tabhi lagega jab entry coins pure hon. Abhi balance kam hai — pehle coins jamao, phir challenge / accept karo.
@@ -2643,14 +2649,34 @@ export function AJSuperPortal() {
   }, []);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setNotifications([]);
+      setUnreadCount(0);
+      return;
+    }
     try {
-      const q = query(collection(db,"notifications"), orderBy("date","desc"), limit(20));
-      return onSnapshot(q, snap => {
-        const items = snap.docs.map(d=>({id:d.id,...d.data()}));
-        setNotifications(items);
-      });
-    } catch {}
+      // Per-user inbox only — deleted docs stay gone (no global restore)
+      const q = query(
+        collection(db, 'users', user.uid, 'notifications'),
+        orderBy('createdAt', 'desc'),
+        limit(40)
+      );
+      return onSnapshot(
+        q,
+        (snap) => {
+          const items = snap.docs
+            .map((d) => ({ id: d.id, ...d.data() }))
+            .filter((n: any) => !n.deleted);
+          setNotifications(items);
+          setUnreadCount(items.filter((n: any) => !n.read).length);
+        },
+        (err) => {
+          console.warn('notifications listener', err);
+        }
+      );
+    } catch (e) {
+      console.warn('notifications setup', e);
+    }
     return () => {};
   }, [user]);
 
@@ -3546,10 +3572,11 @@ export function AJSuperPortal() {
       }, 10000);
       (liveStreamRef as any)._heartbeat = heartbeat;
       try {
-        await addDoc(collection(db, "notifications"), {
-          title: "🔴 Live Now!",
-          message: `@${username || 'AJ_Member'} just went LIVE! Tap to join.`,
-          deepLink: `/live/${roomId}`, date: serverTimestamp()
+        await writeUserNotification(user.uid, {
+          type: 'live',
+          title: '🔴 Live Now!',
+          message: `@${username || 'AJ_Member'} — you are LIVE. Share your Room ID.`,
+          deepLink: `/live/${roomId}`,
         });
       } catch {}
     } catch(e) {
@@ -3994,13 +4021,15 @@ export function AJSuperPortal() {
       } catch (pkErr) { console.warn('PK session write failed (non-fatal):', pkErr); }
       // Send notification to rival
       try {
-        await addDoc(collection(db,"notifications"), {
-          title:"⚔️ PK Challenge!",
-          message:`@${username||'AJ_Member'} challenged you to a PK Battle! ${PK_ENTRY_COINS} Coins staked. Room: ${newPkRoomId}`,
-          deepLink:`/pk/${newPkRoomId}`,
-          pkRoomId: newPkRoomId,
-          rivalUid: rivalUid,
-          date:serverTimestamp()
+        await notifyUser(user, rivalUid, {
+          type: 'pk',
+          title: '⚔️ PK Challenge!',
+          message: `@${username || 'AJ_Member'} challenged you to a PK Battle! ${PK_ENTRY_COINS} Coins entry. Room: ${newPkRoomId}`,
+          fromUid: user.uid,
+          fromUsername: username || 'AJ_Member',
+          deepLink: `/pk/${newPkRoomId}`,
+          meta: { pkRoomId: newPkRoomId },
+          pushBody: `@${username || 'AJ_Member'} challenged you to PK!`,
         });
       } catch {}
       setPkRivalData(rivalSnap.data());
@@ -4483,11 +4512,15 @@ export function AJSuperPortal() {
       });
       const creatorShare = reward.creditedCoins || 0;
       try {
-        await addDoc(collection(db,"users",creatorId,"notifications"), {
-          type:'gift', giftName:gift.name, giftIcon:gift.icon,
-          giftCost:gift.cost, creatorShare,
-          senderUid:user.uid, senderUsername:username||'Anonymous',
-          date:serverTimestamp(), read:false
+        await notifyUser(user, creatorId, {
+          type: 'gift',
+          title: 'Gift Received',
+          message: `${gift.icon} ${gift.name} from @${username || 'Anonymous'} · +${creatorShare} 🪙`,
+          fromUid: user.uid,
+          fromUsername: username || 'Anonymous',
+          fromPhoto: user.photoURL || '',
+          meta: { giftName: gift.name, giftCost: gift.cost, creatorShare },
+          pushBody: `You received ${gift.name} on AJ Portal`,
         });
       } catch {}
       setCinematicGift(gift);
@@ -4672,11 +4705,14 @@ export function AJSuperPortal() {
           });
         } catch {}
         try {
-          await addDoc(collection(db,"users",targetUid,"notifications"), {
-            type:'follow', fromUid:user.uid,
-            fromUsername:username||'AJ_Member',
-            fromPhoto:user.photoURL||'',
-            createdAt:serverTimestamp(), read:false
+          await notifyUser(user, targetUid, {
+            type: 'follow',
+            title: 'New Follower',
+            message: `@${username || 'AJ_Member'} followed you`,
+            fromUid: user.uid,
+            fromUsername: username || 'AJ_Member',
+            fromPhoto: user.photoURL || '',
+            pushBody: `@${username || 'AJ_Member'} started following you on AJ Portal`,
           });
         } catch {}
         setIsFollowing(true); setFollowers(f => f+1);
@@ -4691,9 +4727,21 @@ export function AJSuperPortal() {
   const loadNotifications = async () => {
     if (!user) return;
     try {
-      const nSnap = await getDocs(query(collection(db,"users",user.uid,"notifications"), orderBy("createdAt","desc"), limit(20)));
-      setNotifications(nSnap.docs.map(d => ({id:d.id,...d.data()})));
-    } catch {}
+      const nSnap = await getDocs(
+        query(
+          collection(db, 'users', user.uid, 'notifications'),
+          orderBy('createdAt', 'desc'),
+          limit(40)
+        )
+      );
+      setNotifications(
+        nSnap.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .filter((n: any) => !n.deleted)
+      );
+    } catch (e) {
+      console.warn('loadNotifications', e);
+    }
   };
 
   const loadFollowingList = async (uid?: string) => {
@@ -5022,6 +5070,20 @@ export function AJSuperPortal() {
         lastAtMs: createdAtMs,
         lastSenderUid: user.uid,
       });
+      // In-app + web push to recipient (not self)
+      try {
+        const preview = text.length > 80 ? `${text.slice(0, 80)}…` : text;
+        await notifyUser(user, String(activeChatUser.uid), {
+          type: 'message',
+          title: 'New Message',
+          message: `@${username || 'AJ_Member'}: ${preview}`,
+          fromUid: user.uid,
+          fromUsername: username || 'AJ_Member',
+          fromPhoto: tempPhoto || user.photoURL || '',
+          deepLink: `/dm/${activeChatId}`,
+          pushBody: `@${username || 'AJ_Member'}: ${preview}`,
+        });
+      } catch {}
     } catch (e) {
       console.error('sendDmMessage', e);
       setDmMessages((prev) => prev.filter((m: any) => m.id !== localId));
@@ -5977,12 +6039,29 @@ export function AJSuperPortal() {
     setPulsePosts((prev) => bump(prev));
   };
 
-  const handleDeleteNotification = async (id:string) => {
+  const handleDeleteNotification = async (id: string) => {
+    if (!user || !id) return;
+    // Optimistic remove — must not come back from another collection listener
+    setNotifications((n) => n.filter((x: any) => x.id !== id));
     try {
-      await deleteDoc(doc(db, "notifications", id));
-      setNotifications(n => n.filter(x => x.id !== id));
-      setVvipAlert({msg:"Notification deleted", icon:"🗑️"});
-    } catch(e) { console.error('delete notif', e); }
+      await deleteDoc(doc(db, 'users', user.uid, 'notifications', id));
+      setVvipAlert({ msg: 'Notification deleted', icon: '🗑️' });
+    } catch (e) {
+      console.error('delete notif', e);
+      // Soft-delete fallback if hard delete blocked
+      try {
+        await updateDoc(doc(db, 'users', user.uid, 'notifications', id), {
+          deleted: true,
+          read: true,
+          title: '',
+          message: '',
+        });
+        setNotifications((n) => n.filter((x: any) => x.id !== id && !x.deleted));
+      } catch (e2) {
+        console.error('soft delete notif', e2);
+        setVvipAlert({ msg: 'Could not delete notification. Publish firestore.rules.', icon: '⚠️' });
+      }
+    }
   };
 
   const handleDeletePost = async (id:string) => {
@@ -6323,10 +6402,10 @@ export function AJSuperPortal() {
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.ok) {
           try {
-            await addDoc(collection(db,"notifications"), {
-              title:"Transfer Sent",
-              message:`Sent ${amount} AJ Coins 🪙 to Transfer ID: ${enteredUpper}`,
-              date:serverTimestamp()
+            await writeUserNotification(user.uid, {
+              type: 'transfer',
+              title: 'Transfer Sent',
+              message: `Sent ${amount} AJ Coins 🪙 to Transfer ID: ${enteredUpper}`,
             });
           } catch {}
           setVvipAlert({msg: data.message || `✅ Transferred ${amount} AJ Coins 🪙`, icon:"✅"});
@@ -6368,10 +6447,10 @@ export function AJSuperPortal() {
       });
 
       try {
-        await addDoc(collection(db,"notifications"), {
-          title:"Transfer Sent",
-          message:`Sent ${amount} AJ Coins 🪙 to Transfer ID: ${enteredUpper}`,
-          date:serverTimestamp()
+        await writeUserNotification(user.uid, {
+          type: 'transfer',
+          title: 'Transfer Sent',
+          message: `Sent ${amount} AJ Coins 🪙 to Transfer ID: ${enteredUpper}`,
         });
       } catch {}
       setVvipAlert({msg:`✅ Transferred ${amount} AJ Coins 🪙`,icon:"✅"});
@@ -6428,12 +6507,41 @@ export function AJSuperPortal() {
         status:"pending", date:serverTimestamp()
       });
       try {
-        await addDoc(collection(db,"notifications"), {
-          title:"Withdrawal Requested",
-          message:`${withdrawCoins} AJ Coins 🪙 via ${payoutMethod} submitted for review.`,
-          date:serverTimestamp()
+        await writeUserNotification(user!.uid, {
+          type: 'withdraw',
+          title: 'Withdrawal Requested',
+          message: `${withdrawCoins.toLocaleString()} AJ Coins 🪙 via ${payoutMethod} submitted for review.`,
         });
       } catch {}
+      // Telegram alert to admin — immediate
+      try {
+        const token = await user!.getIdToken();
+        const payoutSummary = [
+          payoutId && `Address: ${payoutId}`,
+          cardHolder && `Name: ${cardHolder}`,
+          cardNumber && `Account/Card: ${cardNumber}`,
+          cardBank && `Bank: ${cardBank}`,
+          cardCountry && `Country/IBAN: ${cardCountry}`,
+        ]
+          .filter(Boolean)
+          .join(' · ');
+        await fetch('/api/notify/telegram-withdraw', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            coins: withdrawCoins,
+            method: payoutMethod,
+            email: user!.email,
+            username: username || user!.displayName || '',
+            payoutSummary,
+          }),
+        });
+      } catch (tgErr) {
+        console.warn('telegram withdraw notify', tgErr);
+      }
       setVvipAlert({msg:"🚀 Withdrawal request submitted!",icon:"🚀"});
       setPayoutId(''); setCardHolder(''); setCardNumber(''); setCardExpiry('');
       setCardCVV(''); setCardBank(''); setCardCountry('');
@@ -6491,12 +6599,12 @@ export function AJSuperPortal() {
       }
 
       try {
-        await addDoc(collection(db,"notifications"), {
-          title:"Referral Claimed",
+        await writeUserNotification(user.uid, {
+          type: 'referral',
+          title: 'Referral Claimed',
           message: reward.ok
             ? `+${reward.creditedCoins || REFERRAL_COINS} AJ Coins credited to referrer.`
             : 'Referral claimed.',
-          date:serverTimestamp()
         });
       } catch {}
       setVvipAlert({
@@ -7346,12 +7454,14 @@ Tip: Social Hub se copy karo 📤`,
                 <button onClick={() => setNotifOpen(false)}><X size={18} className="text-gray-400"/></button>
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                {notifications.length === 0 && <p className="text-center text-gray-500 text-sm mt-10">No notifications yet.</p>}
-                {notifications.map((n:any) => (
+                {notifications.filter((n: any) => !n.deleted).length === 0 && (
+                  <p className="text-center text-gray-500 text-sm mt-10">No notifications yet.</p>
+                )}
+                {notifications.filter((n: any) => !n.deleted).map((n: any) => (
                   <div key={n.id} className="bg-white/5 border border-white/10 rounded-2xl p-3 flex items-start justify-between gap-2">
                     <div className="flex-1">
-                      <p className="text-xs font-black text-white">{n.title}</p>
-                      <p className="text-[10px] text-gray-400 mt-1">{n.message}</p>
+                      <p className="text-xs font-black text-white">{displayNotificationTitle(n)}</p>
+                      <p className="text-[10px] text-gray-400 mt-1">{displayNotificationMessage(n)}</p>
                     </div>
                     <button onClick={() => handleDeleteNotification(n.id)} className="flex-shrink-0 p-1.5 rounded-xl bg-red-500/20 active:scale-90 transition-all">
                       <Trash2 size={12} className="text-red-400"/>
