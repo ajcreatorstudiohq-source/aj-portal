@@ -17,6 +17,8 @@ import {
   computeRewardSplit,
   PLATFORM_EARN_SHARE,
   USER_EARN_SHARE,
+  CASH_RATE,
+  coinsToUsd,
   type RewardSplit,
   type GameProgressDoc,
 } from './economy';
@@ -208,6 +210,8 @@ export async function applySplitReward(opts: {
 
 /**
  * Credit an exact AJ Coin amount (idempotent). Used for fixed post rewards etc.
+ * Flat coins = user's share; USD valued at CASH_RATE (withdraw). Admin ledger gets
+ * the complementary 70% of the implied pool so hisaab stays 100% consistent.
  */
 export async function applyFlatCoins(opts: {
   uid: string;
@@ -239,12 +243,20 @@ export async function applyFlatCoins(opts: {
   const userRef = doc(db, 'users', uid);
   const dayKey = dayKeyUtc();
   const cap = DAILY_CAPS[source] ?? 5;
+
+  // Flat credit is the user's 30% — back-calculate full pool for admin 70%
+  const userUsd = coinsToUsd(credit);
+  const totalUsd =
+    USER_EARN_SHARE > 0
+      ? Number((userUsd / USER_EARN_SHARE).toFixed(6))
+      : userUsd;
+  const adminUsd = Number((totalUsd - userUsd).toFixed(6));
   const split: RewardSplit = {
-    totalUsd: credit / 100,
-    userUsd: credit / 100,
-    adminUsd: 0,
+    totalUsd,
+    userUsd,
+    adminUsd,
     userCoins: credit,
-    adminCoins: 0,
+    adminCoins: Math.floor(adminUsd * CASH_RATE),
   };
 
   try {
@@ -305,6 +317,33 @@ export async function applyFlatCoins(opts: {
         split: result.split,
         balanceCredited: 0,
       };
+    }
+
+    if (!result.duplicate && result.split.adminUsd > 0) {
+      try {
+        await addDoc(
+          collection(db, 'AdminRevenue'),
+          adminRevenueFields(result.split, {
+            type: source,
+            uid,
+            txId,
+            meta,
+            flatCoins: credit,
+            date: serverTimestamp(),
+          })
+        );
+      } catch {
+        /* non-fatal */
+      }
+      try {
+        await creditAdminEarnings({
+          ownerUsd: result.split.adminUsd,
+          ownerCoins: result.split.adminCoins,
+          source,
+        });
+      } catch {
+        /* non-fatal */
+      }
     }
 
     return {

@@ -38,7 +38,8 @@ import { creditAdminEarnings } from './lib/admin-earnings';
 import { earnReward } from './lib/client-rewards';
 import { ensureUserReferralId, resolveReferrerUid } from './lib/referral';
 import { trackAdEvent } from './lib/ad-client';
-import { INFEED_AD_EVERY_N } from './lib/ads-config';
+import { INFEED_AD_EVERY_N, ADSTERRA_REWARD_COINS } from './lib/ads-config';
+import { POST_REWARD_COINS, ACTIVITY_REWARD_COINS } from './lib/reward-sources';
 import {
   normalizeTikReelPost,
   normalizePulsePost,
@@ -6342,8 +6343,10 @@ Kuch bhi poocho, seedha batata hoon! 🔥`,
 • Rate: ${COIN_RATE} AJ Coins 🪙 per purchase unit | Min withdraw ${WITHDRAW_MIN.toLocaleString()} AJ Coins 🪙\\\\\\\\
 • Starting balance: 0 AJ Coins 🪙 (no signup bonus)\\\\\\\\
 • Referral Bonus: +${REFERRAL_COINS} AJ Coins 🪙 per friend referred\\\\\\\\
-• Video Post (TikReel): +5 AJ Coins 🪙 per verified upload (max 5/day)\\\\\\\\
-• Photo Post (Pulse): +5 AJ Coins 🪙 per verified upload (max 5/day)\\\\\\\\
+• Watch Ads / Math / Captcha: +${ADSTERRA_REWARD_COINS} AJ Coins 🪙 (Adsterra click)\\\\\\\\
+• Video Post (TikReel): +${POST_REWARD_COINS} AJ Coins 🪙 per verified upload (max 5/day)\\\\\\\\
+• Photo Post (Pulse): +${POST_REWARD_COINS} AJ Coins 🪙 per verified upload (max 5/day)\\\\\\\\
+• Live / games activity: +${ACTIVITY_REWARD_COINS} AJ Coins 🪙 per verified earn\\\\\\\\
 • AI Bot (Basic): 2.5% daily on invested coins (24h server lock)\\\\\\\\
 • AI Bot (VVIP): 5% daily on invested coins (24h server lock)\\\\\\\\
 • Live gifts received: 60% goes to you!\\\\\\\\
@@ -6354,8 +6357,8 @@ Go to Wallet → Purchase to top up anytime. 💰`,
 • Rate: ${COIN_RATE} AJ Coins 🪙 | Min withdraw ${WITHDRAW_MIN.toLocaleString()} AJ Coins 🪙\\\\\\\\
 • Starting balance: 0 AJ Coins 🪙 (no signup bonus)\\\\\\\\
 • Referral: +${REFERRAL_COINS} AJ Coins 🪙 har dost ke liye\\\\\\\\
-• TikReel video upload: +5 AJ Coins 🪙\\\\\\\\
-• Pulse photo post: +5 AJ Coins 🪙\\\\\\\\
+• TikReel video upload: +${POST_REWARD_COINS} AJ Coins 🪙\\\\\\\\
+• Pulse photo post: +${POST_REWARD_COINS} AJ Coins 🪙\\\\\\\\
 • AI Bot Basic: 2.5% daily profit (24h server lock)\\\\\\\\
 • AI Bot VVIP: 5% daily profit 🔥\\\\\\\\
 • Live pe gifts milein: 60% tumhara!\\\\\\\\
@@ -6366,8 +6369,8 @@ Wallet → Purchase se recharge karo, dost! 💰`,
 • شرح: ${COIN_RATE} AJ Coins 🪙 | Min withdraw ${WITHDRAW_MIN.toLocaleString()} AJ Coins 🪙\\\\\\\\
 • Starting balance: 0 AJ Coins 🪙 (no signup bonus)\\\\\\\\
 • ریفرل: +${REFERRAL_COINS} AJ Coins 🪙\\\\\\\\
-• TikReel ویڈیو: +5 Coins 🪙\\\\\\\\
-• Pulse فوٹو: +5 Coins 🪙\\\\\\\\
+• TikReel ویڈیو: +${POST_REWARD_COINS} Coins 🪙\\\\\\\\
+• Pulse فوٹو: +${POST_REWARD_COINS} Coins 🪙\\\\\\\\
 • AI Bot Basic: 2.5% روزانہ\\\\\\\\
 • AI Bot VVIP: 5% روزانہ 🔥\\\\\\\\
 • Live تحفے: 60% آپ کا!\\\\\\\\
@@ -6378,8 +6381,8 @@ Wallet → Purchase 💰`,
 • ${COIN_RATE} AJ Coins 🪙 | Min withdraw ${WITHDRAW_MIN.toLocaleString()} AJ Coins 🪙\\\\\\\\
 • Starting balance: 0 AJ Coins 🪙 (no signup bonus)\\\\\\\\
 • Referral: +${REFERRAL_COINS} AJ Coins 🪙\\\\\\\\
-• TikReel Video: +5 Coins 🪙\\\\\\\\
-• Pulse Photo: +5 Coins 🪙\\\\\\\\
+• TikReel Video: +${POST_REWARD_COINS} Coins 🪙\\\\\\\\
+• Pulse Photo: +${POST_REWARD_COINS} Coins 🪙\\\\\\\\
 • AI Bot Basic: 2.5% | VVIP: 5% 🔥\\\\\\\\
 • Gifts: 60% आपका!\\\\\\\\
 \\\\\\\\
@@ -6389,8 +6392,8 @@ Wallet → Purchase 💰`,
 • ${COIN_RATE} AJ Coins 🪙 | Min ${WITHDRAW_MIN.toLocaleString()} AJ Coins 🪙\\\\\\\\
 • Starting balance: 0 AJ Coins 🪙 (no signup bonus)\\\\\\\\
 • Referral: +${REFERRAL_COINS} AJ Coins 🪙\\\\\\\\
-• TikReel Video: +5\\\\\\\\
-• Pulse Photo: +5\\\\\\\\
+• TikReel Video: +${POST_REWARD_COINS}\\\\\\\\
+• Pulse Photo: +${POST_REWARD_COINS}\\\\\\\\
 • AI Bot: 2-5% 🔥\\\\\\\\
 • Gifts: 60%\\\\\\\\
 \\\\\\\\
@@ -6404,8 +6407,8 @@ Wallet → Purchase 💰`,
 • CENTER-TAP to pause/resume video\\\\\\\\
 • Like ❤️, Comment 💬, Share 🔗, or send Gifts 🎁\\\\\\\\
 • Upload your own: hit ➕ Post tab, add caption + image/video\\\\\\\\
-• Each verified upload earns you +5 AJ Coins 🪙\\\\\\\\
-• Photo post earns +5 Coins\\\\\\\\
+• Each verified upload earns you +${POST_REWARD_COINS} AJ Coins 🪙\\\\\\\\
+• Photo post earns +${POST_REWARD_COINS} Coins\\\\\\\\
 • CSS Filters, Music Picker & Text Overlay available in editor`,
       hin: `🎬 AJ TikReels:\\\\\\\\
 \\\\\\\\
@@ -6413,8 +6416,8 @@ Wallet → Purchase 💰`,
 • Videos scroll karo (snap-scroll)\\\\\\\\
 • CENTER TAP karo pause/resume ke liye\\\\\\\\
 • Like ❤️, Comment 💬, Gift 🎁\\\\\\\\
-• Video upload: +5 AJ Coins 🪙\\\\\\\\
-• Photo post: +5 Coins\\\\\\\\
+• Video upload: +${POST_REWARD_COINS} AJ Coins 🪙\\\\\\\\
+• Photo post: +${POST_REWARD_COINS} Coins\\\\\\\\
 • Editor mein Filters, Music, Text Overlay bhi hai!`,
       ur:  `🎬 AJ TikReels:\\\\\\\\
 \\\\\\\\
@@ -6422,22 +6425,22 @@ Wallet → Purchase 💰`,
 • Videos اسکرول کریں\\\\\\\\
 • CENTER TAP: pause/resume\\\\\\\\
 • Like ❤️، Comment 💬، Gift 🎁\\\\\\\\
-• Video: +5 AJ Coins 🪙\\\\\\\\
-• Photo: +5 Coins\\\\\\\\
+• Video: +${POST_REWARD_COINS} AJ Coins 🪙\\\\\\\\
+• Photo: +${POST_REWARD_COINS} Coins\\\\\\\\
 • Editor: Filters، Music، Text Overlay`,
       hi:  `🎬 AJ TikReels:\\\\\\\\
 \\\\\\\\
 • Social → AJ TikReels → Feed\\\\\\\\
 • CENTER TAP: pause/resume\\\\\\\\
-• Video: +5 AJ Coins 🪙\\\\\\\\
-• Photo: +5 Coins\\\\\\\\
+• Video: +${POST_REWARD_COINS} AJ Coins 🪙\\\\\\\\
+• Photo: +${POST_REWARD_COINS} Coins\\\\\\\\
 • Editor: Filters, Music, Text Overlay`,
       ar:  `🎬 AJ TikReels:\\\\\\\\
 \\\\\\\\
 • Social → AJ TikReels → Feed\\\\\\\\
 • CENTER TAP: pause/resume\\\\\\\\
-• Video: +10 كوين 🔥\\\\\\\\
-• Photo: +5 كوين\\\\\\\\
+• Video: +${POST_REWARD_COINS} كوين 🔥\\\\\\\\
+• Photo: +${POST_REWARD_COINS} كوين\\\\\\\\
 • Editor: Filters, Music, Text`,
     },
     pulse: {
@@ -6445,7 +6448,7 @@ Wallet → Purchase 💰`,
 \\\\\\\\
 📸 Feed:\\\\\\\\
 • Scroll posts, like, comment, share, send gifts\\\\\\\\
-• Post your own content → +5 AJ Coins 🪙 (verified upload, max 5/day)\\\\\\\\
+• Post your own content → +${POST_REWARD_COINS} AJ Coins 🪙 (verified upload, max 5/day)\\\\\\\\
 \\\\\\\\
 🔴 Go Live:\\\\\\\\
 • Social Hub → GO LIVE button\\\\\\\\
@@ -6457,7 +6460,7 @@ Wallet → Purchase 💰`,
 \\\\\\\\
 📸 Feed:\\\\\\\\
 • Posts scroll, like/comment/gift\\\\\\\\
-• Photo/Video post: +5 AJ Coins 🪙\\\\\\\\
+• Photo/Video post: +${POST_REWARD_COINS} AJ Coins 🪙\\\\\\\\
 \\\\\\\\
 🔴 Live:\\\\\\\\
 • GO LIVE → Room ID share karo\\\\\\\\
@@ -6467,7 +6470,7 @@ Wallet → Purchase 💰`,
       ur:  `📡 AJ Pulse:\\\\\\\\
 \\\\\\\\
 📸 فیڈ:\\\\\\\\
-• Photo/Video: +5 AJ Coins 🪙\\\\\\\\
+• Photo/Video: +${POST_REWARD_COINS} AJ Coins 🪙\\\\\\\\
 \\\\\\\\
 🔴 Live:\\\\\\\\
 • GO LIVE → Room ID شیئر\\\\\\\\
@@ -6476,13 +6479,13 @@ Wallet → Purchase 💰`,
 ⚔️ PK: 100 Coins، 5 منٹ 🏆`,
       hi:  `📡 AJ Pulse:\\\\\\\\
 \\\\\\\\
-• Photo/Video: +5 AJ Coins 🪙\\\\\\\\
+• Photo/Video: +${POST_REWARD_COINS} AJ Coins 🪙\\\\\\\\
 • GO LIVE → Room ID share\\\\\\\\
 • Gifts → 60% आपका!\\\\\\\\
 • PK Battle: 100 Coins 🏆`,
       ar:  `📡 AJ Pulse:\\\\\\\\
 \\\\\\\\
-• Photo: +5 | Video: +10 كوين\\\\\\\\
+• Photo: +${POST_REWARD_COINS} | Video: +${POST_REWARD_COINS} كوين\\\\\\\\
 • GO LIVE → Room ID\\\\\\\\
 • Gifts → 60%\\\\\\\\
 • PK: 100 كوين 🏆`,
@@ -7972,7 +7975,7 @@ Tip: Social Hub se copy karo 📤`,
                   </div>
                   <textarea value={postText} onChange={e => setPostText(e.target.value)} placeholder="Write a caption…" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm h-24 resize-none focus:outline-none focus:border-pink-500/50"/>
                   <button onClick={handleCreatePost} className="w-full py-4 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all shadow-[0_0_24px_rgba(236,72,153,0.4)]" style={{background:'linear-gradient(135deg,#ec4899,#8b5cf6)'}}>
-                    📸 Post Pulse (+5 Coins)
+                    {`📸 Post Pulse (+${POST_REWARD_COINS} Coins)`}
                   </button>
                 </div>
               )}

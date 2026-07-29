@@ -9,7 +9,13 @@
  * Set NEXT_PUBLIC_ADSTERRA_CLICK_USD from your Adsterra average CPC so you never lose.
  */
 
-import { splitAdClickUsd } from './economy';
+import {
+  ADSTERRA_CLICK_USD,
+  adsterraUserRewardCoins,
+  splitAdClickUsd,
+} from './economy';
+
+export { ADSTERRA_CLICK_USD };
 
 /** Social Bar (layout body) */
 export const ADSTERRA_SOCIAL_BAR_SRC =
@@ -24,20 +30,6 @@ export const ADSTERRA_NATIVE_BANNER_SRC =
 export const ADSTERRA_REWARDED_LINK =
   'https://www.effectivecpmnetwork.com/b8jtkn6i4?key=77409a0e0aa4602b6d03798ff53516b3';
 
-/**
- * Estimated USD YOU earn per successful Direct Link / Watch Ads click (Adsterra).
- * Override with NEXT_PUBLIC_ADSTERRA_CLICK_USD (or ADSTERRA_CLICK_USD) from your dashboard CPC.
- * Keep this ≤ real average CPC or user 30% withdraw liability can exceed Adsterra income.
- */
-export const ADSTERRA_CLICK_USD = Math.max(
-  0,
-  Number(
-    process.env.NEXT_PUBLIC_ADSTERRA_CLICK_USD ||
-      process.env.ADSTERRA_CLICK_USD ||
-      0.05
-  ) || 0.05
-);
-
 /** Alias — impression/click track estimates use the same click $ base */
 export const AD_CLICK_VALUE_USD = ADSTERRA_CLICK_USD;
 
@@ -47,10 +39,10 @@ export function getAdsterraClickSplit() {
 }
 
 /**
- * User AJ Coins per Watch Ads claim = 30% of ADSTERRA_CLICK_USD at withdraw rate.
+ * User AJ Coins per Watch Ads / Math / Captcha claim = 30% of ADSTERRA_CLICK_USD.
  * Default $0.05 → 15 🪙 ($0.015 liability). Admin keeps 70% ($0.035).
  */
-export const ADSTERRA_REWARD_COINS = getAdsterraClickSplit().userCoins;
+export const ADSTERRA_REWARD_COINS = adsterraUserRewardCoins();
 
 /** Watch-ad verification timer before Claim unlocks (high-quality visit) */
 export const ADSTERRA_VERIFY_SECONDS = 30;
