@@ -6,6 +6,7 @@ import { ALPHA_CAPTCHA_COINS } from '../lib/reward-sources';
 import { ADSTERRA_REWARDED_LINK } from '../lib/ads-config';
 import { guardClick, startIntrusiveAdGuard } from '../lib/ad-guards';
 import type { OnRefreshUser } from '../lib/wallet-refresh';
+import { publicClaimErrorMessage } from '../lib/claim-errors';
 
 type Props = {
   user: { uid: string; getIdToken: () => Promise<string> } | null;
@@ -44,7 +45,11 @@ export default function AlphaCaptchaChallenge({ user, onAlert, onRefreshUser }: 
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const err = new Error(data.error || `http_${res.status}`) as Error & {
+        const err = new Error(
+          (data as { message?: string; error?: string }).message ||
+            (data as { error?: string }).error ||
+            `http_${res.status}`
+        ) as Error & {
           data?: Record<string, unknown>;
         };
         err.data = data;
@@ -140,7 +145,16 @@ export default function AlphaCaptchaChallenge({ user, onAlert, onRefreshUser }: 
       setClaimReady(false);
     } catch (err: unknown) {
       const e2 = err as Error & { data?: { error?: string; message?: string } };
-      onAlert(e2.data?.message || e2.message || 'Verification failed', '⚠️');
+      onAlert(
+        publicClaimErrorMessage(
+          {
+            error: e2.data?.error || e2.message,
+            message: e2.data?.message,
+          },
+          'Captcha claim failed. Start a new captcha and try again.'
+        ),
+        '⚠️'
+      );
       if (e2.data?.error === 'wrong_code' || e2.data?.error === 'session_expired') {
         setSessionId(null);
         setCode('');

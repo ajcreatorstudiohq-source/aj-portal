@@ -6,6 +6,7 @@ import { MATH_CHALLENGE_COINS } from '../lib/reward-sources';
 import { ADSTERRA_REWARDED_LINK } from '../lib/ads-config';
 import { guardClick, startIntrusiveAdGuard } from '../lib/ad-guards';
 import type { OnRefreshUser } from '../lib/wallet-refresh';
+import { publicClaimErrorMessage } from '../lib/claim-errors';
 
 type Props = {
   user: { uid: string; getIdToken: () => Promise<string> } | null;
@@ -44,7 +45,11 @@ export default function DailyMathChallenge({ user, onAlert, onRefreshUser }: Pro
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const err = new Error(data.error || `http_${res.status}`) as Error & {
+        const err = new Error(
+          (data as { message?: string; error?: string }).message ||
+            (data as { error?: string }).error ||
+            `http_${res.status}`
+        ) as Error & {
           data?: Record<string, unknown>;
         };
         err.data = data;
@@ -146,10 +151,13 @@ export default function DailyMathChallenge({ user, onAlert, onRefreshUser }: Pro
     } catch (e: unknown) {
       const err = e as Error & { data?: { error?: string; message?: string } };
       onAlert(
-        err.data?.message ||
-          (err.data?.error === 'wrong_answer'
-            ? 'Incorrect — try a new challenge.'
-            : err.message || 'Claim failed'),
+        publicClaimErrorMessage(
+          {
+            error: err.data?.error || err.message,
+            message: err.data?.message,
+          },
+          'Math claim failed. Start a new challenge and try again.'
+        ),
         '⚠️'
       );
       if (err.data?.error === 'wrong_answer' || err.data?.error === 'session_expired') {

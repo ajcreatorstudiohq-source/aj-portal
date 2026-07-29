@@ -9,6 +9,7 @@ import {
   verifyFirebaseIdToken,
 } from '../../../lib/verify-id-token';
 import { FieldValue, getAdminDb, getFirebaseAdminDiag } from '../../../lib/firebase-admin';
+import { normalizeServerClaimFailure } from '../../../lib/claim-errors';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -249,9 +250,12 @@ export async function POST(request: Request) {
         : `Correct! +${result.balanceCredited} AJ Coins 🪙`,
     });
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : 'math_challenge_failed';
-    console.error('[math-challenge]', msg, e);
-    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    console.error('[math-challenge]', e);
+    const norm = normalizeServerClaimFailure(e);
+    return NextResponse.json(
+      { ok: false, error: norm.error, message: norm.message },
+      { status: norm.status }
+    );
   }
 }
 

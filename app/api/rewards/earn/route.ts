@@ -16,6 +16,7 @@ import {
   REFERRAL_BONUS_COINS,
 } from '../../../lib/economy';
 import { FieldValue, getAdminDb } from '../../../lib/firebase-admin';
+import { normalizeServerClaimFailure, publicClaimErrorMessage } from '../../../lib/claim-errors';
 
 const BOT_CLAIM_LOCK_MS = 24 * 60 * 60 * 1000;
 
@@ -283,7 +284,10 @@ export async function POST(request: Request) {
           message:
             result.error === 'daily_limit'
               ? 'Daily reward limit reached for this activity. Try again tomorrow.'
-              : result.error,
+              : publicClaimErrorMessage({
+                  error: result.error,
+                  message: result.error,
+                }),
         },
         { status }
       );
@@ -306,8 +310,12 @@ export async function POST(request: Request) {
         : `${SOURCE_LABELS[source]}: +${result.balanceCredited} AJ Coins 🪙`,
     });
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : 'earn_failed';
-    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    console.error('[rewards/earn]', e);
+    const norm = normalizeServerClaimFailure(e);
+    return NextResponse.json(
+      { ok: false, error: norm.error, message: norm.message },
+      { status: norm.status }
+    );
   }
 }
 
