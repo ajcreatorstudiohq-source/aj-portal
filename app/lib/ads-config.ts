@@ -32,7 +32,7 @@ export function getAdsterraClickSplit() {
 }
 
 /** User AJ Coins per Watch Ads / rewarded Direct Link claim */
-export const ADSTERRA_REWARD_COINS = 10;
+export const ADSTERRA_REWARD_COINS = 5;
 
 /** Watch-ad verification timer before Claim unlocks (high-quality visit) */
 export const ADSTERRA_VERIFY_SECONDS = 30;

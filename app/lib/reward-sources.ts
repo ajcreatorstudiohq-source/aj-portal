@@ -2,8 +2,8 @@
  * Canonical multi-source earning channels for AJ Super Portal.
  *
  * Coin amounts (ad-backed social + games):
- * - Watch Ads (rewarded) → 10
- * - Math / Captcha → 5 each (open Adsterra)
+ * - Watch Ads (rewarded) → 5
+ * - Math / Captcha → 2 each (open Adsterra)
  * - TikReel / Pulse post → 2 each (in-feed ads)
  * - Referral → 5
  * - Games install/milestone → GAME_REWARD_COINS (ads in games)
@@ -78,8 +78,8 @@ export const SOURCE_LABELS: Record<RewardSource, string> = {
 export const POST_REWARD_COINS = 2;
 
 /** Math & Captcha — open Adsterra, smaller faucet than Watch Ads */
-export const MATH_CHALLENGE_COINS = 5;
-export const ALPHA_CAPTCHA_COINS = 5;
+export const MATH_CHALLENGE_COINS = 2;
+export const ALPHA_CAPTCHA_COINS = 2;
 
 /** Games have Adsterra bridges — modest free coins per install/milestone */
 export const GAME_REWARD_COINS = 5;

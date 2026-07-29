@@ -6718,7 +6718,7 @@ Kuch bhi poocho, seedha batata hoon! 🔥`,
 • Rate: ${COIN_RATE} AJ Coins 🪙 per purchase unit | Min withdraw ${WITHDRAW_MIN.toLocaleString()} AJ Coins 🪙\\\\\\\\
 • Starting balance: 0 AJ Coins 🪙 (no signup bonus)\\\\\\\\
 • Referral Bonus: +${REFERRAL_COINS} AJ Coins 🪙 per friend referred\\\\\\\\
-• Watch Ads: +${ADSTERRA_REWARD_COINS} AJ Coins 🪙 · Math/Captcha: +5 each\\\\\\\\
+• Watch Ads: +${ADSTERRA_REWARD_COINS} AJ Coins 🪙 · Math/Captcha: +2 each\\\\\\\\
 • Video Post (TikReel): +${POST_REWARD_COINS} AJ Coins 🪙 per verified upload (max 5/day)\\\\\\\\
 • Photo Post (Pulse): +${POST_REWARD_COINS} AJ Coins 🪙 per verified upload (max 5/day)\\\\\\\\
 • Games install/milestone: +${GAME_REWARD_COINS} AJ Coins 🪙 (ads in games)\\\\\\\\
