@@ -1220,10 +1220,10 @@ function PkNotEnoughCoinsAlert({
             Not Enough Coins
           </p>
           <p className="text-white text-lg font-black leading-tight">
-            You have not enough coins for PK match
+            You do not have enough coins for a PK match
           </p>
           <p className="text-[11px] text-gray-400 font-bold leading-relaxed">
-            Match tabhi lagega jab entry coins pure hon. Abhi balance kam hai — pehle coins jamao, phir challenge / accept karo.
+            A match starts only when you have the full entry fee. Add coins first, then send or accept a challenge.
           </p>
           <div className="w-full grid grid-cols-2 gap-2 mt-1">
             <div className="rounded-2xl bg-white/5 border border-white/10 px-3 py-3">
@@ -7031,7 +7031,7 @@ Tip: Social Hub se copy karo 📤`,
               <span className="text-2xl font-black text-white">VS</span>
               <img src={tempPhoto || user?.photoURL || '/logo.png'} className="w-14 h-14 rounded-full border-2 border-orange-500 object-cover" alt="You"/>
             </div>
-            <p className="text-center text-[10px] text-gray-400 mb-4">Entry: {pkIncomingChallenge.entryCoins || PK_ENTRY_COINS} Coins · 5-min battle · coins pure hone chahiye</p>
+            <p className="text-center text-[10px] text-gray-400 mb-4">Entry: {pkIncomingChallenge.entryCoins || PK_ENTRY_COINS} Coins · 5-min battle · Full entry fee required</p>
             <div className="flex gap-3">
               <button
                 onClick={() => void acceptPkChallenge(pkIncomingChallenge)}
@@ -7210,9 +7210,8 @@ Tip: Social Hub se copy karo 📤`,
 
             <h2 className="text-xl font-black text-white">Enable Camera & Mic</h2>
             <p className="text-gray-400 text-xs leading-relaxed">
-              AJ Super Portal mein Live streaming, video calls, aur TikReels ke liye
-              camera aur mic access chahiye. Abhi allow karein taaki baad mein bilkul
-              smoothly kaam kare!
+              AJ Super Portal needs camera and microphone access for Live streaming,
+              video calls, and TikReels. Allow access now for the best experience.
             </p>
 
             <div className="flex flex-col gap-3 w-full mt-4">
@@ -7231,7 +7230,7 @@ Tip: Social Hub se copy karo 📤`,
               </button>
             </div>
             <p className="text-gray-600 text-[9px] mt-2">
-              Aap baad mein bhi Live stream start karte waqt permission de sakte hain.
+              You can also grant permission later when you start a Live stream.
             </p>
           </div>
         </div>
@@ -7446,7 +7445,7 @@ Tip: Social Hub se copy karo 📤`,
                   Refer & Earn · +{REFERRAL_COINS} 🪙 each
                 </p>
                 <p className="text-[9px] text-gray-400 truncate">
-                  Referral ID: {myReferralId || '…generating…'} · coins mangwane ke liye yeh do
+                  Referral ID: {myReferralId || 'Generating…'} · Share this ID to receive coins
                 </p>
               </div>
               <button
@@ -8762,7 +8761,7 @@ Tip: Social Hub se copy karo 📤`,
                       <p className="text-sm font-black text-white">⚔️ PK Challenge</p>
                       <button onClick={() => setPkChallengeOpen(false)}><X size={18} className="text-gray-400"/></button>
                     </div>
-                    <p className="text-[10px] text-gray-400 mb-3">Enter rival&apos;s User ID to challenge them to a 5-minute PK Battle. Entry: <span className="text-orange-300 font-black">{PK_ENTRY_COINS} Coins</span> — agar balance kam ho to match nahi lagega.</p>
+                    <p className="text-[10px] text-gray-400 mb-3">Enter your rival&apos;s User ID to challenge them to a 5-minute PK Battle. Entry: <span className="text-orange-300 font-black">{PK_ENTRY_COINS} Coins</span>. The match will not start if your balance is too low.</p>
                     <p className="text-[9px] text-amber-300/80 font-bold mb-3">Your balance: {balance.toLocaleString()} 🪙</p>
                     <input value={pkTargetId} onChange={e => setPkTargetId(e.target.value)} placeholder="Rival's User ID" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-orange-500/50 mb-4"/>
                     <button
@@ -9754,7 +9753,7 @@ Tip: Social Hub se copy karo 📤`,
                       <div className="flex-1 min-w-0">
                         <p className="text-[9px] text-cyan-300/90 font-black uppercase tracking-widest">Your Referral ID</p>
                         <p className="text-white text-sm font-black tracking-widest truncate">{myReferralId || 'Generating…'}</p>
-                        <p className="text-[8px] text-gray-400 mt-0.5">Yeh ID dekar coins mangwao · Transfer + Refer same</p>
+                        <p className="text-[8px] text-gray-400 mt-0.5">Share this ID to receive coins · Works for Transfer & Refer</p>
                       </div>
                       <button
                         type="button"
@@ -9877,7 +9876,7 @@ Tip: Social Hub se copy karo 📤`,
                 {/* Same Referral ID — give this to friends to receive coins */}
                 <div className="bg-white/5 border border-cyan-500/30 rounded-2xl p-4">
                   <p className="text-[10px] text-cyan-300/90 font-black uppercase tracking-widest mb-2">
-                    Your Referral ID (for Transfer)
+                    Your Referral ID
                   </p>
                   <div className="flex items-center gap-2">
                     <p className="text-white text-base font-black flex-1 tracking-widest">
@@ -9893,10 +9892,10 @@ Tip: Social Hub se copy karo 📤`,
                     </button>
                   </div>
                   <p className="text-[9px] text-amber-300/90 mt-2 font-black">
-                    Yeh aapki Referral ID hai — isi ID ko dost ko do / share karo taake wo Wallet → Transfer mein paste karke aapko coins bhej sake.
+                    This is your unique Referral ID. Share it so friends can send you coins via Wallet → Transfer.
                   </p>
                   <p className="text-[9px] text-gray-500 mt-1 font-bold">
-                    Coin mangwane ke liye yahi ID dein. Har user ki alag unique Referral ID hai.
+                    Use this ID to receive coins. Every account has its own Referral ID.
                   </p>
                 </div>
 
@@ -9904,7 +9903,7 @@ Tip: Social Hub se copy karo 📤`,
                   <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Send Coins</p>
                   <div>
                     <p className="text-[9px] text-cyan-300/90 font-black uppercase tracking-widest mb-1.5">
-                      Unki Referral ID
+                      Recipient Referral ID
                     </p>
                     <input
                       value={transferId}
@@ -9920,7 +9919,7 @@ Tip: Social Hub se copy karo 📤`,
                       }}
                     />
                     <p className="text-[9px] text-gray-500 mt-1.5 font-bold">
-                      Dost ki Referral ID paste karo (jo unke Transfer / Refer tab pe dikhti hai). Apni ID pe send nahi hoga.
+                      Paste their Referral ID from Wallet → Transfer or Refer. You cannot send coins to your own ID.
                     </p>
                   </div>
                   <input type="number" value={transferAmount||''} onChange={e => setTransferAmount(Number(e.target.value))} placeholder="Amount (Coins)" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"/>
@@ -9949,7 +9948,7 @@ Tip: Social Hub se copy karo 📤`,
                     </button>
                   </div>
                   <p className="text-[9px] text-gray-400 mt-2">
-                    Same Referral ID for invite signup + coin transfer. Dost ko yeh ID do — wo Transfer mein paste karke aapko coins bhejenge. Har signup with your code →{' '}
+                    One ID for invites and transfers. Share it with friends so they can send you coins via Transfer. Each signup with your code earns{' '}
                     <span className="text-yellow-400 font-black">+{REFERRAL_COINS} AJ Coins</span>.
                   </p>
                 </div>
