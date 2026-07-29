@@ -11,6 +11,7 @@ import BannerAdSlot from './ads/BannerAdSlot';
 import RewardedVideoOffer from './ads/RewardedVideoOffer';
 import { trackAdEvent } from '../lib/ad-client';
 import { MONETAG_INTERSTITIAL_ZONE } from '../lib/ads-config';
+import type { OnRefreshUser } from '../lib/wallet-refresh';
 
 type Props = {
   user: { uid: string; getIdToken: () => Promise<string> } | null;
@@ -18,7 +19,7 @@ type Props = {
   gameProgress: Record<string, GameProgressDoc>;
   onBack: () => void;
   onAlert: (msg: string, icon?: string) => void;
-  onRefreshUser?: () => void;
+  onRefreshUser?: OnRefreshUser;
   /** Optional interstitial before opening Ludo */
   onOpenWithAd?: (open: () => void) => void;
   cleanupAds?: () => void;
@@ -119,7 +120,11 @@ export default function GamingZone({
       } else {
         onAlert(data.message || `+${data.creditedCoins} AJ Coins`, '💰');
       }
-      onRefreshUser?.();
+      const credited = Number(data.creditedCoins || 0);
+      void onRefreshUser?.({
+        balance: typeof data.balance === 'number' ? data.balance : undefined,
+        creditedCoins: !data.duplicate && credited > 0 ? credited : undefined,
+      });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'claim_failed';
       if (msg !== 'level_not_reached') {

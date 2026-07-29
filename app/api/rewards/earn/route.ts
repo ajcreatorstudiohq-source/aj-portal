@@ -294,6 +294,7 @@ export async function POST(request: Request) {
       duplicate: !!result.duplicate,
       source,
       creditedCoins: result.balanceCredited ?? 0,
+      balance: result.balance,
       userUsd: result.split?.userUsd,
       adminUsd: result.split?.adminUsd,
       ownerUsd: result.split?.adminUsd,

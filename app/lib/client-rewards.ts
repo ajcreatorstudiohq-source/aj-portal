@@ -7,6 +7,7 @@ export type EarnResult = {
   ok: boolean;
   duplicate?: boolean;
   creditedCoins?: number;
+  balance?: number;
   userUsd?: number;
   adminUsd?: number;
   totalPoolUsd?: number;

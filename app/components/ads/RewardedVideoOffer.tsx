@@ -13,11 +13,12 @@ import {
 } from '../../lib/ads-config';
 import { guardClick, startIntrusiveAdGuard } from '../../lib/ad-guards';
 import { prepareRewardedVideo } from '../../lib/ad-client';
+import type { OnRefreshUser } from '../../lib/wallet-refresh';
 
 type Props = {
   user: { uid: string; getIdToken: () => Promise<string> } | null;
   onAlert: (msg: string, icon?: string) => void;
-  onRefreshUser?: () => void;
+  onRefreshUser?: OnRefreshUser;
 };
 
 type PersistedWatch = {
@@ -815,6 +816,7 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
           error?: string;
           message?: string;
           creditedCoins?: number;
+          balance?: number;
           remainingToday?: number;
           duplicate?: boolean;
           diag?: { lastError?: string | null; configured?: boolean };
@@ -890,7 +892,11 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
               data.message || `+${credited} AJ Coins 🪙 added to your wallet.`
             );
           }
-          onRefreshUser?.();
+          // Push absolute balance (or credited delta) so Hub UI updates immediately
+          void onRefreshUser?.({
+            balance: typeof data.balance === 'number' ? data.balance : undefined,
+            creditedCoins: credited > 0 ? credited : undefined,
+          });
           return;
         }
 

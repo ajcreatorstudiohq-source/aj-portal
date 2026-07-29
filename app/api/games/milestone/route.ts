@@ -98,6 +98,7 @@ export async function POST(request: Request) {
       ok: true,
       duplicate: result.duplicate,
       creditedCoins: result.balanceCredited ?? 0,
+      balance: result.balance,
       gameId,
       level,
       message: result.duplicate
