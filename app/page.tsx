@@ -6102,14 +6102,32 @@ export function AJSuperPortal() {
   const transferCoins = async () => {
     if (transferAmount<=0 || !transferId.trim()) return setVvipAlert({msg:"Fill all fields!", icon:'⚠️'});
     if (!user) return setVvipAlert({msg:"Please log in first.", icon:'🔒'});
-    const toUid = transferId.trim();
+    const entered = transferId.trim();
     const amount = Math.floor(transferAmount);
-    if (toUid.toLowerCase() === String(user.uid).toLowerCase()) {
-      return setVvipAlert({ msg: SELF_TRANSFER_ALERT, icon: '🚫' });
-    }
     if (amount <= 0) return setVvipAlert({msg:"Enter a valid amount.", icon:'⚠️'});
 
+    // Block paste of own Transfer ID (AJ…) or own Firebase uid
+    const enteredUpper = entered.toUpperCase();
+    if (
+      (myReferralId && enteredUpper === myReferralId.toUpperCase()) ||
+      entered.toLowerCase() === String(user.uid).toLowerCase()
+    ) {
+      return setVvipAlert({ msg: SELF_TRANSFER_ALERT, icon: '🚫' });
+    }
+
     try {
+      // Resolve unique Transfer ID (AJ…) → Firebase uid (also accepts legacy uid)
+      const toUid = await resolveReferrerUid(entered);
+      if (!toUid) {
+        return setVvipAlert({
+          msg: 'Transfer ID not found. Ask them to open Wallet → Transfer and share their ID.',
+          icon: '🔍',
+        });
+      }
+      if (toUid === user.uid) {
+        return setVvipAlert({ msg: SELF_TRANSFER_ALERT, icon: '🚫' });
+      }
+
       // Prefer Admin atomic transfer API when configured
       try {
         const token = await user.getIdToken();
@@ -6119,14 +6137,14 @@ export function AJSuperPortal() {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ toUid, amount }),
+          body: JSON.stringify({ transferId: entered, toUid, amount }),
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.ok) {
           try {
             await addDoc(collection(db,"notifications"), {
               title:"Transfer Sent",
-              message:`Sent ${amount} AJ Coins 🪙 to ID: ${toUid}`,
+              message:`Sent ${amount} AJ Coins 🪙 to Transfer ID: ${enteredUpper}`,
               date:serverTimestamp()
             });
           } catch {}
@@ -6137,13 +6155,13 @@ export function AJSuperPortal() {
         if (data.error && data.error !== 'admin_not_configured') {
           const map: Record<string, string> = {
             insufficient_balance: 'Insufficient balance!',
-            recipient_not_found: 'Recipient not found!',
+            recipient_not_found: 'Transfer ID not found!',
             self_transfer: SELF_TRANSFER_ALERT,
             sender_banned: 'Your account is restricted.',
             recipient_banned: 'Recipient account is restricted.',
           };
           return setVvipAlert({
-            msg: map[data.error] || data.message || data.error,
+            msg: data.message || map[data.error] || data.error,
             icon: data.error === 'self_transfer' ? '🚫' : '⚠️',
           });
         }
@@ -6171,7 +6189,7 @@ export function AJSuperPortal() {
       try {
         await addDoc(collection(db,"notifications"), {
           title:"Transfer Sent",
-          message:`Sent ${amount} AJ Coins 🪙 to ID: ${toUid}`,
+          message:`Sent ${amount} AJ Coins 🪙 to Transfer ID: ${enteredUpper}`,
           date:serverTimestamp()
         });
       } catch {}
@@ -6181,7 +6199,7 @@ export function AJSuperPortal() {
       const msg = e instanceof Error ? e.message : 'transfer_failed';
       console.error('transferCoins', e);
       if (msg === 'insufficient_balance') setVvipAlert({msg:'Insufficient balance!', icon:'💰'});
-      else if (msg === 'recipient_not_found') setVvipAlert({msg:'Recipient not found!', icon:'🔍'});
+      else if (msg === 'recipient_not_found') setVvipAlert({msg:'Transfer ID not found!', icon:'🔍'});
       else if (msg === 'self_transfer') setVvipAlert({msg: SELF_TRANSFER_ALERT, icon:'🚫'});
       else setVvipAlert({msg:'Transfer failed. Please try again.', icon:'⚠️'});
     }
@@ -7110,7 +7128,7 @@ Tip: Social Hub se copy karo 📤`,
                   Refer & Earn · +{REFERRAL_COINS} 🪙 each
                 </p>
                 <p className="text-[9px] text-gray-400 truncate">
-                  Your ID: {myReferralId || '…generating…'}
+                  Transfer / Referral ID: {myReferralId || '…generating…'}
                 </p>
               </div>
               <button
@@ -9506,17 +9524,40 @@ Tip: Social Hub se copy karo 📤`,
             {/* ── TRANSFER ── */}
             {walletTab === 'transfer' && (
               <div className="space-y-4">
+                {/* Your unique Transfer ID — share with others so they can send you coins */}
+                <div className="bg-white/5 border border-cyan-500/30 rounded-2xl p-4">
+                  <p className="text-[10px] text-cyan-300/90 font-black uppercase tracking-widest mb-2">
+                    Your Unique Transfer ID
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-white text-base font-black flex-1 tracking-widest">
+                      {myReferralId || 'Generating…'}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(myReferralId || '')}
+                      disabled={!myReferralId}
+                      className="bg-cyan-600/20 border border-cyan-500/40 text-cyan-300 text-[9px] font-black px-3 py-1.5 rounded-xl active:scale-90 transition-all disabled:opacity-40"
+                    >
+                      {copied ? '✓ Copied' : 'Copy'}
+                    </button>
+                  </div>
+                  <p className="text-[9px] text-gray-400 mt-2 font-bold">
+                    Yeh ID dusre user ko do — wo Wallet → Transfer mein paste karke aapko coins bhejenge. Har user ki alag unique ID hai.
+                  </p>
+                </div>
+
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3">
-                  <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Transfer Coins</p>
+                  <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Send Coins</p>
                   <div>
                     <p className="text-[9px] text-cyan-300/90 font-black uppercase tracking-widest mb-1.5">
-                      Recipient User ID
+                      Their Transfer ID
                     </p>
                     <input
                       value={transferId}
                       onChange={e => setTransferId(e.target.value)}
-                      placeholder="Paste another user’s ID"
-                      className="w-full rounded-2xl px-4 py-3.5 text-white text-sm font-black tracking-wide placeholder:text-white/35 placeholder:font-bold focus:outline-none"
+                      placeholder="e.g. AJ7K2M9X4P"
+                      className="w-full rounded-2xl px-4 py-3.5 text-white text-sm font-black tracking-widest uppercase placeholder:text-white/35 placeholder:font-bold placeholder:normal-case focus:outline-none"
                       style={{
                         background: 'linear-gradient(135deg, rgba(6,182,212,0.12), rgba(236,72,153,0.10))',
                         border: '1px solid rgba(34,211,238,0.55)',
@@ -9526,7 +9567,7 @@ Tip: Social Hub se copy karo 📤`,
                       }}
                     />
                     <p className="text-[9px] text-gray-500 mt-1.5 font-bold">
-                      Coins credit only when sent to a different user — not your own ID.
+                      Unki unique Transfer ID paste karo (Wallet → Transfer). Apni ID pe send nahi hoga.
                     </p>
                   </div>
                   <input type="number" value={transferAmount||''} onChange={e => setTransferAmount(Number(e.target.value))} placeholder="Amount (Coins)" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"/>
@@ -9541,7 +9582,7 @@ Tip: Social Hub se copy karo 📤`,
             {walletTab === 'referral' && (
               <div className="space-y-4">
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
-                  <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2">Your Unique Referral ID</p>
+                  <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2">Your Unique Referral + Transfer ID</p>
                   <div className="flex items-center gap-2">
                     <p className="text-white text-sm font-black flex-1 tracking-widest">
                       {myReferralId || 'Generating…'}
@@ -9555,9 +9596,8 @@ Tip: Social Hub se copy karo 📤`,
                     </button>
                   </div>
                   <p className="text-[9px] text-gray-400 mt-2">
-                    Share this ID. Each friend who signs up and enters it → you get{' '}
+                    Same ID for referral signup + coin transfer. Share it — friends enter it to join, or paste it in Wallet → Transfer to send you coins. Each signup with your code →{' '}
                     <span className="text-yellow-400 font-black">+{REFERRAL_COINS} AJ Coins</span>.
-                    No signup bonus.
                   </p>
                 </div>
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3">
