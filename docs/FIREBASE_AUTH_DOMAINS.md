@@ -34,6 +34,8 @@ On the auth screen (and before Google login), the client calls this API for the 
 | Local | `localhost` |
 | Netlify production | `aj-studio-portal.netlify.app` |
 | Netlify PR #95 preview | `deploy-preview-95--aj-studio-portal.netlify.app` |
+| Netlify PR #97 preview | `deploy-preview-97--aj-studio-portal.netlify.app` |
+| Netlify PR #98 preview | `deploy-preview-98--aj-studio-portal.netlify.app` |
 | Production custom domain | your live domain (+ `www` if used) |
 
 Also Google Cloud Console → **APIs & Services** → **Credentials** → OAuth 2.0 Client:
