@@ -129,30 +129,34 @@ function loadServiceAccount(): ServiceAccount | null {
   return null;
 }
 
-function loadAdminSdk(): {
+type AdminSdkCore = {
   cert: typeof import('firebase-admin/app').cert;
   getApps: typeof import('firebase-admin/app').getApps;
   initializeApp: typeof import('firebase-admin/app').initializeApp;
-  getAuth: typeof import('firebase-admin/auth').getAuth;
   getFirestore: typeof import('firebase-admin/firestore').getFirestore;
   FieldValue: typeof import('firebase-admin/firestore').FieldValue;
-} | null {
+};
+
+let cachedSdk: AdminSdkCore | null = null;
+
+function loadAdminSdk(): AdminSdkCore | null {
+  if (cachedSdk) return cachedSdk;
   try {
+    // Load ONLY app + firestore. Do NOT load firebase-admin/auth here —
+    // auth pulls jwks-rsa → jose ESM which breaks require() on Vercel.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const appMod = require('firebase-admin/app') as typeof import('firebase-admin/app');
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const authMod = require('firebase-admin/auth') as typeof import('firebase-admin/auth');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const fsMod =
       require('firebase-admin/firestore') as typeof import('firebase-admin/firestore');
-    return {
+    cachedSdk = {
       cert: appMod.cert,
       getApps: appMod.getApps,
       initializeApp: appMod.initializeApp,
-      getAuth: authMod.getAuth,
       getFirestore: fsMod.getFirestore,
       FieldValue: fsMod.FieldValue,
     };
+    return cachedSdk;
   } catch (e) {
     lastError =
       e instanceof Error
@@ -229,9 +233,10 @@ export function getAdminAuth(): Auth | null {
   try {
     const app = getAdminApp();
     if (!app) return null;
-    const sdk = loadAdminSdk();
-    if (!sdk) return null;
-    return sdk.getAuth(app);
+    // Auth is optional — load only when needed (may fail on jose ESM; claim path does not need it)
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { getAuth } = require('firebase-admin/auth') as typeof import('firebase-admin/auth');
+    return getAuth(app);
   } catch (e) {
     lastError =
       e instanceof Error ? `getAuth failed: ${e.message}` : 'getAuth failed';
