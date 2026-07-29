@@ -18,6 +18,7 @@ import {
   formatUsd,
 } from '../../../lib/economy';
 import { getAdminDb, FieldValue } from '../../../lib/firebase-admin';
+import { secretsDiag } from '../../../lib/secrets-diag';
 
 function isPaidStatus(status: string) {
   const s = status.toLowerCase();
@@ -274,6 +275,7 @@ export async function GET(request: Request) {
       // Kept for internal tooling only — not shown in user UI
       platformSharePct: PLATFORM_EARN_SHARE,
       userSharePct: USER_EARN_SHARE,
+      secrets: secretsDiag(),
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'summary_failed';

@@ -1,0 +1,10 @@
+/** Shared types for admin earnings — safe for type-only imports (no server-only). */
+export type AdminEarningsTotals = {
+  totalOwnerUsd: number;
+  totalOwnerCoins: number;
+  giftOwnerUsd: number;
+  giftOwnerCoins: number;
+  adOwnerUsd: number;
+  eventCount: number;
+  updatedAt?: unknown;
+};
