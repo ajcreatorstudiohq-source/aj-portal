@@ -6407,6 +6407,14 @@ export function AJSuperPortal() {
               title: 'Transfer Sent',
               message: `Sent ${amount} AJ Coins 🪙 to Transfer ID: ${enteredUpper}`,
             });
+            await notifyUser(user, toUid, {
+              type: 'transfer',
+              title: 'Coins Received',
+              message: `+${amount} AJ Coins 🪙 from @${username || 'AJ_Member'}`,
+              fromUid: user.uid,
+              fromUsername: username || 'AJ_Member',
+              pushBody: `You received ${amount} AJ Coins on AJ Portal`,
+            });
           } catch {}
           setVvipAlert({msg: data.message || `✅ Transferred ${amount} AJ Coins 🪙`, icon:"✅"});
           setTransferAmount(0); setTransferId(''); setWalletTab('main');
@@ -6451,6 +6459,14 @@ export function AJSuperPortal() {
           type: 'transfer',
           title: 'Transfer Sent',
           message: `Sent ${amount} AJ Coins 🪙 to Transfer ID: ${enteredUpper}`,
+        });
+        await notifyUser(user, toUid, {
+          type: 'transfer',
+          title: 'Coins Received',
+          message: `+${amount} AJ Coins 🪙 from @${username || 'AJ_Member'}`,
+          fromUid: user.uid,
+          fromUsername: username || 'AJ_Member',
+          pushBody: `You received ${amount} AJ Coins on AJ Portal`,
         });
       } catch {}
       setVvipAlert({msg:`✅ Transferred ${amount} AJ Coins 🪙`,icon:"✅"});
