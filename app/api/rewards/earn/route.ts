@@ -5,6 +5,8 @@ import { applySplitReward, applyFlatCoins } from '../../../lib/reward-engine';
 import {
   isRewardSource,
   SOURCE_LABELS,
+  POST_REWARD_COINS,
+  REWARD_COIN_AMOUNTS,
   type RewardSource,
 } from '../../../lib/reward-sources';
 import {
@@ -13,13 +15,12 @@ import {
 } from '../../../lib/verify-id-token';
 import { splitGiftCoins, GIFT_ADMIN_SHARE, GIFT_CREATOR_SHARE, REFERRAL_BONUS_COINS } from '../../../lib/economy';
 
-const POST_REWARD_COINS = 5;
 const BOT_CLAIM_LOCK_MS = 24 * 60 * 60 * 1000;
 
 /**
  * POST /api/rewards/earn
  * Strict verification for ads/offers/installs.
- * Flat 5 AJ Coins for verified TikReel/Pulse uploads.
+ * Flat POST_REWARD_COINS for verified TikReel/Pulse uploads.
  * AI bot sync locked to serverTimestamp 24h window (anti device-clock cheat).
  */
 export async function POST(request: Request) {
@@ -266,5 +267,6 @@ export async function GET() {
     sources: Object.keys(SOURCE_LABELS),
     labels: SOURCE_LABELS,
     postRewardCoins: POST_REWARD_COINS,
+    amounts: REWARD_COIN_AMOUNTS,
   });
 }

@@ -87,6 +87,20 @@ export const PREMIUM_DIRECT_GAMES = [
 export const PREMIUM_CPA_GAMES = PREMIUM_DIRECT_GAMES;
 
 /**
+ * Estimated USD YOU earn per successful Adsterra Direct Link / Watch Ads click.
+ * Override with NEXT_PUBLIC_ADSTERRA_CLICK_USD from your real dashboard CPC.
+ * Keep ≤ real average CPC or user 30% withdraw liability can exceed income.
+ */
+export const ADSTERRA_CLICK_USD = Math.max(
+  0,
+  Number(
+    process.env.NEXT_PUBLIC_ADSTERRA_CLICK_USD ||
+      process.env.ADSTERRA_CLICK_USD ||
+      0.05
+  ) || 0.05
+);
+
+/**
  * Hard revenue split — every non-gift earn path must keep this ratio.
  * Owner / platform: 70% (USD ledger in AdminRevenue + real ad-network payouts).
  * User / creator: 30% (AJ Coins only — never shown as $ in UI).
@@ -100,10 +114,6 @@ export const USER_EARN_SHARE = 0.3;
  */
 export const GIFT_ADMIN_SHARE = 0.4;
 export const GIFT_CREATOR_SHARE = 0.6;
-
-/** Internal activity pool band (server ledger only — not shown in UI). Always split 70/30. */
-const PROVIDER_BAND_MIN = 5.0;
-const PROVIDER_BAND_MAX = 7.0;
 
 export type GameCatalogItem = {
   id: string;
@@ -251,15 +261,16 @@ export function splitAdClickUsd(clickUsd: number): RewardSplit {
 /**
  * Exact 70/30 split on a generic coin pool (non-gift).
  * Sender pays `totalCoins`; user gets 30%; platform keeps 70%.
+ * USD valued at withdraw rate (CASH_RATE) so liability matches wallet $.
  */
 export function splitCoinPool(totalCoins: number): RewardSplit {
   const total = Math.max(0, Math.floor(Number(totalCoins) || 0));
   const userCoins = Math.floor(total * USER_EARN_SHARE);
   const adminCoins = total - userCoins;
   return {
-    totalUsd: Number((total / COIN_RATE).toFixed(4)),
-    userUsd: Number((userCoins / COIN_RATE).toFixed(4)),
-    adminUsd: Number((adminCoins / COIN_RATE).toFixed(4)),
+    totalUsd: coinsToUsd(total),
+    userUsd: coinsToUsd(userCoins),
+    adminUsd: coinsToUsd(adminCoins),
     userCoins,
     adminCoins,
   };
@@ -268,30 +279,33 @@ export function splitCoinPool(totalCoins: number): RewardSplit {
 /**
  * Gift split: admin 40% / creator 60% of gift cost coins.
  * Example: 500 → admin 200, creator 300.
+ * USD at withdraw rate (CASH_RATE).
  */
 export function splitGiftCoins(totalCoins: number): RewardSplit {
   const total = Math.max(0, Math.floor(Number(totalCoins) || 0));
   const userCoins = Math.floor(total * GIFT_CREATOR_SHARE);
   const adminCoins = total - userCoins;
   return {
-    totalUsd: Number((total / COIN_RATE).toFixed(4)),
-    userUsd: Number((userCoins / COIN_RATE).toFixed(4)),
-    adminUsd: Number((adminCoins / COIN_RATE).toFixed(4)),
+    totalUsd: coinsToUsd(total),
+    userUsd: coinsToUsd(userCoins),
+    adminUsd: coinsToUsd(adminCoins),
     userCoins,
     adminCoins,
   };
 }
 
 /**
- * Compute user / admin ledger split for server rewards (AJ Coins only in UI).
- * Pool band $5–$7, but ratio is always exactly 70% owner / 30% user.
- * Deterministic when `seed` is provided (idempotent postbacks).
+ * Activity earn split — always one Adsterra click USD (no-loss).
+ * User 30% coins @ CASH_RATE · admin 70% USD ledger.
+ * `seed` kept for API compatibility (idempotent callers).
  */
-export function computeRewardSplit(seed: string): RewardSplit {
-  const u = hashUnit(seed);
-  const totalUsd =
-    PROVIDER_BAND_MIN + u * (PROVIDER_BAND_MAX - PROVIDER_BAND_MIN);
-  return splitPoolUsd(Number(totalUsd.toFixed(4)));
+export function computeRewardSplit(_seed?: string): RewardSplit {
+  return splitAdClickUsd(ADSTERRA_CLICK_USD);
+}
+
+/** User coins for one Adsterra-linked claim (Watch Ads / Math / Captcha). */
+export function adsterraUserRewardCoins(): number {
+  return splitAdClickUsd(ADSTERRA_CLICK_USD).userCoins;
 }
 
 export function getGameById(gameId: string): GameCatalogItem | undefined {

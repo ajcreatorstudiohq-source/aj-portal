@@ -1,7 +1,16 @@
 /**
  * Canonical multi-source earning channels for AJ Super Portal.
  * Every channel credits AJ Coins 🪙 via verified server paths only.
+ *
+ * Coin amounts (Adsterra click = $0.05 default → user 30% = 15 🪙):
+ * - Watch Ads / Math / Captcha → ADSTERRA_REWARD_COINS (15)
+ * - TikReel / Pulse post → POST_REWARD_COINS (5)
+ * - Referral → REFERRAL_BONUS_COINS (25) from economy
+ * - Live / games / other split earns → same Adsterra click 30% via computeRewardSplit
  */
+
+import { ADSTERRA_REWARD_COINS } from './ads-config';
+import { REFERRAL_BONUS_COINS, adsterraUserRewardCoins } from './economy';
 
 export const REWARD_SOURCES = [
   'game_install',
@@ -64,11 +73,31 @@ export const SOURCE_LABELS: Record<RewardSource, string> = {
   alpha_captcha: 'Premium Alphanumeric Captcha',
 };
 
-/** Flat AJ Coin rewards */
-export const MATH_CHALLENGE_COINS = 2;
-export const ALPHA_CAPTCHA_COINS = 2;
+/** TikReel / Pulse verified upload reward */
+export const POST_REWARD_COINS = 5;
+
 /**
- * @deprecated Use ADSTERRA_REWARD_COINS from ads-config (30% of Adsterra click USD).
- * Kept as fallback alias for older imports.
+ * Math & Captcha open Adsterra Direct Link → same 30% of click as Watch Ads.
+ * Default 15 🪙 when ADSTERRA_CLICK_USD = $0.05.
  */
-export { ADSTERRA_REWARD_COINS as REWARDED_VIDEO_COINS } from './ads-config';
+export const MATH_CHALLENGE_COINS = ADSTERRA_REWARD_COINS;
+export const ALPHA_CAPTCHA_COINS = ADSTERRA_REWARD_COINS;
+
+/** Activity earn (live / games / etc.) — same Adsterra click user share */
+export const ACTIVITY_REWARD_COINS = adsterraUserRewardCoins();
+
+export { REFERRAL_BONUS_COINS, ADSTERRA_REWARD_COINS };
+
+/** @deprecated Use ADSTERRA_REWARD_COINS */
+export const REWARDED_VIDEO_COINS = ADSTERRA_REWARD_COINS;
+
+/** Public map for UI / GET helpers — exact coins credited per action */
+export const REWARD_COIN_AMOUNTS = {
+  watch_ads: ADSTERRA_REWARD_COINS,
+  math_challenge: MATH_CHALLENGE_COINS,
+  alpha_captcha: ALPHA_CAPTCHA_COINS,
+  tiktok_post: POST_REWARD_COINS,
+  pulse_post: POST_REWARD_COINS,
+  referral: REFERRAL_BONUS_COINS,
+  activity: ACTIVITY_REWARD_COINS,
+} as const;

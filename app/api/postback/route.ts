@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createHash, timingSafeEqual } from 'crypto';
 import { applyFlatCoins } from '../../lib/reward-engine';
+import { CASH_RATE, USER_EARN_SHARE, PLATFORM_EARN_SHARE } from '../../lib/economy';
 
 const POSTBACK_SECRET =
   process.env.OFFERWALL_POSTBACK_SECRET ||
@@ -8,14 +9,17 @@ const POSTBACK_SECRET =
   'AJ_SUPER_SECURE_786_PORTAL';
 
 /**
- * Profit lock (~80% operator margin):
- * provider payout 1.00 → user gets 200 AJ Coins (not 1000).
+ * Offerwall / AdGem postback — partner pays YOU 100% of payout USD.
+ * User gets 30% as AJ Coins at CASH_RATE (withdraw); you keep 70%.
+ * Example: payout $1 → user 300 🪙 ($0.30) · admin $0.70
  */
-const PAYOUT_TO_USER_COINS = 200;
+function userCoinsFromPayoutUsd(payoutUsd: number): number {
+  return Math.floor(Math.max(0, payoutUsd) * USER_EARN_SHARE * CASH_RATE);
+}
 
 /**
  * GET|POST /api/postback
- * Partner S2S postback with profit-margin multiplier (×200 AJ Coins).
+ * Partner S2S postback. User reward = floor(payoutUSD * 0.3 * 1000).
  *
  * AdGem dashboard postback (app 33088):
  *   https://aj-portal-one.vercel.app/api/postback?payout={amount}&status={state}&userId={player_id}
@@ -24,8 +28,6 @@ const PAYOUT_TO_USER_COINS = 200;
  *
  * Legacy CPAGrip:
  *   https://YOUR_DOMAIN/api/postback?userId={tracking_id}&payout={payout}&txid={offer_id}&status={status}&secret=AJ_SUPER_SECURE_786_PORTAL
- *
- * userReward = Math.floor(parseFloat(payout) * 200)
  */
 function readParams(url: URL, body: Record<string, unknown>) {
   const g = (k: string) => String(url.searchParams.get(k) || body[k] || '');
@@ -90,9 +92,9 @@ function isSuccessStatus(status: string): boolean {
 }
 
 function computeUserReward(payout: number, legacyPoints: number): number {
-  // Primary: profit lock — floor(payoutUSD * 200)
+  // Primary: 30% of partner payout USD at withdraw rate
   if (Number.isFinite(payout) && payout > 0) {
-    return Math.floor(parseFloat(String(payout)) * PAYOUT_TO_USER_COINS);
+    return userCoinsFromPayoutUsd(payout);
   }
   // Legacy fallback if network only sends pre-scaled user points
   if (legacyPoints > 0) return Math.floor(legacyPoints);
@@ -160,7 +162,9 @@ async function handle(request: Request) {
       coins: userReward,
       meta: {
         providerPayout: params.payout,
-        multiplier: PAYOUT_TO_USER_COINS,
+        userSharePct: USER_EARN_SHARE,
+        platformSharePct: PLATFORM_EARN_SHARE,
+        cashRate: CASH_RATE,
         userReward,
         status: params.status,
         via: 'adgem_postback',
@@ -190,8 +194,9 @@ async function handle(request: Request) {
       duplicate: !!result.duplicate,
       userId: params.uid,
       providerPayout: params.payout,
-      multiplier: PAYOUT_TO_USER_COINS,
+      userSharePct: USER_EARN_SHARE,
       creditedCoins: result.balanceCredited ?? 0,
+      adminUsd: result.split?.adminUsd,
       message: result.duplicate
         ? 'Already credited'
         : `+${result.balanceCredited} AJ Coins 🪙`,

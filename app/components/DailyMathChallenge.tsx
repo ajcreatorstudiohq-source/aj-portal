@@ -13,7 +13,7 @@ type Props = {
 };
 
 /**
- * Daily Math Challenge — Submit opens Adsterra, then Verify & Claim credits +2.
+ * Daily Math Challenge — opens Adsterra; Verify & Claim = 30% of click (same as Watch Ads).
  */
 export default function DailyMathChallenge({ user, onAlert, onRefreshUser }: Props) {
   const [busy, setBusy] = useState(false);
