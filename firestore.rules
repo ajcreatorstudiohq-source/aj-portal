@@ -48,7 +48,10 @@ service cloud.firestore {
             && request.resource.data.diff(resource.data).affectedKeys()
                 .hasOnly([
                   'balance',
+                  'purchasedCoins',
                   'invested',
+                  'botTier',
+                  'botFundedByPurchase',
                   'offerwallVideoDayCount',
                   'offerwallDayCount',
                   'dailyRewards',

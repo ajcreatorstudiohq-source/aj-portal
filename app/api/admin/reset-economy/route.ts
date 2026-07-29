@@ -49,7 +49,10 @@ export async function POST(request: Request) {
     for (const d of users.docs) {
       batch.update(d.ref, {
         balance: 0,
+        purchasedCoins: 0,
         invested: 0,
+        botTier: 'none',
+        botFundedByPurchase: false,
         offerwallVideoDayCount: 0,
         offerwallDayCount: 0,
         dailyRewards: {},
