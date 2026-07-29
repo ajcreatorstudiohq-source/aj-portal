@@ -2953,34 +2953,53 @@ export function AJSuperPortal() {
           }
         } else {
           // NEW USER — 0 signup bonus; unique referral ID; camera prompt
+          const newUsername =
+            String(cu.displayName || '')
+              .toLowerCase()
+              .replace(/[^a-z0-9_]+/g, '_')
+              .replace(/^_+|_+$/g, '')
+              .slice(0, 24) || `user_${cu.uid.slice(0, 6)}`;
+          const createdAtMs = Date.now();
           const newRefId = await (async () => {
-            // Create user first with placeholder, then allocate unique code
-            await setDoc(userRef, {
-              name: cu.displayName,
-              username: String(cu.displayName || '')
-                .toLowerCase()
-                .replace(/\s+/g, '_')
-                .slice(0, 24) || `user_${cu.uid.slice(0, 6)}`,
-              email: cu.email,
-              balance: SIGNUP_BONUS_COINS, // always 0
-              botTier: 'none',
-              invested: 0,
-              uid: cu.uid,
-              lastSync: serverTimestamp(),
-              createdAtMs: Date.now(),
-              lastSeenMs: Date.now(),
-              hasSocialProfile: true,
-              photo: cu.photoURL || '',
-              followers: 0,
-              following: 0,
-              postsCount: 0,
-              followersCount: 0,
-              followingCount: 0,
-              totalLikes: 0,
-              status: 'online',
-              fcmToken: '',
-              ...DEFAULT_ACCOUNT_BAN_FIELDS,
-            });
+            try {
+              await setDoc(userRef, {
+                name: cu.displayName || newUsername,
+                username: newUsername,
+                email: cu.email || '',
+                balance: SIGNUP_BONUS_COINS, // always 0
+                botTier: 'none',
+                invested: 0,
+                purchasedCoins: 0,
+                uid: cu.uid,
+                lastSync: serverTimestamp(),
+                createdAtMs,
+                lastSeenMs: createdAtMs,
+                hasSocialProfile: true,
+                photo: cu.photoURL || '',
+                photoURL: cu.photoURL || '',
+                followers: 0,
+                following: 0,
+                postsCount: 0,
+                followersCount: 0,
+                followingCount: 0,
+                totalLikes: 0,
+                status: 'online',
+                fcmToken: '',
+                ...DEFAULT_ACCOUNT_BAN_FIELDS,
+              });
+            } catch (createErr) {
+              console.warn('client setDoc new user failed', createErr);
+            }
+            // Server-side ensure (Admin SDK) so Admin Users sees full profile immediately
+            try {
+              const token = await cu.getIdToken();
+              await fetch('/api/auth/ensure-profile', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` },
+              });
+            } catch (apiErr) {
+              console.warn('ensure-profile', apiErr);
+            }
             try {
               return await ensureUserReferralId(cu.uid);
             } catch {
@@ -2988,9 +3007,23 @@ export function AJSuperPortal() {
             }
           })();
           setMyReferralId(newRefId);
+          setUsername(newUsername);
+          setProfileDisplayName(cu.displayName || newUsername);
+          setTempPhoto(cu.photoURL || '');
           setHasSocialProfile(true);
           setBanNotice(null);
           setShowCameraPermissionPrompt(true);
+        }
+
+        // Existing + new: always ensure profile is complete for admin live list
+        try {
+          const token = await cu.getIdToken();
+          await fetch('/api/auth/ensure-profile', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+          });
+        } catch {
+          /* non-fatal */
         }
 
         userDocUnsub = onSnapshot(userRef, async (s) => {
