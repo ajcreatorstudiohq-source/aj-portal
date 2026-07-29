@@ -10,6 +10,10 @@ export const BASE_AUTH_DOMAINS = [
   'aj-super-portal.firebaseapp.com',
   'aj-super-portal.web.app',
   'aj-studio-portal.netlify.app',
+  // Recent Netlify deploy previews (Google OAuth)
+  'deploy-preview-95--aj-studio-portal.netlify.app',
+  'deploy-preview-97--aj-studio-portal.netlify.app',
+  'deploy-preview-98--aj-studio-portal.netlify.app',
 ] as const;
 
 /** Optional extra hosts from env (comma-separated, no protocol). */
