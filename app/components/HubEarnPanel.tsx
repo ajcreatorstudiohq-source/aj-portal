@@ -6,6 +6,10 @@ import AlphaCaptchaChallenge from './AlphaCaptchaChallenge';
 import RewardedVideoOffer from './ads/RewardedVideoOffer';
 import { ADGEM_APP_ID, buildAdGemUrl } from '../lib/offer-hub';
 import { PREMIUM_DIRECT_GAMES } from '../lib/economy';
+import {
+  MATH_CHALLENGE_COINS,
+  ALPHA_CAPTCHA_COINS,
+} from '../lib/reward-sources';
 import { handleEarnAndPlayGame } from '../lib/direct-download';
 import { trackAdEvent } from '../lib/ad-client';
 import { guardClick, startIntrusiveAdGuard } from '../lib/ad-guards';
@@ -244,7 +248,7 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
             <div className="min-w-0">
               <p className="text-[12px] font-black text-white leading-tight">Math & Captcha</p>
               <p className="text-[9px] font-black uppercase tracking-wider text-cyan-300 mt-1">
-                Daily Faucet · +5 / +10 🪙
+                Daily Faucet · +{MATH_CHALLENGE_COINS} / +{ALPHA_CAPTCHA_COINS} 🪙
               </p>
             </div>
           </div>
