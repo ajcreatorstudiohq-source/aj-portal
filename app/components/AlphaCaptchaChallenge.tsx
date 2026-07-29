@@ -6,6 +6,7 @@ import { ALPHA_CAPTCHA_COINS } from '../lib/reward-sources';
 import { ADSTERRA_REWARDED_LINK } from '../lib/ads-config';
 import { guardClick, startIntrusiveAdGuard } from '../lib/ad-guards';
 import type { OnRefreshUser } from '../lib/wallet-refresh';
+import { claimRefreshPatch } from '../lib/wallet-refresh';
 import { publicClaimErrorMessage } from '../lib/claim-errors';
 
 type Props = {
@@ -125,15 +126,13 @@ export default function AlphaCaptchaChallenge({ user, onAlert, onRefreshUser }: 
       const creditForUi =
         !data.duplicate ? (credited > 0 ? credited : ALPHA_CAPTCHA_COINS) : 0;
       // Hub balance MUST update before the success popup (first claim).
+      // Prefer absolute server balance only — never balance+credited together.
       await onRefreshUser?.(
-        data.duplicate
-          ? typeof data.balance === 'number'
-            ? { balance: data.balance }
-            : undefined
-          : {
-              ...(typeof data.balance === 'number' ? { balance: data.balance } : {}),
-              creditedCoins: creditForUi,
-            }
+        claimRefreshPatch({
+          balance: typeof data.balance === 'number' ? data.balance : null,
+          creditedCoins: creditForUi,
+          duplicate: !!data.duplicate,
+        })
       );
       onAlert(
         data.message || `+${creditForUi || ALPHA_CAPTCHA_COINS} AJ Coins 🪙`,

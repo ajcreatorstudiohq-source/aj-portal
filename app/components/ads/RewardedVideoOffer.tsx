@@ -14,6 +14,7 @@ import {
 import { guardClick, startIntrusiveAdGuard } from '../../lib/ad-guards';
 import { prepareRewardedVideo } from '../../lib/ad-client';
 import type { OnRefreshUser } from '../../lib/wallet-refresh';
+import { claimRefreshPatch } from '../../lib/wallet-refresh';
 import { publicClaimErrorMessage } from '../../lib/claim-errors';
 
 type Props = {
@@ -881,16 +882,14 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
           setSessionId(null);
           sessionIdRef.current = null;
           const credited = Number(data.creditedCoins || 0);
-          // Refresh Hub balance FIRST (before popup) so UI updates on first claim
+          // Refresh Hub balance FIRST (before popup) so UI updates on first claim.
+          // Absolute balance only when present — avoids double-count with creditedCoins.
           await onRefreshUser?.(
-            !data.duplicate && credited > 0
-              ? {
-                  ...(typeof data.balance === 'number' ? { balance: data.balance } : {}),
-                  creditedCoins: credited,
-                }
-              : typeof data.balance === 'number'
-                ? { balance: data.balance }
-                : undefined
+            claimRefreshPatch({
+              balance: typeof data.balance === 'number' ? data.balance : null,
+              creditedCoins: !data.duplicate && credited > 0 ? credited : 0,
+              duplicate: !!data.duplicate,
+            })
           );
           if (data.duplicate) {
             showWarnPopup(
