@@ -7,8 +7,39 @@ import {
 } from '../../../lib/verify-id-token';
 
 /**
+ * Resolve recipient: unique Transfer ID (AJ…) via referral_ids, or legacy Firebase uid.
+ */
+async function resolveTransferTargetUid(
+  db: NonNullable<ReturnType<typeof getAdminDb>>,
+  raw: string
+): Promise<string | null> {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed) return null;
+  const upper = trimmed.toUpperCase();
+
+  const mapSnap = await db.collection('referral_ids').doc(upper).get();
+  if (mapSnap.exists) {
+    const uid = String((mapSnap.data() as { uid?: string }).uid || '').trim();
+    if (uid) return uid;
+  }
+
+  const byCode = await db
+    .collection('users')
+    .where('referralId', '==', upper)
+    .limit(1)
+    .get();
+  if (!byCode.empty) return byCode.docs[0]!.id;
+
+  const byUid = await db.collection('users').doc(trimmed).get();
+  if (byUid.exists) return trimmed;
+
+  return null;
+}
+
+/**
  * POST /api/wallet/transfer
  * Atomic coin transfer via Admin Firestore transaction.
+ * Accepts unique Transfer ID (same as referralId, e.g. AJ7K2M9X4P) or Firebase uid.
  * Blocks self-transfer; requires sufficient sender balance.
  */
 export async function POST(request: Request) {
@@ -23,22 +54,13 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json().catch(() => ({}));
-    const toUid = String(body.toUid || body.receiverId || '').trim();
+    const rawTarget = String(
+      body.transferId || body.toUid || body.receiverId || body.toTransferId || ''
+    ).trim();
     const amount = Math.floor(Number(body.amount || 0));
 
-    if (!toUid || !Number.isFinite(amount) || amount <= 0) {
+    if (!rawTarget || !Number.isFinite(amount) || amount <= 0) {
       return NextResponse.json({ ok: false, error: 'invalid_params' }, { status: 400 });
-    }
-    if (toUid === actor.uid) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: 'self_transfer',
-          message:
-            'Transfer blocked. You cannot send coins to your own ID. Transfers only succeed when sent to another user.',
-        },
-        { status: 400 }
-      );
     }
 
     const db = getAdminDb();
@@ -50,6 +72,30 @@ export async function POST(request: Request) {
           message: 'Server transfer unavailable. Configure FIREBASE_SERVICE_ACCOUNT_JSON.',
         },
         { status: 503 }
+      );
+    }
+
+    const toUid = await resolveTransferTargetUid(db, rawTarget);
+    if (!toUid) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'recipient_not_found',
+          message: 'Transfer ID not found. Ask them for their unique Transfer ID from Wallet → Transfer.',
+        },
+        { status: 404 }
+      );
+    }
+
+    if (toUid === actor.uid) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'self_transfer',
+          message:
+            'Transfer blocked. You cannot send coins to your own ID. Transfers only succeed when sent to another user.',
+        },
+        { status: 400 }
       );
     }
 
@@ -91,6 +137,7 @@ export async function POST(request: Request) {
         fromUid: actor.uid,
         toUid,
         amount,
+        transferIdEntered: rawTarget.toUpperCase(),
         createdAt: FieldValue.serverTimestamp(),
       });
 
