@@ -144,17 +144,14 @@
         }
         #garage-icon-btn:hover { transform: scale(1.1) rotate(10deg); background: var(--cyan); color: #000; }
 
-        #sound-btn-game, #pause-btn, #mic-btn {
+        #sound-btn-game, #pause-btn {
             position: fixed; top: 12px; width: 46px; height: 46px;
             background: rgba(0,0,0,0.6); border: 2px solid white; border-radius: 50%;
             display: none; align-items: center; justify-content: center;
             font-size: 20px; z-index: 5500; cursor: pointer; transition: 0.3s;
         }
-        #sound-btn-game { right: 150px; }
-        #pause-btn { right: 90px; }
-        #mic-btn { right: 30px; }
-        #mic-btn.muted { border-color: #ff3b3b; }
-        #mic-btn.speaking { border-color: var(--green); box-shadow: 0 0 15px var(--green); }
+        #sound-btn-game { right: 90px; }
+        #pause-btn { right: 30px; }
 
         .logo-text {
             font-family: 'Audiowide', cursive;
@@ -233,15 +230,15 @@
         .p-label.corner-tl { bottom: auto; right: auto; top: -42px; left: 0; flex-direction: row; }
         .p-label.you-seat { box-shadow: 0 0 14px rgba(255,215,0,0.45); }
 
-        .chat-bubble { position: absolute; background: white; color: black; padding: 6px 12px; border-radius: 12px; font-size: 12px; font-weight: 900; max-width: 130px; word-wrap: break-word; pointer-events: none; z-index: 6000; display: none; transform: translateY(-58px); border: 2px solid #333; box-shadow: 0 4px 10px rgba(0,0,0,0.4); }
+        .chat-bubble { position: absolute; background: white; color: black; padding: 8px 14px; border-radius: 14px; font-size: 16px; font-weight: 900; max-width: 160px; word-wrap: break-word; pointer-events: none; z-index: 6000; display: none; transform: translateY(-62px); border: 2px solid #333; box-shadow: 0 4px 10px rgba(0,0,0,0.4); }
 
-        #chat-icon { position: fixed; bottom: 20px; right: 20px; width: 52px; height: 52px; background: var(--blue); border-radius: 50%; display: none; align-items: center; justify-content: center; font-size: 24px; cursor: pointer; z-index: 5500; border: 2px solid white; box-shadow: 0 5px 18px rgba(41,121,255,0.5); }
-        #chat-panel { position: fixed; bottom: 82px; right: 20px; background: rgba(0,0,0,0.96); border: 2px solid var(--cyan); border-radius: 16px; width: 230px; display: none; flex-direction: column; padding: 12px; z-index: 5500; }
-        .chat-input-area { display: flex; gap: 6px; margin-bottom: 8px; }
-        .chat-text-input { background: #222; border: 1px solid #444; color: white; border-radius: 8px; padding: 6px; flex: 1; font-size: 12px; outline: none; }
-        .chat-send-btn { background: var(--green); border: none; color: black; font-weight: 900; border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 11px; }
-        .emoji-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; border-top: 1px solid #444; padding-top: 8px; }
-        .emoji-btn { cursor: pointer; font-size: 22px; text-align: center; border-radius: 8px; padding: 4px; }
+        #chat-icon { position: fixed; bottom: 20px; right: 20px; width: 64px; height: 64px; background: var(--blue); border-radius: 50%; display: none; align-items: center; justify-content: center; font-size: 30px; cursor: pointer; z-index: 5500; border: 2px solid white; box-shadow: 0 5px 18px rgba(41,121,255,0.5); }
+        #chat-panel { position: fixed; bottom: 96px; right: 16px; background: rgba(0,0,0,0.96); border: 2px solid var(--cyan); border-radius: 18px; width: min(280px, 88vw); display: none; flex-direction: column; padding: 14px; z-index: 5500; }
+        .chat-input-area { display: flex; gap: 8px; margin-bottom: 10px; }
+        .chat-text-input { background: #222; border: 1px solid #444; color: white; border-radius: 10px; padding: 10px; flex: 1; font-size: 15px; outline: none; }
+        .chat-send-btn { background: var(--green); border: none; color: black; font-weight: 900; border-radius: 10px; padding: 10px 14px; cursor: pointer; font-size: 13px; }
+        .emoji-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; border-top: 1px solid #444; padding-top: 10px; }
+        .emoji-btn { cursor: pointer; font-size: 32px; text-align: center; border-radius: 10px; padding: 8px 4px; line-height: 1.1; }
         .emoji-btn:active { background: rgba(0,229,255,0.2); }
 
         .lobby-code-row { display:flex; align-items:center; justify-content:center; gap:10px; flex-wrap:wrap; }
@@ -627,7 +624,6 @@
     <div id="game-wrapper">
         <div id="sound-btn-game" onclick="toggleSound()">🔊</div>
         <div id="pause-btn" onclick="openPauseMenu()">⚙️</div>
-        <div id="mic-btn" onclick="toggleMic()">🎤</div>
 
         <div id="label-0" class="p-label"><div class="p-avatar-circle"><img src=""></div><span id="name-0">P1</span><div id="bubble-0" class="chat-bubble"></div></div>
         <div id="label-1" class="p-label"><div class="p-avatar-circle"><img src=""></div><span id="name-1">P2</span><div id="bubble-1" class="chat-bubble"></div></div>
@@ -801,61 +797,8 @@ let pendingJoinCode = '';
 const ROOM_ROOT = 'ludo/rooms';
 const CODE_ROOT = 'ludo/codes';
 
-// ===================================================================
-//  WEBRTC VOICE CHAT (via RTDB signaling)
-// ===================================================================
+// Mic / voice chat removed — chat + emoji only
 let localStream = null;
-let pc = null;
-let micOn = false;
-
-async function startVoiceChat() {
-    if (!rtdb || !isHost && mySlot === 0) return;
-    // Voice chat initialization — uses getUserMedia + RTDB signaling
-    try {
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
-    } catch(e) { return; }
-}
-
-function toggleMic() {
-    playSfx(sfxButton);
-    if (!localStream) {
-        startMic();
-    } else {
-        localStream.getAudioTracks().forEach(t => t.enabled = !t.enabled);
-        micOn = localStream.getAudioTracks()[0] ? localStream.getAudioTracks()[0].enabled : false;
-    }
-    const mb = document.getElementById('mic-btn');
-    mb.innerText = micOn ? '🎤' : '🔇';
-    mb.classList.toggle('muted', !micOn);
-}
-
-async function startMic() {
-    try {
-        localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        localStream.getAudioTracks().forEach(t => t.enabled = true);
-        micOn = true;
-        const mb = document.getElementById('mic-btn');
-        mb.innerText = '🎤';
-        mb.classList.remove('muted');
-        // Analyser for speaking detection
-        if (actx && localStream) {
-            const src = actx.createMediaStreamSource(localStream);
-            const analyser = actx.createAnalyser();
-            analyser.fftSize = 256;
-            src.connect(analyser);
-            const data = new Uint8Array(analyser.frequencyBinCount);
-            const checkSpeak = () => {
-                if (!micOn) { document.getElementById('mic-btn').classList.remove('speaking'); return; }
-                analyser.getByteFrequencyData(data);
-                let sum = 0; for (let i = 0; i < data.length; i++) sum += data[i];
-                if (sum / data.length > 20) document.getElementById('mic-btn').classList.add('speaking');
-                else document.getElementById('mic-btn').classList.remove('speaking');
-                if (localStream) requestAnimationFrame(checkSpeak);
-            };
-            checkSpeak();
-        }
-    } catch(e) { showAlert('Mic permission denied'); }
-}
 
 // ===================================================================
 //  GAME STATE
@@ -1001,7 +944,6 @@ function showHome() {
     document.getElementById('chat-icon').style.display = 'none';
     document.getElementById('sound-btn-game').style.display = 'none';
     document.getElementById('pause-btn').style.display = 'none';
-    document.getElementById('mic-btn').style.display = 'none';
     // Guests only leave their seat; hosts tear down the private room
     if (myRoomRef) cleanupOnlineSession(!!isHost);
 }
@@ -1898,7 +1840,6 @@ function initGame() {
     document.getElementById('game-wrapper').style.display = 'block';
     document.getElementById('pause-btn').style.display = 'flex';
     document.getElementById('sound-btn-game').style.display = 'flex';
-    if (!isBotMode) document.getElementById('mic-btn').style.display = 'flex';
     document.getElementById('chat-icon').style.display = 'flex';
     resize();
     turn = activePlayers[0]; updateTurn(); updateDiceUI(1);
@@ -1936,25 +1877,63 @@ function updateTurn() {
     }
 }
 
+function prizeSplitShares(playerN) {
+    // Ludo Star style: pot shared by top 3 only (4th gets 0)
+    const n = Math.max(2, playerN || 2);
+    if (n === 2) return [1.00, 0.00, 0.00];      // winner takes full pot
+    if (n === 3) return [0.50, 0.30, 0.20];      // 1st / 2nd / 3rd
+    return [0.50, 0.30, 0.20];                   // 4 players — same top-3 split
+}
+
 function handleGameEnd() {
     playSfx(sfxWin);
     let rank = -1;
-    if (winnersRank.includes(2)) rank = winnersRank.indexOf(2);
-    else if (winnersRank.includes(myColorIdx)) rank = winnersRank.indexOf(myColorIdx);
-    let winAmt = 0, title = "", sub = "";
-    if (rank === 0) { winAmt = Math.floor(selectedLevel.fee * 2.5); title = "CHAMPION! 🏆"; sub = "You won the match!"; try { ludoPortalWins += 1; localStorage.setItem("ludo_portal_wins", String(ludoPortalWins)); if (window.ajReportLevelOnce) window.ajReportLevelOnce(ludoPortalWins, "ludo"); } catch(e) {} }
-    else if (rank === 1) { winAmt = Math.floor(selectedLevel.fee * 1.0); title = "2ND PLACE! 🥈"; sub = "Great game!"; }
-    else if (rank === 2) { winAmt = Math.floor(selectedLevel.fee * 0.5); title = "3RD PLACE! 🥉"; sub = "Not bad!"; }
-    else { title = "GAME OVER"; sub = "Better luck next time!"; }
-    // AD before awarding coins at game end
-    showAdOverlay(0, function() {
+    if (winnersRank.includes(myColorIdx)) rank = winnersRank.indexOf(myColorIdx);
+    else if (isBotMode && winnersRank.includes(2)) rank = winnersRank.indexOf(2);
+
+    const playersN = (activePlayers && activePlayers.length) ? activePlayers.length : 2;
+    const pot = Math.max(0, (selectedLevel.fee || 0) * playersN);
+    const shares = prizeSplitShares(playersN);
+    let winAmt = 0;
+    let title = 'GAME OVER';
+    let sub = 'Better luck next time!';
+
+    if (rank === 0) {
+        winAmt = Math.floor(pot * shares[0]);
+        title = 'CHAMPION! 🏆';
+        sub = '1st place · ' + Math.round(shares[0] * 100) + '% of pot (' + pot.toLocaleString() + ')';
+        try {
+            ludoPortalWins += 1;
+            localStorage.setItem('ludo_portal_wins', String(ludoPortalWins));
+            if (window.ajReportLevelOnce) window.ajReportLevelOnce(ludoPortalWins, 'ludo');
+        } catch (e) {}
+    } else if (rank === 1) {
+        winAmt = Math.floor(pot * shares[1]);
+        title = '2ND PLACE! 🥈';
+        sub = winAmt > 0
+            ? ('2nd place · ' + Math.round(shares[1] * 100) + '% of pot (' + pot.toLocaleString() + ')')
+            : 'No prize in 2-player tables';
+    } else if (rank === 2) {
+        winAmt = Math.floor(pot * shares[2]);
+        title = '3RD PLACE! 🥉';
+        sub = winAmt > 0
+            ? ('3rd place · ' + Math.round(shares[2] * 100) + '% of pot (' + pot.toLocaleString() + ')')
+            : 'Only top 3 share the pot';
+    } else {
+        title = 'GAME OVER';
+        sub = '4th place · no coins (top 3 split the pot)';
+    }
+
+    showAdOverlay(0, function () {
         if (winAmt > 0) {
-            myCoins += winAmt; playSfx(sfxCollect); updateWalletUI();
+            myCoins += winAmt;
+            playSfx(sfxCollect);
+            updateWalletUI();
             ajSendScore(winAmt);
         }
         document.getElementById('win-title-text').innerText = title;
         document.getElementById('win-sub-text').innerText = sub;
-        document.getElementById('win-amount-text').innerText = "+" + winAmt.toLocaleString();
+        document.getElementById('win-amount-text').innerText = winAmt > 0 ? ('+' + winAmt.toLocaleString()) : '+0';
         document.getElementById('win-modal').style.display = 'flex';
         if (rank === 0) startConfetti();
     });
