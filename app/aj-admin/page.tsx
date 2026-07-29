@@ -4,10 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Ban, Check, RefreshCw, Search, Shield, X } from 'lucide-react';
 import {
   collection,
-  getDocs,
-  limit,
-  orderBy,
-  query,
+  doc,
+  getDoc,
+  onSnapshot,
 } from 'firebase/firestore';
 import { getAuth, onAuthStateChanged, type User } from 'firebase/auth';
 import { getApps, initializeApp } from 'firebase/app';
@@ -59,7 +58,11 @@ export default function AjAdminPage() {
   const [allowed, setAllowed] = useState(false);
   const [tab, setTab] = useState<'users' | 'withdrawals'>('users');
   const [users, setUsers] = useState<UserRow[]>([]);
+  const [presenceExtras, setPresenceExtras] = useState<UserRow[]>([]);
   const [presenceByUid, setPresenceByUid] = useState<Record<string, boolean>>({});
+  const [presenceMetaByUid, setPresenceMetaByUid] = useState<
+    Record<string, { username?: string; lastChanged?: number }>
+  >({});
   const [withdrawals, setWithdrawals] = useState<WithdrawRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -78,37 +81,37 @@ export default function AjAdminPage() {
     });
   }, []);
 
-  const loadUsers = useCallback(async () => {
+  useEffect(() => {
+    if (!allowed || tab !== 'users') return;
     setLoading(true);
-    try {
-      let snap;
-      try {
-        snap = await getDocs(query(collection(db, 'users'), orderBy('lastSync', 'desc'), limit(100)));
-      } catch {
-        snap = await getDocs(query(collection(db, 'users'), limit(100)));
+    const unsub = onSnapshot(
+      collection(db, 'users'),
+      (snap) => {
+        setUsers(
+          snap.docs.map((d) => {
+            const data = d.data() as Record<string, unknown>;
+            return {
+              uid: d.id,
+              name: String(data.name || ''),
+              username: String(data.username || ''),
+              email: String(data.email || ''),
+              balance: typeof data.balance === 'number' ? data.balance : 0,
+              isBanned: Boolean(data.isBanned) || data.accountStatus === ACCOUNT_STATUS.BANNED,
+              accountStatus: String(data.accountStatus || ACCOUNT_STATUS.ACTIVE),
+              status: String(data.status || 'offline'),
+              lastSeenMs: Number(data.lastSeenMs || 0) || undefined,
+            };
+          })
+        );
+        setLoading(false);
+      },
+      () => {
+        setMsg('Failed to load users.');
+        setLoading(false);
       }
-      setUsers(
-        snap.docs.map((d) => {
-          const data = d.data() as Record<string, unknown>;
-          return {
-            uid: d.id,
-            name: String(data.name || ''),
-            username: String(data.username || ''),
-            email: String(data.email || ''),
-            balance: typeof data.balance === 'number' ? data.balance : 0,
-            isBanned: Boolean(data.isBanned) || data.accountStatus === ACCOUNT_STATUS.BANNED,
-            accountStatus: String(data.accountStatus || ACCOUNT_STATUS.ACTIVE),
-            status: String(data.status || 'offline'),
-            lastSeenMs: Number(data.lastSeenMs || 0) || undefined,
-          };
-        })
-      );
-    } catch {
-      setMsg('Failed to load users.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    );
+    return () => unsub();
+  }, [allowed, tab]);
 
   useEffect(() => {
     if (!allowed) return;
@@ -119,16 +122,82 @@ export default function AjAdminPage() {
       presenceRef,
       (snap) => {
         const next: Record<string, boolean> = {};
+        const meta: Record<string, { username?: string; lastChanged?: number }> = {};
         snap.forEach((child) => {
           if (!child.key) return;
-          next[child.key] = isRtdbPresenceOnline(child.val() as PresenceSnapshot);
+          const val = child.val() as PresenceSnapshot;
+          next[child.key] = isRtdbPresenceOnline(val);
+          meta[child.key] = {
+            username: val?.username || undefined,
+            lastChanged: Number(val?.lastChanged || 0) || undefined,
+          };
         });
         setPresenceByUid(next);
+        setPresenceMetaByUid(meta);
       },
       (err) => console.warn('aj-admin presence', err)
     );
     return () => off(presenceRef);
   }, [allowed]);
+
+  useEffect(() => {
+    if (!allowed || tab !== 'users') return;
+    const known = new Set(users.map((u) => u.uid));
+    const missingOnline = Object.entries(presenceByUid)
+      .filter(([uid, on]) => on && !known.has(uid))
+      .map(([uid]) => uid);
+    if (missingOnline.length === 0) {
+      setPresenceExtras((prev) => (prev.length ? [] : prev));
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const extras: UserRow[] = [];
+      for (const uid of missingOnline) {
+        try {
+          const snap = await getDoc(doc(db, 'users', uid));
+          if (snap.exists()) {
+            const data = snap.data() as Record<string, unknown>;
+            extras.push({
+              uid,
+              name: String(data.name || ''),
+              username: String(data.username || ''),
+              email: String(data.email || ''),
+              balance: typeof data.balance === 'number' ? data.balance : 0,
+              isBanned: Boolean(data.isBanned) || data.accountStatus === ACCOUNT_STATUS.BANNED,
+              accountStatus: String(data.accountStatus || ACCOUNT_STATUS.ACTIVE),
+              status: String(data.status || 'online'),
+              lastSeenMs: Number(data.lastSeenMs || 0) || undefined,
+            });
+            continue;
+          }
+        } catch {
+          /* stub */
+        }
+        const m = presenceMetaByUid[uid];
+        extras.push({
+          uid,
+          name: m?.username || 'New user',
+          username: m?.username || '',
+          email: '',
+          balance: 0,
+          isBanned: false,
+          accountStatus: ACCOUNT_STATUS.ACTIVE,
+          status: 'online',
+          lastSeenMs: m?.lastChanged || Date.now(),
+        });
+      }
+      if (!cancelled) setPresenceExtras(extras);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [allowed, tab, users, presenceByUid, presenceMetaByUid]);
+
+  const loadUsers = useCallback(async () => {
+    /* kept for ban refresh — snapshot already live */
+    setMsg('');
+  }, []);
 
   const loadWithdrawals = useCallback(async () => {
     if (!user) return;
@@ -154,9 +223,8 @@ export default function AjAdminPage() {
 
   useEffect(() => {
     if (!allowed) return;
-    if (tab === 'users') void loadUsers();
-    else void loadWithdrawals();
-  }, [allowed, tab, loadUsers, loadWithdrawals]);
+    if (tab === 'withdrawals') void loadWithdrawals();
+  }, [allowed, tab, loadWithdrawals]);
 
   const banUser = async (uid: string) => {
     if (!user || busyId) return;
@@ -212,9 +280,18 @@ export default function AjAdminPage() {
     }
   };
 
+  const allUsers = useMemo(() => {
+    const byUid = new Map<string, UserRow>();
+    for (const u of users) byUid.set(u.uid, u);
+    for (const u of presenceExtras) {
+      if (!byUid.has(u.uid)) byUid.set(u.uid, u);
+    }
+    return Array.from(byUid.values());
+  }, [users, presenceExtras]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const rows = users.filter(
+    const rows = allUsers.filter(
       (u) =>
         !q ||
         u.uid.toLowerCase().includes(q) ||
@@ -237,9 +314,22 @@ export default function AjAdminPage() {
       })
         ? 1
         : 0;
-      return bOn - aOn;
+      if (bOn !== aOn) return bOn - aOn;
+      return (b.lastSeenMs || 0) - (a.lastSeenMs || 0);
     });
-  }, [users, search, presenceByUid]);
+  }, [allUsers, search, presenceByUid]);
+
+  const onlineCount = useMemo(() => {
+    const fromPresence = Object.values(presenceByUid).filter(Boolean).length;
+    if (fromPresence > 0) return fromPresence;
+    return allUsers.filter((u) =>
+      isUserOnlineNow({
+        rtdbOnline: presenceByUid[u.uid],
+        status: u.status,
+        lastSeenMs: u.lastSeenMs,
+      })
+    ).length;
+  }, [presenceByUid, allUsers]);
 
   if (!user) {
     return (
@@ -315,6 +405,13 @@ export default function AjAdminPage() {
                 className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 py-2.5 text-sm text-white focus:outline-none focus:border-pink-500/40"
               />
             </div>
+            <p className="text-[10px] text-gray-500 font-black uppercase tracking-widest flex items-center gap-3">
+              <span className="text-white/80">{allUsers.length} users</span>
+              <span className="text-emerald-400 inline-flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                {onlineCount} online
+              </span>
+            </p>
             {filtered.map((u) => {
               const online = isUserOnlineNow({
                 rtdbOnline: presenceByUid[u.uid],

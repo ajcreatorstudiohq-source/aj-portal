@@ -1071,10 +1071,15 @@ const setUserOnlinePresence = async (currentUser: any) => {
     console.warn('RTDB presence write failed (publish database.rules presence)', e);
   }
   try {
-    await updateDoc(doc(db, 'users', currentUser.uid), {
+    const presencePatch: Record<string, unknown> = {
       status: 'online',
       lastSeenMs: now,
-    });
+      uid: currentUser.uid,
+    };
+    if (currentUser.displayName) presencePatch.name = currentUser.displayName;
+    if (currentUser.email) presencePatch.email = currentUser.email;
+    if (currentUser.photoURL) presencePatch.photo = currentUser.photoURL;
+    await setDoc(doc(db, 'users', currentUser.uid), presencePatch, { merge: true });
   } catch (e) {
     console.error('Firestore presence write failed', e);
   }
@@ -1099,7 +1104,11 @@ const setUserOfflineStatus = async (uid: string | null) => {
     /* RTDB may be locked — Firestore below still marks offline */
   }
   try {
-    await updateDoc(doc(db, 'users', uid), { status: 'offline', lastSeenMs: now });
+    await setDoc(
+      doc(db, 'users', uid),
+      { status: 'offline', lastSeenMs: now },
+      { merge: true }
+    );
   } catch (e) {
     console.error('setUserOfflineStatus', e);
   }
@@ -2948,12 +2957,18 @@ export function AJSuperPortal() {
             // Create user first with placeholder, then allocate unique code
             await setDoc(userRef, {
               name: cu.displayName,
+              username: String(cu.displayName || '')
+                .toLowerCase()
+                .replace(/\s+/g, '_')
+                .slice(0, 24) || `user_${cu.uid.slice(0, 6)}`,
               email: cu.email,
               balance: SIGNUP_BONUS_COINS, // always 0
               botTier: 'none',
               invested: 0,
               uid: cu.uid,
               lastSync: serverTimestamp(),
+              createdAtMs: Date.now(),
+              lastSeenMs: Date.now(),
               hasSocialProfile: true,
               photo: cu.photoURL || '',
               followers: 0,
