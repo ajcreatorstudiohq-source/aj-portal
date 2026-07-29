@@ -69,6 +69,21 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
       return;
     }
     setAllowed(true);
+
+    // Bind CEO Hub wallet so other users' earns credit owner-share here
+    void (async () => {
+      try {
+        const u = auth.currentUser;
+        if (!u) return;
+        const token = await u.getIdToken();
+        await fetch('/api/admin/bind-owner', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch {
+        /* non-fatal */
+      }
+    })();
   }, [adminUser, onBack]);
 
   const loadUsers = useCallback(async () => {

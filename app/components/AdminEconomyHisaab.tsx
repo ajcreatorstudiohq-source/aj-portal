@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { collection, getDocs, limit, query } from 'firebase/firestore';
 import { auth, db } from '../firebase';
-import { isPortalAdminUser } from '../lib/admin-auth';
+import { isPortalAdminUser, ADMIN_EMAIL } from '../lib/admin-auth';
 import {
   CASH_RATE,
   COIN_RATE,
@@ -238,7 +238,7 @@ export default function AdminEconomyHisaab({ adminUser, refreshKey = 0 }: Props)
             <p className="text-[9px] text-gray-500 mt-0.5">
               {loading
                 ? 'Loading…'
-                : `${CASH_RATE} 🪙 = $1.000 · User 30% withdraw · Your 70% → admin wallet + Adsterra`}
+                : `${CASH_RATE} 🪙 = $1.000 · User 30% · Your 70% → ${ADMIN_EMAIL} wallet`}
             </p>
           </div>
           <button

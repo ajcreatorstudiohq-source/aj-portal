@@ -18,6 +18,7 @@ import {
   formatUsd,
 } from '../../../lib/economy';
 import { getAdminDb, FieldValue } from '../../../lib/firebase-admin';
+import { persistPortalAdminUid } from '../../../lib/admin-earnings';
 
 function isPaidStatus(status: string) {
   const s = status.toLowerCase();
@@ -47,23 +48,16 @@ export async function GET(request: Request) {
       return NextResponse.json({ ok: false, error: 'forbidden' }, { status: 403 });
     }
 
-    const adminDb = getAdminDb();
-
     // Persist owner UID so earn paths can credit Hub wallet even without ADMIN_UIDS env
-    if (adminDb && admin.uid) {
+    if (admin.uid) {
       try {
-        await adminDb.doc('admin_stats/config').set(
-          {
-            ownerUid: admin.uid,
-            ownerEmail: admin.email || '',
-            updatedAt: FieldValue.serverTimestamp(),
-          },
-          { merge: true }
-        );
+        await persistPortalAdminUid(admin.uid, admin.email);
       } catch {
         /* non-fatal */
       }
     }
+
+    const adminDb = getAdminDb();
     let totalUsers = 0;
     let totalUserBalanceCoins = 0;
 
