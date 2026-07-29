@@ -5,11 +5,13 @@ import {
   bearerFromRequest,
   verifyFirebaseIdToken,
 } from '../../../lib/verify-id-token';
+import { spendCoinPools } from '../../../lib/coin-pools';
 
 /**
  * POST /api/wallet/transfer
  * Atomic coin transfer via Admin Firestore transaction.
  * Blocks self-transfer; requires sufficient sender balance.
+ * Spends earned first, then purchased — receiver gets balance only (not purchasedCoins).
  */
 export async function POST(request: Request) {
   try {
@@ -64,7 +66,12 @@ export async function POST(request: Request) {
       if (!senderSnap.exists) throw new Error('sender_not_found');
       if (!receiverSnap.exists) throw new Error('recipient_not_found');
 
-      const sender = senderSnap.data() as { balance?: number; isBanned?: boolean; accountStatus?: string };
+      const sender = senderSnap.data() as {
+        balance?: number;
+        purchasedCoins?: number;
+        isBanned?: boolean;
+        accountStatus?: string;
+      };
       const receiver = receiverSnap.data() as { isBanned?: boolean; accountStatus?: string };
 
       if (sender.isBanned || sender.accountStatus === 'banned') {
@@ -74,11 +81,18 @@ export async function POST(request: Request) {
         throw new Error('recipient_banned');
       }
 
-      const bal = Number(sender.balance || 0);
-      if (bal < amount) throw new Error('insufficient_balance');
+      const spent = spendCoinPools(
+        {
+          balance: Number(sender.balance || 0),
+          purchasedCoins: Number(sender.purchasedCoins || 0),
+        },
+        amount
+      );
+      if (!spent.ok) throw new Error('insufficient_balance');
 
       tx.update(senderRef, {
-        balance: FieldValue.increment(-amount),
+        balance: spent.nextBalance,
+        purchasedCoins: spent.nextPurchasedCoins,
         lastTransferAt: FieldValue.serverTimestamp(),
       });
       tx.update(receiverRef, {
@@ -91,10 +105,12 @@ export async function POST(request: Request) {
         fromUid: actor.uid,
         toUid,
         amount,
+        fromEarned: spent.fromEarned,
+        fromPurchased: spent.fromPurchased,
         createdAt: FieldValue.serverTimestamp(),
       });
 
-      return { newBalance: bal - amount };
+      return { newBalance: spent.nextBalance, purchasedCoins: spent.nextPurchasedCoins };
     });
 
     return NextResponse.json({
@@ -102,6 +118,7 @@ export async function POST(request: Request) {
       amount,
       toUid,
       newBalance: result.newBalance,
+      purchasedCoins: result.purchasedCoins,
       message: `Transferred ${amount} AJ Coins 🪙`,
     });
   } catch (e: unknown) {

@@ -8,6 +8,34 @@
 2. App users ko activity earn pe sirf **30% AJ Coins** deti hai. **70% user wallet mein kabhi nahi jata.**
 3. Har earn event pe Firestore `AdminRevenue` mein aapka hissa **`ownerUsd` / `adminShare` (USD)** ke naam se record hota hai — yeh hisaab / ledger hai.
 
+## AI Trading Bot — purchase-only (no ads-coin invest)
+
+Bot **sirf Buy Coins (`purchasedCoins`)** se open hota hai — ads/earn wale coins se **nahi**.
+
+| Field | Meaning |
+|---|---|
+| `purchasedCoins` | Wallet mein abhi bachi hui buy coins |
+| `botFundedByPurchase` | Bot activate purchase se hua |
+| Sync profits | Earned `balance` mein jate hain (`purchasedCoins` nahi) |
+
+- Activate: `POST /api/bot/activate` (server checks purchased pool)
+- Purchase IPN: `balance` + `purchasedCoins`
+- Spend (PK / gifts / transfer): earned pehle, phir purchased — pool sync rehti hai
+- Transfer receive / bot profits: sirf `balance` (bot open nahi kar sakte)
+
+**Purane bots** jinke paas `botFundedByPurchase !== true`: pehle Buy Coins → dubara activate.
+
+### Kya ab nuksan nahi hoga?
+
+| Source | Owner safe? | Kyun |
+|---|---|---|
+| Watch Ads / Math / Captcha | Haan (agar CPC env ≤ real) | Adsterra $ aata hai; user ko chhota coin share |
+| PK entry + ads | Haan | 100+100 coins + Adsterra start/end |
+| Coin purchase → AI Bot | Haan | User ne real $ diya; bot % usi purchase pool se |
+| Posts / referral / games | Covered by ads + purchase margin | Chhote fixed coins; surfaces pe ads |
+
+**Zaroori:** Firebase Console se `firestore.rules` Publish karo. `NEXT_PUBLIC_ADSTERRA_CLICK_USD` real Adsterra CPC se zyada mat rakho.
+
 ## Ad-backed social economy
 
 Modest coins on posts / games / referral are OK because those surfaces also run Adsterra.

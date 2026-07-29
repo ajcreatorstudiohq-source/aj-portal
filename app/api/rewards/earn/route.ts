@@ -106,11 +106,23 @@ export async function POST(request: Request) {
         lastBotClaimAt?: Timestamp | { toMillis?: () => number; seconds?: number };
         botTier?: string;
         invested?: number;
+        botFundedByPurchase?: boolean;
       };
       if (!ud.botTier || ud.botTier === 'none' || !(Number(ud.invested) > 0)) {
         return NextResponse.json(
           { ok: false, error: 'bot_inactive', message: 'Activate an AI Trading Bot first.' },
           { status: 400 }
+        );
+      }
+      if (ud.botFundedByPurchase !== true) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: 'bot_requires_purchase',
+            message:
+              'AI Bot must be opened with purchased coins (Buy Coins). Re-activate after buying coins.',
+          },
+          { status: 403 }
         );
       }
       const last = ud.lastBotClaimAt;
@@ -158,15 +170,30 @@ export async function POST(request: Request) {
         enforceDailyCap: true,
       });
     } else if (source === 'ai_bot_sync') {
-      // AI Trading Bot: daily % of invested coins (feature stays useful)
+      // Server is source of truth for invested / tier (purchase-funded bots only)
+      const userSnap2 = await getDoc(doc(db, 'users', actor.uid));
+      const ud2 = (userSnap2.exists() ? userSnap2.data() : {}) as {
+        botTier?: string;
+        invested?: number;
+        botFundedByPurchase?: boolean;
+      };
+      if (ud2.botFundedByPurchase !== true) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: 'bot_requires_purchase',
+            message: 'AI Bot profits only for bots funded with purchased coins.',
+          },
+          { status: 403 }
+        );
+      }
+      const investedAmt = Math.max(0, Math.floor(Number(ud2.invested) || 0));
+      const tier = String(ud2.botTier || 'basic');
       const botCoins = Math.max(
         1,
         Math.min(
           500,
-          Math.floor(
-            Number(meta.invested || 0) *
-              (String(meta.botTier) === 'vvip' ? 0.05 : 0.025)
-          )
+          Math.floor(investedAmt * (tier === 'vvip' ? 0.05 : 0.025))
         )
       );
       result = await applyFlatCoins({
@@ -174,7 +201,14 @@ export async function POST(request: Request) {
         txId,
         source,
         coins: botCoins,
-        meta: { ...meta, actorUid: actor.uid, label: SOURCE_LABELS[source] },
+        meta: {
+          ...meta,
+          actorUid: actor.uid,
+          label: SOURCE_LABELS[source],
+          botTier: tier,
+          invested: investedAmt,
+          fundedByPurchase: true,
+        },
         enforceDailyCap: true,
         userPatch: { lastBotClaimAt: serverTimestamp() },
       });

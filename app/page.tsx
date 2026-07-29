@@ -72,6 +72,7 @@ import {
   buildDmChatId,
   normalizePartnerProfile,
 } from './lib/dm-chat';
+import { spendCoinPools } from './lib/coin-pools';
 
 // ============================================================
 // GLOBAL ERROR SHIELD (FIX: "Page couldn't load" error)
@@ -1709,6 +1710,7 @@ export function AJSuperPortal() {
   const [balance,  setBalance]  = useState(0);
   const [botTier,  setBotTier]  = useState('none');
   const [invested, setInvested] = useState(0);
+  const [purchasedCoins, setPurchasedCoins] = useState(0);
   const [loading,  setLoading]  = useState(0);
   // One-Click Ban: show 403-style message on auth screen after kick
   const [banNotice, setBanNotice] = useState<string | null>(null);
@@ -2805,6 +2807,7 @@ export function AJSuperPortal() {
               balance: SIGNUP_BONUS_COINS, // always 0
               botTier: 'none',
               invested: 0,
+              purchasedCoins: 0,
               uid: cu.uid,
               lastSync: serverTimestamp(),
               hasSocialProfile: true,
@@ -2839,6 +2842,7 @@ export function AJSuperPortal() {
           setBalance((data.balance as number) || 0);
           setBotTier((data.botTier as string) || 'none');
           setInvested((data.invested as number) || 0);
+          setPurchasedCoins(Math.max(0, Number((data as { purchasedCoins?: number }).purchasedCoins) || 0));
           if (data.referralId) setMyReferralId(String(data.referralId));
         });
       } catch (err) {
@@ -3781,9 +3785,19 @@ export function AJSuperPortal() {
         const uref = doc(db, 'users', user.uid);
         const snap = await tx.get(uref);
         if (!snap.exists()) throw new Error('user_not_found');
-        const bal = Number((snap.data() as { balance?: number }).balance || 0);
-        if (bal < PK_ENTRY_COINS) throw new Error('insufficient_balance');
-        tx.update(uref, { balance: increment(-PK_ENTRY_COINS) });
+        const ud = snap.data() as { balance?: number; purchasedCoins?: number };
+        const spent = spendCoinPools(
+          {
+            balance: Number(ud.balance || 0),
+            purchasedCoins: Number(ud.purchasedCoins || 0),
+          },
+          PK_ENTRY_COINS
+        );
+        if (!spent.ok) throw new Error('insufficient_balance');
+        tx.update(uref, {
+          balance: spent.nextBalance,
+          purchasedCoins: spent.nextPurchasedCoins,
+        });
       });
       try {
         await addDoc(collection(db,"AdminRevenue"), {
@@ -3896,9 +3910,19 @@ export function AJSuperPortal() {
         const uref = doc(db, 'users', user.uid);
         const snap = await tx.get(uref);
         if (!snap.exists()) throw new Error('user_not_found');
-        const bal = Number((snap.data() as { balance?: number }).balance || 0);
-        if (bal < gift.cost) throw new Error('insufficient_balance');
-        tx.update(uref, { balance: increment(-gift.cost) });
+        const ud = snap.data() as { balance?: number; purchasedCoins?: number };
+        const spent = spendCoinPools(
+          {
+            balance: Number(ud.balance || 0),
+            purchasedCoins: Number(ud.purchasedCoins || 0),
+          },
+          gift.cost
+        );
+        if (!spent.ok) throw new Error('insufficient_balance');
+        tx.update(uref, {
+          balance: spent.nextBalance,
+          purchasedCoins: spent.nextPurchasedCoins,
+        });
       });
     } catch (e) {
       console.error('PK gift deduct', e);
@@ -4110,9 +4134,19 @@ export function AJSuperPortal() {
         const uref = doc(db, 'users', user.uid);
         const usnap = await tx.get(uref);
         if (!usnap.exists()) throw new Error('user_not_found');
-        const bal = Number((usnap.data() as { balance?: number }).balance || 0);
-        if (bal < entry) throw new Error('insufficient_balance');
-        tx.update(uref, { balance: increment(-entry) });
+        const ud = usnap.data() as { balance?: number; purchasedCoins?: number };
+        const spent = spendCoinPools(
+          {
+            balance: Number(ud.balance || 0),
+            purchasedCoins: Number(ud.purchasedCoins || 0),
+          },
+          entry
+        );
+        if (!spent.ok) throw new Error('insufficient_balance');
+        tx.update(uref, {
+          balance: spent.nextBalance,
+          purchasedCoins: spent.nextPurchasedCoins,
+        });
       });
 
       setPkRoomId(pkRoomIdVal);
@@ -4284,14 +4318,24 @@ export function AJSuperPortal() {
       return;
     }
     try {
-      // Deduct gift cost from sender via atomic transaction
+      // Deduct gift cost from sender via atomic transaction (earned first, then purchased)
       await runTransaction(db, async (tx) => {
         const uref = doc(db, 'users', user.uid);
         const snap = await tx.get(uref);
         if (!snap.exists()) throw new Error('user_not_found');
-        const bal = Number((snap.data() as { balance?: number }).balance || 0);
-        if (bal < gift.cost) throw new Error('insufficient_balance');
-        tx.update(uref, { balance: increment(-gift.cost) });
+        const ud = snap.data() as { balance?: number; purchasedCoins?: number };
+        const spent = spendCoinPools(
+          {
+            balance: Number(ud.balance || 0),
+            purchasedCoins: Number(ud.purchasedCoins || 0),
+          },
+          gift.cost
+        );
+        if (!spent.ok) throw new Error('insufficient_balance');
+        tx.update(uref, {
+          balance: spent.nextBalance,
+          purchasedCoins: spent.nextPurchasedCoins,
+        });
       });
       // Creator earns AJ Coins via verified server reward engine
       const giftKey = `${user.uid}_${creatorId}_${gift.name}_${Date.now()}`;
@@ -6011,26 +6055,53 @@ export function AJSuperPortal() {
     } catch(e) { console.error('handleShare error', e); }
   };
 
-  const activateBot = async (tier:string, cost:number) => {
-    if (balance<cost) return setVvipAlert({msg:"Insufficient Balance!"});
-    if (!user) return setVvipAlert({msg:"Please log in first."});
-    try {
-      await runTransaction(db, async (tx) => {
-        const uref = doc(db, 'users', user.uid);
-        const snap = await tx.get(uref);
-        if (!snap.exists()) throw new Error('user_not_found');
-        const bal = Number((snap.data() as { balance?: number }).balance || 0);
-        if (bal < cost) throw new Error('insufficient_balance');
-        tx.update(uref, {
-          balance: increment(-cost),
-          botTier: tier,
-          invested: cost,
-          lastSync: serverTimestamp(),
-        });
+  const activateBot = async (tier: string, cost: number) => {
+    if (!user) return setVvipAlert({ msg: 'Please log in first.' });
+    const purchasable = Math.min(balance, purchasedCoins);
+    if (purchasable < cost) {
+      return setVvipAlert({
+        msg: `AI Bot needs ${cost.toLocaleString()} purchased coins (Buy Coins). You have ${purchasable.toLocaleString()} purchased · ${Math.max(0, balance - purchasable).toLocaleString()} earned (ads) — earned coins cannot open the bot.`,
+        icon: '🛒',
       });
+    }
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch('/api/bot/activate', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ tier }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        message?: string;
+        error?: string;
+        purchasedCoins?: number;
+        balance?: number;
+        invested?: number;
+        tier?: string;
+      };
+      if (!res.ok || !data.ok) {
+        return setVvipAlert({
+          msg: data.message || data.error || 'Activation failed.',
+          icon: '🛒',
+        });
+      }
+      if (typeof data.balance === 'number') setBalance(data.balance);
+      if (typeof data.purchasedCoins === 'number') setPurchasedCoins(data.purchasedCoins);
+      if (data.tier) setBotTier(data.tier);
+      if (typeof data.invested === 'number') setInvested(data.invested);
       setVisualProfit(0);
-      setVvipAlert({msg:`${tier.toUpperCase()} BOT ACTIVATED! Sync profits to earn AJ Coin rewards.`});
-    } catch(e) { console.error('activateBot', e); setVvipAlert({msg:'Activation failed. Please try again.'}); }
+      setVvipAlert({
+        msg: data.message || `${tier.toUpperCase()} BOT ACTIVATED with purchased coins!`,
+        icon: '🤖',
+      });
+    } catch (e) {
+      console.error('activateBot', e);
+      setVvipAlert({ msg: 'Activation failed. Please try again.' });
+    }
   };
 
   /** Persist AI bot claim — server enforces 24h lock via lastBotClaimAt (anti clock-cheat). */
@@ -6054,6 +6125,11 @@ export function AJSuperPortal() {
       setVvipAlert({
         msg: reward.message || 'Bot claim locked for 24h (server time). Device clock changes do not bypass this.',
         icon: '⏳',
+      });
+    } else if (reward.error === 'bot_requires_purchase') {
+      setVvipAlert({
+        msg: reward.message || 'Re-activate bot with purchased coins (Buy Coins).',
+        icon: '🛒',
       });
     } else {
       setVvipAlert({ msg: reward.error || 'Bot sync failed', icon: '⚠️' });
@@ -6162,9 +6238,20 @@ export function AJSuperPortal() {
         ]);
         if (!receiverSnap.exists()) throw new Error('recipient_not_found');
         if (!senderSnap.exists()) throw new Error('sender_not_found');
-        const bal = Number((senderSnap.data() as { balance?: number }).balance || 0);
-        if (bal < amount) throw new Error('insufficient_balance');
-        tx.update(senderRef, { balance: increment(-amount) });
+        const sd = senderSnap.data() as { balance?: number; purchasedCoins?: number };
+        const spent = spendCoinPools(
+          {
+            balance: Number(sd.balance || 0),
+            purchasedCoins: Number(sd.purchasedCoins || 0),
+          },
+          amount
+        );
+        if (!spent.ok) throw new Error('insufficient_balance');
+        // Receiver gets balance only (not purchasedCoins) — cannot open AI bot with transfers
+        tx.update(senderRef, {
+          balance: spent.nextBalance,
+          purchasedCoins: spent.nextPurchasedCoins,
+        });
         tx.update(receiverRef, { balance: increment(amount) });
       });
 
@@ -6221,7 +6308,8 @@ export function AJSuperPortal() {
         if (!snap.exists()) throw new Error('user_not_found');
         const bal = Number((snap.data() as { balance?: number }).balance || 0);
         if (bal < WITHDRAW_MIN || bal < 20000) throw new Error('below_minimum');
-        tx.update(uref, { balance: 0 });
+        // Clear purchased pool with wallet — withdrawn coins leave the app
+        tx.update(uref, { balance: 0, purchasedCoins: 0 });
       });
       await addDoc(collection(db,"manual_withdrawals"), {
         uid:user!.uid, email:user!.email, coins:withdrawCoins,
@@ -6389,7 +6477,7 @@ Kuch bhi poocho, seedha batata hoon! 🔥`,
 • Video Post (TikReel): +${POST_REWARD_COINS} AJ Coins 🪙 per verified upload (max 5/day)\\\\\\\\
 • Photo Post (Pulse): +${POST_REWARD_COINS} AJ Coins 🪙 per verified upload (max 5/day)\\\\\\\\
 • Games install/milestone: +${GAME_REWARD_COINS} AJ Coins 🪙 (ads in games)\\\\\\\\
-• AI Trading Bot: daily % on invested coins (Basic 2.5% / VVIP 5%)\\\\\\\\
+• AI Trading Bot: only with purchased (Buy Coins) coins — Basic 2.5% / VVIP 5% daily\\\\\\\\
 • PK Battle: ${PK_ENTRY_COINS} coins each (200 total) · 5 min · ads on start & end\\\\\\\\
 • AI Bot (Basic): 2.5% daily on invested coins (24h server lock)\\\\\\\\
 • AI Bot (VVIP): 5% daily on invested coins (24h server lock)\\\\\\\\
@@ -9301,7 +9389,12 @@ Tip: Social Hub se copy karo 📤`,
               </div>
             </div>
 
-            {/* Bot Plans — FIX #7: card click triggers interstitial */}
+            {/* Bot Plans — purchase-funded only */}
+            <p className="text-[9px] text-amber-300/90 font-bold px-1">
+              Bot opens only with purchased coins (Buy Coins). Purchased:{' '}
+              {Math.min(balance, purchasedCoins).toLocaleString()} 🪙 · Earned:{' '}
+              {Math.max(0, balance - Math.min(balance, purchasedCoins)).toLocaleString()} 🪙
+            </p>
             {[ { tier:'basic', label:'Basic Bot', cost:2500, rate:'2.5% daily', icon:'🤖', color:'from-blue-600 to-cyan-600' },
               { tier:'vvip',  label:'VVIP Bot',  cost:5000, rate:'5% daily', icon:'🚀', color:'from-pink-600 to-purple-600' },
             ].map(plan => (
@@ -9315,7 +9408,7 @@ Tip: Social Hub se copy karo 📤`,
                 <span className="text-3xl">{plan.icon}</span>
                 <div className="text-left flex-1">
                   <p className="text-white font-black text-sm">{plan.label}</p>
-                  <p className="text-white/70 text-[10px]">{plan.rate} • {plan.cost.toLocaleString()} Coins</p>
+                  <p className="text-white/70 text-[10px]">{plan.rate} • {plan.cost.toLocaleString()} purchased coins</p>
                 </div>
                 {botTier===plan.tier ? <span className="text-[9px] text-white font-black bg-white/20 px-2 py-1 rounded-full">ACTIVE</span> : <ChevronRight size={16} className="text-white/70"/>}
               </button>
