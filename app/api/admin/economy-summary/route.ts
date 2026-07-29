@@ -17,7 +17,7 @@ import {
   coinsToUsd,
   formatUsd,
 } from '../../../lib/economy';
-import { getAdminDb } from '../../../lib/firebase-admin';
+import { getAdminDb, FieldValue } from '../../../lib/firebase-admin';
 
 function isPaidStatus(status: string) {
   const s = status.toLowerCase();
@@ -49,6 +49,21 @@ export async function GET(request: Request) {
 
     const adminDb = getAdminDb();
 
+    // Persist owner UID so earn paths can credit Hub wallet even without ADMIN_UIDS env
+    if (adminDb && admin.uid) {
+      try {
+        await adminDb.doc('admin_stats/config').set(
+          {
+            ownerUid: admin.uid,
+            ownerEmail: admin.email || '',
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      } catch {
+        /* non-fatal */
+      }
+    }
     let totalUsers = 0;
     let totalUserBalanceCoins = 0;
 

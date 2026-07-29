@@ -236,7 +236,9 @@ export default function AdminEconomyHisaab({ adminUser, refreshKey = 0 }: Props)
               Full Hisaab · Admin Portal
             </p>
             <p className="text-[9px] text-gray-500 mt-0.5">
-              {loading ? 'Loading…' : `${CASH_RATE} 🪙 = $1.000 · 3 decimals`}
+              {loading
+                ? 'Loading…'
+                : `${CASH_RATE} 🪙 = $1.000 · User 30% withdraw · Your 70% → admin wallet + Adsterra`}
             </p>
           </div>
           <button
@@ -298,13 +300,17 @@ export default function AdminEconomyHisaab({ adminUser, refreshKey = 0 }: Props)
 
         <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/10 p-3 space-y-1.5">
           <p className="text-[9px] text-emerald-300 font-black uppercase tracking-widest">
-            Admin ledger
+            Your share · Hub wallet + ledger
           </p>
           <p className="text-2xl font-black text-yellow-300">
             {(e.adminOwnerCoins || 0).toLocaleString()} 🪙
           </p>
           <p className="text-sm font-black text-emerald-400">
             {e.adminOwnerUsdLabel || formatUsd(e.adminOwnerUsd)}
+          </p>
+          <p className="text-[8px] text-emerald-200/70 font-bold">
+            New earns credit this amount to your admin ID Hub wallet (70% ads / 40% gifts / 100% PK).
+            User withdraws only pay their 30% — your share stays profit.
           </p>
           <p className="text-[9px] text-orange-300/90 font-bold">
             PK entries saved: {(e.pkOwnerCoins || 0).toLocaleString()} 🪙

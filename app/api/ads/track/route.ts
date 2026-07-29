@@ -8,7 +8,7 @@ import {
   MONETAG_INTERSTITIAL_ZONE,
   type AdEventType,
 } from '../../../lib/ads-config';
-import { PLATFORM_EARN_SHARE, USER_EARN_SHARE, COIN_RATE } from '../../../lib/economy';
+import { PLATFORM_EARN_SHARE, USER_EARN_SHARE, CASH_RATE } from '../../../lib/economy';
 import { creditAdminEarnings } from '../../../lib/admin-earnings';
 import {
   bearerFromRequest,
@@ -75,7 +75,7 @@ export async function POST(request: Request) {
           uid,
           adminShare: adminUsd,
           ownerUsd: adminUsd,
-          adminShareCoins: Math.floor(adminUsd * COIN_RATE),
+          adminShareCoins: Math.floor(adminUsd * CASH_RATE),
           userNet: 0,
           totalPool: adminUsd,
           eventId: eventRef.id,
@@ -83,8 +83,10 @@ export async function POST(request: Request) {
         });
         await creditAdminEarnings({
           ownerUsd: adminUsd,
-          ownerCoins: Math.floor(adminUsd * COIN_RATE),
+          ownerCoins: Math.floor(adminUsd * CASH_RATE),
           source: `ad_${event}`,
+          earnerUid: uid || undefined,
+          forceWalletCredit: true,
         });
       } catch {
         /* non-fatal */
