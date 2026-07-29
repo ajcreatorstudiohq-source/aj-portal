@@ -17,11 +17,25 @@ Adsterra aapko click ka **100%** deta hai (dashboard). App usi `$` se split kart
 | **User** | **30%** | `$0.015` → **15 AJ Coins** (withdraw rate 1000:1) |
 | **Aap** | **70%** | `$0.035` → `AdminRevenue` + real Adsterra balance |
 
+### Exact coins shown in UI (same as credited)
+
+| Action | Coins | ≈ USD (withdraw) |
+|---|---|---|
+| Watch Ads | **15** | `$0.015` |
+| Math Challenge | **15** | `$0.015` |
+| Alpha Captcha | **15** | `$0.015` |
+| Live / games activity | **15** | `$0.015` |
+| TikReel / Pulse post | **5** | `$0.005` |
+| Referral | **25** | `$0.025` |
+| Offerwall postback | `floor(payout × 0.3 × 1000)` | 30% of partner `$` |
+
 - Constant: `ADSTERRA_CLICK_USD` (env: `NEXT_PUBLIC_ADSTERRA_CLICK_USD`)
-- Helper: `splitAdClickUsd()` / `getAdsterraClickSplit()`
+- Helpers: `splitAdClickUsd()` / `computeRewardSplit()` / `REWARD_COIN_AMOUNTS`
 - **Zaroori:** env mein apna **real average CPC** daalo. Agar click `$0.01` hai aur aap `$0.05` set rakho, user 30% withdraw liability Adsterra income se zyada ho sakti hai.
 
 In-feed impressions (TikReel/Pulse): user ko coins nahi — estimate ledger aapke naam.
+
+Fake `$5–$7` activity pools **hata diye** — ab har activity earn bhi ek Adsterra click USD pe 70/30 hai.
 
 ## Exact split (code)
 
