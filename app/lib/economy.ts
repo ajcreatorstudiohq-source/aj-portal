@@ -177,9 +177,9 @@ export const GAME_CATALOG: GameCatalogItem[] = [
   },
   {
     id: 'ludo',
-    name: 'Ludo Elite Royal',
+    name: 'Ludo Star Elite',
     emoji: '🎲',
-    desc: 'Install → win matches → earn at milestones',
+    desc: 'Private rooms · live friends · win matches for milestones',
     url: '/games/ludo-elite-royal/index.html',
     milestones: [1, 3, 5],
   },

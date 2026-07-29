@@ -15,30 +15,13 @@
       "codes": {
         "$code": {
           ".read": true,
-          ".write": true,
-          ".validate": "newData.hasChildren(['path', 'created']) && newData.child('path').isString() && newData.child('created').isNumber()"
+          ".write": true
         }
       },
       "rooms": {
         "$code": {
           ".read": true,
-          ".write": true,
-          "meta": {
-            ".validate": "newData.hasChildren(['hostUid', 'count', 'mode', 'created'])"
-          },
-          "seats": {
-            "$slot": {
-              ".validate": "newData.hasChildren(['name', 'avatar', 'uid']) && newData.child('name').isString() && newData.child('avatar').isNumber()"
-            }
-          },
-          "chat": {
-            "$msgId": {
-              ".validate": "newData.hasChildren(['pIdx', 'msg', 'ts']) && newData.child('msg').isString() && newData.child('msg').val().length <= 80"
-            }
-          },
-          "gameState": {
-            ".validate": "newData.hasChildren(['seq', 'turn', 'started'])"
-          }
+          ".write": true
         }
       }
     },

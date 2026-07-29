@@ -3,17 +3,66 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Ludo Elite - Ultimate Pro</title>
+    <title>Ludo Star Elite - Play with Friends</title>
     
-    <!-- AJ SDK CONNECTED (DO NOT REMOVE) -->
-    <script src="../../aj-sdk.js"></script>
-    <script src="../aj-progress.js"></script>
-    
-    <!-- Firebase RTDB for online multiplayer + voice signaling -->
+    <!-- Firebase RTDB + Auth (real Google / Facebook login) -->
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
     
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;900&family=Audiowide&display=swap" rel="stylesheet">
+
+    <!-- AJ SDK + Adsterra + progress — FULLY INLINED (single file) -->
+    <script>
+    window.AJ_SDK = {
+        directLink: 'https://www.effectivecpmnetwork.com/b8jtkn6i4?key=77409a0e0aa4602b6d03798ff53516b3',
+        network: 'adsterra',
+        showAd: function () {
+            try {
+                var url = this.directLink;
+                // Never navigate away from the game tab (breaks lobby / join)
+                var win = null;
+                try { win = window.open(url, '_blank', 'noopener,noreferrer'); } catch (e1) {}
+                if (window.parent && window.parent !== window) {
+                    window.parent.postMessage({ type: 'GAME_SHOW_AD', network: 'adsterra', placement: 'games_interstitial' }, '*');
+                }
+                return !!win || true;
+            } catch (e) {
+                console.log('SDK: Adsterra showAd failed', e);
+                return false;
+            }
+        },
+        sendScore: function () {},
+        addBalance: function () {},
+        reportLevel: function (gameId, level) {
+            try {
+                var id = gameId || (new URLSearchParams(window.location.search).get('ajGameId')) || '';
+                var lvl = Math.floor(Number(level) || 0);
+                if (!id || lvl < 1) return;
+                if (window.parent && window.parent !== window) {
+                    window.parent.postMessage({ type: 'GAME_LEVEL_REACHED', gameId: id, level: lvl }, '*');
+                }
+            } catch (e) {}
+        }
+    };
+    window.ajReportLevel = function (level, gameId) {
+        if (window.AJ_SDK && window.AJ_SDK.reportLevel) window.AJ_SDK.reportLevel(gameId, level);
+    };
+    (function () {
+        function gameIdFromQuery() {
+            try { return new URLSearchParams(window.location.search).get('ajGameId') || ''; } catch (e) { return ''; }
+        }
+        var last = { id: '', lvl: 0, t: 0 };
+        window.ajReportLevelOnce = function (level, gameId) {
+            var id = gameId || gameIdFromQuery();
+            var lvl = Math.floor(Number(level) || 0);
+            var now = Date.now();
+            if (id === last.id && lvl === last.lvl && now - last.t < 2000) return;
+            last = { id: id, lvl: lvl, t: now };
+            window.ajReportLevel(lvl, id);
+        };
+    })();
+    </script>
 
     <style>
         :root {
@@ -38,6 +87,7 @@
             align-items: center;
             justify-content: center;
             min-height: 100vh;
+            min-height: 100dvh;
             color: white;
             touch-action: manipulation;
             user-select: none;
@@ -49,13 +99,27 @@
             display: none;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
+            justify-content: flex-start;
             z-index: 1000;
             background: radial-gradient(circle at 50% 30%, var(--bg2), var(--bg1) 70%, #000);
             text-align: center;
-            padding: 20px;
+            padding: 56px 14px 28px;
+            overflow-x: hidden;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior: contain;
         }
         .screen.active { display: flex; }
+        .screen-inner {
+            width: 100%;
+            max-width: 420px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding-bottom: 32px;
+            flex-shrink: 0;
+        }
 
         /* === Top-left wallet bar === */
         .top-left-bar { position: fixed; top: 12px; left: 12px; z-index: 5000; display: flex; flex-direction: column; gap: 8px; }
@@ -80,34 +144,33 @@
         }
         #garage-icon-btn:hover { transform: scale(1.1) rotate(10deg); background: var(--cyan); color: #000; }
 
-        #sound-btn-game, #pause-btn, #mic-btn {
+        #sound-btn-game, #pause-btn {
             position: fixed; top: 12px; width: 46px; height: 46px;
             background: rgba(0,0,0,0.6); border: 2px solid white; border-radius: 50%;
             display: none; align-items: center; justify-content: center;
             font-size: 20px; z-index: 5500; cursor: pointer; transition: 0.3s;
         }
-        #sound-btn-game { right: 150px; }
-        #pause-btn { right: 90px; }
-        #mic-btn { right: 30px; }
-        #mic-btn.muted { border-color: #ff3b3b; }
-        #mic-btn.speaking { border-color: var(--green); box-shadow: 0 0 15px var(--green); }
+        #sound-btn-game { right: 90px; }
+        #pause-btn { right: 30px; }
 
         .logo-text {
             font-family: 'Audiowide', cursive;
-            font-size: 52px; color: var(--yellow);
+            font-size: clamp(28px, 9vw, 48px); color: var(--yellow);
             text-shadow: 0 0 20px var(--yellow), 0 0 40px rgba(255,215,0,0.5);
-            margin-bottom: 10px; letter-spacing: 2px;
+            margin: 0 0 6px 0; letter-spacing: 2px;
+            line-height: 1.1;
         }
         .dev-tag { position: absolute; bottom: 15px; left: 50%; transform: translateX(-50%); font-family: 'Audiowide'; font-size: 12px; color: var(--gold); opacity: 0.7; }
 
         .btn {
-            padding: 15px 30px; margin: 7px;
+            padding: 13px 24px; margin: 5px;
             background: linear-gradient(135deg, var(--yellow), #f39c12);
             color: #000; border: none; border-radius: 16px;
-            font-weight: 900; cursor: pointer; font-size: 16px;
-            width: 270px; max-width: 85vw;
+            font-weight: 900; cursor: pointer; font-size: 15px;
+            width: min(270px, 92vw); max-width: 92vw;
             transition: 0.25s; box-shadow: 0 6px 18px rgba(241,196,15,0.4);
             text-transform: uppercase; font-family: 'Poppins';
+            flex-shrink: 0;
         }
         .btn:hover { transform: translateY(-3px); box-shadow: 0 10px 28px rgba(241,196,15,0.6); filter: brightness(1.1); }
         .btn:active { transform: translateY(0); }
@@ -157,20 +220,25 @@
         .p-avatar-circle { width: 26px; height: 26px; border-radius: 50%; border: 1.5px solid white; overflow: hidden; background: #333; flex-shrink: 0; }
         .p-avatar-circle img { width: 100%; height: 100%; object-fit: cover; }
 
-        #label-0 { top: -42px; left: 0; border-color: var(--red); }
-        #label-1 { top: -42px; right: 0; border-color: var(--green); flex-direction: row-reverse; }
-        #label-2 { bottom: -42px; right: 0; border-color: var(--yellow); flex-direction: row-reverse; }
-        #label-3 { bottom: -42px; left: 0; border-color: var(--blue); }
+        #label-0 { border-color: var(--red); }
+        #label-1 { border-color: var(--green); }
+        #label-2 { border-color: var(--yellow); }
+        #label-3 { border-color: var(--blue); }
+        .p-label.corner-br { top: auto; left: auto; bottom: -42px; right: 0; flex-direction: row-reverse; }
+        .p-label.corner-bl { top: auto; right: auto; bottom: -42px; left: 0; flex-direction: row; }
+        .p-label.corner-tr { bottom: auto; left: auto; top: -42px; right: 0; flex-direction: row-reverse; }
+        .p-label.corner-tl { bottom: auto; right: auto; top: -42px; left: 0; flex-direction: row; }
+        .p-label.you-seat { box-shadow: 0 0 14px rgba(255,215,0,0.45); }
 
-        .chat-bubble { position: absolute; background: white; color: black; padding: 6px 12px; border-radius: 12px; font-size: 12px; font-weight: 900; max-width: 130px; word-wrap: break-word; pointer-events: none; z-index: 6000; display: none; transform: translateY(-58px); border: 2px solid #333; box-shadow: 0 4px 10px rgba(0,0,0,0.4); }
+        .chat-bubble { position: absolute; background: white; color: black; padding: 8px 14px; border-radius: 14px; font-size: 16px; font-weight: 900; max-width: 160px; word-wrap: break-word; pointer-events: none; z-index: 6000; display: none; transform: translateY(-62px); border: 2px solid #333; box-shadow: 0 4px 10px rgba(0,0,0,0.4); }
 
-        #chat-icon { position: fixed; bottom: 20px; right: 20px; width: 52px; height: 52px; background: var(--blue); border-radius: 50%; display: none; align-items: center; justify-content: center; font-size: 24px; cursor: pointer; z-index: 5500; border: 2px solid white; box-shadow: 0 5px 18px rgba(41,121,255,0.5); }
-        #chat-panel { position: fixed; bottom: 82px; right: 20px; background: rgba(0,0,0,0.96); border: 2px solid var(--cyan); border-radius: 16px; width: 230px; display: none; flex-direction: column; padding: 12px; z-index: 5500; }
-        .chat-input-area { display: flex; gap: 6px; margin-bottom: 8px; }
-        .chat-text-input { background: #222; border: 1px solid #444; color: white; border-radius: 8px; padding: 6px; flex: 1; font-size: 12px; outline: none; }
-        .chat-send-btn { background: var(--green); border: none; color: black; font-weight: 900; border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 11px; }
-        .emoji-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; border-top: 1px solid #444; padding-top: 8px; }
-        .emoji-btn { cursor: pointer; font-size: 22px; text-align: center; border-radius: 8px; padding: 4px; }
+        #chat-icon { position: fixed; bottom: 20px; right: 20px; width: 64px; height: 64px; background: var(--blue); border-radius: 50%; display: none; align-items: center; justify-content: center; font-size: 30px; cursor: pointer; z-index: 5500; border: 2px solid white; box-shadow: 0 5px 18px rgba(41,121,255,0.5); }
+        #chat-panel { position: fixed; bottom: 96px; right: 16px; background: rgba(0,0,0,0.96); border: 2px solid var(--cyan); border-radius: 18px; width: min(280px, 88vw); display: none; flex-direction: column; padding: 14px; z-index: 5500; }
+        .chat-input-area { display: flex; gap: 8px; margin-bottom: 10px; }
+        .chat-text-input { background: #222; border: 1px solid #444; color: white; border-radius: 10px; padding: 10px; flex: 1; font-size: 15px; outline: none; }
+        .chat-send-btn { background: var(--green); border: none; color: black; font-weight: 900; border-radius: 10px; padding: 10px 14px; cursor: pointer; font-size: 13px; }
+        .emoji-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; border-top: 1px solid #444; padding-top: 10px; }
+        .emoji-btn { cursor: pointer; font-size: 32px; text-align: center; border-radius: 10px; padding: 8px 4px; line-height: 1.1; }
         .emoji-btn:active { background: rgba(0,229,255,0.2); }
 
         .lobby-code-row { display:flex; align-items:center; justify-content:center; gap:10px; flex-wrap:wrap; }
@@ -192,10 +260,11 @@
         }
         .dot { background: radial-gradient(circle at 30% 30%, #444, #000); border-radius: 50%; width: 8px; height: 8px; align-self: center; justify-self: center; box-shadow: inset 1px 1px 2px rgba(0,0,0,0.5); }
 
-        #dice-0 { top: -46px; left: 50%; margin-left: -27px; }
-        #dice-1 { top: -46px; right: 18px; }
-        #dice-2 { bottom: -46px; right: 18px; }
-        #dice-3 { bottom: -46px; left: 18px; }
+        .dice-area.corner-br { top: auto; left: auto; bottom: -52px; right: 10px; margin-left: 0; }
+        .dice-area.corner-bl { top: auto; right: auto; bottom: -52px; left: 10px; margin-left: 0; }
+        .dice-area.corner-tr { bottom: auto; left: auto; top: -52px; right: 10px; margin-left: 0; }
+        .dice-area.corner-tl { bottom: auto; right: auto; top: -52px; left: 10px; margin-left: 0; }
+        .dice-area.you-seat .dice { border: 2px solid var(--gold); box-shadow: 0 0 16px rgba(255,215,0,0.55); }
 
         @keyframes spinDice { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         .active-spin { animation: spinDice 3s linear infinite; border: 2px solid var(--gold); box-shadow: 0 0 20px var(--gold); }
@@ -204,7 +273,7 @@
         #game-wrapper {
             position: relative; width: 90vmin; height: 90vmin;
             max-width: 540px; max-height: 540px; display: none;
-            border-radius: 24px; margin-top: 28px;
+            border-radius: 24px; margin: 56px auto 64px;
             box-shadow: 0 25px 60px rgba(0,0,0,0.8), 0 0 40px rgba(0,229,255,0.15);
         }
         canvas { width: 100%; height: 100%; display: block; border-radius: 18px; }
@@ -297,10 +366,33 @@
         .frame-preview-inner { width: 38px; height: 38px; border-radius: 50%; background: #333; border: 2px solid #555; }
 
         /* === PROFILE BAR ON HOME === */
-        .home-profile { display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.05); padding: 8px 18px; border-radius: 30px; border: 2px solid var(--gold); margin-bottom: 16px; box-shadow: 0 0 15px rgba(255,215,0,0.2); }
-        .home-profile-avatar { width: 42px; height: 42px; border-radius: 50%; border: 2px solid var(--cyan); overflow: hidden; }
+        .home-profile { display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.05); padding: 8px 18px; border-radius: 30px; border: 2px solid var(--gold); margin-bottom: 10px; box-shadow: 0 0 15px rgba(255,215,0,0.2); max-width: 92vw; }
+        .home-profile-avatar { width: 42px; height: 42px; border-radius: 50%; border: 2px solid var(--cyan); overflow: hidden; flex-shrink: 0; }
         .home-profile-avatar img { width: 100%; height: 100%; object-fit: cover; }
-        .home-profile-name { font-weight: 900; font-size: 16px; color: var(--gold); font-family: 'Audiowide'; }
+        .home-profile-name { font-weight: 900; font-size: 14px; color: var(--gold); font-family: 'Audiowide'; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }
+        .home-row { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; justify-content: center; width: 100%; }
+        .home-join-box { margin-top: 12px; background: rgba(0,229,255,0.06); border: 2px solid rgba(0,229,255,0.35); border-radius: 18px; padding: 12px 14px; width: 100%; max-width: 320px; }
+        #login-busy { display: none; color: var(--cyan); font-weight: 900; font-size: 13px; margin: 8px 0; min-height: 18px; }
+
+        /* === MOBILE HOME — full screen scrollable === */
+        @media (max-width: 520px), (max-height: 820px) {
+            .screen { padding: 52px 10px 24px; justify-content: flex-start; }
+            .logo-text { font-size: clamp(26px, 8.5vw, 36px); margin-bottom: 4px; }
+            .btn { padding: 11px 16px; margin: 4px; font-size: 13px; border-radius: 14px; }
+            .input-group { margin-bottom: 10px; padding: 4px 12px; }
+            .home-profile { margin-bottom: 8px; padding: 6px 12px; }
+            .home-join-box { margin-top: 10px; padding: 10px 12px; }
+            #garage-icon-btn { width: 42px; height: 42px; font-size: 18px; top: 10px; right: 10px; }
+            .top-left-bar { top: 10px; left: 10px; }
+            .wallet-bar { padding: 6px 12px; }
+            #total-coins { font-size: 14px; }
+        }
+        @media (max-height: 640px) {
+            .screen { padding-top: 48px; }
+            .logo-text { font-size: 24px; }
+            .btn { padding: 10px 14px; font-size: 12px; margin: 3px; }
+            #home-screen .home-tagline { font-size: 11px !important; margin-bottom: 6px !important; }
+        }
 
         </style>
 <script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>
@@ -320,12 +412,15 @@
 
     <!-- LOGIN -->
     <div id="login-screen" class="screen active">
-        <div class="logo-text">LUDO ELITE</div>
-        <p style="color:var(--cyan); font-weight:900; margin:0 0 24px 0; font-size:15px;">SIGN IN TO PLAY</p>
-        <button class="btn login-btn-fb" onclick="doLogin('facebook')"><span class="login-icon">🌐</span>CONTINUE WITH FACEBOOK</button>
-        <button class="btn login-btn-gmail" onclick="doLogin('gmail')"><span class="login-icon">✉️</span>CONTINUE WITH GMAIL</button>
-        <button class="btn login-btn-guest" onclick="doLogin('guest')"><span class="login-icon">👤</span>PLAY AS GUEST</button>
-        <p style="font-size:11px; color:#666; margin-top:20px; max-width:300px;">By continuing you agree to our Terms & Privacy Policy. Ads support free gameplay & rewards.</p>
+        <div class="screen-inner">
+            <div class="logo-text">LUDO STAR</div>
+            <p style="color:var(--cyan); font-weight:900; margin:0 0 18px 0; font-size:14px;">SIGN IN WITH REAL ACCOUNT</p>
+        <button class="btn login-btn-fb" id="btn-login-fb" onclick="doLogin('facebook')"><span class="login-icon">📘</span> CONTINUE WITH FACEBOOK</button>
+        <button class="btn login-btn-gmail" id="btn-login-gmail" onclick="doLogin('gmail')"><span class="login-icon">📧</span> CONTINUE WITH GMAIL</button>
+            <button class="btn login-btn-guest" onclick="doLogin('guest')"><span class="login-icon">👤</span>PLAY AS GUEST</button>
+            <div id="login-busy">Opening secure login…</div>
+            <p style="font-size:11px; color:#666; margin-top:16px; max-width:300px;">Real Google / Facebook via Firebase Auth. Guest skips social login. Ads support free gameplay.</p>
+        </div>
     </div>
 
     <!-- DAILY REWARDS -->
@@ -358,9 +453,9 @@
         <div class="ad-box">
             <div id="ad-content-normal">
                 <div class="ad-spinner"></div>
-                <div class="ad-title">REWARD AD</div>
+                <div class="ad-title">ADSTERRA AD</div>
                 <div class="ad-countdown" id="ad-countdown">5</div>
-                <div class="ad-subtext">Your reward is loading... Keep this tab open!</div>
+                <div class="ad-subtext">Real Adsterra opened in a new tab. Wait for the timer, then continue!</div>
             </div>
             <div id="ad-content-done" style="display:none;">
                 <div class="ad-reward-final" id="ad-reward-amount">+0</div>
@@ -371,7 +466,8 @@
     </div>
 
     <div id="splash-screen" class="screen">
-        <div class="logo-text">LUDO ELITE</div>
+        <div class="logo-text">LUDO STAR</div>
+        <p style="color:var(--cyan); font-weight:900; margin:0 0 8px 0; letter-spacing:2px;">ELITE · LIVE FRIENDS</p>
         <div class="loading-container">
             <div class="loading-track"><div id="loading-bar"></div></div>
             <div id="tap-text" style="display:none; color:var(--cyan); cursor:pointer; font-weight:900; font-size:18px;" onclick="splashTapContinue()">TAP TO CONTINUE</div>
@@ -381,33 +477,37 @@
 
     <!-- HOME -->
     <div id="home-screen" class="screen">
-        <div class="logo-text">LUDO ELITE</div>
-        <div class="input-group">
-            <input type="text" id="user-name-input" placeholder="NAME" value="ALI" maxlength="10">
-            <div onclick="toggleAvatarPopup()" style="width:48px; height:48px; border-radius:50%; border:2px solid var(--gold); overflow:hidden; cursor:pointer; box-shadow:0 0 12px rgba(255,215,0,0.4);">
-                <img id="current-avatar-preview" src="" style="width:100%; height:100%; object-fit:cover;">
+        <div class="screen-inner">
+            <div class="logo-text">LUDO STAR</div>
+            <p class="home-tagline" style="color:var(--cyan); font-weight:900; margin:0 0 10px 0; font-size:12px; letter-spacing:1px;">PRIVATE ROOMS · LIVE DICE SYNC</p>
+            <div class="input-group">
+                <input type="text" id="user-name-input" placeholder="NAME" value="ALI" maxlength="10">
+                <div onclick="toggleAvatarPopup()" style="width:44px; height:44px; border-radius:50%; border:2px solid var(--gold); overflow:hidden; cursor:pointer; box-shadow:0 0 12px rgba(255,215,0,0.4); flex-shrink:0;">
+                    <img id="current-avatar-preview" src="" style="width:100%; height:100%; object-fit:cover;">
+                </div>
             </div>
+            <div class="home-profile" id="home-profile-bar" style="display:none;">
+                <div class="home-profile-avatar"><img id="home-profile-avatar-img" src=""></div>
+                <div class="home-profile-name" id="home-profile-name-text">PLAYER</div>
+                <button type="button" class="btn btn-dark" style="width:auto; padding:6px 10px; font-size:10px; margin:0;" onclick="doLogout()">LOGOUT</button>
+            </div>
+            <button class="btn" onclick="openModeSelection(true)">▶ PLAY WITH BOTS</button>
+            <button class="btn btn-blue" onclick="openModeSelection(false)">👥 CREATE PRIVATE ROOM</button>
+            <div class="home-row">
+                <button class="btn btn-green" style="width:130px; font-size:12px; padding:11px;" onclick="openDailyRewards()">🎁 REWARDS</button>
+                <button class="btn" style="background:linear-gradient(135deg,var(--gold),#f39c12); color:#000; width:130px; font-size:12px; padding:11px;" onclick="showLeague()">🏆 LEAGUE</button>
+            </div>
+            <div class="home-row">
+                <button id="reward-ad-btn" class="btn" style="background:linear-gradient(135deg,var(--gold),#f39c12); color:#000; width:150px; font-size:12px;" onclick="claimDailyBonus()">🎁 DAILY 1000</button>
+                <button class="btn btn-green" style="width:150px; font-size:12px;" onclick="watchUnlimitedAd()">📺 WATCH AD +200</button>
+            </div>
+            <div class="home-join-box">
+                <p style="font-size:12px; color:var(--cyan); margin:0 0 8px 0; font-weight:900;">🔗 JOIN LIVE FRIEND ROOM</p>
+                <input type="text" id="home-join-id" placeholder="e.g. AJ4821" maxlength="8" autocomplete="off" style="margin-bottom:8px; width:min(180px,70vw); border:2px solid #444; border-radius:12px; padding:8px; text-transform:uppercase; letter-spacing:2px;">
+                <button class="btn btn-green" style="width:min(210px,85vw); padding:12px;" onclick="joinFriendFromHome()">JOIN & PLAY LIVE</button>
+            </div>
+            <div id="avatar-popup"></div>
         </div>
-        <div class="home-profile" id="home-profile-bar" style="display:none;">
-            <div class="home-profile-avatar"><img id="home-profile-avatar-img" src=""></div>
-            <div class="home-profile-name" id="home-profile-name-text">PLAYER</div>
-        </div>
-        <button class="btn" onclick="openModeSelection(true)">Single with Bots</button>
-        <button class="btn btn-blue" onclick="openModeSelection(false)">Online Friends</button>
-        <div style="display:flex; gap:8px; margin-top:6px; flex-wrap:wrap; justify-content:center;">
-            <button class="btn btn-green" style="width:130px; font-size:12px; padding:11px;" onclick="openDailyRewards()">🎁 REWARDS</button>
-            <button class="btn" style="background:linear-gradient(135deg,var(--gold),#f39c12); color:#000; width:130px; font-size:12px; padding:11px;" onclick="showLeague()">🏆 LEAGUE</button>
-        </div>
-        <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; justify-content:center;">
-            <button id="reward-ad-btn" class="btn" style="background:linear-gradient(135deg,var(--gold),#f39c12); color:#000; width:160px; font-size:12px;" onclick="claimDailyBonus()">🎁 DAILY 1000</button>
-            <button class="btn btn-green" style="width:160px; font-size:12px;" onclick="watchUnlimitedAd()">📺 WATCH AD +200</button>
-        </div>
-        <div style="margin-top:14px;">
-            <p style="font-size:12px; color:var(--cyan); margin:0 0 8px 0; font-weight:900;">JOIN FRIEND ROOM</p>
-            <input type="text" id="home-join-id" placeholder="e.g. AJ4821" maxlength="8" autocomplete="off" style="margin-bottom:8px; width:180px; border:2px solid #444; border-radius:12px; padding:8px; text-transform:uppercase; letter-spacing:2px;">
-            <button class="btn btn-green" style="width:210px; padding:12px;" onclick="joinFriendFromHome()">JOIN ROOM</button>
-        </div>
-        <div id="avatar-popup"></div>
     </div>
 
     <!-- GARAGE -->
@@ -524,7 +624,6 @@
     <div id="game-wrapper">
         <div id="sound-btn-game" onclick="toggleSound()">🔊</div>
         <div id="pause-btn" onclick="openPauseMenu()">⚙️</div>
-        <div id="mic-btn" onclick="toggleMic()">🎤</div>
 
         <div id="label-0" class="p-label"><div class="p-avatar-circle"><img src=""></div><span id="name-0">P1</span><div id="bubble-0" class="chat-bubble"></div></div>
         <div id="label-1" class="p-label"><div class="p-avatar-circle"><img src=""></div><span id="name-1">P2</span><div id="bubble-1" class="chat-bubble"></div></div>
@@ -546,51 +645,67 @@
 
 
 // ===================================================================
-//  ADS DISABLED — Monetag / nap5k removed (Adsterra handled by portal shell)
+//  REAL ADSTERRA ADS (A→Z) — full smartlink on every gate
+//  Smartlink: opens every time an ad gate runs (no fake countdown-only ads)
 // ===================================================================
-const MONETAG_ZONE_ID = 0;
-const MONETAG_TAG_URL = '';
-const MONETAG_SDK_VAR = '';
-const AD_COOLDOWN_MS = 90 * 1000;
+const ADSTERRA_DIRECT_LINK =
+  'https://www.effectivecpmnetwork.com/b8jtkn6i4?key=77409a0e0aa4602b6d03798ff53516b3';
+const ADSTERRA_VERIFY_SECONDS = 5;
 let lastAnyAdShownTime = 0;
 let lastInterstitialAdTime = 0;
-let monetagHostIframe = null;
-let monetagTeardownTimer = null;
+let adTimerId = null;
 
-function destroyMonetagHost() {
+/**
+ * Open REAL Adsterra rewarded/interstitial smartlink.
+ * @param {boolean} [force=true] — gated actions always force-open (never skip)
+ */
+function triggerAdsterraAd(force) {
+    const mustFire = force !== false;
+    const now = Date.now();
+    if (!mustFire && now - lastAnyAdShownTime < 1500) {
+        console.log('[Adsterra] debounce skip');
+        return false;
+    }
+
+    let fired = false;
     try {
-        document.querySelectorAll('iframe[src*="nap5k"], iframe[src*="al5sm"], iframe[src*="n6wxm"], iframe[src*="quge5"], iframe[src*="monetag"], iframe[src*="gozen"]').forEach(function(el) {
-            try { el.remove(); } catch (e) {}
-        });
-    } catch (e) {}
-    monetagHostIframe = null;
+        if (typeof AJ_SDK !== 'undefined' && typeof AJ_SDK.showAd === 'function') {
+            AJ_SDK.showAd();
+            fired = true;
+        } else {
+            var win = window.open(ADSTERRA_DIRECT_LINK, '_blank', 'noopener,noreferrer');
+            // Do NOT location.assign — that kills lobby/join on mobile
+            if (typeof window.parent !== 'undefined' && window.parent !== window) {
+                try {
+                    window.parent.postMessage({
+                        type: 'GAME_SHOW_AD',
+                        network: 'adsterra',
+                        placement: 'games_interstitial'
+                    }, '*');
+                } catch (e3) {}
+            }
+            fired = true;
+            void win;
+        }
+    } catch (e) {
+        console.warn('[Adsterra] open failed', e);
+        fired = false;
+    }
+    if (fired) {
+        lastAnyAdShownTime = Date.now();
+        lastInterstitialAdTime = Date.now();
+        console.log('[Adsterra] REAL ad opened');
+    }
+    return fired;
 }
 
-function ensureMonetagHostIframe() { return null; }
-function ensureMonetagSdkLoaded(_zoneId) { return Promise.resolve(false); }
-function triggerMonetagInterstitialAd(_zoneId) { return Promise.resolve(false); }
-
-(function preloadMonetagOnLoad() {
-    if (typeof window === 'undefined') return;
-    window.addEventListener('pagehide', destroyMonetagHost);
-    // Strip any leftover Monetag nodes; never load nap5k
-    window.addEventListener('load', function() { destroyMonetagHost(); });
-})();
-
-// ===================================================================
-//  AJ SDK BRIDGE (legacy) — LOCAL Ludo coins only, never portal wallet
-// ===================================================================
 function ajShowAd() {
-    return triggerMonetagInterstitialAd(MONETAG_ZONE_ID);
+    return Promise.resolve(triggerAdsterraAd(true));
 }
+
 let ludoPortalWins = parseInt(localStorage.getItem("ludo_portal_wins") || "0", 10) || 0;
 function ajSendScore(points) {
     // Local prestige only — do NOT credit AJ Super Portal wallet / cash-out.
-    try {
-        if (typeof AJ_SDK !== 'undefined' && AJ_SDK.sendScore) {
-            // Even if AJ_SDK exists, refuse wallet writes from Ludo.
-        }
-    } catch (e) {}
     void points;
 }
 
@@ -643,7 +758,7 @@ function toggleSound() {
 }
 
 // ===================================================================
-//  FIREBASE RTDB — online multiplayer (replaces PeerJS)
+//  FIREBASE RTDB + AUTH (real Google / Facebook)
 // ===================================================================
 const firebaseConfig = {
     apiKey: "AIzaSyDp2od-lrfAhEHV5oAIqBW5rWjaRbnAdFM",
@@ -655,12 +770,14 @@ const firebaseConfig = {
     appId: "1:288191292906:web:bc31cb072948533f88fe93"
 };
 let rtdb = null;
+let firebaseAuth = null;
 try {
     if (typeof firebase !== 'undefined') {
-        firebase.initializeApp(firebaseConfig);
+        if (!firebase.apps || !firebase.apps.length) firebase.initializeApp(firebaseConfig);
         rtdb = firebase.database();
+        firebaseAuth = firebase.auth();
     }
-} catch(e) { console.warn('Firebase init skipped (config placeholder):', e); }
+} catch(e) { console.warn('Firebase init skipped:', e); }
 
 let myRoomRef = null;
 let isHost = false;
@@ -680,61 +797,8 @@ let pendingJoinCode = '';
 const ROOM_ROOT = 'ludo/rooms';
 const CODE_ROOT = 'ludo/codes';
 
-// ===================================================================
-//  WEBRTC VOICE CHAT (via RTDB signaling)
-// ===================================================================
+// Mic / voice chat removed — chat + emoji only
 let localStream = null;
-let pc = null;
-let micOn = false;
-
-async function startVoiceChat() {
-    if (!rtdb || !isHost && mySlot === 0) return;
-    // Voice chat initialization — uses getUserMedia + RTDB signaling
-    try {
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
-    } catch(e) { return; }
-}
-
-function toggleMic() {
-    playSfx(sfxButton);
-    if (!localStream) {
-        startMic();
-    } else {
-        localStream.getAudioTracks().forEach(t => t.enabled = !t.enabled);
-        micOn = localStream.getAudioTracks()[0] ? localStream.getAudioTracks()[0].enabled : false;
-    }
-    const mb = document.getElementById('mic-btn');
-    mb.innerText = micOn ? '🎤' : '🔇';
-    mb.classList.toggle('muted', !micOn);
-}
-
-async function startMic() {
-    try {
-        localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        localStream.getAudioTracks().forEach(t => t.enabled = true);
-        micOn = true;
-        const mb = document.getElementById('mic-btn');
-        mb.innerText = '🎤';
-        mb.classList.remove('muted');
-        // Analyser for speaking detection
-        if (actx && localStream) {
-            const src = actx.createMediaStreamSource(localStream);
-            const analyser = actx.createAnalyser();
-            analyser.fftSize = 256;
-            src.connect(analyser);
-            const data = new Uint8Array(analyser.frequencyBinCount);
-            const checkSpeak = () => {
-                if (!micOn) { document.getElementById('mic-btn').classList.remove('speaking'); return; }
-                analyser.getByteFrequencyData(data);
-                let sum = 0; for (let i = 0; i < data.length; i++) sum += data[i];
-                if (sum / data.length > 20) document.getElementById('mic-btn').classList.add('speaking');
-                else document.getElementById('mic-btn').classList.remove('speaking');
-                if (localStream) requestAnimationFrame(checkSpeak);
-            };
-            checkSpeak();
-        }
-    } catch(e) { showAlert('Mic permission denied'); }
-}
 
 // ===================================================================
 //  GAME STATE
@@ -880,8 +944,8 @@ function showHome() {
     document.getElementById('chat-icon').style.display = 'none';
     document.getElementById('sound-btn-game').style.display = 'none';
     document.getElementById('pause-btn').style.display = 'none';
-    document.getElementById('mic-btn').style.display = 'none';
-    if (myRoomRef) { try { myRoomRef.remove(); } catch(e){} myRoomRef = null; }
+    // Guests only leave their seat; hosts tear down the private room
+    if (myRoomRef) cleanupOnlineSession(!!isHost);
 }
 
 function updateWalletUI() {
@@ -1057,30 +1121,41 @@ function watchUnlimitedAd() {
 }
 
 // ===================================================================
-//  AD OVERLAY (unified) — used by all ad-gated actions
-//  rewardAmount: coins to give after ad (0 = no reward, just gate)
-//  callback: function to run after ad completes
+//  AD OVERLAY — every gate fires REAL Adsterra
+//  rewardAmount: local Ludo coins after ad (0 = gate only)
 // ===================================================================
-let adTimerId = null;
-
 function showAdOverlay(rewardAmount, callback) {
     const overlay = document.getElementById('ad-overlay');
     const normal = document.getElementById('ad-content-normal');
     const done = document.getElementById('ad-content-done');
     const finalAmount = document.getElementById('ad-reward-amount');
+
+    // ALWAYS open real Adsterra first (forced — never fake/skip)
+    const fired = triggerAdsterraAd(true);
+    console.log('[Adsterra] showAdOverlay fired=', fired, 'reward=', rewardAmount);
+
     if (!overlay || !normal || !done) {
-        if (typeof callback === 'function') { try { callback(); } catch(e) {} }
+        if (typeof callback === 'function') { try { callback(); } catch (e) {} }
         return;
     }
 
-    // Always paint a non-black fallback surface before any Monetag paint
     overlay.style.display = 'flex';
-    overlay.style.background = 'radial-gradient(circle at 50% 40%, #1a1030 0%, #050508 70%)';
+    overlay.style.background = 'radial-gradient(circle at 50% 40%, #0d2137 0%, #050508 70%)';
     normal.style.display = 'block';
     done.style.display = 'none';
+    try {
+        const title = overlay.querySelector('.ad-title');
+        if (title) title.textContent = fired ? 'ADSTERRA AD' : 'OPENING AD…';
+        const sub = overlay.querySelector('.ad-subtext');
+        if (sub) {
+            sub.textContent = fired
+                ? 'Real Adsterra ad opened. Stay on the ad tab, then come back!'
+                : 'Allow popups, then tap Watch Ad again.';
+        }
+    } catch (e) {}
 
     let finished = false;
-    const finish = function() {
+    const finish = function () {
         if (finished) return;
         finished = true;
         if (adTimerId) { clearInterval(adTimerId); adTimerId = null; }
@@ -1098,47 +1173,26 @@ function showAdOverlay(rewardAmount, callback) {
         } catch (e) {
             overlay.style.display = 'none';
         }
-        // Hide Monetag host so it cannot leave a black freeze layer
-        try {
-            if (monetagHostIframe) {
-                monetagHostIframe.style.opacity = '0';
-                monetagHostIframe.style.pointerEvents = 'none';
-                monetagHostIframe.style.background = 'transparent';
-            }
-        } catch (e) {}
         if (typeof callback === 'function') {
-            try { callback(); } catch(e) { console.warn('ad callback error', e); }
+            try { callback(); } catch (e) { console.warn('ad callback error', e); }
         }
     };
 
-    // Monetag disabled — local countdown overlay only
-    triggerMonetagInterstitialAd(MONETAG_ZONE_ID).then(function(fired) {
-        console.log('[Monetag] ad fired in showAdOverlay:', fired);
-    }).catch(function(e) { console.warn('[Monetag] overlay ad error', e); });
-
-    // Countdown 5s UI + hard 8s safety timeout (never freeze gameplay)
-    let count = 5;
+    let count = ADSTERRA_VERIFY_SECONDS;
     const countdownEl = document.getElementById('ad-countdown');
     if (countdownEl) countdownEl.innerText = String(count);
     if (adTimerId) clearInterval(adTimerId);
-    adTimerId = setInterval(function() {
+    adTimerId = setInterval(function () {
         count--;
         if (countdownEl) countdownEl.innerText = String(Math.max(0, count));
         if (count <= 0) finish();
     }, 1000);
-    setTimeout(finish, 8000);
+    setTimeout(finish, (ADSTERRA_VERIFY_SECONDS + 3) * 1000);
 }
 
 function closeAdOverlay() {
     playSfx(sfxButton);
-    try { document.getElementById('ad-overlay').style.display = 'none'; } catch(e) {}
-    try {
-        if (monetagHostIframe) {
-            monetagHostIframe.style.opacity = '0';
-            monetagHostIframe.style.pointerEvents = 'none';
-            monetagHostIframe.style.background = 'transparent';
-        }
-    } catch(e) {}
+    try { document.getElementById('ad-overlay').style.display = 'none'; } catch (e) {}
 }
 
 // ===================================================================
@@ -1157,15 +1211,32 @@ function genRoomCode() {
     for (let i = 0; i < 4; i++) code += alphabet[Math.floor(Math.random() * alphabet.length)];
     return code;
 }
-function roomPath(code) { return ROOM_ROOT + '/' + code; }
+function normalizeRoomCode(raw) {
+    let id = String(raw || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!id) return '';
+    // Friends often type only the 4 chars after AJ
+    if (id.length === 4 && id.indexOf('AJ') !== 0) id = 'AJ' + id;
+    return id;
+}
+function roomPath(code) { return ROOM_ROOT + '/' + normalizeRoomCode(code); }
 function myPlayerPayload(ready) {
+    const nameEl = document.getElementById('user-name-input');
+    const rawName = (nameEl && nameEl.value) ? nameEl.value : (isHost ? 'HOST' : 'GUEST');
     return {
-        name: (document.getElementById('user-name-input').value || (isHost ? 'HOST' : 'GUEST')).slice(0, 12),
-        avatar: myAvatarIdx,
+        name: String(rawName).replace(/[^\w\s]/g, '').trim().slice(0, 12) || (isHost ? 'HOST' : 'GUEST'),
+        avatar: Number(myAvatarIdx) || 0,
         ready: !!ready,
-        uid: portalUid || resolvePortalUid(),
+        uid: String(portalUid || resolvePortalUid()),
         joinedAt: Date.now()
     };
+}
+function firebaseErrText(err) {
+    const code = (err && err.code) || '';
+    const msg = (err && err.message) || String(err || 'error');
+    if (code.indexOf('permission_denied') >= 0 || msg.indexOf('PERMISSION_DENIED') >= 0) {
+        return 'Firebase RTDB rules block lobbies — deploy database.rules.json';
+    }
+    return msg.slice(0, 90);
 }
 function detachRoomListeners() {
     try { if (myRoomRef) myRoomRef.off(); } catch (e) {}
@@ -1256,7 +1327,10 @@ function renderLobbyPlayers() {
     }
     const startBtn = document.getElementById('start-game-btn');
     const readyBtn = document.getElementById('ready-btn');
-    if (startBtn) startBtn.style.display = (isHost && !onlineMatchLive && joined >= 2) ? 'block' : 'none';
+    if (startBtn) startBtn.style.display = (isHost && !onlineMatchLive && joined >= 1) ? 'block' : 'none';
+    if (startBtn && isHost && !onlineMatchLive) {
+        startBtn.innerText = joined >= 2 ? 'START LIVE MATCH' : 'START (FILL BOTS)';
+    }
     if (readyBtn) readyBtn.style.display = (!isHost && !onlineMatchLive && myRoomRef) ? 'block' : 'none';
     renderLobbyBoardSkins();
 }
@@ -1321,6 +1395,7 @@ function attachGameStateListener() {
 async function initHostRoom() {
     portalUid = resolvePortalUid();
     isHost = true;
+    isBotMode = false;
     mySlot = 2;
     onlineMatchLive = false;
     stateSeq = 0;
@@ -1329,119 +1404,167 @@ async function initHostRoom() {
     roomPlayers[mySlot] = myPlayerPayload(true);
 
     let code = genRoomCode();
-    if (rtdb) {
-        for (let attempt = 0; attempt < 6; attempt++) {
-            const exists = await rtdb.ref(roomPath(code)).once('value');
-            if (!exists.val()) break;
-            code = genRoomCode();
-        }
-    }
-    roomCode = code;
-
     document.getElementById('id-display-box').style.display = 'block';
-    document.getElementById('my-peer-id').innerText = roomCode;
+    document.getElementById('my-peer-id').innerText = '….';
     document.getElementById('whatsapp-share-btn').style.display = 'block';
-    document.getElementById('player-status').innerText = 'Waiting for friends… (1/' + playerCount + ')';
+    document.getElementById('player-status').innerText = 'Creating private room…';
     document.getElementById('start-game-btn').style.display = 'none';
     const readyBtn = document.getElementById('ready-btn');
     if (readyBtn) readyBtn.style.display = 'none';
 
     if (!rtdb) {
+        roomCode = code;
+        document.getElementById('my-peer-id').innerText = roomCode;
         document.getElementById('player-status').innerText = 'Offline — Firebase unavailable';
         document.getElementById('start-game-btn').style.display = 'block';
         renderLobbyPlayers();
         return;
     }
 
-    detachRoomListeners();
-    const roomRef = rtdb.ref(roomPath(roomCode));
-    const payload = {
-        meta: {
-            hostUid: portalUid,
-            count: playerCount,
-            mode: gameMode,
-            level: selectedLevel.name,
-            boardSkin: inventory.selectedBoard || 0,
-            created: Date.now(),
-            version: 2
-        },
-        seats: { 2: roomPlayers[mySlot] },
-        started: false,
-        chat: null,
-        gameState: null
-    };
-    await roomRef.set(payload);
-    await rtdb.ref(CODE_ROOT + '/' + roomCode).set({ path: roomPath(roomCode), created: Date.now() });
     try {
-        roomRef.onDisconnect().remove();
-        rtdb.ref(CODE_ROOT + '/' + roomCode).onDisconnect().remove();
-    } catch (e) {}
-    bindLobbyRoom(roomRef);
-    attachChatListener();
-    renderLobbyPlayers();
+        for (let attempt = 0; attempt < 8; attempt++) {
+            const exists = await rtdb.ref(roomPath(code)).once('value');
+            if (!exists.val()) break;
+            code = genRoomCode();
+        }
+        roomCode = code;
+        document.getElementById('my-peer-id').innerText = roomCode;
+
+        detachRoomListeners();
+        const roomRef = rtdb.ref(roomPath(roomCode));
+        const payload = {
+            meta: {
+                hostUid: String(portalUid),
+                count: Number(playerCount) || 2,
+                mode: String(gameMode || 'classic'),
+                level: (selectedLevel && selectedLevel.name) ? selectedLevel.name : 'Street Play',
+                boardSkin: Number(inventory.selectedBoard) || 0,
+                created: Date.now(),
+                version: 3
+            },
+            seats: {},
+            started: false
+        };
+        payload.seats[String(mySlot)] = myPlayerPayload(true);
+
+        await roomRef.set(payload);
+        await rtdb.ref(CODE_ROOT + '/' + roomCode).set({
+            path: roomPath(roomCode),
+            created: Date.now()
+        });
+
+        // Only clear MY seat on disconnect — do NOT delete whole room
+        // (mobile background used to wipe lobby ID for friends)
+        try {
+            roomRef.child('seats/' + mySlot).onDisconnect().remove();
+        } catch (e) {}
+
+        bindLobbyRoom(roomRef);
+        attachChatListener();
+        renderLobbyPlayers();
+        document.getElementById('player-status').innerText =
+            'Room LIVE — share code ' + roomCode + ' (1/' + playerCount + ')';
+        showAlert('Room code: ' + roomCode);
+        console.log('[Lobby] host room ready', roomCode, roomPath(roomCode));
+    } catch (err) {
+        console.error('[Lobby] create failed', err);
+        document.getElementById('my-peer-id').innerText = roomCode || 'ERR';
+        document.getElementById('player-status').innerText = 'Create failed: ' + firebaseErrText(err);
+        showAlert(firebaseErrText(err));
+    }
 }
 
 function joinFriendFromHome() {
-    const id = (document.getElementById('home-join-id').value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const id = normalizeRoomCode(document.getElementById('home-join-id').value);
     if (!id) return showAlert('Enter Room Code!');
     joinRoomByCode(id);
 }
 
-function joinRoomByCode(id) {
+function enterLobbyAsGuest(roomRef, slot) {
+    detachRoomListeners();
+    mySlot = slot;
+    const myData = myPlayerPayload(true);
+    return roomRef.child('seats/' + slot).set(myData).then(() => {
+        try { roomRef.child('seats/' + slot).onDisconnect().remove(); } catch (e) {}
+        bindLobbyRoom(roomRef);
+        attachChatListener();
+        switchScreen('lobby-screen');
+        document.getElementById('id-display-box').style.display = 'block';
+        document.getElementById('my-peer-id').innerText = roomCode;
+        document.getElementById('whatsapp-share-btn').style.display = 'block';
+        document.getElementById('start-game-btn').style.display = 'none';
+        document.getElementById('player-status').innerText = 'Joined ' + roomCode + ' — waiting for host…';
+        const readyBtn = document.getElementById('ready-btn');
+        if (readyBtn) { readyBtn.style.display = 'block'; readyBtn.innerText = 'READY ✓'; }
+        renderLobbyPlayers();
+        showAlert('Joined live room ' + roomCode);
+        // Optional ad AFTER join succeeds (does not navigate away)
+        try { triggerAdsterraAd(true); } catch (e) {}
+    });
+}
+
+function joinRoomByCode(rawId) {
     portalUid = resolvePortalUid();
+    const id = normalizeRoomCode(rawId);
+    if (!id) return showAlert('Enter Room Code!');
     roomCode = id;
     isHost = false;
+    isBotMode = false;
     onlineMatchLive = false;
     if (!rtdb) { showAlert('Online needs Firebase!'); return; }
 
-    const roomRef = rtdb.ref(roomPath(roomCode));
-    roomRef.once('value').then((snap) => {
-        let data = snap.val();
-        const finishJoin = (roomData) => {
-            if (!roomData) { showAlert('Room not found!'); return; }
-            if (roomData.started === true) { showAlert('Match already started!'); return; }
-            playerCount = (roomData.meta && roomData.meta.count) || roomData.count || 2;
-            gameMode = (roomData.meta && roomData.meta.mode) || roomData.mode || 'classic';
-            const tName = (roomData.meta && roomData.meta.level) || roomData.level;
-            selectedLevel = tables.find((t) => t.name === tName) || tables[0];
-            if (roomData.meta && typeof roomData.meta.boardSkin === 'number') {
-                inventory.selectedBoard = roomData.meta.boardSkin;
-            }
-            const seats = seatMapFromRoom(roomData);
-            const taken = Object.keys(seats).map((k) => parseInt(k, 10));
-            let slot = -1;
+    showAlert('Joining ' + id + '…');
+    const tryPaths = [roomPath(id)];
+    // Also try code index
+    const finishJoin = (roomRef, roomData) => {
+        if (!roomData) { showAlert('Room not found: ' + id); return Promise.reject(new Error('missing')); }
+        if (roomData.started === true) { showAlert('Match already started!'); return Promise.reject(new Error('started')); }
+        playerCount = (roomData.meta && roomData.meta.count) || roomData.count || 2;
+        gameMode = (roomData.meta && roomData.meta.mode) || roomData.mode || 'classic';
+        const tName = (roomData.meta && roomData.meta.level) || roomData.level;
+        selectedLevel = tables.find((t) => t.name === tName) || tables[0];
+        if (roomData.meta && typeof roomData.meta.boardSkin === 'number') {
+            inventory.selectedBoard = roomData.meta.boardSkin;
+        }
+        const seats = seatMapFromRoom(roomData);
+        const taken = Object.keys(seats).map((k) => parseInt(k, 10));
+        let slot = -1;
+        Object.keys(seats).forEach((k) => {
+            const si = parseInt(k, 10);
+            if (seats[k] && seats[k].uid && String(seats[k].uid) === String(portalUid)) slot = si;
+        });
+        if (slot === -1) {
             const order = [0, 1, 3];
             for (let i = 0; i < order.length; i++) {
                 if (!taken.includes(order[i])) { slot = order[i]; break; }
             }
-            if (slot === -1 || taken.length >= playerCount) { showAlert('Room full!'); return; }
-            mySlot = slot;
-            const myData = myPlayerPayload(true);
-            showAdOverlay(0, function () {
-                roomRef.child('seats/' + slot).set(myData).then(() => {
-                    try { roomRef.child('seats/' + slot).onDisconnect().remove(); } catch (e) {}
-                    detachRoomListeners();
-                    bindLobbyRoom(roomRef);
-                    attachChatListener();
-                    switchScreen('lobby-screen');
-                    document.getElementById('id-display-box').style.display = 'block';
-                    document.getElementById('my-peer-id').innerText = roomCode;
-                    document.getElementById('whatsapp-share-btn').style.display = 'none';
-                    document.getElementById('start-game-btn').style.display = 'none';
-                    document.getElementById('player-status').innerText = 'Joined! Waiting for host…';
-                    const readyBtn = document.getElementById('ready-btn');
-                    if (readyBtn) { readyBtn.style.display = 'block'; readyBtn.innerText = 'READY ✓'; }
-                    renderLobbyPlayers();
-                }).catch(() => showAlert('Join failed'));
-            });
-        };
-        if (data) return finishJoin(data);
-        return rtdb.ref(CODE_ROOT + '/' + roomCode).once('value').then((cSnap) => {
+        }
+        if (slot === -1 || (taken.length >= playerCount && seats[slot] && String(seats[slot].uid) !== String(portalUid))) {
+            showAlert('Room full!');
+            return Promise.reject(new Error('full'));
+        }
+        // Join immediately — NO ad gate before seat write (ads used to cancel join)
+        return enterLobbyAsGuest(roomRef, slot);
+    };
+
+    const roomRef = rtdb.ref(tryPaths[0]);
+    roomRef.once('value').then((snap) => {
+        const data = snap.val();
+        if (data) return finishJoin(roomRef, data);
+        return rtdb.ref(CODE_ROOT + '/' + id).once('value').then((cSnap) => {
             const idx = cSnap.val();
-            if (!idx || !idx.path) { showAlert('Room not found!'); return; }
-            return rtdb.ref(idx.path).once('value').then((r2) => finishJoin(r2.val()));
+            if (!idx || !idx.path) {
+                showAlert('Room not found: ' + id);
+                return;
+            }
+            const altRef = rtdb.ref(idx.path);
+            return altRef.once('value').then((r2) => finishJoin(altRef, r2.val()));
         });
-    }).catch(() => { showAlert('Connection error!'); showHome(); });
+    }).catch((err) => {
+        if (err && (err.message === 'missing' || err.message === 'started' || err.message === 'full')) return;
+        console.error('[Lobby] join failed', err);
+        showAlert(firebaseErrText(err));
+    });
 }
 
 function applySeatCosmetics() {
@@ -1457,6 +1580,7 @@ function applySeatCosmetics() {
 
 function beginOnlineGameAsGuest(data) {
     if (onlineMatchLive) return;
+    isBotMode = false;
     onlineMatchLive = true;
     roomPlayers = seatMapFromRoom(data);
     applySeatCosmetics();
@@ -1472,6 +1596,7 @@ function beginOnlineGameAsGuest(data) {
 
 function startOnlineMatch() {
     if (!isHost) return;
+    isBotMode = false;
     if (!rtdb || !myRoomRef) {
         activePlayers = (playerCount === 2) ? [0, 2] : (playerCount === 3 ? [0, 1, 2] : [0, 1, 2, 3]);
         applySeatCosmetics();
@@ -1481,13 +1606,30 @@ function startOnlineMatch() {
     }
     const joined = Object.keys(roomPlayers).length;
     if (joined < 1) return showAlert('Need at least you in the lobby');
-    activePlayers = (playerCount === 2) ? [0, 2] : (playerCount === 3 ? [0, 1, 2] : [0, 1, 2, 3]);
+
+    // Prefer real joined seats; fill remaining slots with bots up to playerCount (Ludo Star style)
     const filled = Object.keys(roomPlayers).map((k) => parseInt(k, 10)).sort((a, b) => a - b);
-    if (filled.length >= 2) {
-        activePlayers = filled.slice(0, playerCount);
-        if (!activePlayers.includes(2)) activePlayers[activePlayers.length - 1] = 2;
-        activePlayers = Array.from(new Set(activePlayers)).sort((a, b) => a - b);
+    const defaultSlots = (playerCount === 2) ? [0, 2] : (playerCount === 3 ? [0, 1, 2] : [0, 1, 2, 3]);
+    activePlayers = Array.from(new Set(filled.concat(defaultSlots))).filter((s) => {
+        if (filled.includes(s)) return true;
+        // Only add bot seats if we still need more players
+        return false;
+    });
+    if (activePlayers.length < playerCount) {
+        for (let i = 0; i < defaultSlots.length && activePlayers.length < playerCount; i++) {
+            if (!activePlayers.includes(defaultSlots[i])) activePlayers.push(defaultSlots[i]);
+        }
     }
+    activePlayers = Array.from(new Set(activePlayers)).sort((a, b) => a - b);
+    if (!activePlayers.includes(mySlot)) activePlayers.push(mySlot);
+
+    // Label empty seats as BOT for host-side AI turns
+    defaultSlots.forEach((s) => {
+        if (activePlayers.includes(s) && !roomPlayers[s]) {
+            playerNames[s] = 'BOT';
+            playerAvatars[s] = s % 10;
+        }
+    });
     applySeatCosmetics();
     stateSeq = 1;
     lastAppliedSeq = 0;
@@ -1501,7 +1643,8 @@ function startOnlineMatch() {
         hasKilled: [false, false, false, false],
         boardSkin: inventory.selectedBoard || 0,
         started: true,
-        lastActor: mySlot
+        lastActor: mySlot,
+        fillBots: true
     };
     onlineMatchLive = true;
     myRoomRef.update({
@@ -1520,6 +1663,7 @@ function startOnlineMatch() {
 function syncStateToRoom(force) {
     if (!myRoomRef || isBotMode || applyingRemote) return;
     if (!onlineMatchLive && !force) return;
+    // Always allow forced sync (turn advance / dice / move). Otherwise only current actor.
     if (!force && turn !== myColorIdx) return;
     stateSeq += 1;
     const state = {
@@ -1562,7 +1706,19 @@ function handleRemoteState(st) {
         }
         if (st.winnersRank) winnersRank = st.winnersRank;
         if (st.hasKilled) hasKilled = st.hasKilled;
-        if (st.diceValue !== undefined) { diceValue = st.diceValue; updateDiceUI(diceValue); }
+        const prevDice = diceValue;
+        if (st.diceValue !== undefined) {
+            diceValue = st.diceValue;
+            if (diceValue !== prevDice) {
+                playSfx(sfxDice);
+                const dEl = document.querySelector('#dice-' + (st.turn != null ? st.turn : turn) + ' .dice');
+                if (dEl) {
+                    dEl.style.animation = 'diceRoll 0.35s ease';
+                    setTimeout(() => { try { dEl.style.animation = 'none'; } catch (e) {} }, 400);
+                }
+            }
+            updateDiceUI(diceValue);
+        }
         if (st.turn !== undefined) turn = st.turn;
         isRolling = false;
         isAnimating = false;
@@ -1626,6 +1782,7 @@ function showFloatingChat(idx, msg) {
 //  GAME LOGIC
 // ===================================================================
 function getBoardRotation() {
+    // Keep THIS player's home yard at bottom-right (Ludo Star viewpoint)
     if (myColorIdx === 2) return 0;
     if (myColorIdx === 1) return -Math.PI / 2;
     if (myColorIdx === 0) return Math.PI;
@@ -1633,11 +1790,40 @@ function getBoardRotation() {
     return 0;
 }
 
+/** Place each seat's dice + label so YOU are always bottom-right. */
+function layoutPlayerChrome() {
+    const corners = ['corner-br', 'corner-bl', 'corner-tl', 'corner-tr'];
+    const you = ((Number(myColorIdx) % 4) + 4) % 4;
+    for (let i = 0; i < 4; i++) {
+        const pIdx = (you + i) % 4;
+        const corner = corners[i];
+        const isYou = pIdx === you;
+        const lbl = document.getElementById('label-' + pIdx);
+        const dice = document.getElementById('dice-' + pIdx);
+        if (lbl) {
+            lbl.classList.remove('corner-br', 'corner-bl', 'corner-tl', 'corner-tr', 'you-seat');
+            lbl.classList.add(corner);
+            if (isYou) lbl.classList.add('you-seat');
+        }
+        if (dice) {
+            dice.classList.remove('corner-br', 'corner-bl', 'corner-tl', 'corner-tr', 'you-seat');
+            dice.classList.add(corner);
+            if (isYou) dice.classList.add('you-seat');
+            const die = dice.querySelector('.dice');
+            if (die) {
+                if (isYou) die.classList.add('user-turn');
+                else die.classList.remove('user-turn');
+            }
+        }
+    }
+}
+
 function initGame() {
     if (myCoins < selectedLevel.fee) return showHome();
     myCoins -= selectedLevel.fee; updateWalletUI();
     players = []; winnersRank = []; hasKilled = [false, false, false, false];
     let tps = (gameMode === 'quick') ? 1 : 4;
+    layoutPlayerChrome();
     for (let i = 0; i < 4; i++) {
         let tks = [];
         if (activePlayers.includes(i)) for (let j = 0; j < tps; j++) tks.push(new Token(i, j));
@@ -1654,13 +1840,19 @@ function initGame() {
     document.getElementById('game-wrapper').style.display = 'block';
     document.getElementById('pause-btn').style.display = 'flex';
     document.getElementById('sound-btn-game').style.display = 'flex';
-    if (!isBotMode) document.getElementById('mic-btn').style.display = 'flex';
     document.getElementById('chat-icon').style.display = 'flex';
     resize();
     turn = activePlayers[0]; updateTurn(); updateDiceUI(1);
     requestAnimationFrame(render);
 }
 
+function isHumanSeat(pIdx) {
+    if (isBotMode) return pIdx === 2;
+    return !!(roomPlayers[pIdx] && roomPlayers[pIdx].uid);
+}
+function isMyTurn() {
+    return turn === myColorIdx;
+}
 function updateTurn() {
     if (winnersRank.length >= activePlayers.length - 1) { handleGameEnd(); return; }
     canMove = false; isAnimating = false;
@@ -1675,40 +1867,89 @@ function updateTurn() {
         updateDiceUI(diceValue);
         const lbl = document.getElementById(`label-${turn}`);
         if (lbl) lbl.classList.add('my-turn');
-        if (isBotMode && turn !== 2 && document.getElementById('game-wrapper').style.display === 'block') {
-            setTimeout(() => { if (!isPaused) rollDice(); }, 1000);
+        // Bot auto-roll: classic bots, OR online empty seats run by host
+        const botSeat = isBotMode
+            ? (turn !== 2)
+            : (!isHumanSeat(turn) && isHost);
+        if (botSeat && document.getElementById('game-wrapper').style.display === 'block') {
+            setTimeout(() => { if (!isPaused && !isRolling && !canMove && !isAnimating) rollDice(); }, 1000);
         }
     }
+}
+
+function prizeSplitShares(playerN) {
+    // Ludo Star style: pot shared by top 3 only (4th gets 0)
+    const n = Math.max(2, playerN || 2);
+    if (n === 2) return [1.00, 0.00, 0.00];      // winner takes full pot
+    if (n === 3) return [0.50, 0.30, 0.20];      // 1st / 2nd / 3rd
+    return [0.50, 0.30, 0.20];                   // 4 players — same top-3 split
 }
 
 function handleGameEnd() {
     playSfx(sfxWin);
     let rank = -1;
-    if (winnersRank.includes(2)) rank = winnersRank.indexOf(2);
-    else if (winnersRank.includes(myColorIdx)) rank = winnersRank.indexOf(myColorIdx);
-    let winAmt = 0, title = "", sub = "";
-    if (rank === 0) { winAmt = Math.floor(selectedLevel.fee * 2.5); title = "CHAMPION! 🏆"; sub = "You won the match!"; try { ludoPortalWins += 1; localStorage.setItem("ludo_portal_wins", String(ludoPortalWins)); if (window.ajReportLevelOnce) window.ajReportLevelOnce(ludoPortalWins, "ludo"); } catch(e) {} }
-    else if (rank === 1) { winAmt = Math.floor(selectedLevel.fee * 1.0); title = "2ND PLACE! 🥈"; sub = "Great game!"; }
-    else if (rank === 2) { winAmt = Math.floor(selectedLevel.fee * 0.5); title = "3RD PLACE! 🥉"; sub = "Not bad!"; }
-    else { title = "GAME OVER"; sub = "Better luck next time!"; }
-    // AD before awarding coins at game end
-    showAdOverlay(0, function() {
+    if (winnersRank.includes(myColorIdx)) rank = winnersRank.indexOf(myColorIdx);
+    else if (isBotMode && winnersRank.includes(2)) rank = winnersRank.indexOf(2);
+
+    const playersN = (activePlayers && activePlayers.length) ? activePlayers.length : 2;
+    const pot = Math.max(0, (selectedLevel.fee || 0) * playersN);
+    const shares = prizeSplitShares(playersN);
+    let winAmt = 0;
+    let title = 'GAME OVER';
+    let sub = 'Better luck next time!';
+
+    if (rank === 0) {
+        winAmt = Math.floor(pot * shares[0]);
+        title = 'CHAMPION! 🏆';
+        sub = '1st place · ' + Math.round(shares[0] * 100) + '% of pot (' + pot.toLocaleString() + ')';
+        try {
+            ludoPortalWins += 1;
+            localStorage.setItem('ludo_portal_wins', String(ludoPortalWins));
+            if (window.ajReportLevelOnce) window.ajReportLevelOnce(ludoPortalWins, 'ludo');
+        } catch (e) {}
+    } else if (rank === 1) {
+        winAmt = Math.floor(pot * shares[1]);
+        title = '2ND PLACE! 🥈';
+        sub = winAmt > 0
+            ? ('2nd place · ' + Math.round(shares[1] * 100) + '% of pot (' + pot.toLocaleString() + ')')
+            : 'No prize in 2-player tables';
+    } else if (rank === 2) {
+        winAmt = Math.floor(pot * shares[2]);
+        title = '3RD PLACE! 🥉';
+        sub = winAmt > 0
+            ? ('3rd place · ' + Math.round(shares[2] * 100) + '% of pot (' + pot.toLocaleString() + ')')
+            : 'Only top 3 share the pot';
+    } else {
+        title = 'GAME OVER';
+        sub = '4th place · no coins (top 3 split the pot)';
+    }
+
+    showAdOverlay(0, function () {
         if (winAmt > 0) {
-            myCoins += winAmt; playSfx(sfxCollect); updateWalletUI();
+            myCoins += winAmt;
+            playSfx(sfxCollect);
+            updateWalletUI();
             ajSendScore(winAmt);
         }
         document.getElementById('win-title-text').innerText = title;
         document.getElementById('win-sub-text').innerText = sub;
-        document.getElementById('win-amount-text').innerText = "+" + winAmt.toLocaleString();
+        document.getElementById('win-amount-text').innerText = winAmt > 0 ? ('+' + winAmt.toLocaleString()) : '+0';
         document.getElementById('win-modal').style.display = 'flex';
         if (rank === 0) startConfetti();
     });
 }
 
-function userRequestsRoll() { if (isPaused) return; if (isBotMode ? (turn === 2) : (turn === myColorIdx)) rollDice(); }
+function userRequestsRoll() { if (isPaused) return; if (isMyTurn()) rollDice(); }
 
 function rollDice() {
     if (isPaused || isRolling || canMove || isAnimating) return;
+    // Online: only current human (or host for bot seats) may roll locally
+    if (!isBotMode) {
+        const allowed = isMyTurn() || (isHost && !isHumanSeat(turn));
+        if (!allowed) return;
+    } else if (turn !== 2 && isHumanSeat(2)) {
+        // bot mode bots handled via updateTurn auto-roll
+    }
     isRolling = true; playSfx(sfxDice);
     const dEl = document.querySelector(`#dice-${turn} .dice`);
     if (dEl) { dEl.classList.remove('active-spin'); dEl.style.animation = "diceRoll 0.2s infinite"; }
@@ -1741,9 +1982,10 @@ function processLogic() {
         isAnimating = false; canMove = false;
         setTimeout(() => { if (!isPaused) nextTurn(); }, 800);
     } else {
-        const isU = isBotMode ? (turn === 2) : (turn === myColorIdx);
+        const isU = isMyTurn();
+        const botPlay = isBotMode ? (turn !== 2) : (!isHumanSeat(turn) && isHost);
         if (isU) { canMove = true; }
-        else if (isBotMode) {
+        else if (botPlay) {
             let bestToken = moveable[0], maxScore = -9999;
             moveable.forEach(t => {
                 let score = 0;
@@ -1877,7 +2119,7 @@ window.addEventListener('resize', resize);
 
 canvas.onclick = (e) => {
     if (isPaused || !canMove || isAnimating) return;
-    if (!isBotMode && turn !== myColorIdx) return;
+    if (!isMyTurn()) return;
     const rect = canvas.getBoundingClientRect();
     const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
     const my = (e.clientY - rect.top) * (canvas.height / rect.height);
@@ -2212,31 +2454,169 @@ function leaveMatch() {
 }
 
 // ===================================================================
-//  LOGIN SYSTEM
+//  LOGIN SYSTEM — real Google (Gmail) + Facebook via Firebase Auth
 // ===================================================================
 let isLoggedIn = false;
 let playerProfile = JSON.parse(localStorage.getItem('ludo_profile')) || null;
+let authBusy = false;
 
-function doLogin(provider) {
-    playSfx(sfxButton);
-    let name = 'PLAYER';
-    if (provider === 'facebook') name = 'FB_' + Math.floor(100 + Math.random() * 900);
-    else if (provider === 'gmail') name = 'G_' + Math.floor(100 + Math.random() * 900);
-    else name = 'GUEST_' + Math.floor(100 + Math.random() * 900);
+function setLoginBusy(on) {
+    authBusy = !!on;
+    const el = document.getElementById('login-busy');
+    if (el) el.style.display = on ? 'block' : 'none';
+    const fb = document.getElementById('btn-login-fb');
+    const gm = document.getElementById('btn-login-gmail');
+    if (fb) fb.disabled = !!on;
+    if (gm) gm.disabled = !!on;
+}
 
-    playerProfile = { name: name, provider: provider, avatar: myAvatarIdx, loginDate: Date.now() };
-    localStorage.setItem('ludo_profile', JSON.stringify(playerProfile));
+function friendlyAuthError(err) {
+    const code = (err && err.code) || '';
+    const msg = (err && err.message) || String(err || 'Login failed');
+    if (code === 'auth/popup-blocked') return 'Popup blocked — allow popups & retry';
+    if (code === 'auth/popup-closed-by-user') return 'Login closed — try again';
+    if (code === 'auth/unauthorized-domain') return 'Domain not authorized in Firebase';
+    if (code === 'auth/operation-not-allowed') return 'Enable this provider in Firebase Console → Authentication';
+    if (code === 'auth/account-exists-with-different-credential') return 'Account exists with another login method';
+    if (code === 'auth/network-request-failed') return 'Network error — check internet';
+    if (code === 'auth/cancelled-popup-request') return 'Login cancelled';
+    return msg.slice(0, 80);
+}
+
+function detectAuthProvider(user) {
+    try {
+        const p = (user.providerData && user.providerData[0] && user.providerData[0].providerId) || '';
+        if (p.indexOf('facebook') >= 0) return 'facebook';
+        if (p.indexOf('google') >= 0) return 'gmail';
+    } catch (e) {}
+    return 'google';
+}
+
+function buildAuthProvider(kind) {
+    if (kind === 'facebook') {
+        const p = new firebase.auth.FacebookAuthProvider();
+        p.addScope('email');
+        p.addScope('public_profile');
+        p.setCustomParameters({ display: 'popup' });
+        return p;
+    }
+    const p = new firebase.auth.GoogleAuthProvider();
+    p.addScope('email');
+    p.addScope('profile');
+    p.setCustomParameters({ prompt: 'select_account' });
+    return p;
+}
+
+function applyFirebaseUser(user, providerHint) {
+    if (!user) return;
+    const rawName = user.displayName || (user.email ? user.email.split('@')[0] : 'PLAYER');
+    const name = String(rawName).replace(/[^a-zA-Z0-9_ ]/g, '').trim().slice(0, 10).toUpperCase() || 'PLAYER';
+    const provider = providerHint || detectAuthProvider(user);
+    portalUid = user.uid;
+    try { localStorage.setItem('aj_portal_uid', user.uid); } catch (e) {}
+
+    playerProfile = {
+        name: name,
+        provider: provider,
+        avatar: myAvatarIdx,
+        photoURL: user.photoURL || '',
+        email: user.email || '',
+        uid: user.uid,
+        loginDate: Date.now()
+    };
+    try { localStorage.setItem('ludo_profile', JSON.stringify(playerProfile)); } catch (e) {}
+    isLoggedIn = true;
+
+    const nameInput = document.getElementById('user-name-input');
+    if (nameInput) nameInput.value = name;
+    if (playerProfile.photoURL) {
+        const prev = document.getElementById('current-avatar-preview');
+        if (prev) prev.src = playerProfile.photoURL;
+    }
+    updateHomeProfile();
+    setLoginBusy(false);
+    switchScreen('splash-screen');
+    setTimeout(() => {
+        if (document.getElementById('splash-screen').classList.contains('active')) showHome();
+    }, 900);
+    showAlert('Welcome ' + name + '!');
+}
+
+function finishGuestLogin() {
+    const name = 'GUEST_' + Math.floor(100 + Math.random() * 900);
+    playerProfile = { name: name, provider: 'guest', avatar: myAvatarIdx, loginDate: Date.now(), uid: portalUid || resolvePortalUid() };
+    try { localStorage.setItem('ludo_profile', JSON.stringify(playerProfile)); } catch (e) {}
     isLoggedIn = true;
     document.getElementById('user-name-input').value = name;
-    myAvatarIdx = playerProfile.avatar || 0;
     updateHomeProfile();
     switchScreen('splash-screen');
     setTimeout(() => {
-        if (document.getElementById('splash-screen').classList.contains('active')) {
-            showHome();
+        if (document.getElementById('splash-screen').classList.contains('active')) showHome();
+    }, 900);
+    showAlert('Welcome ' + name + '!');
+}
+
+async function doLogin(provider) {
+    playSfx(sfxButton);
+    if (authBusy) return;
+
+    if (provider === 'guest') {
+        finishGuestLogin();
+        return;
+    }
+
+    if (!firebaseAuth || typeof firebase === 'undefined' || !firebase.auth) {
+        showAlert('Firebase Auth not loaded');
+        return;
+    }
+
+    setLoginBusy(true);
+    const kind = (provider === 'facebook') ? 'facebook' : 'gmail';
+    try { localStorage.setItem('ludo_auth_pending', kind); } catch (e) {}
+
+    const authProvider = buildAuthProvider(kind);
+    try {
+        const result = await firebaseAuth.signInWithPopup(authProvider);
+        applyFirebaseUser(result.user, kind);
+    } catch (err) {
+        const code = err && err.code;
+        // Popup blocked / iframe / unsupported → redirect flow (real OAuth)
+        if (
+            code === 'auth/popup-blocked' ||
+            code === 'auth/operation-not-supported-in-this-environment' ||
+            code === 'auth/cancelled-popup-request'
+        ) {
+            try {
+                await firebaseAuth.signInWithRedirect(authProvider);
+                return; // page will navigate away
+            } catch (err2) {
+                setLoginBusy(false);
+                showAlert(friendlyAuthError(err2));
+                return;
+            }
         }
-    }, 1500);
-    showAlert('Welcome ' + name + '! \u{1F44B}');
+        setLoginBusy(false);
+        showAlert(friendlyAuthError(err));
+        console.warn('Login error', err);
+    }
+}
+
+async function doLogout() {
+    playSfx(sfxButton);
+    try {
+        if (firebaseAuth) await firebaseAuth.signOut();
+    } catch (e) {}
+    playerProfile = null;
+    isLoggedIn = false;
+    try { localStorage.removeItem('ludo_profile'); } catch (e) {}
+    const bar = document.getElementById('home-profile-bar');
+    if (bar) bar.style.display = 'none';
+    document.getElementById('login-screen').classList.add('active');
+    document.querySelectorAll('.screen').forEach((s) => {
+        if (s.id !== 'login-screen') s.classList.remove('active');
+    });
+    document.getElementById('garage-icon-btn').style.display = 'none';
+    showAlert('Logged out');
 }
 
 function updateHomeProfile() {
@@ -2244,9 +2624,40 @@ function updateHomeProfile() {
     const bar = document.getElementById('home-profile-bar');
     if (bar) {
         bar.style.display = 'flex';
-        document.getElementById('home-profile-avatar-img').src = avatarUrls[playerProfile.avatar || 0];
-        document.getElementById('home-profile-name-text').innerText = playerProfile.name;
+        const img = document.getElementById('home-profile-avatar-img');
+        const photo = playerProfile.photoURL || avatarUrls[playerProfile.avatar || 0];
+        if (img) img.src = photo;
+        const nameEl = document.getElementById('home-profile-name-text');
+        if (nameEl) {
+            const tag = playerProfile.provider === 'facebook' ? 'FB' : (playerProfile.provider === 'gmail' || playerProfile.provider === 'google') ? 'Gmail' : 'Guest';
+            nameEl.innerText = playerProfile.name + ' · ' + tag;
+        }
     }
+}
+
+function initFirebaseAuthListeners() {
+    if (!firebaseAuth) return;
+    // Complete redirect result (mobile / iframe safe)
+    firebaseAuth.getRedirectResult().then((result) => {
+        if (result && result.user) {
+            let pending = 'gmail';
+            try { pending = localStorage.getItem('ludo_auth_pending') || detectAuthProvider(result.user); } catch (e) {}
+            applyFirebaseUser(result.user, pending);
+            try { localStorage.removeItem('ludo_auth_pending'); } catch (e) {}
+        }
+    }).catch((err) => {
+        if (err && err.code) showAlert(friendlyAuthError(err));
+        setLoginBusy(false);
+    });
+
+    firebaseAuth.onAuthStateChanged((user) => {
+        if (user && !isLoggedIn) {
+            applyFirebaseUser(user, detectAuthProvider(user));
+        } else if (user) {
+            portalUid = user.uid;
+            try { localStorage.setItem('aj_portal_uid', user.uid); } catch (e) {}
+        }
+    });
 }
 
 // ===================================================================
@@ -2441,16 +2852,28 @@ const lIv = setInterval(() => {
 }, 50);
 
 initAvatars(); updateWalletUI(); resize();
+initFirebaseAuthListeners();
 
 portalUid = resolvePortalUid();
 try { localStorage.setItem('aj_portal_uid', portalUid); } catch (e) {}
 pendingJoinCode = (portalQuery().get('room') || portalQuery().get('code') || '').trim().toUpperCase();
 
-if (playerProfile) {
+// Prefer live Firebase session; else saved profile; else login screen
+if (firebaseAuth && firebaseAuth.currentUser) {
+    applyFirebaseUser(firebaseAuth.currentUser, detectAuthProvider(firebaseAuth.currentUser));
+} else if (playerProfile && playerProfile.provider !== 'guest' && playerProfile.uid) {
+    isLoggedIn = true;
+    document.getElementById('user-name-input').value = playerProfile.name;
+    myAvatarIdx = playerProfile.avatar || 0;
+    const prev = document.getElementById('current-avatar-preview');
+    if (prev) prev.src = playerProfile.photoURL || avatarUrls[myAvatarIdx];
+    updateHomeProfile();
+} else if (playerProfile && playerProfile.provider === 'guest') {
     isLoggedIn = true;
     document.getElementById('user-name-input').value = playerProfile.name;
     myAvatarIdx = playerProfile.avatar || 0;
     document.getElementById('current-avatar-preview').src = avatarUrls[myAvatarIdx];
+    updateHomeProfile();
 } else {
     document.getElementById('splash-screen').classList.remove('active');
     document.getElementById('login-screen').classList.add('active');
