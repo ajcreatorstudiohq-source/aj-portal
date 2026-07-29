@@ -39,6 +39,7 @@ import { earnReward } from './lib/client-rewards';
 import {
   CLAIM_BALANCE_FLOOR_MS,
   computeClaimBalanceNext,
+  claimRefreshPatch,
   type WalletRefreshPatch,
 } from './lib/wallet-refresh';
 import {
@@ -3956,12 +3957,14 @@ export function AJSuperPortal() {
       void readLiveBalance();
       return;
     }
+    const safe = claimRefreshPatch({
+      balance: patch.balance,
+      creditedCoins: patch.creditedCoins,
+      duplicate: false,
+    });
     flushSync(() => {
       setBalance((prev) => {
-        const next = computeClaimBalanceNext(prev, {
-          balance: patch.balance,
-          creditedCoins: patch.creditedCoins,
-        });
+        const next = computeClaimBalanceNext(prev, safe);
         if (next == null) return prev;
         balanceFloorRef.current = {
           min: next,
@@ -7346,13 +7349,17 @@ Tip: Social Hub se copy karo 📤`,
             user={user}
             onAlert={(msg, icon) => setVvipAlert({ msg, icon: icon || '💰' })}
             onRefreshUser={async (patch?: WalletRefreshPatch) => {
-              // Instant Hub UI from claim API — never write users.balance from client
-              // (Firestore rules block client economy writes → permission errors).
+              // Instant Hub UI from claim API — never write users.balance from client.
+              // Normalize patch so absolute balance and creditedCoins are never both applied.
+              const safe = claimRefreshPatch({
+                balance: patch?.balance,
+                creditedCoins: patch?.creditedCoins,
+              });
               let claimedTo: number | null = null;
               try {
                 flushSync(() => {
                   setBalance((prev) => {
-                    const next = computeClaimBalanceNext(prev, patch);
+                    const next = computeClaimBalanceNext(prev, safe ?? patch);
                     if (next == null) return prev;
                     claimedTo = next;
                     balanceFloorRef.current = {

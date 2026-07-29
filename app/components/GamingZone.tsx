@@ -12,6 +12,7 @@ import RewardedVideoOffer from './ads/RewardedVideoOffer';
 import { trackAdEvent } from '../lib/ad-client';
 import { MONETAG_INTERSTITIAL_ZONE } from '../lib/ads-config';
 import type { OnRefreshUser } from '../lib/wallet-refresh';
+import { claimRefreshPatch } from '../lib/wallet-refresh';
 
 type Props = {
   user: { uid: string; getIdToken: () => Promise<string> } | null;
@@ -117,14 +118,11 @@ export default function GamingZone({
       });
       const credited = Number(data.creditedCoins || 0);
       await onRefreshUser?.(
-        !data.duplicate && credited > 0
-          ? {
-              ...(typeof data.balance === 'number' ? { balance: data.balance } : {}),
-              creditedCoins: credited,
-            }
-          : typeof data.balance === 'number'
-            ? { balance: data.balance }
-            : undefined
+        claimRefreshPatch({
+          balance: typeof data.balance === 'number' ? data.balance : null,
+          creditedCoins: credited,
+          duplicate: !!data.duplicate,
+        })
       );
       if (data.duplicate) {
         onAlert('Milestone already claimed', 'ℹ️');

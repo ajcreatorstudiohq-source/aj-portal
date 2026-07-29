@@ -12,9 +12,12 @@ export type OnRefreshUser = (patch?: WalletRefreshPatch) => void | Promise<void>
 export const CLAIM_BALANCE_FLOOR_MS = 12_000;
 
 /**
- * Next Hub balance after a claim.
- * Never regresses below `prev` when a claim patch is present (Admin SDK + client
- * cache races often return a lagging absolute balance briefly).
+ * Next Hub balance after a claim — credits exactly once.
+ *
+ * Prefer absolute `balance` from the claim API when present (authoritative).
+ * Only fall back to `prev + creditedCoins` when absolute balance is missing.
+ * Never combine both — that double-counts when onSnapshot already applied
+ * the new balance before onRefreshUser runs.
  */
 export function computeClaimBalanceNext(
   prev: number,
@@ -22,18 +25,50 @@ export function computeClaimBalanceNext(
 ): number | null {
   if (!patch) return null;
   const prevSafe = Math.max(0, Math.floor(Number(prev) || 0));
-  const credited =
+
+  if (typeof patch.balance === 'number' && Number.isFinite(patch.balance)) {
+    // Absolute post-claim balance from API — do not also add creditedCoins.
+    return Math.max(0, Math.floor(patch.balance));
+  }
+
+  if (
     typeof patch.creditedCoins === 'number' &&
     Number.isFinite(patch.creditedCoins) &&
     patch.creditedCoins > 0
-      ? Math.floor(patch.creditedCoins)
-      : 0;
-  const fromCredit = credited > 0 ? prevSafe + credited : null;
-  const fromAbs =
-    typeof patch.balance === 'number' && Number.isFinite(patch.balance)
-      ? Math.max(0, Math.floor(patch.balance))
-      : null;
+  ) {
+    return prevSafe + Math.floor(patch.creditedCoins);
+  }
 
-  if (fromAbs == null && fromCredit == null) return null;
-  return Math.max(prevSafe, fromAbs ?? 0, fromCredit ?? 0);
+  return null;
+}
+
+/**
+ * Build a safe refresh patch: if absolute balance exists, drop creditedCoins
+ * so callers cannot accidentally double-apply.
+ */
+export function claimRefreshPatch(opts: {
+  balance?: number | null;
+  creditedCoins?: number | null;
+  duplicate?: boolean;
+}): WalletRefreshPatch | undefined {
+  if (opts.duplicate) {
+    if (typeof opts.balance === 'number' && Number.isFinite(opts.balance)) {
+      return { balance: Math.max(0, Math.floor(opts.balance)) };
+    }
+    return undefined;
+  }
+  const hasAbs = typeof opts.balance === 'number' && Number.isFinite(opts.balance);
+  const credited =
+    typeof opts.creditedCoins === 'number' &&
+    Number.isFinite(opts.creditedCoins) &&
+    opts.creditedCoins > 0
+      ? Math.floor(opts.creditedCoins)
+      : 0;
+  if (hasAbs) {
+    return { balance: Math.max(0, Math.floor(opts.balance as number)) };
+  }
+  if (credited > 0) {
+    return { creditedCoins: credited };
+  }
+  return undefined;
 }
