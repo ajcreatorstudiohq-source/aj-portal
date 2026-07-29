@@ -23,6 +23,25 @@ export const ADSTERRA_NATIVE_BANNER_SRC =
 export const ADSTERRA_REWARDED_LINK =
   'https://www.effectivecpmnetwork.com/b8jtkn6i4?key=77409a0e0aa4602b6d03798ff53516b3';
 
+/**
+ * Open Adsterra Direct Link in a new tab (owner revenue).
+ * Used at survey start + survey close, Watch Ads, Earn & Play, etc.
+ */
+export function openAdsterraDirectLink(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (!ADSTERRA_REWARDED_LINK) return false;
+  try {
+    const win = window.open(ADSTERRA_REWARDED_LINK, '_blank', 'noopener,noreferrer');
+    if (win) return true;
+    // Soft fallback — do not force navigation away from survey iframe
+    console.warn('[AJ] Adsterra popup blocked');
+    return false;
+  } catch (e) {
+    console.warn('[AJ] Adsterra open failed', e);
+    return false;
+  }
+}
+
 /** Alias — impression/click track estimates use the same click $ base */
 export const AD_CLICK_VALUE_USD = ADSTERRA_CLICK_USD;
 

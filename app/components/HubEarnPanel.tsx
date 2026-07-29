@@ -4,13 +4,20 @@ import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import DailyMathChallenge from './DailyMathChallenge';
 import AlphaCaptchaChallenge from './AlphaCaptchaChallenge';
 import RewardedVideoOffer from './ads/RewardedVideoOffer';
-import { ADGEM_APP_ID, buildAdGemUrl } from '../lib/offer-hub';
+import {
+  THEOREMREACH_API_KEY,
+  buildTheoremReachUrl,
+} from '../lib/offer-hub';
 import { PREMIUM_DIRECT_GAMES } from '../lib/economy';
 import {
   MATH_CHALLENGE_COINS,
   ALPHA_CAPTCHA_COINS,
 } from '../lib/reward-sources';
-import { ADSTERRA_REWARD_COINS } from '../lib/ads-config';
+import {
+  ADSTERRA_REWARD_COINS,
+  ADSTERRA_REWARDED_LINK,
+  openAdsterraDirectLink,
+} from '../lib/ads-config';
 import { handleEarnAndPlayGame } from '../lib/direct-download';
 import { trackAdEvent } from '../lib/ad-client';
 import { guardClick, startIntrusiveAdGuard } from '../lib/ad-guards';
@@ -33,47 +40,80 @@ type Props = {
   onRefreshUser?: OnRefreshUser;
 };
 
-type HubPanel = 'none' | 'faucet' | 'earnplay' | 'adgem' | 'watchads';
+type HubPanel = 'none' | 'faucet' | 'earnplay' | 'surveys' | 'watchads';
 
 /**
- * Offer Hub — ADGem + Earn & Play · Watch Ads · Math/Captcha.
+ * Offer Hub — TheoremReach Surveys · Earn & Play · Watch Ads · Math/Captcha.
  */
 export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
   const [panel, setPanel] = useState<HubPanel>('none');
-  const [adgemOpen, setAdgemOpen] = useState(false);
+  const [surveysOpen, setSurveysOpen] = useState(false);
+  const [surveyTxId, setSurveyTxId] = useState('');
 
   useEffect(() => {
     startIntrusiveAdGuard();
   }, []);
 
-  const adgemSrc = useMemo(() => {
-    if (!user?.uid) return '';
-    return buildAdGemUrl(user.uid);
-  }, [user?.uid]);
+  const theoremSrc = useMemo(() => {
+    if (!user?.uid || !surveyTxId) return '';
+    return buildTheoremReachUrl(user.uid, { transactionId: surveyTxId });
+  }, [user?.uid, surveyTxId]);
 
-  const openAdGemWall = (e: MouseEvent) => {
-    guardClick(e);
-    if (!user) return onAlert('Please sign in first', '🔒');
+  const fireSurveyAdsterra = (phase: 'start' | 'end') => {
+    openAdsterraDirectLink();
+    if (!user) return;
     trackAdEvent(
       {
         event: 'click',
         placement: 'offerwall_rewarded_video',
         zoneId: 0,
         meta: {
-          action: 'open_adgem',
-          provider: 'adgem',
-          appId: ADGEM_APP_ID,
+          action: phase === 'start' ? 'survey_start_adsterra' : 'survey_end_adsterra',
+          provider: 'adsterra',
+          link: ADSTERRA_REWARDED_LINK,
+          surveyProvider: 'theoremreach',
         },
       },
       user
     ).catch(() => {});
-    setPanel('adgem');
-    setAdgemOpen(true);
   };
 
-  const closeAdGem = () => {
-    setAdgemOpen(false);
-    setPanel((cur) => (cur === 'adgem' ? 'none' : cur));
+  const openSurveys = (e: MouseEvent) => {
+    guardClick(e);
+    if (!user) return onAlert('Please sign in first', '🔒');
+    const tx =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? `tr_${user.uid.slice(0, 8)}_${crypto.randomUUID().slice(0, 10)}`
+        : `tr_${user.uid.slice(0, 8)}_${Date.now().toString(36)}`;
+    setSurveyTxId(tx);
+    trackAdEvent(
+      {
+        event: 'click',
+        placement: 'offerwall_rewarded_video',
+        zoneId: 0,
+        meta: {
+          action: 'open_theoremreach',
+          provider: 'theoremreach',
+          apiKey: THEOREMREACH_API_KEY,
+          transactionId: tx,
+        },
+      },
+      user
+    ).catch(() => {});
+    // Adsterra Direct Link at survey START
+    fireSurveyAdsterra('start');
+    setPanel('surveys');
+    setSurveysOpen(true);
+    onAlert('Surveys opening · Adsterra launched · earn AJ Coins after verified postback', '📋');
+  };
+
+  const closeSurveys = () => {
+    // Adsterra Direct Link at survey END / close
+    fireSurveyAdsterra('end');
+    setSurveysOpen(false);
+    setSurveyTxId('');
+    setPanel((cur) => (cur === 'surveys' ? 'none' : cur));
+    onRefreshUser?.();
   };
 
   const togglePanel = (e: MouseEvent, next: HubPanel) => {
@@ -127,7 +167,7 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
           Offer Hub
         </p>
         <p className="text-[10px] text-zinc-400 font-bold mt-0.5">
-          ADGem · Earn & Play · Watch Ads · AJ Coins 🪙
+          TheoremReach · Earn & Play · Watch Ads · AJ Coins 🪙
         </p>
       </div>
 
@@ -138,21 +178,28 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
         <div className="grid grid-cols-2 gap-2.5">
           <button
             type="button"
-            onClick={openAdGemWall}
+            onClick={openSurveys}
             className={`relative overflow-hidden rounded-2xl border p-3.5 text-left active:scale-[0.98] min-h-[108px] ${
-              panel === 'adgem' || adgemOpen
-                ? 'border-violet-400/55 bg-gradient-to-br from-[#221038] to-[#0a0a0a]'
-                : 'border-violet-500/35 bg-gradient-to-br from-[#1a1028] via-[#120a1c] to-[#0a0a0a]'
+              panel === 'surveys' || surveysOpen
+                ? 'border-fuchsia-400/55 bg-gradient-to-br from-[#2a1038] to-[#0a0a0a]'
+                : 'border-fuchsia-500/35 bg-gradient-to-br from-[#1a1028] via-[#120a1c] to-[#0a0a0a]'
             }`}
+            style={{
+              boxShadow:
+                panel === 'surveys' || surveysOpen
+                  ? '0 0 22px rgba(232,121,249,0.25)'
+                  : '0 0 14px rgba(167,139,250,0.12)',
+            }}
           >
+            <div className="absolute inset-0 pointer-events-none opacity-60 bg-[radial-gradient(ellipse_at_20%_0%,rgba(232,121,249,0.28),transparent_55%)]" />
             <div className="relative flex flex-col h-full gap-2">
-              <div className="w-9 h-9 rounded-xl bg-violet-500/20 border border-violet-400/30 flex items-center justify-center">
-                <ClipboardCheck size={16} className="text-violet-300" />
+              <div className="w-9 h-9 rounded-xl bg-fuchsia-500/20 border border-fuchsia-400/35 flex items-center justify-center shadow-[0_0_12px_rgba(232,121,249,0.35)]">
+                <ClipboardCheck size={16} className="text-fuchsia-300" />
               </div>
               <div>
-                <p className="text-[12px] font-black text-white leading-tight">ADGem</p>
-                <p className="text-[9px] font-black uppercase tracking-wider text-violet-300 mt-1">
-                  Offerwall · {ADGEM_APP_ID}
+                <p className="text-[12px] font-black text-white leading-tight">TheoremReach</p>
+                <p className="text-[9px] font-black uppercase tracking-wider text-fuchsia-300 mt-1">
+                  Surveys · Tasks
                 </p>
               </div>
               <span className="mt-auto inline-flex items-center gap-1 text-[8px] font-bold text-zinc-500">
@@ -302,37 +349,46 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
         </div>
       ) : null}
 
-      {adgemOpen && user?.uid && adgemSrc ? (
+      {surveysOpen && user?.uid && theoremSrc ? (
         <div
-          className="fixed inset-0 z-[99999] bg-black"
+          className="fixed inset-0 z-[99999] bg-[#050505]"
           style={{ top: 0, left: 0, right: 0, bottom: 0 }}
         >
-          <button
-            type="button"
-            onClick={closeAdGem}
-            className="absolute top-3 right-3 z-[100000] w-10 h-10 rounded-full bg-black/70 border border-white/20 flex items-center justify-center active:scale-90"
-            aria-label="Close ADGem"
-          >
-            <X size={18} className="text-white" />
-          </button>
-          <iframe
-            title="ADGem Offerwall"
-            src={adgemSrc}
+          <div
+            className="absolute top-0 left-0 right-0 z-[100001] flex items-center gap-3 px-3 py-2.5 border-b border-fuchsia-500/30"
             style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              bottom: 0,
-              right: 0,
-              width: '100%',
-              height: '100%',
-              border: 'none',
-              margin: 0,
-              padding: 0,
-              overflow: 'hidden',
-              zIndex: 99999,
+              background:
+                'linear-gradient(90deg, rgba(88,28,135,0.92), rgba(5,5,5,0.96), rgba(8,47,73,0.9))',
+              boxShadow: '0 0 24px rgba(232,121,249,0.25)',
             }}
-            allow="clipboard-write; payment"
+          >
+            <div className="w-8 h-8 rounded-lg bg-fuchsia-500/25 border border-fuchsia-400/40 flex items-center justify-center shrink-0">
+              <ClipboardCheck size={14} className="text-fuchsia-300" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-black text-white uppercase tracking-widest truncate">
+                TheoremReach · Surveys
+              </p>
+              <p className="text-[9px] text-fuchsia-200/80 font-bold truncate">
+                Complete tasks · AJ Coins via postback
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={closeSurveys}
+              className="w-10 h-10 rounded-full bg-black/70 border border-white/20 flex items-center justify-center active:scale-90 shrink-0"
+              aria-label="Close surveys"
+            >
+              <X size={18} className="text-white" />
+            </button>
+          </div>
+          <iframe
+            title="TheoremReach Surveys"
+            src={theoremSrc}
+            className="absolute left-0 right-0 bottom-0 w-full border-0 bg-black"
+            style={{ top: 52, height: 'calc(100% - 52px)', zIndex: 99999 }}
+            allow="clipboard-write; payment; fullscreen"
+            sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation allow-top-navigation-by-user-activation"
             referrerPolicy="no-referrer-when-downgrade"
           >
             Your browser doesn&apos;t support iframes

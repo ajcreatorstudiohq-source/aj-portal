@@ -4,7 +4,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ExternalLink, Gift, Loader2 } from 'lucide-react';
 import { getAuth, onAuthStateChanged, type User } from 'firebase/auth';
 import { getApps, initializeApp } from 'firebase/app';
-import { ADGEM_APP_ID, buildAdGemUrl, openAdGem } from '../lib/offer-hub';
+import {
+  THEOREMREACH_API_KEY,
+  buildTheoremReachUrl,
+  openTheoremReach,
+} from '../lib/offer-hub';
+import { openAdsterraDirectLink } from '../lib/ads-config';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyDp2od-lrfAhEHV5oAIqBW5rWjaRbnAdFM',
@@ -29,8 +34,8 @@ function readQueryUid(): string {
 }
 
 /**
- * Offer Partners bridge — opens ADGem wall (app 33088).
- * Credits only via /api/postback.
+ * Offer Partners bridge — TheoremReach surveys.
+ * Credits only via /api/postback. Adsterra Direct Link on open.
  */
 export default function OfferwallPage() {
   const [user, setUser] = useState<User | null>(null);
@@ -44,11 +49,15 @@ export default function OfferwallPage() {
   }, []);
 
   const trackingUid = useMemo(() => user?.uid || queryUid || '', [user?.uid, queryUid]);
-  const wallUrl = useMemo(() => buildAdGemUrl(trackingUid || 'guest'), [trackingUid]);
+  const wallUrl = useMemo(
+    () => buildTheoremReachUrl(trackingUid || 'guest'),
+    [trackingUid]
+  );
 
   useEffect(() => {
     if (!trackingUid || opened) return;
-    const result = openAdGem(trackingUid);
+    openAdsterraDirectLink();
+    const result = openTheoremReach(trackingUid);
     setOpened(true);
     if (!result.ok && wallUrl) {
       try {
@@ -59,6 +68,19 @@ export default function OfferwallPage() {
     }
   }, [trackingUid, opened, wallUrl]);
 
+  // Adsterra Direct Link again when leaving the bridge (survey end / close)
+  useEffect(() => {
+    const onLeave = () => {
+      try {
+        openAdsterraDirectLink();
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener('pagehide', onLeave);
+    return () => window.removeEventListener('pagehide', onLeave);
+  }, []);
+
   return (
     <div className="min-h-screen bg-[#050505] text-white flex flex-col">
       <div
@@ -66,11 +88,11 @@ export default function OfferwallPage() {
         className="pointer-events-none fixed inset-0 -z-10"
         style={{
           background:
-            'radial-gradient(ellipse at 20% 0%, rgba(99,102,241,0.2), transparent 50%), radial-gradient(ellipse at 90% 20%, rgba(34,211,238,0.12), transparent 45%), #050505',
+            'radial-gradient(ellipse at 20% 0%, rgba(232,121,249,0.22), transparent 50%), radial-gradient(ellipse at 90% 20%, rgba(34,211,238,0.12), transparent 45%), #050505',
         }}
       />
 
-      <header className="sticky top-0 z-20 border-b border-white/10 bg-black/80 backdrop-blur-xl px-4 py-3 flex items-center gap-3">
+      <header className="sticky top-0 z-20 border-b border-fuchsia-500/25 bg-black/80 backdrop-blur-xl px-4 py-3 flex items-center gap-3">
         <a
           href="/"
           className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center active:scale-90"
@@ -84,36 +106,41 @@ export default function OfferwallPage() {
           >
             AJ · Offer Hub
           </p>
-          <p className="text-[10px] text-gray-400 truncate">
-            ADGem · app {ADGEM_APP_ID} · Earn AJ Coins 🪙
+          <p className="text-[10px] text-fuchsia-300/80 truncate">
+            TheoremReach · {THEOREMREACH_API_KEY.slice(0, 8)}… · Earn AJ Coins 🪙
           </p>
         </div>
       </header>
 
       <main className="flex-1 flex flex-col items-center justify-center gap-5 px-6 py-12 text-center">
-        <Gift size={28} className="text-violet-300" />
+        <Gift size={28} className="text-fuchsia-300" />
         <h1
           className="text-xl font-black"
           style={{ fontFamily: 'var(--font-aj-display), sans-serif' }}
         >
-          Opening ADGem…
+          Opening TheoremReach…
         </h1>
         <p className="text-[12px] text-gray-400 max-w-sm leading-relaxed">
-          Complete offers to earn AJ Coins 🪙. Credits only after verified postback — never from
-          opening the link alone.
+          Complete surveys to earn AJ Coins 🪙. Credits only after verified postback — never from
+          opening the link alone. Adsterra opens at start for publisher revenue.
         </p>
         {!trackingUid ? (
           <p className="text-[10px] text-sky-300">Sign in on the hub so credits bind to your wallet.</p>
         ) : (
           <p className="text-[10px] text-cyan-400/80 font-mono truncate max-w-xs">
-            playerid · {trackingUid}
+            user_id · {trackingUid}
           </p>
         )}
         <a
           href={wallUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 px-5 py-3 rounded-2xl bg-gradient-to-r from-blue-500 to-violet-600 text-white text-xs font-black"
+          className="inline-flex items-center gap-2 px-5 py-3 rounded-2xl text-white text-xs font-black"
+          style={{
+            background: 'linear-gradient(135deg,#c026d3 0%,#7c3aed 50%,#2563eb 100%)',
+            boxShadow: '0 0 22px rgba(232,121,249,0.35)',
+          }}
+          onClick={() => openAdsterraDirectLink()}
         >
           {opened ? (
             <>

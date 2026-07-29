@@ -1,13 +1,17 @@
 import { NextResponse } from 'next/server';
-import { createHash, timingSafeEqual } from 'crypto';
+import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { applyFlatCoins } from '../../lib/reward-engine';
 import { CASH_RATE, USER_EARN_SHARE, PLATFORM_EARN_SHARE } from '../../lib/economy';
 
 const POSTBACK_SECRET =
-  process.env.OFFERWALL_POSTBACK_SECRET || process.env.AJ_POSTBACK_SECRET || '';
+  process.env.OFFERWALL_POSTBACK_SECRET ||
+  process.env.AJ_POSTBACK_SECRET ||
+  process.env.THEOREMREACH_SECRET ||
+  process.env.THEOREMREACH_APP_TOKEN ||
+  'f3f1599acbdf40f16cf2eb54a0907306a1f';
 
 /**
- * Offerwall / AdGem postback — partner pays YOU 100% of payout USD.
+ * Offerwall / TheoremReach postback — partner pays YOU 100% of payout USD.
  * User gets 30% as AJ Coins at CASH_RATE (withdraw); you keep 70%.
  * Example: payout $1 → user 300 🪙 ($0.30) · admin $0.70
  */
@@ -18,13 +22,16 @@ function userCoinsFromPayoutUsd(payoutUsd: number): number {
 /**
  * GET|POST /api/postback
  * Partner S2S postback. User reward = floor(payoutUSD * 0.3 * 1000).
- * Requires OFFERWALL_POSTBACK_SECRET (or AJ_POSTBACK_SECRET) + matching secret/HMAC.
+ * Requires OFFERWALL_POSTBACK_SECRET / THEOREMREACH_SECRET + matching secret/HMAC.
  *
- * AdGem dashboard postback (app 33088):
- *   https://YOUR_DOMAIN/api/postback?payout={amount}&status={state}&userId={player_id}&secret=YOUR_SECRET
+ * TheoremReach dashboard callback (recommended):
+ *   https://YOUR_DOMAIN/api/postback?user_id={user_id}&payout={currency}&txid={transaction_id}&secret=YOUR_SECRET&status=completed
  *
- * Legacy CPAGrip:
- *   https://YOUR_DOMAIN/api/postback?userId={tracking_id}&payout={payout}&txid={offer_id}&status={status}&secret=YOUR_SECRET
+ * TheoremReach native macros also accepted:
+ *   transaction_id, currency (USD), reward (virtual coins), hash, debug
+ * Reject when debug=true (TR test callbacks).
+ *
+ * Legacy CPAGrip still accepted for old campaigns.
  */
 function readParams(url: URL, body: Record<string, unknown>) {
   const g = (k: string) => String(url.searchParams.get(k) || body[k] || '');
@@ -47,13 +54,36 @@ function readParams(url: URL, body: Record<string, unknown>) {
       g('offer_id') ||
       g('click_id') ||
       g('lead_id') ||
-      g('adgem_transaction_id') ||
       '',
-    points: Math.floor(Number(g('points') || g('coins') || g('reward') || 0)) || 0,
-    payout: parseFloat(g('payout') || g('amount') || g('revenue') || '0') || 0,
+    // TheoremReach: reward = virtual currency amount already converted by exchange rate
+    points:
+      Math.floor(
+        Number(
+          g('reward') ||
+            g('points') ||
+            g('coins') ||
+            g('quantity') ||
+            g('currency_amount') ||
+            0
+        )
+      ) || 0,
+    // TheoremReach: currency = net USD revenue; AdGem/CPA used amount/payout
+    payout:
+      parseFloat(
+        g('payout') ||
+          g('currency') ||
+          g('amount') ||
+          g('revenue') ||
+          g('value') ||
+          '0'
+      ) || 0,
     secret: g('secret') || g('key') || g('token') || g('password'),
-    sig: g('sig') || g('signature'),
+    sig: g('sig') || g('signature') || g('hash') || g('enc'),
     status: (g('status') || g('event') || g('state') || 'completed').toLowerCase(),
+    provider: (g('provider') || g('network') || '').toLowerCase(),
+    debug: (g('debug') || '').toLowerCase(),
+    rewardRaw: g('reward') || g('currency_amount') || '',
+    currencyRaw: g('currency') || g('payout') || g('amount') || '',
   };
 }
 
@@ -62,6 +92,46 @@ function safeEqual(a: string, b: string) {
   const bb = Buffer.from(b);
   if (ba.length !== bb.length) return false;
   return timingSafeEqual(ba, bb);
+}
+
+function md5Hex(s: string) {
+  return createHash('md5').update(s).digest('hex');
+}
+
+function sha1Hex(s: string) {
+  return createHash('sha1').update(s).digest('hex');
+}
+
+/**
+ * TheoremReach publisher callbacks often send hash =
+ *   MD5(user_id + reward + secret)  or  MD5(user_id + currency + secret)
+ * Offerwall-style HMAC-SHA1 of common payloads is also tried.
+ */
+function verifyTheoremReachHash(params: ReturnType<typeof readParams>): boolean {
+  if (!params.sig || !params.uid || !POSTBACK_SECRET) return false;
+  const candidates = [
+    md5Hex(`${params.uid}${params.rewardRaw}${POSTBACK_SECRET}`),
+    md5Hex(`${params.uid}${params.points}${POSTBACK_SECRET}`),
+    md5Hex(`${params.uid}${params.currencyRaw}${POSTBACK_SECRET}`),
+    md5Hex(`${params.uid}${params.payout}${POSTBACK_SECRET}`),
+    md5Hex(`${POSTBACK_SECRET}${params.uid}${params.rewardRaw}`),
+    md5Hex(`${POSTBACK_SECRET}${params.uid}${params.points}`),
+    sha1Hex(`${params.uid}${params.rewardRaw}${POSTBACK_SECRET}`),
+    createHmac('sha1', POSTBACK_SECRET)
+      .update(`${params.uid}${params.rewardRaw}`)
+      .digest('hex'),
+    createHmac('sha1', POSTBACK_SECRET)
+      .update(`${params.uid}${params.currencyRaw}`)
+      .digest('hex'),
+  ];
+  const got = params.sig.trim().toLowerCase();
+  return candidates.some((c) => {
+    try {
+      return safeEqual(got, c.toLowerCase());
+    } catch {
+      return false;
+    }
+  });
 }
 
 function verifySecret(params: ReturnType<typeof readParams>): boolean {
@@ -77,11 +147,13 @@ function verifySecret(params: ReturnType<typeof readParams>): boolean {
     const payload = `${params.uid}:${params.txId}:${POSTBACK_SECRET}`;
     const digest = createHash('sha256').update(payload).digest('hex');
     try {
-      return safeEqual(params.sig.toLowerCase(), digest.toLowerCase());
+      if (safeEqual(params.sig.toLowerCase(), digest.toLowerCase())) return true;
     } catch {
-      return false;
+      /* fall through */
     }
   }
+  // TheoremReach native hash (no secret query macro)
+  if (verifyTheoremReachHash(params)) return true;
   return false;
 }
 
@@ -119,6 +191,14 @@ async function handle(request: Request) {
 
     const params = readParams(url, body);
 
+    // TheoremReach test callbacks — never credit
+    if (params.debug === 'true' || params.debug === '1') {
+      return NextResponse.json(
+        { ok: false, error: 'debug_ignored', message: 'debug=true callbacks are not credited' },
+        { status: 200 }
+      );
+    }
+
     if (!params.uid) {
       return NextResponse.json({ ok: false, error: 'missing_userId' }, { status: 400 });
     }
@@ -153,6 +233,12 @@ async function handle(request: Request) {
       `${params.uid}_${params.status}_${userReward}_${url.searchParams.get('offer_id') || Date.now()}`;
     const txId = `offer_${txRaw}`.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 180);
 
+    const looksLikeTheorem =
+      params.provider.includes('theorem') ||
+      !!params.rewardRaw ||
+      url.searchParams.has('currency') ||
+      url.searchParams.has('reward');
+
     const result = await applyFlatCoins({
       uid: params.uid,
       txId,
@@ -165,7 +251,7 @@ async function handle(request: Request) {
         cashRate: CASH_RATE,
         userReward,
         status: params.status,
-        via: 'adgem_postback',
+        via: looksLikeTheorem ? 'theoremreach_postback' : 'offerwall_postback',
         fromPostback: true,
       },
       ledgerCollection: 'offerwall_ledger',
