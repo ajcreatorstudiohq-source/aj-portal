@@ -9415,6 +9415,21 @@ Tip: Social Hub se copy karo 📤`,
                     <p className="text-xs text-gray-400 mt-1">
                   Min withdraw 20,000 AJ Coins 🪙 ({formatUsd(coinsToCashUsd(20000))})
                 </p>
+                    <div className="mt-3 flex items-center gap-2 bg-cyan-500/10 border border-cyan-500/30 rounded-2xl px-3 py-2.5">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[9px] text-cyan-300/90 font-black uppercase tracking-widest">Your Referral ID</p>
+                        <p className="text-white text-sm font-black tracking-widest truncate">{myReferralId || 'Generating…'}</p>
+                        <p className="text-[8px] text-gray-400 mt-0.5">Yeh ID dekar coins mangwao · Transfer + Refer same</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(myReferralId || '')}
+                        disabled={!myReferralId}
+                        className="bg-cyan-600/20 border border-cyan-500/40 text-cyan-300 text-[9px] font-black px-3 py-1.5 rounded-xl active:scale-90 transition-all disabled:opacity-40"
+                      >
+                        {copied ? '✓' : 'Copy'}
+                      </button>
+                    </div>
                     <div className="mt-4 grid grid-cols-2 gap-2">
                       <div className="bg-white/5 rounded-2xl p-3 text-center">
                         <p className="text-[9px] text-gray-400 font-black uppercase">Buy rate</p>
@@ -9524,10 +9539,10 @@ Tip: Social Hub se copy karo 📤`,
             {/* ── TRANSFER ── */}
             {walletTab === 'transfer' && (
               <div className="space-y-4">
-                {/* Your unique Transfer ID — share with others so they can send you coins */}
+                {/* Same Referral ID — give this to friends to receive coins */}
                 <div className="bg-white/5 border border-cyan-500/30 rounded-2xl p-4">
                   <p className="text-[10px] text-cyan-300/90 font-black uppercase tracking-widest mb-2">
-                    Your Unique Transfer ID
+                    Your Referral ID (for Transfer)
                   </p>
                   <div className="flex items-center gap-2">
                     <p className="text-white text-base font-black flex-1 tracking-widest">
@@ -9542,8 +9557,11 @@ Tip: Social Hub se copy karo 📤`,
                       {copied ? '✓ Copied' : 'Copy'}
                     </button>
                   </div>
-                  <p className="text-[9px] text-gray-400 mt-2 font-bold">
-                    Yeh ID dusre user ko do — wo Wallet → Transfer mein paste karke aapko coins bhejenge. Har user ki alag unique ID hai.
+                  <p className="text-[9px] text-amber-300/90 mt-2 font-black">
+                    Yeh aapki Referral ID hai — isi ID ko dost ko do / share karo taake wo Wallet → Transfer mein paste karke aapko coins bhej sake.
+                  </p>
+                  <p className="text-[9px] text-gray-500 mt-1 font-bold">
+                    Coin mangwane ke liye yahi ID dein. Har user ki alag unique Referral ID hai.
                   </p>
                 </div>
 
@@ -9551,7 +9569,7 @@ Tip: Social Hub se copy karo 📤`,
                   <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Send Coins</p>
                   <div>
                     <p className="text-[9px] text-cyan-300/90 font-black uppercase tracking-widest mb-1.5">
-                      Their Transfer ID
+                      Unki Referral ID
                     </p>
                     <input
                       value={transferId}
@@ -9567,7 +9585,7 @@ Tip: Social Hub se copy karo 📤`,
                       }}
                     />
                     <p className="text-[9px] text-gray-500 mt-1.5 font-bold">
-                      Unki unique Transfer ID paste karo (Wallet → Transfer). Apni ID pe send nahi hoga.
+                      Dost ki Referral ID paste karo (jo unke Transfer / Refer tab pe dikhti hai). Apni ID pe send nahi hoga.
                     </p>
                   </div>
                   <input type="number" value={transferAmount||''} onChange={e => setTransferAmount(Number(e.target.value))} placeholder="Amount (Coins)" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"/>
@@ -9582,7 +9600,7 @@ Tip: Social Hub se copy karo 📤`,
             {walletTab === 'referral' && (
               <div className="space-y-4">
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
-                  <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2">Your Unique Referral + Transfer ID</p>
+                  <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2">Your Referral ID</p>
                   <div className="flex items-center gap-2">
                     <p className="text-white text-sm font-black flex-1 tracking-widest">
                       {myReferralId || 'Generating…'}
@@ -9596,7 +9614,7 @@ Tip: Social Hub se copy karo 📤`,
                     </button>
                   </div>
                   <p className="text-[9px] text-gray-400 mt-2">
-                    Same ID for referral signup + coin transfer. Share it — friends enter it to join, or paste it in Wallet → Transfer to send you coins. Each signup with your code →{' '}
+                    Same Referral ID for invite signup + coin transfer. Dost ko yeh ID do — wo Transfer mein paste karke aapko coins bhejenge. Har signup with your code →{' '}
                     <span className="text-yellow-400 font-black">+{REFERRAL_COINS} AJ Coins</span>.
                   </p>
                 </div>
