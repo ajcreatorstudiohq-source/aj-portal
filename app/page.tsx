@@ -6933,7 +6933,9 @@ Tip: Social Hub se copy karo 📤`,
                 <p className="text-4xl font-black bg-gradient-to-r from-yellow-300 to-yellow-500 bg-clip-text text-transparent mt-1">{parseFloat(displayBalance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} <span className="text-lg text-yellow-400/70">AJ Coins 🪙</span></p>
                 <p className="text-sm font-black text-emerald-400 mt-1">
                   ≈ {formatUsd(coinsToUsd(Number(displayBalance) || balance))}
-                  <span className="text-[10px] text-gray-500 font-bold ml-2">(withdraw {CASH_RATE} 🪙 = $1)</span>
+                  <span className="text-[10px] text-gray-500 font-bold ml-2">
+                    (your 30% share · {CASH_RATE} 🪙 = $1.000)
+                  </span>
                 </p>
                 <p className="text-xs text-gray-400 mt-1">
                   Min withdraw 20,000 AJ Coins 🪙 ({formatUsd(coinsToCashUsd(20000))})
@@ -9345,7 +9347,9 @@ Tip: Social Hub se copy karo 📤`,
                     <p className="text-4xl font-black bg-gradient-to-r from-yellow-300 to-yellow-500 bg-clip-text text-transparent mt-1">{parseFloat(displayBalance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} <span className="text-lg text-yellow-400/70">AJ Coins 🪙</span></p>
                     <p className="text-sm font-black text-emerald-400 mt-1">
                       ≈ {formatUsd(coinsToUsd(Number(displayBalance) || balance))}
-                      <span className="text-[10px] text-gray-500 font-bold ml-2">(withdraw {CASH_RATE} 🪙 = $1)</span>
+                      <span className="text-[10px] text-gray-500 font-bold ml-2">
+                        (your 30% share · {CASH_RATE} 🪙 = $1.000)
+                      </span>
                     </p>
                     <p className="text-xs text-gray-400 mt-1">
                   Min withdraw 20,000 AJ Coins 🪙 ({formatUsd(coinsToCashUsd(20000))})

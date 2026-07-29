@@ -287,6 +287,14 @@ service cloud.firestore {
       allow delete: if isCeoAdmin();
     }
 
+    // Withdrawals — CEO full hisaab on admin portal
+    match /manual_withdrawals/{id} {
+      allow read: if isCeoAdmin();
+      allow create: if signedIn();
+      allow update: if isCeoAdmin();
+      allow delete: if false;
+    }
+
     // Default deny — merge carefully with your existing rules for wallet, admin, etc.
     match /{document=**} {
       allow read, write: if false;
