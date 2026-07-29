@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
-import { FieldValue } from 'firebase-admin/firestore';
-import { getAdminDb } from '../../../lib/firebase-admin';
+import { FieldValue, getAdminDb }
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic'; from '../../../lib/firebase-admin';
 import {
   bearerFromRequest,
   verifyFirebaseIdToken,

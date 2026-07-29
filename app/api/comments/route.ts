@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { FieldValue } from 'firebase-admin/firestore';
-import { getAdminDb } from '../../lib/firebase-admin';
+import { FieldValue, getAdminDb } from '../../lib/firebase-admin';
 import { verifyFirebaseIdToken } from '../../lib/verify-id-token';
 import { REEL_COMMENTS_COL, dedupeComments } from '../../lib/reel-comments';
 

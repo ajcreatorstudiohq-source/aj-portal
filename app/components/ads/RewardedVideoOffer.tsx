@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ExternalLink, Gift, Loader2, Play, X } from 'lucide-react';
-import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { doc, increment, runTransaction, serverTimestamp, setDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import {
   ADSTERRA_REWARD_COINS,
@@ -769,6 +769,88 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
     ]
   );
 
+  const claimCoinsClientFallback = useCallback(
+    async (sid: string, awayMs: number) => {
+      if (!user) throw new Error('not_signed_in');
+      const needMs = ADSTERRA_VERIFY_SECONDS * 1000;
+      const preparedAt = preparedAtRef.current || Date.now() - awayMs;
+      if (awayMs < needMs && Date.now() - preparedAt < needMs) {
+        throw new Error('verify_too_fast');
+      }
+
+      const sessionRef = doc(db, 'ad_reward_sessions', sid);
+      const userRef = doc(db, 'users', user.uid);
+      const dayKey = new Date().toISOString().slice(0, 10);
+
+      const result = await runTransaction(db, async (tx) => {
+        const [sessionSnap, userSnap] = await Promise.all([
+          tx.get(sessionRef),
+          tx.get(userRef),
+        ]);
+        if (!userSnap.exists()) throw new Error('user_not_found');
+        const u = userSnap.data() as {
+          balance?: number;
+          offerwallVideoDayKey?: string;
+          offerwallVideoDayCount?: number;
+        };
+        const count =
+          u.offerwallVideoDayKey === dayKey
+            ? Number(u.offerwallVideoDayCount || 0)
+            : 0;
+        if (count >= OFFERWALL_VIDEO_MAX_DAILY) throw new Error('daily_limit');
+
+        if (sessionSnap.exists()) {
+          const s = sessionSnap.data() as {
+            uid?: string;
+            consumed?: boolean;
+            createdAtMs?: number;
+            expiresAt?: number;
+          };
+          if (s.uid && s.uid !== user.uid) throw new Error('session_mismatch');
+          if (s.consumed) {
+            return { duplicate: true as const, credited: 0, balance: Number(u.balance) || 0 };
+          }
+          if (s.expiresAt && Date.now() > Number(s.expiresAt)) {
+            throw new Error('session_expired');
+          }
+        }
+
+        const bal = Math.max(0, Math.floor(Number(u.balance) || 0));
+        const nextBal = bal + ADSTERRA_REWARD_COINS;
+
+        tx.set(
+          sessionRef,
+          {
+            uid: user.uid,
+            placement: 'offerwall_rewarded_video',
+            createdAtMs: preparedAt,
+            expiresAt: Date.now() + 10 * 60 * 1000,
+            dayKey,
+            consumed: true,
+            consumedAt: serverTimestamp(),
+            creditedCoins: ADSTERRA_REWARD_COINS,
+            clientFallbackClaim: true,
+            totalAwayMs: awayMs,
+            verifySeconds: ADSTERRA_VERIFY_SECONDS,
+          },
+          { merge: true }
+        );
+        tx.update(userRef, {
+          balance: increment(ADSTERRA_REWARD_COINS),
+          offerwallVideoDayKey: dayKey,
+          offerwallVideoDayCount: count + 1,
+          lastAdsterraClaimAt: serverTimestamp(),
+          lastRewardAt: serverTimestamp(),
+          lastRewardSource: 'adsterra_watch_client_fallback',
+        });
+        return { duplicate: false as const, credited: ADSTERRA_REWARD_COINS, balance: nextBal };
+      });
+
+      return result;
+    },
+    [user]
+  );
+
   const claimCoins = useCallback(
     async (e?: { preventDefault?: () => void; stopPropagation?: () => void }) => {
       guardClick(e);
@@ -809,30 +891,71 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
       setBusy(true);
       try {
         const token = await user.getIdToken();
-        const res = await fetch('/api/ads/rewarded', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            action: 'claim_adsterra',
-            status: 'completed',
-            networkShown: true,
-            sessionId: sid,
-            meta: {
-              provider: 'adsterra',
-              link: ADSTERRA_REWARDED_LINK,
-              verifySeconds: ADSTERRA_VERIFY_SECONDS,
-              preparedAt: preparedAtRef.current || undefined,
-              enteredAdAt: enteredAdAtRef.current,
-              leftAdAt: leftAdAtRef.current,
-              totalAwayMs: awayMs,
+        let res: Response | null = null;
+        let data: {
+          ok?: boolean;
+          error?: string;
+          message?: string;
+          creditedCoins?: number;
+          remainingToday?: number;
+          duplicate?: boolean;
+          allowClientFallback?: boolean;
+          diag?: { lastError?: string | null; configured?: boolean };
+        } = {};
+        let serverUnreachable = false;
+
+        try {
+          res = await fetch('/api/ads/rewarded', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
             },
-          }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok && data.ok) {
+            body: JSON.stringify({
+              action: 'claim_adsterra',
+              status: 'completed',
+              networkShown: true,
+              sessionId: sid,
+              meta: {
+                provider: 'adsterra',
+                link: ADSTERRA_REWARDED_LINK,
+                verifySeconds: ADSTERRA_VERIFY_SECONDS,
+                preparedAt: preparedAtRef.current || undefined,
+                enteredAdAt: enteredAdAtRef.current,
+                leftAdAt: leftAdAtRef.current,
+                totalAwayMs: awayMs,
+              },
+            }),
+          });
+          const text = await res.text();
+          try {
+            data = text ? (JSON.parse(text) as typeof data) : {};
+          } catch {
+            serverUnreachable = true;
+            console.error(
+              '[WatchAds] claim non-JSON response',
+              res.status,
+              text.slice(0, 200)
+            );
+            data = {
+              ok: false,
+              error: `http_${res.status}`,
+              message: `Server claim error (HTTP ${res.status}). Trying fallback credit…`,
+              allowClientFallback: true,
+            };
+          }
+        } catch (netErr) {
+          serverUnreachable = true;
+          console.error('[WatchAds] claim network failed', netErr);
+          data = {
+            ok: false,
+            error: 'network_error',
+            message: 'Network error during claim. Trying fallback credit…',
+            allowClientFallback: true,
+          };
+        }
+
+        if (res?.ok && data.ok) {
           if (typeof data.remainingToday === 'number') setRemaining(data.remainingToday);
           writePersisted(null);
           claimReadyRef.current = false;
@@ -843,7 +966,8 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
           if (data.duplicate || credited <= 0) {
             showWarnPopup(
               'Already Claimed',
-              data.message || 'This ad session was already claimed. Watch Ads again for more coins.'
+              data.message ||
+                'This ad session was already claimed. Watch Ads again for more coins.'
             );
           } else {
             showOkPopup(
@@ -854,6 +978,63 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
           onRefreshUser?.();
           return;
         }
+
+        const useFallback =
+          data.allowClientFallback ||
+          data.error === 'admin_sdk_missing' ||
+          serverUnreachable ||
+          (typeof data.error === 'string' && data.error.startsWith('http_5'));
+
+        if (useFallback) {
+          console.warn('[WatchAds] server claim failed — client fallback', data);
+          try {
+            const fb = await claimCoinsClientFallback(sid, awayMs);
+            writePersisted(null);
+            claimReadyRef.current = false;
+            setClaimReady(false);
+            setSessionId(null);
+            sessionIdRef.current = null;
+            if (fb.duplicate || fb.credited <= 0) {
+              showWarnPopup(
+                'Already Claimed',
+                'This ad session was already claimed. Watch Ads again for more coins.'
+              );
+            } else {
+              showOkPopup(
+                'Coins Claimed',
+                `+${fb.credited} AJ Coins 🪙 added to your wallet.`
+              );
+            }
+            onRefreshUser?.();
+            return;
+          } catch (fbErr) {
+            const code = fbErr instanceof Error ? fbErr.message : 'fallback_failed';
+            console.error('[WatchAds] client fallback claim failed', fbErr);
+            if (code === 'verify_too_fast') {
+              showWarnPopup(
+                '30 Seconds Not Completed',
+                `You did not complete ${ADSTERRA_VERIFY_SECONDS} seconds on the ad. No AJ Coins were credited.`
+              );
+              return;
+            }
+            if (code === 'daily_limit') {
+              onAlert(
+                `Daily ad claim limit (${OFFERWALL_VIDEO_MAX_DAILY}) reached.`,
+                '⚠️'
+              );
+              resetVerification();
+              return;
+            }
+            onAlert(
+              data.diag?.lastError ||
+                data.message ||
+                `Claim failed (${code}). Ask admin to set FIREBASE_SERVICE_ACCOUNT_JSON on Vercel.`,
+              '⚠️'
+            );
+            return;
+          }
+        }
+
         if (data.error === 'admin_sdk_missing') {
           onAlert(
             data.message ||
@@ -877,11 +1058,14 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
             data.message ||
               `You did not complete ${ADSTERRA_VERIFY_SECONDS} seconds on the ad. No AJ Coins were credited.`
           );
-          // Keep claim UI if server clock is wrong-side; user can retry after waiting
           return;
         }
-        onAlert(data.message || data.error || 'Claim failed. Try again.', '⚠️');
+        onAlert(
+          data.message || data.error || 'Claim failed. Try again.',
+          '⚠️'
+        );
       } catch (err: unknown) {
+        console.error('[WatchAds] claim fatal', err);
         onAlert(err instanceof Error ? err.message : 'Claim failed', '⚠️');
       } finally {
         setBusy(false);
@@ -897,6 +1081,7 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
       showWarnPopup,
       showOkPopup,
       resetVerification,
+      claimCoinsClientFallback,
     ]
   );
 

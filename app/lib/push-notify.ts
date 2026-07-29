@@ -1,7 +1,7 @@
 /**
  * Server FCM web push via Firebase Admin.
  */
-import { getMessaging, type Messaging } from 'firebase-admin/messaging';
+import type { Messaging } from 'firebase-admin/messaging';
 import { getAdminApp, getAdminDb } from './firebase-admin';
 
 let messaging: Messaging | null = null;
@@ -9,8 +9,18 @@ let messaging: Messaging | null = null;
 export function getAdminMessaging(): Messaging | null {
   const app = getAdminApp();
   if (!app) return null;
-  if (!messaging) messaging = getMessaging(app);
-  return messaging;
+  try {
+    if (!messaging) {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { getMessaging } =
+        require('firebase-admin/messaging') as typeof import('firebase-admin/messaging');
+      messaging = getMessaging(app);
+    }
+    return messaging;
+  } catch (e) {
+    console.warn('[firebase-admin] messaging init failed', e);
+    return null;
+  }
 }
 
 export async function sendPushToUser(opts: {
