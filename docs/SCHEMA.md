@@ -61,9 +61,10 @@ See `docs/TIKTOK_DM.md`.
 
 ## Wallet display
 
-- Users see **AJ Coins** + **withdraw USD** (`coins ÷ CASH_RATE`, **1000 🪙 = $1**)
+- Users see **AJ Coins** + **withdraw USD** (`coins ÷ CASH_RATE`, **1000 🪙 = $1.000**)
+- Display uses **3 decimals** so small balances stay accurate (5 🪙 = **$0.005**, not $0.01)
 - Buy/top-up still uses `COIN_RATE` (100 🪙 per $1 purchase unit)
-- Min withdraw: 20,000 🪙 = **$20.00**
+- Min withdraw: 20,000 🪙 = **$20.000**
 
 ## APIs
 

@@ -9,11 +9,11 @@ export const COIN_RATE = 100;
 export const CASH_RATE = 1000;
 
 /**
- * Wallet / withdraw USD value — always 1000:1.
- * Example: 20,000 🪙 ≈ $20.00
+ * Exact withdraw USD (1000:1) — no early 2-dp rounding.
+ * 5 🪙 → 0.005 · 1000 🪙 → 1 · 20_000 🪙 → 20
  */
 export function coinsToUsd(coins: number): number {
-  return Number((Math.max(0, Number(coins) || 0) / CASH_RATE).toFixed(2));
+  return Math.max(0, Number(coins) || 0) / CASH_RATE;
 }
 
 /** Alias — same as coinsToUsd (withdraw rate 1000:1). */
@@ -21,12 +21,16 @@ export function coinsToCashUsd(coins: number): number {
   return coinsToUsd(coins);
 }
 
-/** Format USD for UI, e.g. `$12.50`. */
+/**
+ * Format USD for UI at withdraw precision.
+ * 1000 🪙 = $1.000 · 5 🪙 = $0.005 (3 decimals — 1 coin = $0.001)
+ */
 export function formatUsd(usd: number): string {
   const n = Number(usd) || 0;
-  return `$${n.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+  const rounded = Math.round(n * 1000) / 1000;
+  return `$${rounded.toLocaleString(undefined, {
+    minimumFractionDigits: 3,
+    maximumFractionDigits: 3,
   })}`;
 }
 
