@@ -1,6 +1,7 @@
 /**
  * Firebase Admin Storage helpers — signed URLs bypass client Storage rules (403).
  */
+import 'server-only';
 import { getAdminApp } from './firebase-admin';
 
 const DEFAULT_BUCKET =

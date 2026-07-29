@@ -9,22 +9,15 @@
  *   so the CEO ID balance shows platform share.
  * - Paying a user withdraw only pays their 30% — your remaining share stays profitable.
  */
+import 'server-only';
 import { FieldValue, getAdminDb } from './firebase-admin';
 import { CASH_RATE } from './economy';
 import { ADMIN_EMAIL, ADMIN_UIDS } from './admin-auth';
 import type { Firestore } from 'firebase-admin/firestore';
 
-export const ADMIN_EARNINGS_DOC = 'admin_stats/earnings';
+export type { AdminEarningsTotals } from './admin-earnings-types';
 
-export type AdminEarningsTotals = {
-  totalOwnerUsd: number;
-  totalOwnerCoins: number;
-  giftOwnerUsd: number;
-  giftOwnerCoins: number;
-  adOwnerUsd: number;
-  eventCount: number;
-  updatedAt?: unknown;
-};
+export const ADMIN_EARNINGS_DOC = 'admin_stats/earnings';
 
 let cachedAdminUid: string | null | undefined;
 

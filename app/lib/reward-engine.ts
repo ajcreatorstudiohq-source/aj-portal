@@ -2,6 +2,7 @@
  * Server-side reward application with idempotency + AdminRevenue logging.
  * Uses Firebase Admin SDK only — client cannot write users.balance.
  */
+import 'server-only';
 import { FieldValue, getAdminDb } from './firebase-admin';
 import {
   computeRewardSplit,

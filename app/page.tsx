@@ -34,7 +34,6 @@ import {
   coinsToCashUsd,
   formatUsd,
 } from './lib/economy';
-import { creditAdminEarnings } from './lib/admin-earnings';
 import { earnReward } from './lib/client-rewards';
 import {
   notifyUser,
@@ -4634,34 +4633,6 @@ export function AJSuperPortal() {
     }
     setGiftTargetUid(uid);
     setPulseGiftPostId(id || uid);
-  };
-
-  // ==========================================================
-  // ADMIN REVENUE LOGGER
-  // ==========================================================
-  const logAdminRevenue = async (type:string, totalPool:number, userNet:number) => {
-    try {
-      const adminShare = Number((totalPool * ADMIN_EARN_SHARE).toFixed(4));
-      const adminCoins = Math.floor(adminShare * COIN_RATE);
-      await addDoc(collection(db,"AdminRevenue"), {
-        type,
-        currency: 'USD',
-        platformSharePct: ADMIN_EARN_SHARE,
-        userSharePct: USER_EARN_SHARE,
-        totalPool,
-        adminShare,
-        ownerUsd: adminShare,
-        adminShareCoins: adminCoins,
-        userNet,
-        uid:user?.uid||'',
-        date:serverTimestamp()
-      });
-      await creditAdminEarnings({
-        ownerUsd: adminShare,
-        ownerCoins: adminCoins,
-        source: type,
-      });
-    } catch {}
   };
 
   // ==========================================================

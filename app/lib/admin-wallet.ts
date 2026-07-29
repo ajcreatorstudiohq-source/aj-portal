@@ -2,6 +2,7 @@
  * Admin-only wallet mutations. All balance / invested / botTier changes
  * MUST go through Firebase Admin SDK after firestore.rules lock.
  */
+import 'server-only';
 import { FieldValue, getAdminDb } from './firebase-admin';
 import type { Firestore } from 'firebase-admin/firestore';
 
