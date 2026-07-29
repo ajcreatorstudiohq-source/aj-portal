@@ -663,12 +663,27 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
           setClaimReady(false);
           setSessionId(null);
           sessionIdRef.current = null;
-          showOkPopup(
-            'Coins Claimed',
-            data.message ||
-              `+${data.creditedCoins || ADSTERRA_REWARD_COINS} AJ Coins 🪙 added to your wallet.`
-          );
+          const credited = Number(data.creditedCoins || 0);
+          if (data.duplicate || credited <= 0) {
+            showWarnPopup(
+              'Already Claimed',
+              data.message || 'This ad session was already claimed. Watch Ads again for more coins.'
+            );
+          } else {
+            showOkPopup(
+              'Coins Claimed',
+              data.message || `+${credited} AJ Coins 🪙 added to your wallet.`
+            );
+          }
           onRefreshUser?.();
+          return;
+        }
+        if (data.error === 'admin_sdk_missing') {
+          onAlert(
+            data.message ||
+              'Server cannot credit coins yet. Ask admin to set FIREBASE_SERVICE_ACCOUNT_JSON.',
+            '⚠️'
+          );
           return;
         }
         if (data.error === 'daily_limit') {

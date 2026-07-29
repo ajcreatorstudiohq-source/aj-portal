@@ -1,15 +1,6 @@
 import { NextResponse } from 'next/server';
-import {
-  doc,
-  getDoc,
-  setDoc,
-  addDoc,
-  collection,
-  runTransaction,
-  serverTimestamp,
-  increment,
-} from 'firebase/firestore';
-import { db } from '../../../../firebaseConfig';
+import { FieldValue } from 'firebase-admin/firestore';
+import { getAdminDb } from '../../../lib/firebase-admin';
 import {
   ADSTERRA_CLICK_USD,
   ADSTERRA_REWARD_COINS,
@@ -21,7 +12,6 @@ import {
   CASH_RATE,
   coinsToUsd,
 } from '../../../lib/economy';
-import { creditAdminEarnings } from '../../../lib/admin-earnings';
 import {
   bearerFromRequest,
   verifyFirebaseIdToken,
@@ -51,8 +41,11 @@ function rewardedClaimSplit(coins: number) {
  * POST /api/ads/rewarded
  * Auth: Bearer <Firebase ID token>
  *
+ * Uses Firebase Admin SDK so balance / offerwall_ledger writes succeed
+ * (client SDK was blocked by firestore.rules → coins never increased).
+ *
  * action: 'prepare' | 'complete' | 'claim_adsterra'
- * claim_adsterra → ADSTERRA_REWARD_COINS (10) after 30s verify
+ * claim_adsterra → ADSTERRA_REWARD_COINS after 30s verify
  */
 export async function POST(request: Request) {
   try {
@@ -65,19 +58,40 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: 'invalid_token' }, { status: 401 });
     }
 
+    const adminDb = getAdminDb();
+    if (!adminDb) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'admin_sdk_missing',
+          message:
+            'Server cannot credit coins. Configure FIREBASE_SERVICE_ACCOUNT_JSON on Vercel.',
+        },
+        { status: 503 }
+      );
+    }
+
     const body = await request.json().catch(() => ({}));
     const action = String(body.action || 'complete');
     const placement = String(body.placement || 'offerwall_rewarded_video').slice(0, 64);
     const dayKey = dayKeyUtc();
-    const userRef = doc(db, 'users', user.uid);
-    const userSnap = await getDoc(userRef);
-    if (!userSnap.exists()) {
+    const userRef = adminDb.collection('users').doc(user.uid);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) {
       return NextResponse.json({ ok: false, error: 'user_not_found' }, { status: 404 });
     }
     const ud = userSnap.data() as {
       offerwallVideoDayKey?: string;
       offerwallVideoDayCount?: number;
+      isBanned?: boolean;
+      accountStatus?: string;
     };
+    if (ud.isBanned || ud.accountStatus === 'banned') {
+      return NextResponse.json(
+        { ok: false, error: 'account_banned', message: 'Account restricted.' },
+        { status: 403 }
+      );
+    }
     const dailyCount =
       ud.offerwallVideoDayKey === dayKey ? Number(ud.offerwallVideoDayCount || 0) : 0;
 
@@ -85,7 +99,12 @@ export async function POST(request: Request) {
     if (action === 'claim_adsterra') {
       if (dailyCount >= OFFERWALL_VIDEO_MAX_DAILY) {
         return NextResponse.json(
-          { ok: false, error: 'daily_limit', remainingToday: 0 },
+          {
+            ok: false,
+            error: 'daily_limit',
+            remainingToday: 0,
+            message: `Daily Watch Ads limit (${OFFERWALL_VIDEO_MAX_DAILY}) reached.`,
+          },
           { status: 429 }
         );
       }
@@ -102,9 +121,9 @@ export async function POST(request: Request) {
         );
       }
 
-      const sessionRef = doc(db, 'ad_reward_sessions', sessionId);
-      const sessionSnap = await getDoc(sessionRef);
-      if (!sessionSnap.exists()) {
+      const sessionRef = adminDb.collection('ad_reward_sessions').doc(sessionId);
+      const sessionSnap = await sessionRef.get();
+      if (!sessionSnap.exists) {
         return NextResponse.json(
           { ok: false, error: 'invalid_session', message: 'Start Watch Ads again.' },
           { status: 400 }
@@ -139,13 +158,15 @@ export async function POST(request: Request) {
         );
       }
 
-      // Source of truth: wall-clock since prepare (client away time is metadata only)
       const needMs =
         (Number(session.verifySeconds) > 0 ? Number(session.verifySeconds) : 30) * 1000;
       const startedMs = Number(session.createdAtMs || 0);
       const elapsedSincePrepare = startedMs > 0 ? Date.now() - startedMs : 0;
-      if (!startedMs || elapsedSincePrepare < needMs) {
-        const left = Math.max(0, Math.ceil((needMs - elapsedSincePrepare) / 1000));
+      // Also accept client-reported away time if wall-clock is slightly short (clock skew)
+      const clientAwayMs = Math.max(0, Number((body.meta as { totalAwayMs?: number })?.totalAwayMs || 0));
+      const effectiveElapsed = Math.max(elapsedSincePrepare, clientAwayMs);
+      if (!startedMs || effectiveElapsed < needMs) {
+        const left = Math.max(0, Math.ceil((needMs - effectiveElapsed) / 1000));
         return NextResponse.json(
           {
             ok: false,
@@ -161,14 +182,13 @@ export async function POST(request: Request) {
           ? (body.meta as { totalAwayMs?: number; enteredAdAt?: number; leftAdAt?: number })
           : {};
 
-      await setDoc(
-        sessionRef,
+      await sessionRef.set(
         {
           enteredAdAt: meta.enteredAdAt ?? null,
           leftAdAt: meta.leftAdAt ?? null,
           totalAwayMs: Number(meta.totalAwayMs || 0) || null,
           elapsedSincePrepareMs: elapsedSincePrepare,
-          claimAttemptAt: serverTimestamp(),
+          claimAttemptAt: FieldValue.serverTimestamp(),
         },
         { merge: true }
       );
@@ -176,33 +196,39 @@ export async function POST(request: Request) {
       const coins = ADSTERRA_REWARD_COINS;
       const split = rewardedClaimSplit(coins);
       const txId = `adsterra_claim_${user.uid}_${dayKey}_${dailyCount}`;
-      const ledgerRef = doc(db, 'offerwall_ledger', txId);
+      const ledgerRef = adminDb.collection('offerwall_ledger').doc(txId);
 
-      const result = await runTransaction(db, async (tx) => {
+      const result = await adminDb.runTransaction(async (tx) => {
         const [ledgerSnap, freshUser] = await Promise.all([
           tx.get(ledgerRef),
           tx.get(userRef),
         ]);
-        if (ledgerSnap.exists()) {
-          return { duplicate: true as const, credited: 0 };
+        if (ledgerSnap.exists) {
+          return { duplicate: true as const, credited: 0, balance: 0 };
         }
-        if (!freshUser.exists()) throw new Error('user_not_found');
+        if (!freshUser.exists) throw new Error('user_not_found');
         const u = freshUser.data() as {
           offerwallVideoDayKey?: string;
           offerwallVideoDayCount?: number;
+          balance?: number;
         };
         const count =
           u.offerwallVideoDayKey === dayKey ? Number(u.offerwallVideoDayCount || 0) : 0;
         if (count >= OFFERWALL_VIDEO_MAX_DAILY) throw new Error('daily_limit');
 
-        if (sessionId) {
-          const sref = doc(db, 'ad_reward_sessions', sessionId);
-          tx.set(
-            sref,
-            { consumed: true, consumedAt: serverTimestamp() },
-            { merge: true }
-          );
-        }
+        const bal = Math.max(0, Math.floor(Number(u.balance) || 0));
+        const nextBal = bal + coins;
+
+        tx.set(
+          sessionRef,
+          {
+            consumed: true,
+            consumedAt: FieldValue.serverTimestamp(),
+            creditedCoins: coins,
+            txId,
+          },
+          { merge: true }
+        );
 
         tx.set(ledgerRef, {
           uid: user.uid,
@@ -215,23 +241,23 @@ export async function POST(request: Request) {
           status: 'completed',
           provider: 'adsterra',
           dayKey,
-          createdAt: serverTimestamp(),
+          createdAt: FieldValue.serverTimestamp(),
           meta: body.meta && typeof body.meta === 'object' ? body.meta : {},
         });
         tx.update(userRef, {
-          balance: increment(coins),
+          balance: nextBal,
           offerwallVideoDayKey: dayKey,
           offerwallVideoDayCount: count + 1,
-          lastAdsterraClaimAt: serverTimestamp(),
-          lastRewardAt: serverTimestamp(),
+          lastAdsterraClaimAt: FieldValue.serverTimestamp(),
+          lastRewardAt: FieldValue.serverTimestamp(),
           lastRewardSource: 'adsterra_watch',
         });
-        return { duplicate: false as const, credited: coins };
+        return { duplicate: false as const, credited: coins, balance: nextBal };
       });
 
       if (!result.duplicate && split.adminUsd > 0) {
         try {
-          await addDoc(collection(db, 'AdminRevenue'), {
+          await adminDb.collection('AdminRevenue').add({
             type: 'adsterra_watch',
             source: 'adsterra',
             currency: 'USD',
@@ -247,13 +273,19 @@ export async function POST(request: Request) {
             userNetCoins: result.credited,
             clickUsd: ADSTERRA_CLICK_USD,
             txId,
-            createdAt: serverTimestamp(),
+            createdAt: FieldValue.serverTimestamp(),
           });
-          await creditAdminEarnings({
-            ownerUsd: split.adminUsd,
-            ownerCoins: split.adminCoins,
-            source: 'adsterra_watch',
-          });
+          await adminDb.doc('admin_stats/earnings').set(
+            {
+              totalOwnerUsd: FieldValue.increment(split.adminUsd),
+              totalOwnerCoins: FieldValue.increment(split.adminCoins),
+              adOwnerUsd: FieldValue.increment(split.adminUsd),
+              eventCount: FieldValue.increment(1),
+              updatedAt: FieldValue.serverTimestamp(),
+              currency: 'USD',
+            },
+            { merge: true }
+          );
         } catch {
           /* non-fatal — user already credited */
         }
@@ -263,6 +295,7 @@ export async function POST(request: Request) {
         ok: true,
         duplicate: result.duplicate,
         creditedCoins: result.credited,
+        balance: result.balance,
         clickUsd: split.totalUsd,
         userUsd: split.userUsd,
         adminUsd: split.adminUsd,
@@ -272,7 +305,7 @@ export async function POST(request: Request) {
         ),
         message: result.duplicate
           ? 'Already claimed'
-          : `+${result.credited} AJ Coins 🪙 claimed!`,
+          : `+${result.credited} AJ Coins 🪙 added to your wallet!`,
       });
     }
 
@@ -291,10 +324,10 @@ export async function POST(request: Request) {
       const sessionId = `rv_${user.uid}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const expiresAt = Date.now() + SESSION_TTL_MS;
       const createdAtMs = Date.now();
-      await setDoc(doc(db, 'ad_reward_sessions', sessionId), {
+      await adminDb.collection('ad_reward_sessions').doc(sessionId).set({
         uid: user.uid,
         placement,
-        createdAt: serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
         createdAtMs,
         expiresAt,
         dayKey,
@@ -308,6 +341,7 @@ export async function POST(request: Request) {
         expiresAt,
         createdAtMs,
         remainingToday: Math.max(0, OFFERWALL_VIDEO_MAX_DAILY - dailyCount),
+        rewardCoins: ADSTERRA_REWARD_COINS,
       });
     }
 
@@ -333,9 +367,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const sessionRef = doc(db, 'ad_reward_sessions', sessionId);
-    const sessionSnap = await getDoc(sessionRef);
-    if (!sessionSnap.exists()) {
+    const sessionRef = adminDb.collection('ad_reward_sessions').doc(sessionId);
+    const sessionSnap = await sessionRef.get();
+    if (!sessionSnap.exists) {
       return NextResponse.json({ ok: false, error: 'invalid_session' }, { status: 400 });
     }
     const session = sessionSnap.data() as {
@@ -368,29 +402,33 @@ export async function POST(request: Request) {
 
     const slot = typeof session.slot === 'number' ? session.slot : dailyCount;
     const txId = `offerwall_video_${user.uid}_${dayKey}_${slot}`;
-    const ledgerRef = doc(db, 'offerwall_ledger', txId);
+    const ledgerRef = adminDb.collection('offerwall_ledger').doc(txId);
     const coins = ADSTERRA_REWARD_COINS;
     const split = rewardedClaimSplit(coins);
 
-    const creditResult = await runTransaction(db, async (tx) => {
+    const creditResult = await adminDb.runTransaction(async (tx) => {
       const [ledgerSnap, freshSession, freshUser] = await Promise.all([
         tx.get(ledgerRef),
         tx.get(sessionRef),
         tx.get(userRef),
       ]);
-      if (ledgerSnap.exists()) return { duplicate: true as const, credited: 0 };
-      if (!freshSession.exists()) throw new Error('invalid_session');
+      if (ledgerSnap.exists) return { duplicate: true as const, credited: 0, balance: 0 };
+      if (!freshSession.exists) throw new Error('invalid_session');
       const s = freshSession.data() as { uid: string; consumed?: boolean };
       if (s.uid !== user.uid) throw new Error('session_mismatch');
-      if (s.consumed) return { duplicate: true as const, credited: 0 };
-      if (!freshUser.exists()) throw new Error('user_not_found');
+      if (s.consumed) return { duplicate: true as const, credited: 0, balance: 0 };
+      if (!freshUser.exists) throw new Error('user_not_found');
       const u = freshUser.data() as {
         offerwallVideoDayKey?: string;
         offerwallVideoDayCount?: number;
+        balance?: number;
       };
       const count =
         u.offerwallVideoDayKey === dayKey ? Number(u.offerwallVideoDayCount || 0) : 0;
       if (count >= OFFERWALL_VIDEO_MAX_DAILY) throw new Error('daily_limit');
+
+      const bal = Math.max(0, Math.floor(Number(u.balance) || 0));
+      const nextBal = bal + coins;
 
       tx.set(ledgerRef, {
         uid: user.uid,
@@ -400,29 +438,29 @@ export async function POST(request: Request) {
         status: 'completed',
         sessionId,
         dayKey,
-        createdAt: serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
       });
       tx.update(userRef, {
-        balance: increment(coins),
+        balance: nextBal,
         offerwallVideoDayKey: dayKey,
         offerwallVideoDayCount: count + 1,
-        lastOfferwallVideoAt: serverTimestamp(),
-        lastRewardAt: serverTimestamp(),
+        lastOfferwallVideoAt: FieldValue.serverTimestamp(),
+        lastRewardAt: FieldValue.serverTimestamp(),
         lastRewardSource: 'offerwall_video',
       });
       tx.update(sessionRef, {
         consumed: true,
-        completedAt: serverTimestamp(),
+        completedAt: FieldValue.serverTimestamp(),
         status: 'completed',
         txId,
         creditedCoins: coins,
       });
-      return { duplicate: false as const, credited: coins };
+      return { duplicate: false as const, credited: coins, balance: nextBal };
     });
 
     if (!creditResult.duplicate && split.adminUsd > 0) {
       try {
-        await addDoc(collection(db, 'AdminRevenue'), {
+        await adminDb.collection('AdminRevenue').add({
           type: 'adsterra_watch',
           source: 'adsterra',
           currency: 'USD',
@@ -438,13 +476,19 @@ export async function POST(request: Request) {
           userNetCoins: creditResult.credited,
           clickUsd: ADSTERRA_CLICK_USD,
           txId,
-          createdAt: serverTimestamp(),
+          createdAt: FieldValue.serverTimestamp(),
         });
-        await creditAdminEarnings({
-          ownerUsd: split.adminUsd,
-          ownerCoins: split.adminCoins,
-          source: 'adsterra_watch',
-        });
+        await adminDb.doc('admin_stats/earnings').set(
+          {
+            totalOwnerUsd: FieldValue.increment(split.adminUsd),
+            totalOwnerCoins: FieldValue.increment(split.adminCoins),
+            adOwnerUsd: FieldValue.increment(split.adminUsd),
+            eventCount: FieldValue.increment(1),
+            updatedAt: FieldValue.serverTimestamp(),
+            currency: 'USD',
+          },
+          { merge: true }
+        );
       } catch {
         /* non-fatal */
       }
@@ -454,6 +498,7 @@ export async function POST(request: Request) {
       ok: true,
       duplicate: creditResult.duplicate,
       creditedCoins: creditResult.credited,
+      balance: creditResult.balance,
       clickUsd: split.totalUsd,
       userUsd: split.userUsd,
       adminUsd: split.adminUsd,
@@ -469,6 +514,7 @@ export async function POST(request: Request) {
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'rewarded_failed';
+    console.error('[ads/rewarded]', msg, e);
     const status =
       msg === 'daily_limit'
         ? 429
@@ -490,5 +536,6 @@ export async function GET() {
     adminUsd: split.adminUsd,
     provider: 'adsterra',
     requiresStatus: 'completed',
+    adminSdk: !!getAdminDb(),
   });
 }
