@@ -56,7 +56,8 @@ Ledger: `admin_stats/earnings` + `AdminRevenue` rows.
 
 ## User wallet
 
-Users see coins **and** withdraw USD (**1000 🪙 = $1**).  
+Users **and** admin see the same withdraw USD rate (**1000 🪙 = $1.000**), with **3 decimal places**  
+(so 5 🪙 = **$0.005**, not a rounded $0.01).  
 Buy rate stays separate (`COIN_RATE = 100` per purchase unit).
 
 ## Firestore fields to check
