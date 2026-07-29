@@ -16,6 +16,7 @@
 
 import Script from 'next/script';
 import React, { useState, useEffect, useRef, Component } from 'react';
+import { flushSync } from 'react-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import LiveMatchesPanel from './components/LiveMatchesPanel';
 import HubEarnPanel from './components/HubEarnPanel';
@@ -35,6 +36,11 @@ import {
   formatUsd,
 } from './lib/economy';
 import { earnReward } from './lib/client-rewards';
+import {
+  CLAIM_BALANCE_FLOOR_MS,
+  computeClaimBalanceNext,
+  type WalletRefreshPatch,
+} from './lib/wallet-refresh';
 import {
   notifyUser,
   writeUserNotification,
@@ -1784,6 +1790,8 @@ export function AJSuperPortal() {
   // ── AUTH
   const [user,     setUser]     = useState<any>(null);
   const [balance,  setBalance]  = useState(0);
+  /** Protects optimistic claim balance from stale onSnapshot/cache for a few seconds. */
+  const balanceFloorRef = useRef<{ min: number; until: number }>({ min: 0, until: 0 });
   const [botTier,  setBotTier]  = useState('none');
   const [invested, setInvested] = useState(0);
   const [loading,  setLoading]  = useState(0);
@@ -2070,6 +2078,30 @@ export function AJSuperPortal() {
   // ── COMPUTED
   const totalCoins     = balance + visualProfit;
   const displayBalance = totalCoins.toFixed(2);
+
+  const commitBalance = (next: number, opts?: { floor?: boolean }) => {
+    const live = Math.max(0, Math.floor(Number(next) || 0));
+    if (opts?.floor) {
+      balanceFloorRef.current = {
+        min: live,
+        until: Date.now() + CLAIM_BALANCE_FLOOR_MS,
+      };
+    }
+    flushSync(() => {
+      setBalance(live);
+    });
+  };
+
+  const mergeLiveBalance = (liveRaw: number) => {
+    const live = Math.max(0, Math.floor(Number(liveRaw) || 0));
+    const floor = balanceFloorRef.current;
+    const protectedMin =
+      Date.now() < floor.until ? Math.max(0, Math.floor(floor.min || 0)) : 0;
+    const next = Math.max(live, protectedMin);
+    setBalance(next);
+    return next;
+  };
+
   // Admin One-Click Ban — ONLY for configured admin email and/or ADMIN_UIDS
   const isPortalAdmin = isPortalAdminUser(user);
 
@@ -2934,7 +2966,19 @@ export function AJSuperPortal() {
           const data = s.data() as Record<string, unknown>;
           // Instant session terminate when admin bans an active user
           if (await kickIfBanned(cu, data)) return;
-          setBalance((data.balance as number) || 0);
+          const live = Math.max(0, Math.floor(Number(data.balance) || 0));
+          // Admin SDK credits do not update the client cache immediately —
+          // never let a stale fromCache snapshot wipe a fresh claim balance.
+          if (s.metadata?.fromCache) {
+            const floor = balanceFloorRef.current;
+            if (Date.now() < floor.until && live < floor.min) {
+              setBotTier((data.botTier as string) || 'none');
+              setInvested((data.invested as number) || 0);
+              if (data.referralId) setMyReferralId(String(data.referralId));
+              return;
+            }
+          }
+          mergeLiveBalance(live);
           setBotTier((data.botTier as string) || 'none');
           setInvested((data.invested as number) || 0);
           if (data.referralId) setMyReferralId(String(data.referralId));
@@ -3881,8 +3925,7 @@ export function AJSuperPortal() {
           0,
           Math.floor(Number((snap.data() as { balance?: number }).balance) || 0)
         );
-        setBalance(live);
-        return live;
+        return mergeLiveBalance(live);
       }
     } catch (e) {
       console.warn('readLiveBalance', e);
@@ -3893,8 +3936,7 @@ export function AJSuperPortal() {
             0,
             Math.floor(Number((snap.data() as { balance?: number }).balance) || 0)
           );
-          setBalance(live);
-          return live;
+          return mergeLiveBalance(live);
         }
       } catch {
         /* ignore */
@@ -3910,21 +3952,24 @@ export function AJSuperPortal() {
     creditedCoins?: number;
     duplicate?: boolean;
   }) => {
-    if (!patch?.ok) return;
-    if (
-      !patch.duplicate &&
-      typeof patch.balance === 'number' &&
-      Number.isFinite(patch.balance)
-    ) {
-      setBalance(Math.max(0, Math.floor(patch.balance)));
-    } else if (
-      !patch.duplicate &&
-      typeof patch.creditedCoins === 'number' &&
-      patch.creditedCoins > 0
-    ) {
-      const add = Math.floor(patch.creditedCoins);
-      setBalance((b) => Math.max(0, Math.floor(Number(b) || 0) + add));
+    if (!patch?.ok || patch.duplicate) {
+      void readLiveBalance();
+      return;
     }
+    flushSync(() => {
+      setBalance((prev) => {
+        const next = computeClaimBalanceNext(prev, {
+          balance: patch.balance,
+          creditedCoins: patch.creditedCoins,
+        });
+        if (next == null) return prev;
+        balanceFloorRef.current = {
+          min: next,
+          until: Date.now() + CLAIM_BALANCE_FLOOR_MS,
+        };
+        return next;
+      });
+    });
     void readLiveBalance();
   };
 
@@ -7300,29 +7345,41 @@ Tip: Social Hub se copy karo 📤`,
           <HubEarnPanel
             user={user}
             onAlert={(msg, icon) => setVvipAlert({ msg, icon: icon || '💰' })}
-            onRefreshUser={async (patch) => {
-              // 1) Instant UI from claim API (Admin writes do not update client cache)
-              if (typeof patch?.balance === 'number' && Number.isFinite(patch.balance)) {
-                setBalance(Math.max(0, Math.floor(patch.balance)));
-              } else if (
-                typeof patch?.creditedCoins === 'number' &&
-                Number.isFinite(patch.creditedCoins) &&
-                patch.creditedCoins > 0
-              ) {
-                const add = Math.floor(patch.creditedCoins);
-                setBalance((b) => Math.max(0, Math.floor(Number(b) || 0) + add));
-              }
+            onRefreshUser={async (patch?: WalletRefreshPatch) => {
+              // 1) Instant UI from claim API — flushSync so Hub card paints before popup
+              let claimedTo: number | null = null;
+              flushSync(() => {
+                setBalance((prev) => {
+                  const next = computeClaimBalanceNext(prev, patch);
+                  if (next == null) return prev;
+                  claimedTo = next;
+                  balanceFloorRef.current = {
+                    min: next,
+                    until: Date.now() + CLAIM_BALANCE_FLOOR_MS,
+                  };
+                  return next;
+                });
+              });
               if (!user?.uid) return;
-              // 2) Confirm from server — never trust local cache after Admin SDK credits
-              try {
-                const snap = await getDocFromServer(doc(db, 'users', user.uid));
-                if (snap.exists()) {
-                  const d = snap.data() as Record<string, unknown>;
-                  const live = Math.max(0, Math.floor(Number(d.balance) || 0));
-                  setBalance(live);
+              // 2) Confirm from server; never let a lagging read wipe the claim floor
+              const confirm = async () => {
+                try {
+                  const snap = await getDocFromServer(doc(db, 'users', user.uid));
+                  if (snap.exists()) {
+                    const d = snap.data() as Record<string, unknown>;
+                    const live = Math.max(0, Math.floor(Number(d.balance) || 0));
+                    mergeLiveBalance(live);
+                    return live;
+                  }
+                } catch {
+                  /* keep optimistic */
                 }
-              } catch {
-                /* keep optimistic balance; onSnapshot may catch up */
+                return null;
+              };
+              let live = await confirm();
+              if (claimedTo != null && (live == null || live < claimedTo)) {
+                await new Promise((r) => setTimeout(r, 450));
+                live = await confirm();
               }
             }}
           />

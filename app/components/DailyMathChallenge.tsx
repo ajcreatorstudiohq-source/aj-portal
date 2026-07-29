@@ -121,19 +121,28 @@ export default function DailyMathChallenge({ user, onAlert, onRefreshUser }: Pro
         meta: { provider: 'adsterra', link: ADSTERRA_REWARDED_LINK },
       });
       if (typeof data.remainingToday === 'number') setRemaining(data.remainingToday);
+      const credited = Number(data.creditedCoins || 0);
+      const creditForUi =
+        !data.duplicate ? (credited > 0 ? credited : MATH_CHALLENGE_COINS) : 0;
+      // Hub balance MUST update before the success popup (first claim).
+      await onRefreshUser?.(
+        data.duplicate
+          ? typeof data.balance === 'number'
+            ? { balance: data.balance }
+            : undefined
+          : {
+              ...(typeof data.balance === 'number' ? { balance: data.balance } : {}),
+              creditedCoins: creditForUi,
+            }
+      );
       onAlert(
-        data.message || `+${data.creditedCoins || MATH_CHALLENGE_COINS} AJ Coins 🪙`,
+        data.message || `+${creditForUi || MATH_CHALLENGE_COINS} AJ Coins 🪙`,
         data.duplicate ? 'ℹ️' : '🧮'
       );
       setSessionId(null);
       setPrompt('');
       setAnswer('');
       setClaimReady(false);
-      const credited = Number(data.creditedCoins || 0);
-      void onRefreshUser?.({
-        balance: typeof data.balance === 'number' ? data.balance : undefined,
-        creditedCoins: !data.duplicate && credited > 0 ? credited : undefined,
-      });
     } catch (e: unknown) {
       const err = e as Error & { data?: { error?: string; message?: string } };
       onAlert(
