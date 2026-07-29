@@ -80,6 +80,8 @@ export async function POST(request: Request) {
             ownerUsd: split.adminUsd,
             ownerCoins: split.adminCoins,
             source: 'live_gift',
+            earnerUid: user.uid,
+            forceWalletCredit: true,
           });
         }
       } catch {

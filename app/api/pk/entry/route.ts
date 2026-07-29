@@ -5,6 +5,7 @@ import {
   verifyFirebaseIdToken,
 } from '../../../lib/verify-id-token';
 import { coinsToUsd } from '../../../lib/economy';
+import { creditAdminEarnings } from '../../../lib/admin-earnings';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -97,26 +98,22 @@ export async function POST(request: Request) {
       savedToAdmin: true,
     });
 
-    await adminDb.doc('admin_stats/earnings').set(
-      {
-        totalOwnerUsd: FieldValue.increment(ownerUsd),
-        totalOwnerCoins: FieldValue.increment(entry),
-        eventCount: FieldValue.increment(1),
-        pkOwnerUsd: FieldValue.increment(ownerUsd),
-        pkOwnerCoins: FieldValue.increment(entry),
-        updatedAt: FieldValue.serverTimestamp(),
-        currency: 'USD',
-      },
-      { merge: true }
-    );
+    const credit = await creditAdminEarnings({
+      ownerUsd,
+      ownerCoins: entry,
+      source: 'pk_match',
+      earnerUid: actor.uid,
+      forceWalletCredit: true,
+    });
 
     return NextResponse.json({
       ok: true,
       entryCoins: entry,
       balance: result.balance,
       adminCoinsSaved: entry,
+      adminWalletCredited: credit.walletCredited,
       ownerUsd,
-      message: `PK entry ${entry} 🪙 saved to admin ledger`,
+      message: `PK entry ${entry} 🪙 saved to admin wallet`,
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'entry_failed';

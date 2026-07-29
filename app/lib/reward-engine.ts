@@ -183,6 +183,7 @@ export async function applySplitReward(opts: {
           ownerUsd: result.split.adminUsd,
           ownerCoins: result.split.adminCoins,
           source,
+          earnerUid: uid,
         });
       } catch {
         /* non-fatal */
@@ -364,6 +365,7 @@ export async function applyFlatCoins(opts: {
           ownerUsd: result.split.adminUsd,
           ownerCoins: result.split.adminCoins,
           source,
+          earnerUid: uid,
         });
       } catch {
         /* non-fatal */

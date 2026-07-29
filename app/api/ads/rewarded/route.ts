@@ -16,6 +16,7 @@ import {
   verifyFirebaseIdToken,
 } from '../../../lib/verify-id-token';
 import { validateWatchAdsEconomics, revenueSplitLabel } from '../../../lib/ad-revenue-guard';
+import { creditAdminEarnings } from '../../../lib/admin-earnings';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -439,17 +440,12 @@ export async function POST(request: Request) {
             txId,
             createdAt: FieldValue.serverTimestamp(),
           });
-          await adminDb.doc('admin_stats/earnings').set(
-            {
-              totalOwnerUsd: FieldValue.increment(split.adminUsd),
-              totalOwnerCoins: FieldValue.increment(split.adminCoins),
-              adOwnerUsd: FieldValue.increment(split.adminUsd),
-              eventCount: FieldValue.increment(1),
-              updatedAt: FieldValue.serverTimestamp(),
-              currency: 'USD',
-            },
-            { merge: true }
-          );
+          await creditAdminEarnings({
+            ownerUsd: split.adminUsd,
+            ownerCoins: split.adminCoins,
+            source: 'adsterra_watch',
+            earnerUid: user.uid,
+          });
         } catch {
           /* non-fatal — user already credited */
         }
@@ -606,17 +602,12 @@ export async function POST(request: Request) {
           txId,
           createdAt: FieldValue.serverTimestamp(),
         });
-        await adminDb.doc('admin_stats/earnings').set(
-          {
-            totalOwnerUsd: FieldValue.increment(split.adminUsd),
-            totalOwnerCoins: FieldValue.increment(split.adminCoins),
-            adOwnerUsd: FieldValue.increment(split.adminUsd),
-            eventCount: FieldValue.increment(1),
-            updatedAt: FieldValue.serverTimestamp(),
-            currency: 'USD',
-          },
-          { merge: true }
-        );
+        await creditAdminEarnings({
+          ownerUsd: split.adminUsd,
+          ownerCoins: split.adminCoins,
+          source: 'adsterra_watch',
+          earnerUid: user.uid,
+        });
       } catch {
         /* non-fatal */
       }
