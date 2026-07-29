@@ -3,69 +3,70 @@
 AJ Super Portal uses Firebase Auth with **Continue with Google** (`signInWithPopup` + `GoogleAuthProvider`).
 
 OAuth only works when the browser origin is listed under Firebase **Authorized domains**.
+Wildcards like `*.netlify.app` are **not** supported — each hostname must be listed.
 
-## Where to configure
+## Automatic fix (preferred)
+
+The app auto-registers allowed Netlify / Vercel preview hosts via:
+
+`POST /api/auth/authorized-domains` → Identity Toolkit Admin API
+
+Requires `FIREBASE_SERVICE_ACCOUNT_JSON` on the host (Vercel / Netlify) with permission to update Identity Toolkit project config.
+
+Allowed auto-hosts include:
+
+- `aj-studio-portal.netlify.app`
+- `deploy-preview-N--aj-studio-portal.netlify.app` (e.g. PR #95)
+- other `*--aj-studio-portal.netlify.app` branch deploys
+- known `aj-portal*.vercel.app` preview hosts
+
+On the auth screen (and before Google login), the client calls this API for the current hostname.
+
+## Manual fallback (Firebase Console)
 
 1. Open [Firebase Console](https://console.firebase.google.com/) → project **`aj-super-portal`**
 2. **Authentication** → **Settings** → **Authorized domains**
-3. Add every host where the app is opened (no `https://` prefix)
+3. Add (no `https://` prefix):
 
-## Domains to add
+| Environment | Domain |
+|---|---|
+| Firebase auth helper | `aj-super-portal.firebaseapp.com` |
+| Local | `localhost` |
+| Netlify production | `aj-studio-portal.netlify.app` |
+| Netlify PR #95 preview | `deploy-preview-95--aj-studio-portal.netlify.app` |
+| Production custom domain | your live domain (+ `www` if used) |
 
-| Environment | Domain to authorize | Notes |
-|---|---|---|
-| Firebase hosted auth helper | `aj-super-portal.firebaseapp.com` | Usually present by default |
-| Local development | `localhost` | Required for `next dev` / `http://localhost:3000` |
-| Production custom domain | *your live domain* e.g. `ajsuperportal.com` | Apex + `www` if both are used |
-| Preview / Vercel | `*.vercel.app` is **not** a wildcard — add each preview host, or use a stable preview domain | Add the exact hostname from the address bar |
-| Cursor / cloud preview | Exact preview hostname shown in the browser | Copy host only (e.g. `xxxx.cursor.app`) |
+Also Google Cloud Console → **APIs & Services** → **Credentials** → OAuth 2.0 Client:
 
-Also ensure Google Cloud Console → **APIs & Services** → **Credentials** → your OAuth 2.0 Client:
-
-- **Authorized JavaScript origins** include `http://localhost:3000` and your production origin
-- **Authorized redirect URIs** include  
+- **Authorized JavaScript origins**: production + Netlify origins you use
+- **Authorized redirect URIs**:  
   `https://aj-super-portal.firebaseapp.com/__/auth/handler`
 
 ## App config
-
-Client Firebase config uses:
 
 ```
 authDomain: "aj-super-portal.firebaseapp.com"
 ```
 
-Keep `authDomain` as the Firebase project domain (not your custom domain) unless you have set up a [custom auth domain](https://firebase.google.com/docs/auth/web/redirect-best-practices).
+Keep `authDomain` as the Firebase project domain unless you configured a custom auth domain.
 
-Optional env overrides (see `.env.example`):
+Optional env:
 
-- `NEXT_PUBLIC_FIREBASE_API_KEY`
-- `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`
-- `NEXT_PUBLIC_FIREBASE_PROJECT_ID`
-- …
+- `FIREBASE_SERVICE_ACCOUNT_JSON` — required for auto domain sync
+- `FIREBASE_EXTRA_AUTH_DOMAINS` — comma-separated extra hosts to always merge
 
-## Local checklist
+## Checklist
 
-1. `npm run dev` → open `http://localhost:3000`
-2. Confirm `localhost` is authorized in Firebase
-3. Click **Continue with Google** — popup should complete without `auth/unauthorized-domain`
-4. New users get `users/{uid}` with `unlockedGames: []`, `gameProgress: {}`, and `dailyRewards: {}`
-5. After deploy, add every preview/production hostname before testing OAuth there
-
-## Production / preview checklist
-
-1. Deploy
-2. Copy the exact hostname from the live URL
-3. Add it under Authorized domains
-4. Wait 1–2 minutes, hard-refresh, retry Google sign-in
-5. If popup is blocked on in-app browsers, fall back guidance: open in system browser
-6. Deploy RTDB rules (`database.rules.json`) so Ludo Star rooms + live frames work in preview/production
-7. Confirm Realtime Database URL is `https://aj-super-portal-default-rtdb.firebaseio.com`
+1. Deploy with Admin SDK env set
+2. Open preview → hard refresh → wait ~2s (auto-register)
+3. **Continue with Google**
+4. If still `auth/unauthorized-domain`, add the exact hostname in Console and retry after 1–2 minutes
 
 ## Common errors
 
 | Error | Fix |
 |---|---|
-| `auth/unauthorized-domain` | Add the current hostname to Authorized domains |
-| `auth/popup-blocked` | Allow popups or use a top-level browser window |
-| `auth/popup-closed-by-user` | User closed the Google window — retry |
-| `auth/network-request-failed` | Check ad blockers / network allowing `googleapis.com` |
+| `auth/unauthorized-domain` | Auto-register (retry login) or add host in Authorized domains |
+| `admin_sdk_missing` on `/api/auth/authorized-domains` | Set `FIREBASE_SERVICE_ACCOUNT_JSON` on Netlify/Vercel |
+| `auth/popup-blocked` | Allow popups |
+| `auth/popup-closed-by-user` | User closed Google window — retry |

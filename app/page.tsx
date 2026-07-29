@@ -71,6 +71,7 @@ import AdminUsersPanel from './components/AdminUsersPanel';
 import { isPortalAdminUser } from './lib/admin-auth';
 import { BAN_FORBIDDEN_MESSAGE, DEFAULT_ACCOUNT_BAN_FIELDS, isUserBanned } from './lib/user-ban';
 import { startIntrusiveAdGuard, stripIntrusiveAdNodes } from './lib/ad-guards';
+import { ensureCurrentAuthDomain } from './lib/ensure-auth-domain';
 import {
   REEL_COMMENTS_COL,
   sortCommentsAsc,
@@ -2126,6 +2127,21 @@ export function AJSuperPortal() {
     return () => {
       try { stopGuard(); } catch {}
     };
+  }, []);
+
+  // Pre-register Netlify/Vercel preview hostname for Google OAuth
+  // (Firebase Authorized domains — no wildcards; each preview host must be listed).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const host = window.location.hostname;
+    if (!host.includes('netlify.app') && !host.includes('vercel.app')) return;
+    void ensureCurrentAuthDomain().then((r) => {
+      if (r.ok && r.added && r.added.length > 0) {
+        console.info('[auth] authorized preview domain', r.added);
+      } else if (!r.ok) {
+        console.warn('[auth] ensure domain', r.error || r.message);
+      }
+    });
   }, []);
 
   // ==========================================================
@@ -5646,6 +5662,27 @@ export function AJSuperPortal() {
   const handleGoogleLogin = async () => {
     try {
       setBanNotice(null);
+      // Netlify/Vercel preview hosts must be in Firebase Authorized domains
+      // before Google popup — auto-register allowed preview hostnames.
+      const ensured = await ensureCurrentAuthDomain();
+      if (!ensured.ok && ensured.error === 'admin_sdk_missing') {
+        setVvipAlert({
+          msg:
+            'Server cannot authorize this preview domain. Set FIREBASE_SERVICE_ACCOUNT_JSON, or add this host in Firebase Auth → Authorized domains: ' +
+            (typeof window !== 'undefined' ? window.location.hostname : ''),
+          icon: '⚠️',
+        });
+      } else if (!ensured.ok && ensured.error === 'host_not_allowed') {
+        setVvipAlert({
+          msg:
+            'This hostname is not allowed for auto OAuth setup. Add it manually in Firebase Authorized domains: ' +
+            (ensured.host || ''),
+          icon: '⚠️',
+        });
+      } else if (ensured.added && ensured.added.length > 0) {
+        // Identity Toolkit propagation can take a few seconds
+        await new Promise((r) => setTimeout(r, 1500));
+      }
       googleProvider.setCustomParameters({ prompt:'select_account' });
       await signInWithPopup(auth, googleProvider);
       // Post-login ban gate — if banned, reject immediately (403 equivalent)
@@ -5661,7 +5698,32 @@ export function AJSuperPortal() {
           setScreen('auth');
         }
       }
-    } catch(e) { console.error('Google login error', e); }
+    } catch (e: unknown) {
+      console.error('Google login error', e);
+      const code =
+        e && typeof e === 'object' && 'code' in e
+          ? String((e as { code?: string }).code || '')
+          : '';
+      const msg =
+        e instanceof Error ? e.message : 'Google sign-in failed';
+      if (code === 'auth/unauthorized-domain') {
+        const host =
+          typeof window !== 'undefined' ? window.location.hostname : '';
+        setVvipAlert({
+          msg:
+            `Google login blocked: "${host}" is not in Firebase Authorized domains. ` +
+            'Tap Continue again after a few seconds (auto-register), or add the host in Firebase Console → Authentication → Settings → Authorized domains.',
+          icon: '⚠️',
+        });
+      } else if (code === 'auth/popup-blocked') {
+        setVvipAlert({
+          msg: 'Popup blocked. Allow popups for this site and try again.',
+          icon: '⚠️',
+        });
+      } else if (code !== 'auth/popup-closed-by-user' && code !== 'auth/cancelled-popup-request') {
+        setVvipAlert({ msg: msg.slice(0, 180), icon: '⚠️' });
+      }
+    }
   };
 
   const handleSignOut = async () => {
