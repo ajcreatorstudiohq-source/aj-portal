@@ -6051,14 +6051,20 @@ export function AJSuperPortal() {
     }
   };
 
+  /** Stylish English popup when user tries to transfer coins to themselves */
+  const SELF_TRANSFER_ALERT =
+    'Transfer blocked. You cannot send coins to your own ID. Transfers only succeed when sent to another user.';
+
   /** Atomic coin transfer — Admin API preferred; client runTransaction fallback. Blocks self-transfer. */
   const transferCoins = async () => {
-    if (transferAmount<=0 || !transferId.trim()) return setVvipAlert({msg:"Fill all fields!"});
-    if (!user) return setVvipAlert({msg:"Please log in first."});
+    if (transferAmount<=0 || !transferId.trim()) return setVvipAlert({msg:"Fill all fields!", icon:'⚠️'});
+    if (!user) return setVvipAlert({msg:"Please log in first.", icon:'🔒'});
     const toUid = transferId.trim();
     const amount = Math.floor(transferAmount);
-    if (toUid === user.uid) return setVvipAlert({msg:"Cannot transfer to yourself."});
-    if (amount <= 0) return setVvipAlert({msg:"Enter a valid amount."});
+    if (toUid.toLowerCase() === String(user.uid).toLowerCase()) {
+      return setVvipAlert({ msg: SELF_TRANSFER_ALERT, icon: '🚫' });
+    }
+    if (amount <= 0) return setVvipAlert({msg:"Enter a valid amount.", icon:'⚠️'});
 
     try {
       // Prefer Admin atomic transfer API when configured
@@ -6089,11 +6095,14 @@ export function AJSuperPortal() {
           const map: Record<string, string> = {
             insufficient_balance: 'Insufficient balance!',
             recipient_not_found: 'Recipient not found!',
-            self_transfer: 'Cannot transfer to yourself.',
+            self_transfer: SELF_TRANSFER_ALERT,
             sender_banned: 'Your account is restricted.',
             recipient_banned: 'Recipient account is restricted.',
           };
-          return setVvipAlert({ msg: map[data.error] || data.message || data.error });
+          return setVvipAlert({
+            msg: map[data.error] || data.message || data.error,
+            icon: data.error === 'self_transfer' ? '🚫' : '⚠️',
+          });
         }
       } catch {
         /* fall through to client transaction */
@@ -6128,10 +6137,10 @@ export function AJSuperPortal() {
     } catch(e: unknown) {
       const msg = e instanceof Error ? e.message : 'transfer_failed';
       console.error('transferCoins', e);
-      if (msg === 'insufficient_balance') setVvipAlert({msg:'Insufficient balance!'});
-      else if (msg === 'recipient_not_found') setVvipAlert({msg:'Recipient not found!'});
-      else if (msg === 'self_transfer') setVvipAlert({msg:'Cannot transfer to yourself.'});
-      else setVvipAlert({msg:'Transfer failed. Please try again.'});
+      if (msg === 'insufficient_balance') setVvipAlert({msg:'Insufficient balance!', icon:'💰'});
+      else if (msg === 'recipient_not_found') setVvipAlert({msg:'Recipient not found!', icon:'🔍'});
+      else if (msg === 'self_transfer') setVvipAlert({msg: SELF_TRANSFER_ALERT, icon:'🚫'});
+      else setVvipAlert({msg:'Transfer failed. Please try again.', icon:'⚠️'});
     }
   };
   const handleTransfer = transferCoins;
@@ -9452,7 +9461,27 @@ Tip: Social Hub se copy karo 📤`,
               <div className="space-y-4">
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3">
                   <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Transfer Coins</p>
-                  <input value={transferId} onChange={e => setTransferId(e.target.value)} placeholder="Recipient User ID" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"/>
+                  <div>
+                    <p className="text-[9px] text-cyan-300/90 font-black uppercase tracking-widest mb-1.5">
+                      Recipient User ID
+                    </p>
+                    <input
+                      value={transferId}
+                      onChange={e => setTransferId(e.target.value)}
+                      placeholder="Paste another user’s ID"
+                      className="w-full rounded-2xl px-4 py-3.5 text-white text-sm font-black tracking-wide placeholder:text-white/35 placeholder:font-bold focus:outline-none"
+                      style={{
+                        background: 'linear-gradient(135deg, rgba(6,182,212,0.12), rgba(236,72,153,0.10))',
+                        border: '1px solid rgba(34,211,238,0.55)',
+                        boxShadow:
+                          '0 0 18px rgba(34,211,238,0.35), 0 0 36px rgba(236,72,153,0.18), inset 0 0 12px rgba(34,211,238,0.08)',
+                        textShadow: '0 0 10px rgba(34,211,238,0.45)',
+                      }}
+                    />
+                    <p className="text-[9px] text-gray-500 mt-1.5 font-bold">
+                      Coins credit only when sent to a different user — not your own ID.
+                    </p>
+                  </div>
                   <input type="number" value={transferAmount||''} onChange={e => setTransferAmount(Number(e.target.value))} placeholder="Amount (Coins)" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-pink-500/50"/>
                 </div>
                 <button onClick={handleTransfer} className="w-full py-4 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all shadow-[0_0_24px_rgba(236,72,153,0.4)]" style={{background:'linear-gradient(135deg,#ec4899,#8b5cf6)'}}>
