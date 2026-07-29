@@ -77,6 +77,12 @@ service cloud.firestore {
       match /wechat_contacts/{contactId} {
         allow read, write: if isOwner(userId);
       }
+      // In-app notifications — owner read/delete; any signed-in user may create for target
+      match /notifications/{notifId} {
+        allow read, delete: if isOwner(userId);
+        allow create: if signedIn();
+        allow update: if isOwner(userId);
+      }
     }
 
     // 1:1 DMs — only the two participants can read/write
