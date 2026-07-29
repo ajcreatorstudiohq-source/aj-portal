@@ -76,6 +76,8 @@ export async function GET(request: Request) {
     let giftOwnerUsd = 0;
     let giftOwnerCoins = 0;
     let adOwnerUsd = 0;
+    let pkOwnerCoins = 0;
+    let pkOwnerUsd = 0;
     let eventCount = 0;
 
     if (adminDb) {
@@ -87,6 +89,8 @@ export async function GET(request: Request) {
         giftOwnerUsd = Number(d.giftOwnerUsd || 0);
         giftOwnerCoins = Number(d.giftOwnerCoins || 0);
         adOwnerUsd = Number(d.adOwnerUsd || 0);
+        pkOwnerCoins = Number(d.pkOwnerCoins || 0);
+        pkOwnerUsd = Number(d.pkOwnerUsd || 0);
         eventCount = Number(d.eventCount || 0);
       }
     } else {
@@ -98,25 +102,29 @@ export async function GET(request: Request) {
         giftOwnerUsd = Number(d.giftOwnerUsd || 0);
         giftOwnerCoins = Number(d.giftOwnerCoins || 0);
         adOwnerUsd = Number(d.adOwnerUsd || 0);
+        pkOwnerCoins = Number(d.pkOwnerCoins || 0);
+        pkOwnerUsd = Number(d.pkOwnerUsd || 0);
         eventCount = Number(d.eventCount || 0);
       }
     }
 
+    // Always rebuild from AdminRevenue when ledger totals look empty OR to backfill PK coins
     if (ownerUsd <= 0 && ownerCoins <= 0) {
       try {
         let revSnap;
         if (adminDb) {
-          revSnap = await adminDb.collection('AdminRevenue').limit(500).get();
+          revSnap = await adminDb.collection('AdminRevenue').limit(800).get();
         } else {
           revSnap = await getDocs(
-            query(collection(db, 'AdminRevenue'), limit(500))
+            query(collection(db, 'AdminRevenue'), limit(800))
           );
         }
         revSnap.forEach((r) => {
           const d = r.data() as Record<string, unknown>;
           const rowUsd = Number(d.ownerUsd ?? d.adminShare ?? 0) || 0;
           const rowCoins =
-            Number(d.adminShareCoins ?? 0) || Math.floor(rowUsd * COIN_RATE);
+            Number(d.adminShareCoins ?? d.entryCoins ?? 0) ||
+            Math.floor(rowUsd * CASH_RATE);
           ownerUsd += rowUsd;
           ownerCoins += rowCoins;
           const type = String(d.type || '');
@@ -125,10 +133,46 @@ export async function GET(request: Request) {
             giftOwnerCoins += rowCoins;
           }
           if (type.startsWith('ad_')) adOwnerUsd += rowUsd;
+          if (type === 'pk_match') {
+            pkOwnerCoins += rowCoins;
+            pkOwnerUsd += rowUsd;
+          }
           eventCount += 1;
         });
       } catch {
         /* empty */
+      }
+    } else if (pkOwnerCoins <= 0) {
+      // Ledger exists but older PK rows may not have been tagged on admin_stats
+      try {
+        let revSnap;
+        if (adminDb) {
+          revSnap = await adminDb
+            .collection('AdminRevenue')
+            .where('type', '==', 'pk_match')
+            .limit(400)
+            .get();
+        } else {
+          revSnap = await getDocs(
+            query(
+              collection(db, 'AdminRevenue'),
+              // client query without composite index — filter in memory
+              limit(800)
+            )
+          );
+        }
+        revSnap.forEach((r) => {
+          const d = r.data() as Record<string, unknown>;
+          if (String(d.type || '') !== 'pk_match') return;
+          const rowUsd = Number(d.ownerUsd ?? d.adminShare ?? 0) || 0;
+          const rowCoins =
+            Number(d.adminShareCoins ?? d.entryCoins ?? 0) ||
+            Math.floor(rowUsd * CASH_RATE);
+          pkOwnerCoins += rowCoins;
+          pkOwnerUsd += rowUsd;
+        });
+      } catch {
+        /* ignore */
       }
     }
 
@@ -206,6 +250,9 @@ export async function GET(request: Request) {
       giftOwnerUsdLabel: formatUsd(giftOwnerUsd),
       adOwnerUsd,
       adOwnerUsdLabel: formatUsd(adOwnerUsd),
+      pkOwnerCoins,
+      pkOwnerUsd,
+      pkOwnerUsdLabel: formatUsd(pkOwnerUsd),
       eventCount,
       adminRemainingUsd,
       adminRemainingUsdLabel: formatUsd(adminRemainingUsd),

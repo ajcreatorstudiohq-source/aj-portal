@@ -3894,7 +3894,55 @@ export function AJSuperPortal() {
     setPkChallengeOpen(true);
   };
 
+  /** Server PK entry — deducts user coins and saves them to admin ledger (not popup). */
+  const payPkEntry = async (opts: {
+    role: 'host' | 'guest';
+    entryCoins?: number;
+    rivalUid?: string;
+    pkRoomId?: string;
+  }): Promise<{ ok: boolean; balance?: number; need?: number; error?: string }> => {
+    if (!user) return { ok: false, error: 'unauthorized' };
+    const entry = Math.max(1, Math.floor(Number(opts.entryCoins) || PK_ENTRY_COINS));
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch('/api/pk/entry', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          role: opts.role,
+          entryCoins: entry,
+          rivalUid: opts.rivalUid || '',
+          pkRoomId: opts.pkRoomId || '',
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        balance?: number;
+        need?: number;
+      };
+      if (!res.ok || !data.ok) {
+        const have =
+          typeof data.balance === 'number' ? data.balance : await readLiveBalance();
+        if (data.error === 'insufficient_balance' || res.status === 400) {
+          showPkNotEnough(have, Number(data.need) || entry);
+          return { ok: false, balance: have, need: Number(data.need) || entry, error: 'insufficient_balance' };
+        }
+        return { ok: false, error: data.error || 'pk_entry_failed' };
+      }
+      if (typeof data.balance === 'number') setBalance(data.balance);
+      return { ok: true, balance: data.balance };
+    } catch (e) {
+      console.error('payPkEntry', e);
+      return { ok: false, error: 'pk_entry_failed' };
+    }
+  };
+
   const sendPkChallenge = async () => {
+
     if (!user || !pkTargetId.trim()) return setVvipAlert({msg:"Enter rival's User ID!"});
     const haveNow = await readLiveBalance();
     if (haveNow < PK_ENTRY_COINS) {
@@ -3905,32 +3953,16 @@ export function AJSuperPortal() {
       const rivalUid = pkTargetId.trim();
       const rivalSnap = await getDoc(doc(db,"users",rivalUid));
       if (!rivalSnap.exists()) return setVvipAlert({msg:"Rival not found! Check User ID."});
-      await runTransaction(db, async (tx) => {
-        const uref = doc(db, 'users', user.uid);
-        const snap = await tx.get(uref);
-        if (!snap.exists()) throw new Error('user_not_found');
-        const bal = Number((snap.data() as { balance?: number }).balance || 0);
-        if (bal < PK_ENTRY_COINS) throw new Error('insufficient_balance');
-        tx.update(uref, { balance: increment(-PK_ENTRY_COINS) });
-      });
-      setBalance((b) => Math.max(0, b - PK_ENTRY_COINS));
-      try {
-        await addDoc(collection(db,"AdminRevenue"), {
-          type:'pk_match',
-          currency: 'USD',
-          platformSharePct: ADMIN_EARN_SHARE,
-          userSharePct: USER_EARN_SHARE,
-          totalDeducted: PK_ENTRY_COINS * 2,
-          adminShareCoins: Math.floor(PK_ENTRY_COINS * 2 * ADMIN_EARN_SHARE),
-          ownerUsd: Number(((PK_ENTRY_COINS * 2 * ADMIN_EARN_SHARE) / COIN_RATE).toFixed(4)),
-          challenger: user.uid, rival: rivalUid, date:serverTimestamp()
-        });
-        await creditAdminEarnings({
-          ownerUsd: Number(((PK_ENTRY_COINS * 2 * ADMIN_EARN_SHARE) / COIN_RATE).toFixed(4)),
-          ownerCoins: Math.floor(PK_ENTRY_COINS * 2 * ADMIN_EARN_SHARE),
-          source: 'pk_match',
-        });
-      } catch {}
+
+      // Deduct entry + save coins to admin ledger (server). Short balance → Not Enough popup only.
+      const paid = await payPkEntry({ role: 'host', entryCoins: PK_ENTRY_COINS, rivalUid });
+      if (!paid.ok) {
+        if (paid.error !== 'insufficient_balance') {
+          setVvipAlert({ msg: 'PK entry failed. Coins not deducted — try again.', icon: '⚠️' });
+        }
+        return;
+      }
+
       // FIX: PK session ka unique room ID — dono users ke liye common
       const newPkRoomId = `pk_${user.uid}_${rivalUid}_${Date.now()}`;
       setPkRoomId(newPkRoomId);
@@ -3956,6 +3988,8 @@ export function AJSuperPortal() {
           startedAt: null,
           endedAt: null,
           winnerUid: null,
+          hostEntryPaid: true,
+          hostEntryCoins: PK_ENTRY_COINS,
         });
       } catch (pkErr) { console.warn('PK session write failed (non-fatal):', pkErr); }
       // Send notification to rival
@@ -4244,17 +4278,19 @@ export function AJSuperPortal() {
         return;
       }
 
-      // Guest also pays entry — total 200 coins / match (100 each)
-      // Atomic: if balance short, transaction fails and match does NOT start
-      await runTransaction(db, async (tx) => {
-        const uref = doc(db, 'users', user.uid);
-        const usnap = await tx.get(uref);
-        if (!usnap.exists()) throw new Error('user_not_found');
-        const bal = Number((usnap.data() as { balance?: number }).balance || 0);
-        if (bal < entry) throw new Error('insufficient_balance');
-        tx.update(uref, { balance: increment(-entry) });
+      // Guest pays entry via server — coins save to admin ledger (not lost in popup)
+      const paid = await payPkEntry({
+        role: 'guest',
+        entryCoins: entry,
+        rivalUid: String(pkData.hostUid || ''),
+        pkRoomId: pkRoomIdVal,
       });
-      setBalance((b) => Math.max(0, b - entry));
+      if (!paid.ok) {
+        if (paid.error !== 'insufficient_balance') {
+          setVvipAlert({ msg: 'PK entry failed. Coins not deducted — try again.', icon: '⚠️' });
+        }
+        return;
+      }
 
       setPkRoomId(pkRoomIdVal);
       setPkRivalData({
@@ -4278,6 +4314,8 @@ export function AJSuperPortal() {
           challengerId: user.uid,        // Automatic — accept karne wale user ki UID
           matchStatus: 'active',         // PK match now active
           isPkActive: true,              // PK match is now live
+          guestEntryPaid: true,
+          guestEntryCoins: entry,
         });
       } catch (e) { console.warn('PK session status update failed (non-fatal):', e); }
 
