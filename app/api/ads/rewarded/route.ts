@@ -303,16 +303,25 @@ export async function POST(request: Request) {
         consumed?: boolean;
         createdAtMs?: number;
         verifySeconds?: number;
+        creditedCoins?: number;
       };
       if (sessionFresh.uid !== user.uid) {
         return NextResponse.json({ ok: false, error: 'session_mismatch' }, { status: 403 });
       }
       if (sessionFresh.consumed) {
+        const bal = Math.max(
+          0,
+          Math.floor(Number((userSnap.data() as { balance?: number }).balance) || 0)
+        );
+        const prior = Math.max(0, Math.floor(Number(sessionFresh.creditedCoins) || 0));
         return NextResponse.json({
           ok: true,
           duplicate: true,
           creditedCoins: 0,
-          message: 'Already claimed for this ad session',
+          balance: bal,
+          previouslyCredited: prior,
+          message:
+            'Already claimed for this ad session. Start Watch Ads again for a new claim.',
         });
       }
       if (Date.now() > Number(sessionFresh.expiresAt || 0)) {
@@ -360,22 +369,31 @@ export async function POST(request: Request) {
 
       const coins = ADSTERRA_REWARD_COINS;
       const split = rewardedClaimSplit(coins);
-      const txId = `adsterra_claim_${user.uid}_${dayKey}_${dailyCount}`;
+      // Session-scoped ledger — day/slot keys soft-locked accounts after economy reset
+      // (ledger existed, dayCount stayed 0, every claim hit the same txId forever).
+      const txId = `adsterra_claim_${sessionId}`;
       const ledgerRef = adminDb.collection('offerwall_ledger').doc(txId);
 
       const result = await adminDb.runTransaction(async (tx) => {
-        const [ledgerSnap, freshUser] = await Promise.all([
+        const [ledgerSnap, freshSession, freshUser] = await Promise.all([
           tx.get(ledgerRef),
+          tx.get(sessionRef),
           tx.get(userRef),
         ]);
-        if (ledgerSnap.exists) {
-          const bal = Math.max(
-            0,
-            Math.floor(Number((freshUser.data() as { balance?: number } | undefined)?.balance) || 0)
-          );
-          return { duplicate: true as const, credited: 0, balance: bal };
-        }
         if (!freshUser.exists) throw new Error('user_not_found');
+        const bal = Math.max(
+          0,
+          Math.floor(Number((freshUser.data() as { balance?: number }).balance) || 0)
+        );
+        if (ledgerSnap.exists) {
+          return { duplicate: true as const, credited: 0, balance: bal, nextCount: dailyCount };
+        }
+        if (!freshSession.exists) throw new Error('invalid_session');
+        const s = freshSession.data() as { uid: string; consumed?: boolean };
+        if (s.uid !== user.uid) throw new Error('session_mismatch');
+        if (s.consumed) {
+          return { duplicate: true as const, credited: 0, balance: bal, nextCount: dailyCount };
+        }
         const u = freshUser.data() as {
           offerwallVideoDayKey?: string;
           offerwallVideoDayCount?: number;
@@ -385,8 +403,8 @@ export async function POST(request: Request) {
           u.offerwallVideoDayKey === dayKey ? Number(u.offerwallVideoDayCount || 0) : 0;
         if (count >= OFFERWALL_VIDEO_MAX_DAILY) throw new Error('daily_limit');
 
-        const bal = Math.max(0, Math.floor(Number(u.balance) || 0));
         const nextBal = bal + coins;
+        const nextCount = count + 1;
 
         tx.set(
           sessionRef,
@@ -395,6 +413,7 @@ export async function POST(request: Request) {
             consumedAt: FieldValue.serverTimestamp(),
             creditedCoins: coins,
             txId,
+            balanceAfter: nextBal,
           },
           { merge: true }
         );
@@ -403,6 +422,7 @@ export async function POST(request: Request) {
           uid: user.uid,
           source: 'adsterra_watch',
           txId,
+          sessionId,
           coins,
           clickUsd: split.totalUsd,
           userUsd: split.userUsd,
@@ -416,12 +436,13 @@ export async function POST(request: Request) {
         tx.update(userRef, {
           balance: nextBal,
           offerwallVideoDayKey: dayKey,
-          offerwallVideoDayCount: count + 1,
+          offerwallVideoDayCount: nextCount,
           lastAdsterraClaimAt: FieldValue.serverTimestamp(),
           lastRewardAt: FieldValue.serverTimestamp(),
           lastRewardSource: 'adsterra_watch',
+          lastWalletWriteAt: FieldValue.serverTimestamp(),
         });
-        return { duplicate: false as const, credited: coins, balance: nextBal };
+        return { duplicate: false as const, credited: coins, balance: nextBal, nextCount };
       });
 
       if (!result.duplicate && split.adminUsd > 0) {
@@ -463,12 +484,9 @@ export async function POST(request: Request) {
         clickUsd: split.totalUsd,
         userUsd: split.userUsd,
         adminUsd: split.adminUsd,
-        remainingToday: Math.max(
-          0,
-          OFFERWALL_VIDEO_MAX_DAILY - (result.duplicate ? dailyCount : dailyCount + 1)
-        ),
+        remainingToday: Math.max(0, OFFERWALL_VIDEO_MAX_DAILY - result.nextCount),
         message: result.duplicate
-          ? 'Already claimed'
+          ? 'Already claimed for this ad session. Start Watch Ads again.'
           : `+${result.credited} AJ Coins 🪙 added to your wallet!`,
       });
     }
@@ -511,11 +529,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: 'session_mismatch' }, { status: 403 });
     }
     if (session.consumed) {
+      const bal = Math.max(
+        0,
+        Math.floor(Number((userSnap.data() as { balance?: number }).balance) || 0)
+      );
       return NextResponse.json({
         ok: true,
         duplicate: true,
         creditedCoins: 0,
-        message: 'Session already rewarded',
+        balance: bal,
+        message: 'Session already rewarded. Start Watch Ads again for a new claim.',
       });
     }
     if (Date.now() > Number(session.expiresAt || 0)) {
@@ -528,8 +551,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const slot = typeof session.slot === 'number' ? session.slot : dailyCount;
-    const txId = `offerwall_video_${user.uid}_${dayKey}_${slot}`;
+    const txId = `offerwall_video_${sessionId}`;
     const ledgerRef = adminDb.collection('offerwall_ledger').doc(txId);
     const coins = ADSTERRA_REWARD_COINS;
     const split = rewardedClaimSplit(coins);
@@ -540,24 +562,20 @@ export async function POST(request: Request) {
         tx.get(sessionRef),
         tx.get(userRef),
       ]);
+      if (!freshUser.exists) throw new Error('user_not_found');
+      const bal = Math.max(
+        0,
+        Math.floor(Number((freshUser.data() as { balance?: number }).balance) || 0)
+      );
       if (ledgerSnap.exists) {
-        const bal = Math.max(
-          0,
-          Math.floor(Number((freshUser.data() as { balance?: number } | undefined)?.balance) || 0)
-        );
-        return { duplicate: true as const, credited: 0, balance: bal };
+        return { duplicate: true as const, credited: 0, balance: bal, nextCount: dailyCount };
       }
       if (!freshSession.exists) throw new Error('invalid_session');
       const s = freshSession.data() as { uid: string; consumed?: boolean };
       if (s.uid !== user.uid) throw new Error('session_mismatch');
       if (s.consumed) {
-        const bal = Math.max(
-          0,
-          Math.floor(Number((freshUser.data() as { balance?: number } | undefined)?.balance) || 0)
-        );
-        return { duplicate: true as const, credited: 0, balance: bal };
+        return { duplicate: true as const, credited: 0, balance: bal, nextCount: dailyCount };
       }
-      if (!freshUser.exists) throw new Error('user_not_found');
       const u = freshUser.data() as {
         offerwallVideoDayKey?: string;
         offerwallVideoDayCount?: number;
@@ -567,8 +585,8 @@ export async function POST(request: Request) {
         u.offerwallVideoDayKey === dayKey ? Number(u.offerwallVideoDayCount || 0) : 0;
       if (count >= OFFERWALL_VIDEO_MAX_DAILY) throw new Error('daily_limit');
 
-      const bal = Math.max(0, Math.floor(Number(u.balance) || 0));
       const nextBal = bal + coins;
+      const nextCount = count + 1;
 
       tx.set(ledgerRef, {
         uid: user.uid,
@@ -583,10 +601,11 @@ export async function POST(request: Request) {
       tx.update(userRef, {
         balance: nextBal,
         offerwallVideoDayKey: dayKey,
-        offerwallVideoDayCount: count + 1,
+        offerwallVideoDayCount: nextCount,
         lastOfferwallVideoAt: FieldValue.serverTimestamp(),
         lastRewardAt: FieldValue.serverTimestamp(),
         lastRewardSource: 'offerwall_video',
+        lastWalletWriteAt: FieldValue.serverTimestamp(),
       });
       tx.update(sessionRef, {
         consumed: true,
@@ -594,8 +613,9 @@ export async function POST(request: Request) {
         status: 'completed',
         txId,
         creditedCoins: coins,
+        balanceAfter: nextBal,
       });
-      return { duplicate: false as const, credited: coins, balance: nextBal };
+      return { duplicate: false as const, credited: coins, balance: nextBal, nextCount };
     });
 
     if (!creditResult.duplicate && split.adminUsd > 0) {
@@ -637,14 +657,10 @@ export async function POST(request: Request) {
       clickUsd: split.totalUsd,
       userUsd: split.userUsd,
       adminUsd: split.adminUsd,
-      remainingToday: Math.max(
-        0,
-        OFFERWALL_VIDEO_MAX_DAILY -
-          (creditResult.duplicate ? dailyCount : dailyCount + 1)
-      ),
+      remainingToday: Math.max(0, OFFERWALL_VIDEO_MAX_DAILY - creditResult.nextCount),
       status: 'completed',
       message: creditResult.duplicate
-        ? 'Video reward already claimed'
+        ? 'Video reward already claimed for this session'
         : `Video complete! +${creditResult.credited} AJ Coins 🪙`,
     });
   } catch (e: unknown) {

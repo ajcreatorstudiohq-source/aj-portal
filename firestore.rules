@@ -230,8 +230,24 @@ service cloud.firestore {
 
     match /ad_reward_sessions/{sessionId} {
       allow read: if signedIn() && resource.data.uid == request.auth.uid;
-      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
-      allow update: if signedIn() && resource.data.uid == request.auth.uid;
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.consumed == false;
+      // Clients may persist tracking fields, but must NOT mark consumed / invent credits
+      // (only Admin SDK credits coins and sets consumed: true).
+      allow update: if signedIn()
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.consumed == false
+        && !('creditedCoins' in request.resource.data);
+    }
+
+    match /math_challenge_sessions/{sessionId} {
+      allow read, write: if false; // Admin SDK only
+    }
+
+    match /alpha_captcha_sessions/{sessionId} {
+      allow read, write: if false; // Admin SDK only
     }
 
     match /offerwall_ledger/{txId} {
