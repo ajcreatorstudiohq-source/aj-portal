@@ -211,6 +211,7 @@ export function hashUnit(seed: string): number {
 /**
  * Exact 70% platform / 30% user split on any USD pool.
  * Owner share is always `adminUsd` (dollars ledger) — never credited to user wallets.
+ * User coins use COIN_RATE (legacy activity pools / offerwall band).
  */
 export function splitPoolUsd(totalUsd: number): RewardSplit {
   const total = Math.max(0, Number(Number(totalUsd).toFixed(4)));
@@ -222,6 +223,28 @@ export function splitPoolUsd(totalUsd: number): RewardSplit {
     adminUsd,
     userCoins: Math.floor(userUsd * COIN_RATE),
     adminCoins: Math.floor(adminUsd * COIN_RATE),
+  };
+}
+
+/**
+ * Ad-network click / Direct Link split (no-loss vs withdraw).
+ *
+ * You receive 100% of Adsterra click USD in the Adsterra dashboard.
+ * From that same dollar: user gets 30% as AJ Coins at CASH_RATE (withdraw liability),
+ * you keep 70% (ledger + real Adsterra balance). Never pay users more than 30% of click $.
+ *
+ * Example: click = $0.05 → user $0.015 = 15 🪙 · admin $0.035.
+ */
+export function splitAdClickUsd(clickUsd: number): RewardSplit {
+  const total = Math.max(0, Number(Number(clickUsd).toFixed(6)));
+  const userUsd = Number((total * USER_EARN_SHARE).toFixed(6));
+  const adminUsd = Number((total - userUsd).toFixed(6));
+  return {
+    totalUsd: total,
+    userUsd,
+    adminUsd,
+    userCoins: Math.floor(userUsd * CASH_RATE),
+    adminCoins: Math.floor(adminUsd * CASH_RATE),
   };
 }
 

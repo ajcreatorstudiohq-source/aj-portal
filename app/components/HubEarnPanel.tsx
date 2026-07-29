@@ -10,6 +10,7 @@ import {
   MATH_CHALLENGE_COINS,
   ALPHA_CAPTCHA_COINS,
 } from '../lib/reward-sources';
+import { ADSTERRA_REWARD_COINS } from '../lib/ads-config';
 import { handleEarnAndPlayGame } from '../lib/direct-download';
 import { trackAdEvent } from '../lib/ad-client';
 import { guardClick, startIntrusiveAdGuard } from '../lib/ad-guards';
@@ -270,7 +271,7 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
             <div className="min-w-0">
               <p className="text-[12px] font-black text-white leading-tight">Watch Ads</p>
               <p className="text-[9px] font-black uppercase tracking-wider text-rose-300 mt-1">
-                30s in-ad · +5 🪙
+                30s in-ad · +{ADSTERRA_REWARD_COINS} 🪙
               </p>
             </div>
           </div>

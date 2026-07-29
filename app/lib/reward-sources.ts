@@ -67,4 +67,8 @@ export const SOURCE_LABELS: Record<RewardSource, string> = {
 /** Flat AJ Coin rewards */
 export const MATH_CHALLENGE_COINS = 2;
 export const ALPHA_CAPTCHA_COINS = 2;
-export const REWARDED_VIDEO_COINS = 5;
+/**
+ * @deprecated Use ADSTERRA_REWARD_COINS from ads-config (30% of Adsterra click USD).
+ * Kept as fallback alias for older imports.
+ */
+export { ADSTERRA_REWARD_COINS as REWARDED_VIDEO_COINS } from './ads-config';
