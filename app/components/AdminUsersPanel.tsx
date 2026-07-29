@@ -22,6 +22,7 @@ import { isRtdbPresenceOnline, isUserOnlineNow, type PresenceSnapshot } from '..
 import { formatUsd, coinsToUsd } from '../lib/economy';
 import { ensureUserReferralId } from '../lib/referral';
 import { resetEconomyFreshStart } from '../lib/reset-economy';
+import { loadClientUserEconomy } from '../lib/user-economy-client';
 import AdminEconomyHisaab from './AdminEconomyHisaab';
 
 export type AdminUserRow = {
@@ -160,12 +161,33 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
         error?: string;
       };
       if (res.ok && data.ok && data.users) {
-        setEconomyByUid(data.users);
+        const hasSignal = Object.values(data.users).some(
+          (u) =>
+            Number(u.lifetimeEarnedCoins || 0) > 0 ||
+            Number(u.withdrawRequestedCoins || 0) > 0 ||
+            Number(u.adminProfitUsd || 0) > 0
+        );
+        if (hasSignal) {
+          setEconomyByUid(data.users);
+          return;
+        }
+      }
+
+      // Restore Lifetime / Withdraw / Hub profit when API empty or Admin SDK missing
+      const client = await loadClientUserEconomy();
+      if (Object.keys(client).length > 0) {
+        setEconomyByUid(client);
       } else if (data.error && data.error !== 'admin_sdk_missing') {
         console.warn('user-economy', data.error);
       }
     } catch (e) {
       console.warn('user-economy fetch', e);
+      try {
+        const client = await loadClientUserEconomy();
+        if (Object.keys(client).length > 0) setEconomyByUid(client);
+      } catch (e2) {
+        console.warn('user-economy client', e2);
+      }
     } finally {
       setEconomyLoading(false);
     }
