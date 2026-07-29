@@ -1,6 +1,7 @@
 /**
  * Server FCM web push via Firebase Admin.
  */
+import 'server-only';
 import type { Messaging } from 'firebase-admin/messaging';
 import { getAdminApp, getAdminDb } from './firebase-admin';
 

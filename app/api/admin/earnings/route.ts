@@ -11,7 +11,7 @@ import {
 import { db } from '../../../../firebaseConfig';
 import { verifyAdminFromRequest } from '../../../lib/admin-auth';
 import { COIN_RATE, formatUsd } from '../../../lib/economy';
-import type { AdminEarningsTotals } from '../../../lib/admin-earnings';
+import type { AdminEarningsTotals } from '../../../lib/admin-earnings-types';
 
 /**
  * GET /api/admin/earnings
