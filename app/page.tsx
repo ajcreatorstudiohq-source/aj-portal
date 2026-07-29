@@ -1172,6 +1172,91 @@ function VVIPAlert({ msg, icon, onClose }: { msg: string; icon?: string; onClose
   );
 }
 
+/** Stylish PK gate — not enough coins to start / accept match */
+function PkNotEnoughCoinsAlert({
+  have,
+  need,
+  onClose,
+  onBuyCoins,
+}: {
+  have: number;
+  need: number;
+  onClose: () => void;
+  onBuyCoins?: () => void;
+}) {
+  const short = Math.max(0, need - have);
+  return (
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center px-4"
+      style={{ background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="w-full max-w-sm rounded-3xl overflow-hidden"
+        style={{
+          background: 'linear-gradient(165deg, rgba(40,12,8,0.96) 0%, rgba(10,8,14,0.97) 55%, rgba(8,20,28,0.96) 100%)',
+          border: '1px solid rgba(249,115,22,0.65)',
+          boxShadow: '0 0 48px rgba(249,115,22,0.28), 0 0 80px rgba(236,72,153,0.12)',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="h-[3px] w-full bg-gradient-to-r from-orange-500 via-amber-400 to-rose-500"/>
+        <div className="p-6 flex flex-col items-center gap-3 text-center">
+          <div
+            className="w-[72px] h-[72px] rounded-2xl flex items-center justify-center border border-orange-400/50 bg-orange-500/15"
+            style={{ boxShadow: '0 0 32px rgba(249,115,22,0.45)' }}
+          >
+            <span className="text-4xl" style={{ filter: 'drop-shadow(0 0 10px rgba(251,146,60,0.9))' }}>💰</span>
+          </div>
+          <p className="text-orange-300 text-[11px] font-black uppercase tracking-[0.22em]">
+            Not Enough Coins
+          </p>
+          <p className="text-white text-lg font-black leading-tight">
+            Not enough coins for PK match
+          </p>
+          <p className="text-[11px] text-gray-400 font-bold leading-relaxed">
+            Match tabhi lagega jab entry coins pure hon. Abhi balance kam hai — pehle coins jamao, phir challenge / accept karo.
+          </p>
+          <div className="w-full grid grid-cols-2 gap-2 mt-1">
+            <div className="rounded-2xl bg-white/5 border border-white/10 px-3 py-3">
+              <p className="text-[8px] text-gray-500 font-black uppercase tracking-widest">Your balance</p>
+              <p className="text-amber-300 text-sm font-black mt-1">{have.toLocaleString()} 🪙</p>
+            </div>
+            <div className="rounded-2xl bg-orange-500/10 border border-orange-500/30 px-3 py-3">
+              <p className="text-[8px] text-orange-300/80 font-black uppercase tracking-widest">PK entry</p>
+              <p className="text-orange-300 text-sm font-black mt-1">{need.toLocaleString()} 🪙</p>
+            </div>
+          </div>
+          <p className="text-[10px] text-rose-300/90 font-black">
+            Need {short.toLocaleString()} more 🪙 · Watch Ads / Buy Coins
+          </p>
+          <div className="flex w-full gap-2 mt-2">
+            {onBuyCoins ? (
+              <button
+                type="button"
+                onClick={onBuyCoins}
+                className="flex-1 py-3 rounded-2xl text-black text-[11px] font-black uppercase tracking-widest active:scale-95"
+                style={{ background: 'linear-gradient(135deg,#f97316,#ec4899)' }}
+              >
+                Get Coins
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={onClose}
+              className={`${onBuyCoins ? 'flex-1' : 'w-full'} py-3 rounded-2xl bg-white/10 border border-white/20 text-white text-[11px] font-black uppercase tracking-widest active:scale-95`}
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ============================================================
 // MONETAG VIDEO AD — TikTok-Style Seamless In-Feed Video Ad
 // ============================================================
@@ -1743,6 +1828,7 @@ export function AJSuperPortal() {
   const likeInProcess = useRef<Set<string>>(new Set()).current;
   const [activeMenuId,  setActiveMenuId]  = useState<string|null>(null);
   const [vvipAlert,     setVvipAlert]     = useState<{msg:string,icon?:string}|null>(null);
+  const [pkNotEnough,   setPkNotEnough]   = useState<{ have: number; need: number } | null>(null);
   const [interstitialAdOpen, setInterstitialAdOpen] = useState(false);
 
   // FIX: Listen for the interstitial ad show event from navigateWithAdOverlay
@@ -3770,9 +3856,51 @@ export function AJSuperPortal() {
     }
   };
 
+  /** Live wallet balance from Firestore (UI state can lag behind ads claims). */
+  const readLiveBalance = async (): Promise<number> => {
+    if (!user) return Math.max(0, Math.floor(Number(balance) || 0));
+    try {
+      const snap = await getDoc(doc(db, 'users', user.uid));
+      if (snap.exists()) {
+        const live = Math.max(
+          0,
+          Math.floor(Number((snap.data() as { balance?: number }).balance) || 0)
+        );
+        setBalance(live);
+        return live;
+      }
+    } catch (e) {
+      console.warn('readLiveBalance', e);
+    }
+    return Math.max(0, Math.floor(Number(balance) || 0));
+  };
+
+  const showPkNotEnough = (have: number, need: number = PK_ENTRY_COINS) => {
+    setPkChallengeOpen(false);
+    setPkNotEnough({
+      have: Math.max(0, Math.floor(have)),
+      need: Math.max(1, Math.floor(need)),
+    });
+  };
+
+  /** Open PK challenge UI only when entry coins are available. */
+  const openPkChallengeGate = async () => {
+    if (!user) return setVvipAlert({ msg: 'Please log in first.', icon: '🔒' });
+    const have = await readLiveBalance();
+    if (have < PK_ENTRY_COINS) {
+      showPkNotEnough(have, PK_ENTRY_COINS);
+      return;
+    }
+    setPkChallengeOpen(true);
+  };
+
   const sendPkChallenge = async () => {
     if (!user || !pkTargetId.trim()) return setVvipAlert({msg:"Enter rival's User ID!"});
-    if (balance < PK_ENTRY_COINS) return setVvipAlert({msg:`Need ${PK_ENTRY_COINS} AJ Coins to enter PK!`});
+    const haveNow = await readLiveBalance();
+    if (haveNow < PK_ENTRY_COINS) {
+      showPkNotEnough(haveNow, PK_ENTRY_COINS);
+      return;
+    }
     try {
       const rivalUid = pkTargetId.trim();
       const rivalSnap = await getDoc(doc(db,"users",rivalUid));
@@ -3785,6 +3913,7 @@ export function AJSuperPortal() {
         if (bal < PK_ENTRY_COINS) throw new Error('insufficient_balance');
         tx.update(uref, { balance: increment(-PK_ENTRY_COINS) });
       });
+      setBalance((b) => Math.max(0, b - PK_ENTRY_COINS));
       try {
         await addDoc(collection(db,"AdminRevenue"), {
           type:'pk_match',
@@ -3874,7 +4003,16 @@ export function AJSuperPortal() {
         } catch (e) { console.warn('PK rival stream join failed:', e); }
       }, 200);
       setVvipAlert({msg:`⚔️ PK Challenge sent to @${rivalSnap.data().username || pkTargetId}! Match starting...`,icon:"⚔️"});
-    } catch(e) { console.error('sendPkChallenge', e); setVvipAlert({msg:'Error sending challenge. Please try again.'}); }
+    } catch(e) {
+      console.error('sendPkChallenge', e);
+      const msg = e instanceof Error ? e.message : '';
+      if (msg === 'insufficient_balance') {
+        const have = await readLiveBalance();
+        showPkNotEnough(have, PK_ENTRY_COINS);
+      } else {
+        setVvipAlert({msg:'Error sending challenge. Please try again.'});
+      }
+    }
   };
 
   const sendPkGift = async (
@@ -4087,8 +4225,9 @@ export function AJSuperPortal() {
     if (!pkRoomIdVal) return;
     try {
       const entry = Number(challenge.entryCoins || PK_ENTRY_COINS);
-      if (balance < entry) {
-        setVvipAlert({ msg: `Need ${entry} AJ Coins to accept PK!`, icon: '💰' });
+      const haveNow = await readLiveBalance();
+      if (haveNow < entry) {
+        showPkNotEnough(haveNow, entry);
         return;
       }
 
@@ -4106,6 +4245,7 @@ export function AJSuperPortal() {
       }
 
       // Guest also pays entry — total 200 coins / match (100 each)
+      // Atomic: if balance short, transaction fails and match does NOT start
       await runTransaction(db, async (tx) => {
         const uref = doc(db, 'users', user.uid);
         const usnap = await tx.get(uref);
@@ -4114,6 +4254,7 @@ export function AJSuperPortal() {
         if (bal < entry) throw new Error('insufficient_balance');
         tx.update(uref, { balance: increment(-entry) });
       });
+      setBalance((b) => Math.max(0, b - entry));
 
       setPkRoomId(pkRoomIdVal);
       setPkRivalData({
@@ -4235,7 +4376,9 @@ export function AJSuperPortal() {
       console.error('acceptPkChallenge failed:', e);
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'insufficient_balance') {
-        setVvipAlert({ msg: `Need ${PK_ENTRY_COINS} AJ Coins to accept PK!`, icon: '💰' });
+        const entry = Number(challenge?.entryCoins || PK_ENTRY_COINS);
+        const have = await readLiveBalance();
+        showPkNotEnough(have, entry);
       } else {
         setVvipAlert({msg: 'Could not join PK Battle. Please try again.'});
       }
@@ -6726,10 +6869,10 @@ Tip: Social Hub se copy karo 📤`,
               <span className="text-2xl font-black text-white">VS</span>
               <img src={tempPhoto || user?.photoURL || '/logo.png'} className="w-14 h-14 rounded-full border-2 border-orange-500 object-cover" alt="You"/>
             </div>
-            <p className="text-center text-[10px] text-gray-400 mb-4">Entry: {pkIncomingChallenge.entryCoins || PK_ENTRY_COINS} Coins · 5-min battle</p>
+            <p className="text-center text-[10px] text-gray-400 mb-4">Entry: {pkIncomingChallenge.entryCoins || PK_ENTRY_COINS} Coins · 5-min battle · coins pure hone chahiye</p>
             <div className="flex gap-3">
               <button
-                onClick={() => acceptPkChallenge(pkIncomingChallenge)}
+                onClick={() => void acceptPkChallenge(pkIncomingChallenge)}
                 className="flex-1 py-3 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all"
                 style={{background:'linear-gradient(135deg,#f97316,#ea580c)'}}
               >
@@ -6756,6 +6899,19 @@ Tip: Social Hub se copy karo 📤`,
       )}
 
       {/* VVIP Alert */}
+      {pkNotEnough && (
+        <PkNotEnoughCoinsAlert
+          have={pkNotEnough.have}
+          need={pkNotEnough.need}
+          onClose={() => setPkNotEnough(null)}
+          onBuyCoins={() => {
+            setPkNotEnough(null);
+            setScreen('wallet');
+            setWalletTab('main');
+          }}
+        />
+      )}
+
       {vvipAlert && (
         <VVIPAlert
           msg={vvipAlert.msg}
@@ -8217,11 +8373,11 @@ Tip: Social Hub se copy karo 📤`,
                 )}
                 {/* PK Battle */}
                 {liveActive && !pkActive && (
-                  <button onClick={() => setPkChallengeOpen(true)} className="w-full max-w-sm flex items-center gap-3 bg-orange-500/10 border border-orange-500/30 rounded-2xl p-4 active:scale-95 transition-all">
+                  <button onClick={() => void openPkChallengeGate()} className="w-full max-w-sm flex items-center gap-3 bg-orange-500/10 border border-orange-500/30 rounded-2xl p-4 active:scale-95 transition-all">
                     <Swords size={20} className="text-orange-400"/>
                     <div className="text-left">
                       <p className="text-sm font-black text-orange-400">⚔️ PK Battle</p>
-                      <p className="text-[9px] text-gray-400">{PK_ENTRY_COINS} Coins entry · 5-min battle</p>
+                      <p className="text-[9px] text-gray-400">{PK_ENTRY_COINS} Coins entry · need full balance · 5-min battle</p>
                     </div>
                   </button>
                 )}
@@ -8442,11 +8598,26 @@ Tip: Social Hub se copy karo 📤`,
                       <p className="text-sm font-black text-white">⚔️ PK Challenge</p>
                       <button onClick={() => setPkChallengeOpen(false)}><X size={18} className="text-gray-400"/></button>
                     </div>
-                    <p className="text-[10px] text-gray-400 mb-3">Enter rival's User ID to challenge them to a 5-minute PK Battle. Entry: {PK_ENTRY_COINS} Coins.</p>
+                    <p className="text-[10px] text-gray-400 mb-3">Enter rival&apos;s User ID to challenge them to a 5-minute PK Battle. Entry: <span className="text-orange-300 font-black">{PK_ENTRY_COINS} Coins</span> — agar balance kam ho to match nahi lagega.</p>
+                    <p className="text-[9px] text-amber-300/80 font-bold mb-3">Your balance: {balance.toLocaleString()} 🪙</p>
                     <input value={pkTargetId} onChange={e => setPkTargetId(e.target.value)} placeholder="Rival's User ID" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-orange-500/50 mb-4"/>
-                    <button onClick={sendPkChallenge} className="w-full py-3 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all" style={{background:'linear-gradient(135deg,#f97316,#ea580c)'}}>
-                      ⚔️ Challenge!
+                    <button
+                      onClick={() => void sendPkChallenge()}
+                      disabled={balance < PK_ENTRY_COINS}
+                      className={`w-full py-3 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all ${balance < PK_ENTRY_COINS ? 'opacity-40 cursor-not-allowed' : ''}`}
+                      style={{background:'linear-gradient(135deg,#f97316,#ea580c)'}}
+                    >
+                      {balance < PK_ENTRY_COINS ? '💰 Not Enough Coins' : '⚔️ Challenge!'}
                     </button>
+                    {balance < PK_ENTRY_COINS ? (
+                      <button
+                        type="button"
+                        onClick={() => showPkNotEnough(balance, PK_ENTRY_COINS)}
+                        className="w-full mt-2 py-2.5 rounded-2xl border border-orange-500/40 text-orange-300 text-[10px] font-black uppercase tracking-widest active:scale-95"
+                      >
+                        Why can&apos;t I start?
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               )}
