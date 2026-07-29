@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
-import { FieldValue, getAdminDb }
-
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic'; from '../../../lib/firebase-admin';
+import { FieldValue, getAdminDb } from '../../../lib/firebase-admin';
 import {
   bearerFromRequest,
   verifyFirebaseIdToken,
 } from '../../../lib/verify-id-token';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 /**
  * Resolve recipient: unique Transfer ID (AJ…) via referral_ids, or legacy Firebase uid.
