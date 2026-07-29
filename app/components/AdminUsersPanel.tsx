@@ -5,9 +5,10 @@ import { ArrowLeft, Ban, RefreshCw, Search, Shield, X } from 'lucide-react';
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   limit,
-  orderBy,
+  onSnapshot,
   query,
   serverTimestamp,
   updateDoc,
@@ -35,7 +36,26 @@ export type AdminUserRow = {
   banReason?: string;
   status?: string;
   lastSeenMs?: number;
+  /** True when row came from RTDB presence before Firestore doc loaded */
+  presenceOnly?: boolean;
 };
+
+function mapUserDoc(id: string, data: Record<string, unknown>): AdminUserRow {
+  return {
+    uid: id,
+    name: (data.name as string) || '',
+    username: (data.username as string) || '',
+    email: (data.email as string) || '',
+    photo: (data.photo as string) || (data.photoURL as string) || '/logo.png',
+    balance: typeof data.balance === 'number' ? data.balance : 0,
+    accountStatus: (data.accountStatus as string) || ACCOUNT_STATUS.ACTIVE,
+    isBanned: Boolean(data.isBanned),
+    banReason: (data.banReason as string) || '',
+    status: (data.status as string) || 'offline',
+    lastSeenMs: Number(data.lastSeenMs || 0) || undefined,
+    presenceOnly: false,
+  };
+}
 
 type UserEconomyStat = {
   uid: string;
@@ -61,8 +81,12 @@ type Props = {
 
 export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
   const [users, setUsers] = useState<AdminUserRow[]>([]);
+  const [presenceExtras, setPresenceExtras] = useState<AdminUserRow[]>([]);
   const [economyByUid, setEconomyByUid] = useState<Record<string, UserEconomyStat>>({});
   const [presenceByUid, setPresenceByUid] = useState<Record<string, boolean>>({});
+  const [presenceMetaByUid, setPresenceMetaByUid] = useState<
+    Record<string, { username?: string; lastChanged?: number }>
+  >({});
   const [loading, setLoading] = useState(true);
   const [economyLoading, setEconomyLoading] = useState(false);
   const [banningUid, setBanningUid] = useState<string | null>(null);
@@ -129,59 +153,46 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
     }
   }, []);
 
-  const loadUsers = useCallback(async () => {
+  const refreshUsers = useCallback(() => {
+    void loadUserEconomy();
+    setHisaabKey((k) => k + 1);
+  }, [loadUserEconomy]);
+
+  // Refresh hisaab totals when user count changes (new signup)
+  useEffect(() => {
+    if (!allowed || loading) return;
+    setHisaabKey((k) => k + 1);
+  }, [allowed, loading, users.length]);
+  useEffect(() => {
+    if (!allowed) return;
     const current = auth.currentUser;
     if (!isPortalAdminUser(adminUser || { uid: current?.uid, email: current?.email })) {
       setError('Forbidden');
       setLoading(false);
       return;
     }
-    setLoading(true);
     setError('');
-    try {
-      const q = query(collection(db, 'users'), orderBy('lastSync', 'desc'), limit(200));
-      let snap;
-      try {
-        snap = await getDocs(q);
-      } catch {
-        snap = await getDocs(query(collection(db, 'users'), limit(200)));
+    setLoading(true);
+    const unsub = onSnapshot(
+      collection(db, 'users'),
+      (snap) => {
+        const rows = snap.docs.map((d) =>
+          mapUserDoc(d.id, d.data() as Record<string, unknown>)
+        );
+        setUsers(rows);
+        setLoading(false);
+        void loadUserEconomy();
+      },
+      (e) => {
+        console.error('AdminUsersPanel users snapshot', e);
+        setError('Failed to load users.');
+        setLoading(false);
       }
-      const rows: AdminUserRow[] = snap.docs.map((d) => {
-        const data = d.data() as Record<string, unknown>;
-        return {
-          uid: d.id,
-          name: (data.name as string) || '',
-          username: (data.username as string) || '',
-          email: (data.email as string) || '',
-          photo: (data.photo as string) || (data.photoURL as string) || '/logo.png',
-          balance: typeof data.balance === 'number' ? data.balance : 0,
-          accountStatus: (data.accountStatus as string) || ACCOUNT_STATUS.ACTIVE,
-          isBanned: Boolean(data.isBanned),
-          banReason: (data.banReason as string) || '',
-          status: (data.status as string) || 'offline',
-          lastSeenMs: Number(data.lastSeenMs || 0) || undefined,
-        };
-      });
-      setUsers(rows);
-      void loadUserEconomy();
-    } catch (e) {
-      console.error('AdminUsersPanel loadUsers', e);
-      setError('Failed to load users.');
-    } finally {
-      setLoading(false);
-    }
-  }, [adminUser, loadUserEconomy]);
+    );
+    return () => unsub();
+  }, [allowed, adminUser, loadUserEconomy]);
 
-  useEffect(() => {
-    if (!allowed) return;
-    loadUsers();
-    const t = window.setInterval(() => {
-      void loadUsers();
-    }, 45000);
-    return () => window.clearInterval(t);
-  }, [allowed, loadUsers]);
-
-  // Real-time RTDB presence
+  // Real-time RTDB presence (+ pull in online users missing from Firestore list)
   useEffect(() => {
     if (!allowed) return;
     const app = getApps()[0];
@@ -191,17 +202,70 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
     const handler = (snap: {
       forEach: (cb: (c: { key: string | null; val: () => PresenceSnapshot }) => void) => void;
     }) => {
-      const next: Record<string, boolean> = {};
+      const nextOnline: Record<string, boolean> = {};
+      const nextMeta: Record<string, { username?: string; lastChanged?: number }> = {};
       snap.forEach((child) => {
         const uid = child.key;
         if (!uid) return;
-        next[uid] = isRtdbPresenceOnline(child.val());
+        const val = child.val();
+        nextOnline[uid] = isRtdbPresenceOnline(val);
+        nextMeta[uid] = {
+          username: val?.username || undefined,
+          lastChanged: Number(val?.lastChanged || 0) || undefined,
+        };
       });
-      setPresenceByUid(next);
+      setPresenceByUid(nextOnline);
+      setPresenceMetaByUid(nextMeta);
     };
     onValue(presenceRef, handler);
     return () => off(presenceRef);
   }, [allowed]);
+
+  // If someone is online in RTDB but not yet in users list, fetch / stub them so count + list update live
+  useEffect(() => {
+    if (!allowed) return;
+    const known = new Set(users.map((u) => u.uid));
+    const missingOnline = Object.entries(presenceByUid)
+      .filter(([uid, on]) => on && !known.has(uid))
+      .map(([uid]) => uid);
+    if (missingOnline.length === 0) {
+      setPresenceExtras((prev) => (prev.length ? [] : prev));
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const extras: AdminUserRow[] = [];
+      for (const uid of missingOnline) {
+        try {
+          const snap = await getDoc(doc(db, 'users', uid));
+          if (snap.exists()) {
+            extras.push(mapUserDoc(uid, snap.data() as Record<string, unknown>));
+            continue;
+          }
+        } catch {
+          /* fall through to presence stub */
+        }
+        const meta = presenceMetaByUid[uid];
+        extras.push({
+          uid,
+          name: meta?.username || 'New user',
+          username: meta?.username || '',
+          email: '',
+          photo: '/logo.png',
+          balance: 0,
+          accountStatus: ACCOUNT_STATUS.ACTIVE,
+          isBanned: false,
+          status: 'online',
+          lastSeenMs: meta?.lastChanged || Date.now(),
+          presenceOnly: true,
+        });
+      }
+      if (!cancelled) setPresenceExtras(extras);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [allowed, users, presenceByUid, presenceMetaByUid]);
 
   const handleBanUser = useCallback(
     async (target: AdminUserRow) => {
@@ -277,7 +341,7 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
         };
         if (res.ok && data.ok) {
           onAlert?.(data.message || 'Referral IDs assigned', '👥');
-          void loadUsers();
+          refreshUsers();
           return;
         }
       } catch {
@@ -304,14 +368,14 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
         `Referral IDs: +${assigned} assigned · ${skipped} already had · ${failed} failed`,
         '👥'
       );
-      void loadUsers();
+      refreshUsers();
     } catch (e) {
       console.error('backfill referrals', e);
       onAlert?.('Backfill failed — publish firestore.rules first', '⚠️');
     } finally {
       setBackfillBusy(false);
     }
-  }, [adminUser, onAlert, loadUsers]);
+  }, [adminUser, onAlert, refreshUsers]);
 
   const handleUnlockClaims = useCallback(async () => {
     const current = auth.currentUser;
@@ -389,8 +453,7 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
               `Reset done · users ${data.usersZeroed ?? 0} · AdminRevenue -${data.adminRevenueDeleted ?? 0}`,
             '✅'
           );
-          setHisaabKey((k) => k + 1);
-          void loadUsers();
+          refreshUsers();
           return;
         }
         if (data.error !== 'admin_sdk_missing') {
@@ -405,8 +468,7 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
         `Reset done · users ${result.usersZeroed}/${result.usersScanned} · AdminRevenue -${result.adminRevenueDeleted} · ads -${result.adEventsDeleted}`,
         '✅'
       );
-      setHisaabKey((k) => k + 1);
-      void loadUsers();
+      refreshUsers();
     } catch (e) {
       console.error('reset economy', e);
       onAlert?.(
@@ -416,13 +478,22 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
     } finally {
       setResetBusy(false);
     }
-  }, [adminUser, onAlert, loadUsers]);
+  }, [adminUser, onAlert, refreshUsers]);
+
+  const allUsers = useMemo(() => {
+    const byUid = new Map<string, AdminUserRow>();
+    for (const u of users) byUid.set(u.uid, u);
+    for (const u of presenceExtras) {
+      if (!byUid.has(u.uid)) byUid.set(u.uid, u);
+    }
+    return Array.from(byUid.values());
+  }, [users, presenceExtras]);
 
   const searchQuery = search.trim().toLowerCase();
 
   const filtered = useMemo(() => {
     const q = searchQuery;
-    const rows = users.filter((u) => {
+    const rows = allUsers.filter((u) => {
       if (!q) return true;
       const name = (u.name || '').toLowerCase();
       const username = (u.username || '').toLowerCase();
@@ -451,17 +522,26 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
       })
         ? 1
         : 0;
-      return bOn - aOn;
+      if (bOn !== aOn) return bOn - aOn;
+      return (b.lastSeenMs || 0) - (a.lastSeenMs || 0);
     });
-  }, [users, searchQuery, presenceByUid]);
+  }, [allUsers, searchQuery, presenceByUid]);
 
-  const onlineCount = filtered.filter((u) =>
-    isUserOnlineNow({
-      rtdbOnline: presenceByUid[u.uid],
-      status: u.status,
-      lastSeenMs: u.lastSeenMs,
-    })
-  ).length;
+  // Real-time online = RTDB presence (source of truth), not only filtered Firestore rows
+  const onlineCount = useMemo(() => {
+    const fromPresence = Object.values(presenceByUid).filter(Boolean).length;
+    if (fromPresence > 0) return fromPresence;
+    return allUsers.filter((u) =>
+      isUserOnlineNow({
+        rtdbOnline: presenceByUid[u.uid],
+        status: u.status,
+        lastSeenMs: u.lastSeenMs,
+      })
+    ).length;
+  }, [presenceByUid, allUsers]);
+
+  const totalUsers = allUsers.length;
+  const offlineCount = Math.max(0, totalUsers - onlineCount);
 
   if (!allowed) return null;
 
@@ -489,14 +569,11 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
             Full Dashboard →
           </a>
           <button
-            onClick={() => {
-              void loadUsers();
-              setHisaabKey((k) => k + 1);
-            }}
+            onClick={() => refreshUsers()}
             disabled={loading}
             className="p-2 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all shrink-0"
             type="button"
-            title="Refresh"
+            title="Refresh economy"
           >
             <RefreshCw size={14} className={`text-gray-400 ${loading || economyLoading ? 'animate-spin' : ''}`} />
           </button>
@@ -528,9 +605,11 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
           ) : null}
         </div>
         <p className="text-[10px] text-gray-500 font-black uppercase tracking-widest flex items-center gap-3 flex-wrap">
+          <span className="text-white/80">{totalUsers} users</span>
           <span className="text-cyan-400/90">
-            {filtered.length} match{filtered.length === 1 ? '' : 'es'}
-            {searchQuery ? ` · “${search.trim()}”` : ''}
+            {searchQuery
+              ? `${filtered.length} match${filtered.length === 1 ? '' : 'es'} · “${search.trim()}”`
+              : 'live list'}
           </span>
           <span className="inline-flex items-center gap-1.5 text-emerald-400">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
@@ -538,7 +617,7 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
           </span>
           <span className="inline-flex items-center gap-1.5 text-red-400">
             <span className="w-2 h-2 rounded-full bg-red-500" />
-            {Math.max(0, filtered.length - onlineCount)} offline
+            {offlineCount} offline
           </span>
         </p>
       </div>
