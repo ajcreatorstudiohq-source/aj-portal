@@ -20,6 +20,7 @@ import { ACCOUNT_STATUS, buildBanUpdate, isUserBanned } from '../lib/user-ban';
 import { isRtdbPresenceOnline, isUserOnlineNow, type PresenceSnapshot } from '../lib/presence';
 import { COIN_RATE, CASH_RATE, formatUsd, coinsToUsd } from '../lib/economy';
 import { ensureUserReferralId } from '../lib/referral';
+import { resetEconomyFreshStart } from '../lib/reset-economy';
 
 export type AdminUserRow = {
   uid: string;
@@ -63,6 +64,7 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
   const [earnings, setEarnings] = useState<AdminEarningsView | null>(null);
   const [earningsLoading, setEarningsLoading] = useState(false);
   const [backfillBusy, setBackfillBusy] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
 
   // Hard client gate — never render admin tools for normal users
   useEffect(() => {
@@ -363,6 +365,96 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
     }
   }, [adminUser, onAlert, loadUsers]);
 
+  const handleResetEconomy = useCallback(async () => {
+    const current = auth.currentUser;
+    if (!current || !isPortalAdminUser(adminUser || { uid: current.uid, email: current.email })) {
+      return;
+    }
+    const ok = window.confirm(
+      'RESET ALL TO ZERO?\n\n• Every user balance → 0\n• Admin earnings → 0\n• AdminRevenue / ledgers / ad estimates deleted\n\nThis cannot be undone.'
+    );
+    if (!ok) return;
+    const typed = window.prompt('Type RESET_ALL_TO_ZERO to confirm:');
+    if (typed !== 'RESET_ALL_TO_ZERO') {
+      onAlert?.('Reset cancelled', 'ℹ️');
+      return;
+    }
+
+    setResetBusy(true);
+    try {
+      // Try server Admin SDK first (best)
+      try {
+        const token = await current.getIdToken();
+        const res = await fetch('/api/admin/reset-economy', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ confirm: 'RESET_ALL_TO_ZERO' }),
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          message?: string;
+          error?: string;
+          usersZeroed?: number;
+          adminRevenueDeleted?: number;
+        };
+        if (res.ok && data.ok) {
+          onAlert?.(
+            data.message ||
+              `Reset done · users ${data.usersZeroed ?? 0} · AdminRevenue -${data.adminRevenueDeleted ?? 0}`,
+            '✅'
+          );
+          setEarnings({
+            totalOwnerUsd: 0,
+            totalOwnerCoins: 0,
+            giftOwnerUsd: 0,
+            giftOwnerCoins: 0,
+            adOwnerUsd: 0,
+            eventCount: 0,
+            totalOwnerUsdLabel: '$0.00',
+          });
+          void loadUsers();
+          void loadEarnings();
+          return;
+        }
+        // Fall through to client if SA missing
+        if (data.error !== 'admin_sdk_missing') {
+          console.warn('reset-economy API', data.error || res.status);
+        }
+      } catch (e) {
+        console.warn('reset-economy API failed, trying client', e);
+      }
+
+      // Client fallback (needs published firestore.rules for CEO)
+      const result = await resetEconomyFreshStart(db);
+      onAlert?.(
+        `Reset done · users ${result.usersZeroed}/${result.usersScanned} · AdminRevenue -${result.adminRevenueDeleted} · ads -${result.adEventsDeleted}`,
+        '✅'
+      );
+      setEarnings({
+        totalOwnerUsd: 0,
+        totalOwnerCoins: 0,
+        giftOwnerUsd: 0,
+        giftOwnerCoins: 0,
+        adOwnerUsd: 0,
+        eventCount: 0,
+        totalOwnerUsdLabel: '$0.00',
+      });
+      void loadUsers();
+      void loadEarnings();
+    } catch (e) {
+      console.error('reset economy', e);
+      onAlert?.(
+        'Reset failed. Publish firestore.rules and/or set FIREBASE_SERVICE_ACCOUNT_JSON on Vercel.',
+        '⚠️'
+      );
+    } finally {
+      setResetBusy(false);
+    }
+  }, [adminUser, onAlert, loadUsers, loadEarnings]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const rows = users.filter((u) => {
@@ -481,11 +573,23 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
         <button
           type="button"
           onClick={() => void handleBackfillReferrals()}
-          disabled={backfillBusy}
+          disabled={backfillBusy || resetBusy}
           className="w-full py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest text-white active:scale-95 transition-all disabled:opacity-50"
           style={{ background: 'linear-gradient(135deg,#ec4899,#8b5cf6)' }}
         >
           {backfillBusy ? 'Assigning referral IDs…' : 'Assign Unique Referral IDs (all users)'}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => void handleResetEconomy()}
+          disabled={resetBusy || backfillBusy}
+          className="w-full py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest text-white active:scale-95 transition-all disabled:opacity-50 border border-red-500/40"
+          style={{ background: 'linear-gradient(135deg,#991b1b,#7f1d1d)' }}
+        >
+          {resetBusy
+            ? 'Resetting all balances to 0…'
+            : '⚠ Reset ALL coins + admin earnings → 0'}
         </button>
 
         <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-2xl px-3 py-2.5">
