@@ -39,11 +39,22 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if signedIn();
       allow write: if isOwner(userId);
-      // CEO may only stamp missing referralId on any user (backfill)
+      // CEO: referral backfill OR fresh-start economy zero
       allow update: if isOwner(userId)
         || (isCeoAdmin()
             && request.resource.data.diff(resource.data).affectedKeys()
-                .hasOnly(['referralId', 'referralIdCreatedAt']));
+                .hasOnly(['referralId', 'referralIdCreatedAt']))
+        || (isCeoAdmin()
+            && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly([
+                  'balance',
+                  'invested',
+                  'offerwallVideoDayCount',
+                  'offerwallDayCount',
+                  'dailyRewards',
+                  'economyResetAt'
+                ])
+            && request.resource.data.balance == 0);
       match /videos/{videoId} {
         allow read: if signedIn();
         allow write: if isOwner(userId);
@@ -240,18 +251,40 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // Owner platform share ledger — CEO read; signed-in may append rows
+    // Owner platform share ledger — CEO read/delete (fresh reset); signed-in may append
     match /AdminRevenue/{revId} {
       allow read: if isCeoAdmin();
       allow create: if signedIn();
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if isCeoAdmin();
     }
 
     // Running owner totals (coins + USD) on the portal admin panel
     match /admin_stats/{docId} {
       allow read: if isCeoAdmin();
-      allow create, update: if signedIn();
-      allow delete: if false;
+      allow create, update: if signedIn() || isCeoAdmin();
+      allow delete: if isCeoAdmin();
+    }
+
+    // Earn ledgers — CEO may wipe for fresh-start reset
+    match /reward_ledger/{txId} {
+      allow read: if signedIn() && resource.data.uid == request.auth.uid;
+      allow create: if false;
+      allow update: if false;
+      allow delete: if isCeoAdmin();
+    }
+
+    match /offerwall_ledger/{txId} {
+      allow read: if signedIn() && resource.data.uid == request.auth.uid;
+      allow create, update: if false;
+      allow delete: if isCeoAdmin();
+    }
+
+    match /ad_events/{eventId} {
+      allow read: if isCeoAdmin();
+      allow create: if signedIn();
+      allow update: if false;
+      allow delete: if isCeoAdmin();
     }
 
     // Default deny — merge carefully with your existing rules for wallet, admin, etc.
