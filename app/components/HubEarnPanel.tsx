@@ -14,6 +14,7 @@ import { ADSTERRA_REWARD_COINS } from '../lib/ads-config';
 import { handleEarnAndPlayGame } from '../lib/direct-download';
 import { trackAdEvent } from '../lib/ad-client';
 import { guardClick, startIntrusiveAdGuard } from '../lib/ad-guards';
+import type { OnRefreshUser } from '../lib/wallet-refresh';
 import {
   ClipboardCheck,
   Download,
@@ -29,7 +30,7 @@ type UserLike = { uid: string; getIdToken: () => Promise<string>; email?: string
 type Props = {
   user: UserLike;
   onAlert: (msg: string, icon?: string) => void;
-  onRefreshUser?: () => void;
+  onRefreshUser?: OnRefreshUser;
 };
 
 type HubPanel = 'none' | 'faucet' | 'earnplay' | 'adgem' | 'watchads';

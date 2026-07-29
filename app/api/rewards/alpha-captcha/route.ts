@@ -184,6 +184,7 @@ export async function POST(request: Request) {
       ok: true,
       duplicate: !!result.duplicate,
       creditedCoins: result.balanceCredited ?? 0,
+      balance: result.balance,
       remainingToday: Math.max(
         0,
         MAX_DAILY - (result.duplicate ? dailyCount : dailyCount + 1)

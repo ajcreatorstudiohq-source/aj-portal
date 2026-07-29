@@ -3589,6 +3589,7 @@ export function AJSuperPortal() {
           });
           if (reward.ok && !reward.duplicate && (reward.creditedCoins || 0) > 0) {
             setVvipAlert({ msg: reward.message || `Live host reward +${reward.creditedCoins}`, icon: '🔴' });
+            applyClaimToBalance(reward);
           }
         }
       } catch {}
@@ -3778,6 +3779,7 @@ export function AJSuperPortal() {
           });
           if (r.ok && !r.duplicate && (r.creditedCoins || 0) > 0) {
             setVvipAlert({ msg: r.message || `Live view reward +${r.creditedCoins} coins`, icon: '🔴' });
+            applyClaimToBalance(r);
           }
         }, 60000);
       } catch {}
@@ -3873,7 +3875,7 @@ export function AJSuperPortal() {
   const readLiveBalance = async (): Promise<number> => {
     if (!user) return Math.max(0, Math.floor(Number(balance) || 0));
     try {
-      const snap = await getDoc(doc(db, 'users', user.uid));
+      const snap = await getDocFromServer(doc(db, 'users', user.uid));
       if (snap.exists()) {
         const live = Math.max(
           0,
@@ -3884,8 +3886,46 @@ export function AJSuperPortal() {
       }
     } catch (e) {
       console.warn('readLiveBalance', e);
+      try {
+        const snap = await getDoc(doc(db, 'users', user.uid));
+        if (snap.exists()) {
+          const live = Math.max(
+            0,
+            Math.floor(Number((snap.data() as { balance?: number }).balance) || 0)
+          );
+          setBalance(live);
+          return live;
+        }
+      } catch {
+        /* ignore */
+      }
     }
     return Math.max(0, Math.floor(Number(balance) || 0));
+  };
+
+  /** Apply claim/earn API result to Hub wallet UI immediately (Admin writes skip client cache). */
+  const applyClaimToBalance = (patch?: {
+    ok?: boolean;
+    balance?: number;
+    creditedCoins?: number;
+    duplicate?: boolean;
+  }) => {
+    if (!patch?.ok) return;
+    if (
+      !patch.duplicate &&
+      typeof patch.balance === 'number' &&
+      Number.isFinite(patch.balance)
+    ) {
+      setBalance(Math.max(0, Math.floor(patch.balance)));
+    } else if (
+      !patch.duplicate &&
+      typeof patch.creditedCoins === 'number' &&
+      patch.creditedCoins > 0
+    ) {
+      const add = Math.floor(patch.creditedCoins);
+      setBalance((b) => Math.max(0, Math.floor(Number(b) || 0) + add));
+    }
+    void readLiveBalance();
   };
 
   const showPkNotEnough = (have: number, need: number = PK_ENTRY_COINS) => {
@@ -5491,6 +5531,7 @@ export function AJSuperPortal() {
       );
       if (reward.ok && !reward.duplicate) {
         setVvipAlert({msg: reward.message || `🎬 Post published! +${reward.creditedCoins} AJ Coins 🪙`, icon:"🎬"});
+        applyClaimToBalance(reward);
       } else if (reward.error === 'daily_limit') {
         setVvipAlert({msg:'🎬 Post published! Daily TikReel reward limit (5) reached — try tomorrow.', icon:"🎬"});
       } else {
@@ -5823,6 +5864,7 @@ export function AJSuperPortal() {
       );
       if (reward.ok && !reward.duplicate) {
         setVvipAlert({msg: reward.message || `📸 Pulse published! +${reward.creditedCoins} AJ Coins 🪙`, icon:"📸"});
+        applyClaimToBalance(reward);
       } else if (reward.error === 'daily_limit') {
         setVvipAlert({msg:'📸 Post published! Daily Pulse reward limit (5) reached — try tomorrow.', icon:"📸"});
       } else {
@@ -6270,6 +6312,7 @@ export function AJSuperPortal() {
     if (reward.ok && !reward.duplicate) {
       setVisualProfit(0);
       setVvipAlert({ msg: reward.message || `Bot sync +${reward.creditedCoins} AJ Coins 🪙`, icon: '🤖' });
+      applyClaimToBalance(reward);
     } else if (reward.error === 'daily_limit' || reward.error === 'claim_locked') {
       setVvipAlert({
         msg: reward.message || 'Bot claim locked for 24h (server time). Device clock changes do not bypass this.',
@@ -7257,16 +7300,29 @@ Tip: Social Hub se copy karo 📤`,
           <HubEarnPanel
             user={user}
             onAlert={(msg, icon) => setVvipAlert({ msg, icon: icon || '💰' })}
-            onRefreshUser={async () => {
+            onRefreshUser={async (patch) => {
+              // 1) Instant UI from claim API (Admin writes do not update client cache)
+              if (typeof patch?.balance === 'number' && Number.isFinite(patch.balance)) {
+                setBalance(Math.max(0, Math.floor(patch.balance)));
+              } else if (
+                typeof patch?.creditedCoins === 'number' &&
+                Number.isFinite(patch.creditedCoins) &&
+                patch.creditedCoins > 0
+              ) {
+                const add = Math.floor(patch.creditedCoins);
+                setBalance((b) => Math.max(0, Math.floor(Number(b) || 0) + add));
+              }
               if (!user?.uid) return;
+              // 2) Confirm from server — never trust local cache after Admin SDK credits
               try {
-                const snap = await getDoc(doc(db, 'users', user.uid));
+                const snap = await getDocFromServer(doc(db, 'users', user.uid));
                 if (snap.exists()) {
                   const d = snap.data() as Record<string, unknown>;
-                  setBalance((d.balance as number) || 0);
+                  const live = Math.max(0, Math.floor(Number(d.balance) || 0));
+                  setBalance(live);
                 }
               } catch {
-                /* live onSnapshot remains source of truth */
+                /* keep optimistic balance; onSnapshot may catch up */
               }
             }}
           />

@@ -24,6 +24,8 @@ export type ApplyRewardResult = {
   error?: string;
   split?: RewardSplit;
   balanceCredited?: number;
+  /** Absolute wallet balance after credit (when available). */
+  balance?: number;
   dailyCapHit?: boolean;
 };
 
@@ -287,7 +289,14 @@ export async function applyFlatCoins(opts: {
     const result = await db.runTransaction(async (tx) => {
       const existing = await tx.get(ledgerRef);
       if (existing.exists) {
-        return { duplicate: true as const, split, dailyCapHit: false };
+        const userSnap = await tx.get(userRef);
+        const bal = userSnap.exists
+          ? Math.max(
+              0,
+              Math.floor(Number((userSnap.data() as { balance?: number }).balance) || 0)
+            )
+          : 0;
+        return { duplicate: true as const, split, dailyCapHit: false, balance: bal };
       }
 
       const userSnap = await tx.get(userRef);
@@ -303,12 +312,14 @@ export async function applyFlatCoins(opts: {
         const slot = data.dailyRewards?.[source];
         const count = slot?.dayKey === dayKey ? Number(slot.count || 0) : 0;
         if (count >= cap) {
-          return { duplicate: false as const, split, dailyCapHit: true };
+          const bal = Math.max(0, Math.floor(Number(data.balance) || 0));
+          return { duplicate: false as const, split, dailyCapHit: true, balance: bal };
         }
         nextDailyCount = count + 1;
       }
 
       const bal = Math.max(0, Math.floor(Number(data.balance) || 0));
+      const nextBal = bal + credit;
       tx.set(ledgerRef, {
         uid,
         source,
@@ -321,7 +332,7 @@ export async function applyFlatCoins(opts: {
       });
 
       const userUpdate: Record<string, unknown> = {
-        balance: bal + credit,
+        balance: nextBal,
         lastRewardAt: FieldValue.serverTimestamp(),
         lastRewardSource: source,
         lastWalletWriteAt: FieldValue.serverTimestamp(),
@@ -333,7 +344,7 @@ export async function applyFlatCoins(opts: {
       }
       tx.update(userRef, userUpdate);
 
-      return { duplicate: false as const, split, dailyCapHit: false };
+      return { duplicate: false as const, split, dailyCapHit: false, balance: nextBal };
     });
 
     if (result.dailyCapHit) {
@@ -343,6 +354,7 @@ export async function applyFlatCoins(opts: {
         dailyCapHit: true,
         split: result.split,
         balanceCredited: 0,
+        balance: result.balance,
       };
     }
 
@@ -378,6 +390,7 @@ export async function applyFlatCoins(opts: {
       duplicate: result.duplicate,
       split: result.split,
       balanceCredited: result.duplicate ? 0 : credit,
+      balance: result.balance,
     };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'reward_failed';

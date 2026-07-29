@@ -5,16 +5,13 @@ import { Calculator, ExternalLink, Gift, Loader2 } from 'lucide-react';
 import { MATH_CHALLENGE_COINS } from '../lib/reward-sources';
 import { ADSTERRA_REWARDED_LINK } from '../lib/ads-config';
 import { guardClick, startIntrusiveAdGuard } from '../lib/ad-guards';
+import type { OnRefreshUser } from '../lib/wallet-refresh';
 
 type Props = {
   user: { uid: string; getIdToken: () => Promise<string> } | null;
   onAlert: (msg: string, icon?: string) => void;
-  onRefreshUser?: () => void;
+  onRefreshUser?: OnRefreshUser;
 };
-
-/**
- * Daily Math Challenge — opens Adsterra; Verify & Claim +5 AJ Coins.
- */
 export default function DailyMathChallenge({ user, onAlert, onRefreshUser }: Props) {
   const [busy, setBusy] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -59,6 +56,7 @@ export default function DailyMathChallenge({ user, onAlert, onRefreshUser }: Pro
         prompt?: string;
         remainingToday?: number;
         creditedCoins?: number;
+        balance?: number;
         message?: string;
         duplicate?: boolean;
         error?: string;
@@ -131,7 +129,11 @@ export default function DailyMathChallenge({ user, onAlert, onRefreshUser }: Pro
       setPrompt('');
       setAnswer('');
       setClaimReady(false);
-      onRefreshUser?.();
+      const credited = Number(data.creditedCoins || 0);
+      void onRefreshUser?.({
+        balance: typeof data.balance === 'number' ? data.balance : undefined,
+        creditedCoins: !data.duplicate && credited > 0 ? credited : undefined,
+      });
     } catch (e: unknown) {
       const err = e as Error & { data?: { error?: string; message?: string } };
       onAlert(

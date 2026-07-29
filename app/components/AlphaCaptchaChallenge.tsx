@@ -5,16 +5,13 @@ import { ExternalLink, Gift, KeyRound, Loader2 } from 'lucide-react';
 import { ALPHA_CAPTCHA_COINS } from '../lib/reward-sources';
 import { ADSTERRA_REWARDED_LINK } from '../lib/ads-config';
 import { guardClick, startIntrusiveAdGuard } from '../lib/ad-guards';
+import type { OnRefreshUser } from '../lib/wallet-refresh';
 
 type Props = {
   user: { uid: string; getIdToken: () => Promise<string> } | null;
   onAlert: (msg: string, icon?: string) => void;
-  onRefreshUser?: () => void;
+  onRefreshUser?: OnRefreshUser;
 };
-
-/**
- * Premium Alphanumeric Captcha — opens Adsterra; Verify & Claim +5 AJ Coins.
- */
 export default function AlphaCaptchaChallenge({ user, onAlert, onRefreshUser }: Props) {
   const [busy, setBusy] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -58,6 +55,7 @@ export default function AlphaCaptchaChallenge({ user, onAlert, onRefreshUser }: 
         code?: string;
         remainingToday?: number;
         creditedCoins?: number;
+        balance?: number;
         message?: string;
         duplicate?: boolean;
       };
@@ -126,7 +124,11 @@ export default function AlphaCaptchaChallenge({ user, onAlert, onRefreshUser }: 
       setCode('');
       setTyped('');
       setClaimReady(false);
-      onRefreshUser?.();
+      const credited = Number(data.creditedCoins || 0);
+      void onRefreshUser?.({
+        balance: typeof data.balance === 'number' ? data.balance : undefined,
+        creditedCoins: !data.duplicate && credited > 0 ? credited : undefined,
+      });
     } catch (err: unknown) {
       const e2 = err as Error & { data?: { error?: string; message?: string } };
       onAlert(e2.data?.message || e2.message || 'Verification failed', '⚠️');

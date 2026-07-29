@@ -369,7 +369,11 @@ export async function POST(request: Request) {
           tx.get(userRef),
         ]);
         if (ledgerSnap.exists) {
-          return { duplicate: true as const, credited: 0, balance: 0 };
+          const bal = Math.max(
+            0,
+            Math.floor(Number((freshUser.data() as { balance?: number } | undefined)?.balance) || 0)
+          );
+          return { duplicate: true as const, credited: 0, balance: bal };
         }
         if (!freshUser.exists) throw new Error('user_not_found');
         const u = freshUser.data() as {
@@ -536,11 +540,23 @@ export async function POST(request: Request) {
         tx.get(sessionRef),
         tx.get(userRef),
       ]);
-      if (ledgerSnap.exists) return { duplicate: true as const, credited: 0, balance: 0 };
+      if (ledgerSnap.exists) {
+        const bal = Math.max(
+          0,
+          Math.floor(Number((freshUser.data() as { balance?: number } | undefined)?.balance) || 0)
+        );
+        return { duplicate: true as const, credited: 0, balance: bal };
+      }
       if (!freshSession.exists) throw new Error('invalid_session');
       const s = freshSession.data() as { uid: string; consumed?: boolean };
       if (s.uid !== user.uid) throw new Error('session_mismatch');
-      if (s.consumed) return { duplicate: true as const, credited: 0, balance: 0 };
+      if (s.consumed) {
+        const bal = Math.max(
+          0,
+          Math.floor(Number((freshUser.data() as { balance?: number } | undefined)?.balance) || 0)
+        );
+        return { duplicate: true as const, credited: 0, balance: bal };
+      }
       if (!freshUser.exists) throw new Error('user_not_found');
       const u = freshUser.data() as {
         offerwallVideoDayKey?: string;
