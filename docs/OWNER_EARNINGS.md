@@ -8,6 +8,29 @@
 2. App users ko activity earn pe sirf **30% AJ Coins** deti hai. **70% user wallet mein kabhi nahi jata.**
 3. Har earn event pe Firestore `AdminRevenue` mein aapka hissa **`ownerUsd` / `adminShare` (USD)** ke naam se record hota hai — yeh hisaab / ledger hai.
 
+## No-loss rule (important)
+
+User AJ Coins **sirf** tab milte hain jab peeche **real network $** ho:
+
+| Allowed | User gets |
+|---|---|
+| Watch Ads / Math / Captcha | 30% of `ADSTERRA_CLICK_USD` |
+| Offerwall / AdGem postback | 30% of partner payout `$` |
+| Gifts | zero-sum from sender (40/60) |
+| Coin purchase | user paid real `$` |
+
+| Blocked (0 coins) | Why |
+|---|---|
+| TikReel / Pulse post | no Adsterra `$` |
+| Referral bonus | no Adsterra `$` |
+| Live view / host / PK free earn | no Adsterra `$` |
+| Game milestone (in-app) | CPA only via `/api/postback` |
+| AI bot daily mint | would create coins from nothing |
+
+`NO_LOSS_ECONOMY = true` · `REFERRAL_BONUS_COINS = 0` · `POST_REWARD_COINS = 0` · `ACTIVITY_REWARD_COINS = 0`
+
+**Withdraw:** Adsterra/partner dashboard se `$` nikaalo, phir users ko pay karo. Free coins nahi → jeb se dena nahi padega (jab tak `ADSTERRA_CLICK_USD` ≤ real CPC ho).
+
 ## Adsterra Direct Link / Watch Ads (no-loss)
 
 Adsterra aapko click ka **100%** deta hai (dashboard). App usi `$` se split karti hai:
@@ -24,10 +47,11 @@ Adsterra aapko click ka **100%** deta hai (dashboard). App usi `$` se split kart
 | Watch Ads | **15** | `$0.015` |
 | Math Challenge | **15** | `$0.015` |
 | Alpha Captcha | **15** | `$0.015` |
-| Live / games activity | **15** | `$0.015` |
-| TikReel / Pulse post | **5** | `$0.005` |
-| Referral | **25** | `$0.025` |
 | Offerwall postback | `floor(payout × 0.3 × 1000)` | 30% of partner `$` |
+| TikReel / Pulse post | **0** | — |
+| Referral | **0** | — |
+| Live / games free activity | **0** | — |
+| AI bot mint | **0** | — |
 
 - Constant: `ADSTERRA_CLICK_USD` (env: `NEXT_PUBLIC_ADSTERRA_CLICK_USD`)
 - Helpers: `splitAdClickUsd()` / `computeRewardSplit()` / `REWARD_COIN_AMOUNTS`

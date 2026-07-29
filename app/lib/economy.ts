@@ -36,8 +36,17 @@ export function formatUsd(usd: number): string {
 
 /** New-user wallet credit on first profile create — strictly zero (no signup bonus) */
 export const SIGNUP_BONUS_COINS = 0;
-/** Coins credited to the referrer per successful referral */
-export const REFERRAL_BONUS_COINS = 25;
+/**
+ * Referral bonus — ZERO in no-loss mode (no Adsterra/partner $ behind it).
+ * Users can still share referral links; coins only from ads/offerwall.
+ */
+export const REFERRAL_BONUS_COINS = 0;
+
+/**
+ * No-loss economy: user AJ Coins only when backed by real network $ (Adsterra / offerwall).
+ * Unbacked posts / referral / live / bot mint = 0 so withdraw never comes from your pocket.
+ */
+export const NO_LOSS_ECONOMY = true;
 
 /**
  * Premium Games — direct HTML / Netlify / APK URLs (NO ridefiles lockers).
@@ -295,17 +304,31 @@ export function splitGiftCoins(totalCoins: number): RewardSplit {
 }
 
 /**
- * Activity earn split — always one Adsterra click USD (no-loss).
- * User 30% coins @ CASH_RATE · admin 70% USD ledger.
- * `seed` kept for API compatibility (idempotent callers).
+ * Unbacked activity earn — ZERO user coins (no-loss).
+ * Real Adsterra / offerwall paths call `splitAdClickUsd` / `splitPayoutUsd` explicitly.
+ * `seed` kept for API compatibility.
  */
 export function computeRewardSplit(_seed?: string): RewardSplit {
-  return splitAdClickUsd(ADSTERRA_CLICK_USD);
+  return {
+    totalUsd: 0,
+    userUsd: 0,
+    adminUsd: 0,
+    userCoins: 0,
+    adminCoins: 0,
+  };
 }
 
 /** User coins for one Adsterra-linked claim (Watch Ads / Math / Captcha). */
 export function adsterraUserRewardCoins(): number {
   return splitAdClickUsd(ADSTERRA_CLICK_USD).userCoins;
+}
+
+/**
+ * Partner offerwall / CPA payout → same 70/30 no-loss split at CASH_RATE.
+ * Example: payout $1 → user 300 🪙 ($0.30) · admin $0.70
+ */
+export function splitPayoutUsd(payoutUsd: number): RewardSplit {
+  return splitAdClickUsd(payoutUsd);
 }
 
 export function getGameById(gameId: string): GameCatalogItem | undefined {
