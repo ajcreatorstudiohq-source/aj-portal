@@ -50,7 +50,12 @@ export async function POST(request: Request) {
         balance: 0,
         invested: 0,
         offerwallVideoDayCount: 0,
+        offerwallVideoDayKey: '',
         offerwallDayCount: 0,
+        mathChallengeDayCount: 0,
+        mathChallengeDayKey: '',
+        alphaCaptchaDayCount: 0,
+        alphaCaptchaDayKey: '',
         dailyRewards: {},
         economyResetAt: FieldValue.serverTimestamp(),
       });
@@ -96,6 +101,9 @@ export async function POST(request: Request) {
     const rewardLedgerDeleted = await wipe('reward_ledger');
     const offerwallLedgerDeleted = await wipe('offerwall_ledger');
     const adEventsDeleted = await wipe('ad_events');
+    const adSessionsDeleted = await wipe('ad_reward_sessions');
+    const mathSessionsDeleted = await wipe('math_challenge_sessions');
+    const captchaSessionsDeleted = await wipe('alpha_captcha_sessions');
 
     return NextResponse.json({
       ok: true,
@@ -106,6 +114,9 @@ export async function POST(request: Request) {
       rewardLedgerDeleted,
       offerwallLedgerDeleted,
       adEventsDeleted,
+      adSessionsDeleted,
+      mathSessionsDeleted,
+      captchaSessionsDeleted,
       adminStatsReset: true,
       message:
         'Economy reset complete. All user balances and admin ledger estimates are 0.',
