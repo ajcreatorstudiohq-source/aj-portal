@@ -125,12 +125,16 @@ export async function POST(request: Request) {
     if (!data.uid) patch.uid = user.uid;
     if (data.accountStatus == null) patch.accountStatus = ACCOUNT_STATUS.ACTIVE;
     if (data.isBanned == null) patch.isBanned = false;
-
-    if (Object.keys(patch).length > 2) {
-      await ref.set(patch, { merge: true });
-    } else {
-      await ref.set(patch, { merge: true });
+    // Admin SDK may fill economy fields missing from presence stubs
+    if (data.balance == null) {
+      patch.balance = SIGNUP_BONUS_COINS;
+      if (data.botTier == null) patch.botTier = 'none';
+      if (data.invested == null) patch.invested = 0;
+      if (data.purchasedCoins == null) patch.purchasedCoins = 0;
+      patch.lastSync = FieldValue.serverTimestamp();
     }
+
+    await ref.set(patch, { merge: true });
 
     const next = (await ref.get()).data() || {};
     return NextResponse.json({

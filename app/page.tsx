@@ -49,6 +49,7 @@ import {
   displayNotificationMessage,
 } from './lib/user-notifications';
 import { ensureUserReferralId, resolveReferrerUid } from './lib/referral';
+import { ensureClientUserProfile } from './lib/ensure-user-profile';
 import { trackAdEvent } from './lib/ad-client';
 import { INFEED_AD_EVERY_N, ADSTERRA_REWARD_COINS, ADSTERRA_REWARDED_LINK } from './lib/ads-config';
 import { POST_REWARD_COINS, ACTIVITY_REWARD_COINS, GAME_REWARD_COINS } from './lib/reward-sources';
@@ -1057,7 +1058,9 @@ const setUserOnlinePresence = async (currentUser: any) => {
     const presenceData = {
       state: 'online',
       uid: currentUser.uid,
-      username: currentUser.displayName || 'AJ Member',
+      username: currentUser.displayName || currentUser.email || 'AJ Member',
+      email: currentUser.email || '',
+      photo: currentUser.photoURL || '',
       lastChanged: now,
     };
     await set(presenceRef, presenceData);
@@ -1065,23 +1068,22 @@ const setUserOnlinePresence = async (currentUser: any) => {
       state: 'offline',
       uid: currentUser.uid,
       username: presenceData.username,
+      email: presenceData.email,
+      photo: presenceData.photo,
       lastChanged: Date.now(),
     });
   } catch (e) {
     console.warn('RTDB presence write failed (publish database.rules presence)', e);
   }
+  // Never create users/{uid} here — presence stubs race signup and block full profile.
+  // Only refresh status on an existing doc.
   try {
-    const presencePatch: Record<string, unknown> = {
+    await updateDoc(doc(db, 'users', currentUser.uid), {
       status: 'online',
       lastSeenMs: now,
-      uid: currentUser.uid,
-    };
-    if (currentUser.displayName) presencePatch.name = currentUser.displayName;
-    if (currentUser.email) presencePatch.email = currentUser.email;
-    if (currentUser.photoURL) presencePatch.photo = currentUser.photoURL;
-    await setDoc(doc(db, 'users', currentUser.uid), presencePatch, { merge: true });
-  } catch (e) {
-    console.error('Firestore presence write failed', e);
+    });
+  } catch {
+    /* doc may not exist yet — ensureClientUserProfile creates it first */
   }
   try {
     registerFcmToken(currentUser.uid);
@@ -1800,6 +1802,7 @@ export function AJSuperPortal() {
 
   // ── AUTH
   const [user,     setUser]     = useState<any>(null);
+  const [profileReady, setProfileReady] = useState(false);
   const [balance,  setBalance]  = useState(0);
   /** Protects optimistic claim balance from stale onSnapshot/cache for a few seconds. */
   const balanceFloorRef = useRef<{ min: number; until: number }>({ min: 0, until: 0 });
@@ -2923,14 +2926,18 @@ export function AJSuperPortal() {
 
       if (!cu) {
         setUser(null);
+        setProfileReady(false);
         setScreen('auth');
         return;
       }
 
+      setProfileReady(false);
       setUser(cu);
 
       try {
         const userRef = doc(db, 'users', cu.uid);
+        // Always ensure full profile BEFORE presence heartbeat (avoids stub race)
+        const ensured = await ensureClientUserProfile(cu);
         const snap = await getDoc(userRef);
 
         if (snap.exists()) {
@@ -2939,11 +2946,15 @@ export function AJSuperPortal() {
           if (await kickIfBanned(cu, d)) return;
           setBanNotice(null);
           setHasSocialProfile((d.hasSocialProfile as boolean) ?? true);
-          setUsername((d.username as string) || '');
+          setUsername((d.username as string) || ensured.username || '');
           setBio((d.bio as string) || '');
-          setProfileDisplayName((d.name as string) || (cu.displayName as string) || '');
-          setTempPhoto((d.photo as string) || cu.photoURL || '');
-          // Existing users — ensure unique referral ID
+          setProfileDisplayName(
+            (d.name as string) || (cu.displayName as string) || ensured.name || ''
+          );
+          setTempPhoto((d.photo as string) || cu.photoURL || ensured.photo || '');
+          if (ensured.created) {
+            setShowCameraPermissionPrompt(true);
+          }
           try {
             const code = await ensureUserReferralId(cu.uid);
             setMyReferralId(code);
@@ -2952,78 +2963,13 @@ export function AJSuperPortal() {
             setMyReferralId(String(d.referralId || ''));
           }
         } else {
-          // NEW USER — 0 signup bonus; unique referral ID; camera prompt
-          const newUsername =
-            String(cu.displayName || '')
-              .toLowerCase()
-              .replace(/[^a-z0-9_]+/g, '_')
-              .replace(/^_+|_+$/g, '')
-              .slice(0, 24) || `user_${cu.uid.slice(0, 6)}`;
-          const createdAtMs = Date.now();
-          const newRefId = await (async () => {
-            try {
-              await setDoc(userRef, {
-                name: cu.displayName || newUsername,
-                username: newUsername,
-                email: cu.email || '',
-                balance: SIGNUP_BONUS_COINS, // always 0
-                botTier: 'none',
-                invested: 0,
-                purchasedCoins: 0,
-                uid: cu.uid,
-                lastSync: serverTimestamp(),
-                createdAtMs,
-                lastSeenMs: createdAtMs,
-                hasSocialProfile: true,
-                photo: cu.photoURL || '',
-                photoURL: cu.photoURL || '',
-                followers: 0,
-                following: 0,
-                postsCount: 0,
-                followersCount: 0,
-                followingCount: 0,
-                totalLikes: 0,
-                status: 'online',
-                fcmToken: '',
-                ...DEFAULT_ACCOUNT_BAN_FIELDS,
-              });
-            } catch (createErr) {
-              console.warn('client setDoc new user failed', createErr);
-            }
-            // Server-side ensure (Admin SDK) so Admin Users sees full profile immediately
-            try {
-              const token = await cu.getIdToken();
-              await fetch('/api/auth/ensure-profile', {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${token}` },
-              });
-            } catch (apiErr) {
-              console.warn('ensure-profile', apiErr);
-            }
-            try {
-              return await ensureUserReferralId(cu.uid);
-            } catch {
-              return '';
-            }
-          })();
-          setMyReferralId(newRefId);
-          setUsername(newUsername);
-          setProfileDisplayName(cu.displayName || newUsername);
-          setTempPhoto(cu.photoURL || '');
+          // Fallback if ensure failed — still try minimal create path
+          setUsername(ensured.username);
+          setProfileDisplayName(ensured.name);
+          setTempPhoto(ensured.photo || cu.photoURL || '');
           setHasSocialProfile(true);
           setBanNotice(null);
           setShowCameraPermissionPrompt(true);
-        }
-
-        // Existing + new: always ensure profile is complete for admin live list
-        try {
-          const token = await cu.getIdToken();
-          await fetch('/api/auth/ensure-profile', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}` },
-          });
-        } catch {
-          /* non-fatal */
         }
 
         userDocUnsub = onSnapshot(userRef, async (s) => {
@@ -3052,6 +2998,7 @@ export function AJSuperPortal() {
         console.error('Auth init error', err);
       }
 
+      setProfileReady(true);
       await setUserOnlinePresence(cu);
       // Returning users go to hub; new users stay on permission prompt first
       if (!showCameraPermissionPrompt) {
@@ -3100,13 +3047,13 @@ export function AJSuperPortal() {
   }, []);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !profileReady) return;
     setupForegroundNotificationListener();
     setUserOnlinePresence(user);
     // Heartbeat keeps admin green light accurate while the portal tab is open
     const heartbeat = window.setInterval(() => {
       void setUserOnlinePresence(user);
-    }, 25000);
+    }, 20000);
     const onVis = () => {
       if (document.visibilityState === 'visible') void setUserOnlinePresence(user);
     };
@@ -3123,7 +3070,7 @@ export function AJSuperPortal() {
       window.removeEventListener('pagehide', handleUnload);
       void setUserOfflineStatus(user.uid);
     };
-  }, [user]);
+  }, [user, profileReady]);
 
   // FIX: PK CHALLENGE LISTENER — incoming PK challenges detect karte hain.
   // Jab koi user current user ko PK challenge bhejta hai, pk_sessions collection
@@ -7590,8 +7537,8 @@ Tip: Social Hub se copy karo 📤`,
                   <Ban size={18} className="text-red-400"/>
                 </div>
                 <div className="text-left flex-1">
-                  <p className="text-xs font-black text-white">Admin · One-Click Ban</p>
-                  <p className="text-[9px] text-red-300/80">Manage users · Ban instantly</p>
+                  <p className="text-xs font-black text-white">Admin · Users & Live Online</p>
+                  <p className="text-[9px] text-red-300/80">Live online count · new signups · ban</p>
                 </div>
                 <ChevronRight size={14} className="text-red-400"/>
               </button>
