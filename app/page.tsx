@@ -6342,11 +6342,12 @@ Kuch bhi poocho, seedha batata hoon! 🔥`,
 \\\\\\\\
 • Rate: ${COIN_RATE} AJ Coins 🪙 per purchase unit | Min withdraw ${WITHDRAW_MIN.toLocaleString()} AJ Coins 🪙\\\\\\\\
 • Starting balance: 0 AJ Coins 🪙 (no signup bonus)\\\\\\\\
-• Referral Bonus: +${REFERRAL_COINS} AJ Coins 🪙 per friend referred\\\\\\\\
-• Watch Ads / Math / Captcha: +${ADSTERRA_REWARD_COINS} AJ Coins 🪙 (Adsterra click)\\\\\\\\
+• Referral Bonus: +${REFERRAL_COINS} AJ Coins 🪙 per friend referred (0 = ads-only, no-loss)\\\\\\\\
+• Watch Ads / Math / Captcha: +${ADSTERRA_REWARD_COINS} AJ Coins 🪙 (Adsterra click only)\\\\\\\\
 • Video Post (TikReel): +${POST_REWARD_COINS} AJ Coins 🪙 per verified upload (max 5/day)\\\\\\\\
 • Photo Post (Pulse): +${POST_REWARD_COINS} AJ Coins 🪙 per verified upload (max 5/day)\\\\\\\\
-• Live / games activity: +${ACTIVITY_REWARD_COINS} AJ Coins 🪙 per verified earn\\\\\\\\
+• Live / games free activity: +${ACTIVITY_REWARD_COINS} AJ Coins 🪙 (0 = no-loss; use Offerwall)\\\\\\\\
+• Earn rule: coins only from Adsterra / Offerwall real $ — withdraw from network earnings, not owner pocket\\\\\\\\
 • AI Bot (Basic): 2.5% daily on invested coins (24h server lock)\\\\\\\\
 • AI Bot (VVIP): 5% daily on invested coins (24h server lock)\\\\\\\\
 • Live gifts received: 60% goes to you!\\\\\\\\
@@ -7062,7 +7063,11 @@ Tip: Social Hub se copy karo 📤`,
             <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex items-center gap-3">
               <span className="text-2xl">👥</span>
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-black text-white">Refer & Earn · +{REFERRAL_COINS} 🪙 each</p>
+                <p className="text-xs font-black text-white">
+                  {REFERRAL_COINS > 0
+                    ? `Refer & Earn · +${REFERRAL_COINS} 🪙 each`
+                    : 'Refer & Earn · invite friends'}
+                </p>
                 <p className="text-[9px] text-gray-400 truncate">
                   Your ID: {myReferralId || '…generating…'}
                 </p>
@@ -7975,7 +7980,7 @@ Tip: Social Hub se copy karo 📤`,
                   </div>
                   <textarea value={postText} onChange={e => setPostText(e.target.value)} placeholder="Write a caption…" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm h-24 resize-none focus:outline-none focus:border-pink-500/50"/>
                   <button onClick={handleCreatePost} className="w-full py-4 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all shadow-[0_0_24px_rgba(236,72,153,0.4)]" style={{background:'linear-gradient(135deg,#ec4899,#8b5cf6)'}}>
-                    {`📸 Post Pulse (+${POST_REWARD_COINS} Coins)`}
+                    {POST_REWARD_COINS > 0 ? `📸 Post Pulse (+${POST_REWARD_COINS} Coins)` : '📸 Post Pulse'}
                   </button>
                 </div>
               )}
@@ -9509,9 +9514,19 @@ Tip: Social Hub se copy karo 📤`,
                     </button>
                   </div>
                   <p className="text-[9px] text-gray-400 mt-2">
-                    Share this ID. Each friend who signs up and enters it → you get{' '}
-                    <span className="text-yellow-400 font-black">+{REFERRAL_COINS} AJ Coins</span>.
-                    No signup bonus.
+                    {REFERRAL_COINS > 0 ? (
+                      <>
+                        Share this ID. Each friend who signs up and enters it → you get{' '}
+                        <span className="text-yellow-400 font-black">+{REFERRAL_COINS} AJ Coins</span>.
+                        No signup bonus.
+                      </>
+                    ) : (
+                      <>
+                        Share this ID to invite friends. Coin rewards come from{' '}
+                        <span className="text-yellow-400 font-black">Watch Ads / Offerwall</span> only
+                        (no-loss). No signup bonus.
+                      </>
+                    )}
                   </p>
                 </div>
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3">

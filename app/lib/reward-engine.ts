@@ -223,6 +223,8 @@ export async function applyFlatCoins(opts: {
   enforceDailyCap?: boolean;
   /** Extra user field updates inside the same transaction (e.g. lastBotClaimAt) */
   userPatch?: Record<string, unknown>;
+  /** Allow 0-coin no-op (e.g. no-loss bot stamp) */
+  allowZero?: boolean;
 }): Promise<ApplyRewardResult> {
   const {
     uid,
@@ -233,11 +235,38 @@ export async function applyFlatCoins(opts: {
     ledgerCollection = 'reward_ledger',
     enforceDailyCap = true,
     userPatch,
+    allowZero = false,
   } = opts;
 
   if (!uid || !txId) return { ok: false, error: 'missing_uid_or_tx' };
   const credit = Math.max(0, Math.floor(coins));
-  if (credit <= 0) return { ok: false, error: 'invalid_coins' };
+  if (credit <= 0 && !allowZero) return { ok: false, error: 'invalid_coins' };
+
+  const zeroSplit: RewardSplit = {
+    totalUsd: 0,
+    userUsd: 0,
+    adminUsd: 0,
+    userCoins: 0,
+    adminCoins: 0,
+  };
+
+  if (credit <= 0 && allowZero) {
+    // Stamp-only path (e.g. bot claim lock without minting)
+    const userRef = doc(db, 'users', uid);
+    try {
+      if (userPatch && Object.keys(userPatch).length) {
+        await updateDoc(userRef, {
+          ...userPatch,
+          lastRewardAt: serverTimestamp(),
+          lastRewardSource: source,
+        });
+      }
+      return { ok: true, duplicate: false, split: zeroSplit, balanceCredited: 0 };
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'reward_failed';
+      return { ok: false, error: msg };
+    }
+  }
 
   const ledgerRef = doc(db, ledgerCollection, txId);
   const userRef = doc(db, 'users', uid);

@@ -19,9 +19,9 @@ const BOT_CLAIM_LOCK_MS = 24 * 60 * 60 * 1000;
 
 /**
  * POST /api/rewards/earn
- * Strict verification for ads/offers/installs.
- * Flat POST_REWARD_COINS for verified TikReel/Pulse uploads.
- * AI bot sync locked to serverTimestamp 24h window (anti device-clock cheat).
+ * No-loss: user coins only for Adsterra-backed Math/Captcha paths handled
+ * elsewhere, offerwall postbacks, and zero-sum gifts. Posts / referral /
+ * live / bot mint credit 0.
  */
 export async function POST(request: Request) {
   try {
@@ -140,6 +140,15 @@ export async function POST(request: Request) {
 
     let result;
     if (source === 'tiktok_post' || source === 'pulse_post') {
+      if (POST_REWARD_COINS <= 0) {
+        return NextResponse.json({
+          ok: true,
+          duplicate: false,
+          source,
+          creditedCoins: 0,
+          message: `${SOURCE_LABELS[source]} published. No coin reward (ads-only earn).`,
+        });
+      }
       result = await applyFlatCoins({
         uid: creditUid,
         txId,
@@ -149,27 +158,33 @@ export async function POST(request: Request) {
         enforceDailyCap: true,
       });
     } else if (source === 'ai_bot_sync') {
-      // Credit via split engine, then stamp lastBotClaimAt with serverTimestamp
+      // No-loss: bot must not mint coins from nothing. Stamp claim lock only.
       result = await applyFlatCoins({
         uid: creditUid,
         txId,
         source,
-        // Derive claim from invested * daily rate (client may pass visualProfit for display only)
-        coins: Math.max(
-          1,
-          Math.min(
-            500,
-            Math.floor(
-              Number(meta.invested || 0) *
-                (String(meta.botTier) === 'vvip' ? 0.05 : 0.025)
-            )
-          )
-        ),
-        meta: { ...meta, actorUid: actor.uid, label: SOURCE_LABELS[source] },
+        coins: 0,
+        meta: {
+          ...meta,
+          actorUid: actor.uid,
+          label: SOURCE_LABELS[source],
+          noLoss: true,
+          mintDisabled: true,
+        },
         enforceDailyCap: true,
         userPatch: { lastBotClaimAt: serverTimestamp() },
+        allowZero: true,
       });
     } else if (source === 'referral') {
+      if (REFERRAL_BONUS_COINS <= 0) {
+        return NextResponse.json({
+          ok: true,
+          duplicate: false,
+          source,
+          creditedCoins: 0,
+          message: 'Referral saved. No coin bonus (ads-only earn).',
+        });
+      }
       result = await applyFlatCoins({
         uid: creditUid,
         txId,
@@ -205,6 +220,23 @@ export async function POST(request: Request) {
         },
         ledgerCollection: 'reward_ledger',
         enforceDailyCap: true,
+      });
+    } else if (
+      source === 'live_view' ||
+      source === 'live_host' ||
+      source === 'pk_match' ||
+      source === 'game_install' ||
+      source === 'game_milestone' ||
+      source === 'app_download'
+    ) {
+      // No-loss: these paths have no verified partner $ here.
+      // Games/CPA money only via /api/postback. Ads via Watch Ads / Math / Captcha.
+      return NextResponse.json({
+        ok: true,
+        duplicate: false,
+        source,
+        creditedCoins: 0,
+        message: `${SOURCE_LABELS[source]}: no free coins (earn via Watch Ads / Offerwall).`,
       });
     } else {
       result = await applySplitReward({

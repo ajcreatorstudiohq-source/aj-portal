@@ -29,8 +29,8 @@ import {
  * Body: { gameId: string, level: number }
  * Auth: Bearer <Firebase ID token>
  *
- * Validates install + level reached + milestone definition, then credits
- * AJ Coins 🪙 to the user and logs AdminRevenue. Idempotent per user/game/level.
+ * No-loss: marks milestone claimed but credits 0 AJ Coins here.
+ * Real CPA / offerwall money only via /api/postback (30% of partner payout).
  */
 export async function POST(request: Request) {
   try {
@@ -55,8 +55,8 @@ export async function POST(request: Request) {
     const txId = `milestone_${user.uid}_${gameId}_${level}`;
     const ledgerRef = doc(db, 'reward_ledger', txId);
     const userRef = doc(db, 'users', user.uid);
-    const seed = txId;
-    const split = computeRewardSplit(seed);
+    // No-loss: unbacked milestone = 0 user coins (CPA pays via /api/postback only)
+    const split = computeRewardSplit(txId);
 
     const outcome = await runTransaction(db, async (tx) => {
       const ledgerSnap = await tx.get(ledgerRef);
@@ -106,7 +106,7 @@ export async function POST(request: Request) {
       return { duplicate: false as const, split, claimed, currentLevel };
     });
 
-    if (!outcome.duplicate) {
+    if (!outcome.duplicate && outcome.split.adminUsd > 0) {
       try {
         await addDoc(collection(db, 'AdminRevenue'), {
           type: 'game_milestone',
@@ -145,7 +145,9 @@ export async function POST(request: Request) {
       totalPoolUsd: outcome.split.totalUsd,
       message: outcome.duplicate
         ? 'Milestone already claimed'
-        : `Milestone L${level} complete! +${outcome.split.userCoins} AJ Coins`,
+        : outcome.split.userCoins > 0
+          ? `Milestone L${level} complete! +${outcome.split.userCoins} AJ Coins`
+          : `Milestone L${level} saved. Coins only via Offerwall postback (no-loss).`,
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'milestone_failed';

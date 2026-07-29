@@ -1,16 +1,16 @@
 /**
  * Canonical multi-source earning channels for AJ Super Portal.
- * Every channel credits AJ Coins 🪙 via verified server paths only.
  *
- * Coin amounts (Adsterra click = $0.05 default → user 30% = 15 🪙):
- * - Watch Ads / Math / Captcha → ADSTERRA_REWARD_COINS (15)
- * - TikReel / Pulse post → POST_REWARD_COINS (5)
- * - Referral → REFERRAL_BONUS_COINS (25) from economy
- * - Live / games / other split earns → same Adsterra click 30% via computeRewardSplit
+ * NO-LOSS ECONOMY:
+ * User AJ Coins ONLY when backed by real network dollars:
+ *   - Watch Ads / Math / Captcha → 30% of ADSTERRA_CLICK_USD
+ *   - Offerwall / AdGem postback → 30% of partner payout USD
+ *   - Gifts → zero-sum from sender balance (40/60)
+ * Everything else (posts, referral, live, bot mint, bare milestones) → 0 coins.
  */
 
 import { ADSTERRA_REWARD_COINS } from './ads-config';
-import { REFERRAL_BONUS_COINS, adsterraUserRewardCoins } from './economy';
+import { REFERRAL_BONUS_COINS, NO_LOSS_ECONOMY } from './economy';
 
 export const REWARD_SOURCES = [
   'game_install',
@@ -73,25 +73,37 @@ export const SOURCE_LABELS: Record<RewardSource, string> = {
   alpha_captcha: 'Premium Alphanumeric Captcha',
 };
 
-/** TikReel / Pulse verified upload reward */
-export const POST_REWARD_COINS = 5;
+/**
+ * Sources that may credit user coins under no-loss rules.
+ * (Gifts handled separately as zero-sum from sender.)
+ */
+export const REVENUE_BACKED_SOURCES: ReadonlySet<RewardSource> = new Set([
+  'offerwall',
+  'offerwall_video',
+  'math_challenge',
+  'alpha_captcha',
+  'live_gift',
+]);
+
+/** TikReel / Pulse — 0 in no-loss mode (no Adsterra $ behind upload) */
+export const POST_REWARD_COINS = 0;
 
 /**
- * Math & Captcha open Adsterra Direct Link → same 30% of click as Watch Ads.
+ * Math & Captcha open Adsterra Direct Link → 30% of click (same as Watch Ads).
  * Default 15 🪙 when ADSTERRA_CLICK_USD = $0.05.
  */
 export const MATH_CHALLENGE_COINS = ADSTERRA_REWARD_COINS;
 export const ALPHA_CAPTCHA_COINS = ADSTERRA_REWARD_COINS;
 
-/** Activity earn (live / games / etc.) — same Adsterra click user share */
-export const ACTIVITY_REWARD_COINS = adsterraUserRewardCoins();
+/** Unbacked live / games / install activity — always 0 (no-loss) */
+export const ACTIVITY_REWARD_COINS = 0;
 
-export { REFERRAL_BONUS_COINS, ADSTERRA_REWARD_COINS };
+export { REFERRAL_BONUS_COINS, ADSTERRA_REWARD_COINS, NO_LOSS_ECONOMY };
 
 /** @deprecated Use ADSTERRA_REWARD_COINS */
 export const REWARDED_VIDEO_COINS = ADSTERRA_REWARD_COINS;
 
-/** Public map for UI / GET helpers — exact coins credited per action */
+/** Public map for UI — exact coins credited per action */
 export const REWARD_COIN_AMOUNTS = {
   watch_ads: ADSTERRA_REWARD_COINS,
   math_challenge: MATH_CHALLENGE_COINS,
@@ -100,4 +112,5 @@ export const REWARD_COIN_AMOUNTS = {
   pulse_post: POST_REWARD_COINS,
   referral: REFERRAL_BONUS_COINS,
   activity: ACTIVITY_REWARD_COINS,
+  ai_bot_sync: 0,
 } as const;

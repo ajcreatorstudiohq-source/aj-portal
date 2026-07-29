@@ -1,20 +1,13 @@
 import { NextResponse } from 'next/server';
 import { createHash, timingSafeEqual } from 'crypto';
-import { getOfferwallServerConfig } from '../../../lib/economy';
+import { getOfferwallServerConfig, splitPayoutUsd } from '../../../lib/economy';
 import { applySplitReward } from '../../../lib/reward-engine';
 
 /**
  * GET|POST /api/offerwall/callback
  *
- * Provider postback endpoint. Validates shared secret / signature, then
- * credits AJ Coins 🪙 to the user wallet and logs admin revenue.
- *
- * Query / body params (common offerwall style):
- *   uid | user_id  — Firebase uid
- *   txid | transaction_id — unique completion id
- *   amount — optional provider payout (informational)
- *   secret | key — shared secret (or HMAC via `sig`)
- *   sig — optional hex HMAC-SHA256 of `${uid}:${txid}:${secret}`
+ * Provider postback. Credits user 30% of partner payout USD as AJ Coins (CASH_RATE);
+ * admin keeps 70%. No payout amount → 0 coins (no-loss).
  */
 function readParams(url: URL, body: Record<string, unknown>) {
   const g = (k: string) =>
@@ -82,15 +75,27 @@ async function handle(request: Request) {
       return NextResponse.json({ ok: false, error: 'rejected_status' }, { status: 400 });
     }
 
+    const payoutSplit = splitPayoutUsd(params.amount);
+    if (payoutSplit.userCoins <= 0) {
+      return NextResponse.json({
+        ok: true,
+        creditedCoins: 0,
+        message: 'Postback accepted. No user coins without positive payout (no-loss).',
+        providerAmount: params.amount,
+      });
+    }
+
     const result = await applySplitReward({
       uid: params.uid,
       txId: `offerwall_${params.txId}`,
       source: 'offerwall',
       seed: `offerwall_${params.txId}`,
+      splitOverride: payoutSplit,
       meta: {
         providerAmount: params.amount,
         status: params.status,
         via: 'postback',
+        noLoss: true,
       },
       ledgerCollection: 'offerwall_ledger',
     });
