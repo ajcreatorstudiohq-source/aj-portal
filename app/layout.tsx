@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import './globals.css'
 import { Space_Grotesk, Syne } from 'next/font/google'
 import Script from 'next/script'
@@ -6,6 +7,13 @@ import {
   ADSTERRA_REWARDED_LINK,
   ADSTERRA_SOCIAL_BAR_SRC,
 } from './lib/ads-config'
+
+const SITE_URL = 'https://aj-portal-one.vercel.app'
+const SITE_TITLE = 'AJ Super Portal'
+const SITE_DESCRIPTION =
+  'Offer Hub · Earn AJ Coins · Live PK · TikReels · Premium Dark GPT Hub'
+/** WhatsApp / Facebook preview — 1200×630 JPEG under ~300KB */
+const OG_IMAGE = `${SITE_URL}/og-image.jpg`
 
 const bodyFont = Space_Grotesk({
   subsets: ['latin'],
@@ -16,9 +24,65 @@ const displayFont = Syne({
   variable: '--font-aj-display',
 })
 
-export const metadata = {
-  title: 'AJ Super Portal',
-  description: 'Offer Hub · Earn AJ Coins · Live PK · Premium Dark GPT Hub',
+export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
+  title: SITE_TITLE,
+  description: SITE_DESCRIPTION,
+  applicationName: SITE_TITLE,
+  keywords: [
+    'AJ Super Portal',
+    'AJ Coins',
+    'Watch Ads',
+    'TikReels',
+    'Live PK',
+    'Offer Hub',
+  ],
+  authors: [{ name: 'AJ Creator Studio' }],
+  creator: 'AJ Creator Studio',
+  alternates: {
+    canonical: SITE_URL,
+  },
+  icons: {
+    icon: [{ url: '/logo.png', type: 'image/png', sizes: '1024x1024' }],
+    apple: [{ url: '/logo.png', type: 'image/png' }],
+    shortcut: '/logo.png',
+  },
+  manifest: '/manifest.json',
+  openGraph: {
+    type: 'website',
+    locale: 'en_US',
+    url: SITE_URL,
+    siteName: SITE_TITLE,
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    images: [
+      {
+        url: OG_IMAGE,
+        secureUrl: OG_IMAGE,
+        width: 1200,
+        height: 630,
+        alt: 'AJ Super Portal',
+        type: 'image/jpeg',
+      },
+      {
+        url: `${SITE_URL}/logo.png`,
+        width: 1024,
+        height: 1024,
+        alt: 'AJ Super Portal Logo',
+        type: 'image/png',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    images: [OG_IMAGE],
+  },
+  other: {
+    'og:image:width': '1200',
+    'og:image:height': '630',
+  },
 }
 
 /**
@@ -33,6 +97,23 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${bodyFont.variable} ${displayFont.variable}`}>
       <head>
+        {/* Explicit OG tags so WhatsApp/Facebook crawlers see them in the first HTML bytes */}
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content={SITE_TITLE} />
+        <meta property="og:title" content={SITE_TITLE} />
+        <meta property="og:description" content={SITE_DESCRIPTION} />
+        <meta property="og:url" content={SITE_URL} />
+        <meta property="og:image" content={OG_IMAGE} />
+        <meta property="og:image:secure_url" content={OG_IMAGE} />
+        <meta property="og:image:type" content="image/jpeg" />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:alt" content={SITE_TITLE} />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={SITE_TITLE} />
+        <meta name="twitter:description" content={SITE_DESCRIPTION} />
+        <meta name="twitter:image" content={OG_IMAGE} />
+        <link rel="image_src" href={OG_IMAGE} />
         <Script src="/aj-sdk.js" strategy="beforeInteractive" />
         <Script id="aj-kill-intrusive-ads" strategy="beforeInteractive">
           {`
