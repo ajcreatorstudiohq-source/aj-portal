@@ -7128,7 +7128,7 @@ Tip: Social Hub se copy karo 📤`,
                   Refer & Earn · +{REFERRAL_COINS} 🪙 each
                 </p>
                 <p className="text-[9px] text-gray-400 truncate">
-                  Transfer / Referral ID: {myReferralId || '…generating…'}
+                  Referral ID: {myReferralId || '…generating…'} · coins mangwane ke liye yeh do
                 </p>
               </div>
               <button
