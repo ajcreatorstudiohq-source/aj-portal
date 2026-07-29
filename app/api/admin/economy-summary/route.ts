@@ -37,7 +37,8 @@ function isPendingStatus(status: string) {
 
 /**
  * GET /api/admin/economy-summary
- * CEO-only — full hisaab: users, user 30% wallets, admin 70%, withdraws, remaining.
+ * CEO-only — full hisaab. Admin UI shows 100% gross (users + ledger).
+ * Users never see split % in the app wallet UI.
  */
 export async function GET(request: Request) {
   try {
@@ -169,14 +170,18 @@ export async function GET(request: Request) {
     const totalGivenToUsersUsd = coinsToUsd(totalGivenToUsersCoins);
     /** After paying approved withdraws, admin USD ledger remaining (approx) */
     const adminRemainingUsd = Math.max(0, ownerUsd - withdrawnPaidUsd);
+    /** Admin-only 100% view = user given + admin ledger */
+    const totalGrossUsd = Number((totalGivenToUsersUsd + ownerUsd).toFixed(4));
+    const totalGrossCoins = totalGivenToUsersCoins + ownerCoins;
 
     return NextResponse.json({
       ok: true,
-      platformSharePct: PLATFORM_EARN_SHARE,
-      userSharePct: USER_EARN_SHARE,
       cashRate: CASH_RATE,
       totalUsers,
-      // User 30% side
+      totalGrossUsd,
+      totalGrossUsdLabel: formatUsd(totalGrossUsd),
+      totalGrossCoins,
+      // User wallets (what users see — no % in UI)
       totalUserBalanceCoins,
       totalUserBalanceUsd: userWalletUsd,
       totalUserBalanceUsdLabel: formatUsd(userWalletUsd),
@@ -192,7 +197,7 @@ export async function GET(request: Request) {
       withdrawnPendingUsdLabel: formatUsd(withdrawnPendingUsd),
       withdrawPaidCount,
       withdrawPendingCount,
-      // Admin 70% side
+      // Admin ledger
       adminOwnerUsd: ownerUsd,
       adminOwnerCoins: ownerCoins,
       adminOwnerUsdLabel: formatUsd(ownerUsd),
@@ -204,6 +209,9 @@ export async function GET(request: Request) {
       eventCount,
       adminRemainingUsd,
       adminRemainingUsdLabel: formatUsd(adminRemainingUsd),
+      // Kept for internal tooling only — not shown in user UI
+      platformSharePct: PLATFORM_EARN_SHARE,
+      userSharePct: USER_EARN_SHARE,
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'summary_failed';
