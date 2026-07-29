@@ -1,12 +1,4 @@
 import { NextResponse } from 'next/server';
-import {
-  doc,
-  getDoc,
-  setDoc,
-  updateDoc,
-  serverTimestamp,
-} from 'firebase/firestore';
-import { db } from '../../../../firebaseConfig';
 import { applyFlatCoins } from '../../../lib/reward-engine';
 import {
   ALPHA_CAPTCHA_COINS,
@@ -16,6 +8,10 @@ import {
   bearerFromRequest,
   verifyFirebaseIdToken,
 } from '../../../lib/verify-id-token';
+import { FieldValue, getAdminDb, getFirebaseAdminDiag } from '../../../lib/firebase-admin';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 const SESSION_TTL_MS = 5 * 60 * 1000;
 const MAX_DAILY = DAILY_CAPS.alpha_captcha;
@@ -36,7 +32,7 @@ function makeCode(len = 6): string {
 /**
  * POST /api/rewards/alpha-captcha
  * action: prepare  → 6-char alphanumeric challenge
- * action: complete → verify typed code, credit 10 AJ Coins (max 5/day)
+ * action: complete → verify typed code, credit via Admin SDK
  */
 export async function POST(request: Request) {
   try {
@@ -49,20 +45,45 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: 'invalid_token' }, { status: 401 });
     }
 
+    const adminDb = getAdminDb();
+    if (!adminDb) {
+      const diag = getFirebaseAdminDiag();
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'admin_sdk_missing',
+          message:
+            diag.lastError ||
+            'Server cannot credit coins. Configure FIREBASE_SERVICE_ACCOUNT_JSON.',
+        },
+        { status: 503 }
+      );
+    }
+
     const body = await request.json().catch(() => ({}));
     const action = String(body.action || 'prepare');
     const dayKey = dayKeyUtc();
-    const userRef = doc(db, 'users', user.uid);
-    const userSnap = await getDoc(userRef);
-    if (!userSnap.exists()) {
+    const userRef = adminDb.collection('users').doc(user.uid);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) {
       return NextResponse.json({ ok: false, error: 'user_not_found' }, { status: 404 });
     }
     const ud = userSnap.data() as {
       alphaCaptchaDayKey?: string;
       alphaCaptchaDayCount?: number;
+      balance?: number;
+      isBanned?: boolean;
+      accountStatus?: string;
     };
+    if (ud.isBanned || ud.accountStatus === 'banned') {
+      return NextResponse.json(
+        { ok: false, error: 'account_banned', message: 'Account restricted.' },
+        { status: 403 }
+      );
+    }
     const dailyCount =
       ud.alphaCaptchaDayKey === dayKey ? Number(ud.alphaCaptchaDayCount || 0) : 0;
+    const currentBalance = Math.max(0, Math.floor(Number(ud.balance) || 0));
 
     if (action === 'prepare') {
       if (dailyCount >= MAX_DAILY) {
@@ -78,10 +99,10 @@ export async function POST(request: Request) {
       }
       const code = makeCode(6);
       const sessionId = `acap_${user.uid}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      await setDoc(doc(db, 'alpha_captcha_sessions', sessionId), {
+      await adminDb.collection('alpha_captcha_sessions').doc(sessionId).set({
         uid: user.uid,
         code,
-        createdAt: serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
         expiresAt: Date.now() + SESSION_TTL_MS,
         dayKey,
         consumed: false,
@@ -110,14 +131,14 @@ export async function POST(request: Request) {
     }
     if (dailyCount >= MAX_DAILY) {
       return NextResponse.json(
-        { ok: false, error: 'daily_limit', remainingToday: 0 },
+        { ok: false, error: 'daily_limit', remainingToday: 0, balance: currentBalance },
         { status: 429 }
       );
     }
 
-    const sessionRef = doc(db, 'alpha_captcha_sessions', sessionId);
-    const sessionSnap = await getDoc(sessionRef);
-    if (!sessionSnap.exists()) {
+    const sessionRef = adminDb.collection('alpha_captcha_sessions').doc(sessionId);
+    const sessionSnap = await sessionRef.get();
+    if (!sessionSnap.exists) {
       return NextResponse.json({ ok: false, error: 'invalid_session' }, { status: 400 });
     }
     const session = sessionSnap.data() as {
@@ -125,7 +146,6 @@ export async function POST(request: Request) {
       code: string;
       expiresAt: number;
       consumed?: boolean;
-      slot?: number;
     };
     if (session.uid !== user.uid) {
       return NextResponse.json({ ok: false, error: 'session_mismatch' }, { status: 403 });
@@ -135,7 +155,8 @@ export async function POST(request: Request) {
         ok: true,
         duplicate: true,
         creditedCoins: 0,
-        message: 'Captcha already claimed',
+        balance: currentBalance,
+        message: 'Captcha already claimed for this session. Start a new one.',
       });
     }
     if (Date.now() > Number(session.expiresAt || 0)) {
@@ -148,8 +169,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const slot = typeof session.slot === 'number' ? session.slot : dailyCount;
-    const txId = `alpha_captcha_${user.uid}_${dayKey}_${slot}`;
+    // Session-scoped ledger — never soft-lock on day/slot after economy reset.
+    const txId = `alpha_captcha_${sessionId}`;
     const result = await applyFlatCoins({
       uid: user.uid,
       txId,
@@ -160,7 +181,7 @@ export async function POST(request: Request) {
       userPatch: {
         alphaCaptchaDayKey: dayKey,
         alphaCaptchaDayCount: dailyCount + 1,
-        lastAlphaCaptchaAt: serverTimestamp(),
+        lastAlphaCaptchaAt: FieldValue.serverTimestamp(),
       },
     });
 
@@ -170,31 +191,45 @@ export async function POST(request: Request) {
         {
           ok: false,
           error: result.dailyCapHit ? 'daily_limit' : result.error || 'credit_failed',
+          balance: result.balance ?? currentBalance,
+          message:
+            result.error === 'admin_sdk_missing'
+              ? 'Server cannot credit coins. Configure FIREBASE_SERVICE_ACCOUNT_JSON.'
+              : result.dailyCapHit
+                ? `Daily captcha limit (${MAX_DAILY}) reached.`
+                : 'Credit failed. Please try a new captcha.',
         },
         { status }
       );
     }
 
-    await updateDoc(sessionRef, {
-      consumed: true,
-      completedAt: serverTimestamp(),
-    });
+    await sessionRef.set(
+      {
+        consumed: true,
+        completedAt: FieldValue.serverTimestamp(),
+        creditedCoins: result.balanceCredited ?? 0,
+        txId,
+        balanceAfter: result.balance ?? null,
+      },
+      { merge: true }
+    );
 
     return NextResponse.json({
       ok: true,
       duplicate: !!result.duplicate,
       creditedCoins: result.balanceCredited ?? 0,
-      balance: result.balance,
+      balance: result.balance ?? currentBalance,
       remainingToday: Math.max(
         0,
         MAX_DAILY - (result.duplicate ? dailyCount : dailyCount + 1)
       ),
       message: result.duplicate
-        ? 'Already credited'
+        ? 'Already credited for this captcha session'
         : `Verified! +${result.balanceCredited} AJ Coins 🪙`,
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'alpha_captcha_failed';
+    console.error('[alpha-captcha]', msg, e);
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }

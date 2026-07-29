@@ -891,11 +891,17 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
                 ? { balance: data.balance }
                 : undefined
           );
-          if (data.duplicate || credited <= 0) {
+          if (data.duplicate) {
             showWarnPopup(
               'Already Claimed',
               data.message ||
-                'This ad session was already claimed. Watch Ads again for more coins.'
+                'This ad session was already claimed. Start Watch Ads again for more coins.'
+            );
+          } else if (credited <= 0) {
+            showWarnPopup(
+              'Claim Incomplete',
+              data.message ||
+                'No coins were credited. Start Watch Ads again and wait the full timer.'
             );
           } else {
             showOkPopup(

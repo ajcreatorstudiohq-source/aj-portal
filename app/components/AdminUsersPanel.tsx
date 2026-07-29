@@ -55,6 +55,7 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
   const [hisaabKey, setHisaabKey] = useState(0);
   const [backfillBusy, setBackfillBusy] = useState(false);
   const [resetBusy, setResetBusy] = useState(false);
+  const [unlockBusy, setUnlockBusy] = useState(false);
 
   // Hard client gate — never render admin tools for normal users
   useEffect(() => {
@@ -296,6 +297,43 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
     }
   }, [adminUser, onAlert, loadUsers]);
 
+  const handleUnlockClaims = useCallback(async () => {
+    const current = auth.currentUser;
+    if (!current || !isPortalAdminUser(adminUser || { uid: current.uid, email: current.email })) {
+      return;
+    }
+    setUnlockBusy(true);
+    try {
+      const token = await current.getIdToken();
+      const res = await fetch('/api/admin/unlock-claims', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: current.email || 'ajcreatorstudio.hq@gmail.com',
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        message?: string;
+        error?: string;
+        balance?: number;
+      };
+      if (res.ok && data.ok) {
+        onAlert?.(data.message || 'Claims unlocked — try Watch Ads / Faucet again', '✅');
+      } else {
+        onAlert?.(data.message || data.error || 'Unlock failed', '⚠️');
+      }
+    } catch (e) {
+      console.error('unlock claims', e);
+      onAlert?.('Unlock failed — check Admin SDK on Vercel', '⚠️');
+    } finally {
+      setUnlockBusy(false);
+    }
+  }, [adminUser, onAlert]);
+
   const handleResetEconomy = useCallback(async () => {
     const current = auth.currentUser;
     if (!current || !isPortalAdminUser(adminUser || { uid: current.uid, email: current.email })) {
@@ -449,7 +487,7 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
         <button
           type="button"
           onClick={() => void handleBackfillReferrals()}
-          disabled={backfillBusy || resetBusy}
+          disabled={backfillBusy || resetBusy || unlockBusy}
           className="w-full py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest text-white active:scale-95 transition-all disabled:opacity-50"
           style={{ background: 'linear-gradient(135deg,#ec4899,#8b5cf6)' }}
         >
@@ -458,8 +496,20 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
 
         <button
           type="button"
+          onClick={() => void handleUnlockClaims()}
+          disabled={unlockBusy || resetBusy || backfillBusy}
+          className="w-full py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest text-white active:scale-95 transition-all disabled:opacity-50 border border-amber-500/40"
+          style={{ background: 'linear-gradient(135deg,#b45309,#92400e)' }}
+        >
+          {unlockBusy
+            ? 'Unlocking claim counters…'
+            : 'Unlock my faucet / Watch Ads claims'}
+        </button>
+
+        <button
+          type="button"
           onClick={() => void handleResetEconomy()}
-          disabled={resetBusy || backfillBusy}
+          disabled={resetBusy || backfillBusy || unlockBusy}
           className="w-full py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest text-white active:scale-95 transition-all disabled:opacity-50 border border-red-500/40"
           style={{ background: 'linear-gradient(135deg,#991b1b,#7f1d1d)' }}
         >

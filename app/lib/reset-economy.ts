@@ -21,6 +21,9 @@ export type ResetEconomyResult = {
   rewardLedgerDeleted: number;
   offerwallLedgerDeleted: number;
   adEventsDeleted: number;
+  adSessionsDeleted?: number;
+  mathSessionsDeleted?: number;
+  captchaSessionsDeleted?: number;
   adminStatsReset: boolean;
 };
 
@@ -67,7 +70,12 @@ export async function resetEconomyFreshStart(
       balance: 0,
       invested: 0,
       offerwallVideoDayCount: 0,
+      offerwallVideoDayKey: '',
       offerwallDayCount: 0,
+      mathChallengeDayCount: 0,
+      mathChallengeDayKey: '',
+      alphaCaptchaDayCount: 0,
+      alphaCaptchaDayKey: '',
       dailyRewards: {},
       economyResetAt: serverTimestamp(),
     });
@@ -102,6 +110,9 @@ export async function resetEconomyFreshStart(
   const rewardLedgerDeleted = await deleteCollectionDocs(db, 'reward_ledger');
   const offerwallLedgerDeleted = await deleteCollectionDocs(db, 'offerwall_ledger');
   const adEventsDeleted = await deleteCollectionDocs(db, 'ad_events');
+  const adSessionsDeleted = await deleteCollectionDocs(db, 'ad_reward_sessions');
+  const mathSessionsDeleted = await deleteCollectionDocs(db, 'math_challenge_sessions');
+  const captchaSessionsDeleted = await deleteCollectionDocs(db, 'alpha_captcha_sessions');
 
   return {
     usersScanned,
@@ -110,6 +121,9 @@ export async function resetEconomyFreshStart(
     rewardLedgerDeleted,
     offerwallLedgerDeleted,
     adEventsDeleted,
+    adSessionsDeleted,
+    mathSessionsDeleted,
+    captchaSessionsDeleted,
     adminStatsReset: true,
   };
 }
