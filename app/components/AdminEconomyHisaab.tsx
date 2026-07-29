@@ -6,8 +6,7 @@ import { auth, db } from '../firebase';
 import { isPortalAdminUser } from '../lib/admin-auth';
 import {
   CASH_RATE,
-  PLATFORM_EARN_SHARE,
-  USER_EARN_SHARE,
+  COIN_RATE,
   coinsToUsd,
   formatUsd,
 } from '../lib/economy';
@@ -39,8 +38,10 @@ export type EconomySummary = {
   eventCount: number;
   adminRemainingUsd: number;
   adminRemainingUsdLabel?: string;
-  platformSharePct: number;
-  userSharePct: number;
+  /** Full pool (users + admin ledger) — admin-only 100% view */
+  totalGrossUsd?: number;
+  totalGrossUsdLabel?: string;
+  totalGrossCoins?: number;
 };
 
 type Props = {
@@ -68,14 +69,30 @@ function emptySummary(): EconomySummary {
     adOwnerUsd: 0,
     eventCount: 0,
     adminRemainingUsd: 0,
-    platformSharePct: PLATFORM_EARN_SHARE,
-    userSharePct: USER_EARN_SHARE,
+    totalGrossUsd: 0,
+    totalGrossCoins: 0,
+  };
+}
+
+function withGross(partial: EconomySummary): EconomySummary {
+  const userUsd = Number(partial.totalGivenToUsersUsd || 0);
+  const adminUsd = Number(partial.adminOwnerUsd || 0);
+  const grossUsd = Number((userUsd + adminUsd).toFixed(4));
+  const grossCoins =
+    Number(partial.totalGivenToUsersCoins || 0) +
+    Number(partial.adminOwnerCoins || 0) ||
+    Math.floor(grossUsd * COIN_RATE);
+  return {
+    ...partial,
+    totalGrossUsd: grossUsd,
+    totalGrossUsdLabel: formatUsd(grossUsd),
+    totalGrossCoins: grossCoins,
   };
 }
 
 /**
- * Full admin hisaab: users, 30% user side, 70% admin side, withdraws, remaining.
- * USD always 3 decimals at withdraw rate 1000 🪙 = $1.
+ * Full admin hisaab (CEO only).
+ * Shows 100% total pool; users only ever see their own wallet (no % labels in app UI).
  */
 export default function AdminEconomyHisaab({ adminUser, refreshKey = 0 }: Props) {
   const [economy, setEconomy] = useState<EconomySummary | null>(null);
@@ -94,7 +111,7 @@ export default function AdminEconomyHisaab({ adminUser, refreshKey = 0 }: Props)
       });
       const data = (await res.json().catch(() => ({}))) as EconomySummary & { ok?: boolean };
       if (res.ok && data.ok !== false) {
-        setEconomy({ ...emptySummary(), ...data });
+        setEconomy(withGross({ ...emptySummary(), ...data }));
         return;
       }
 
@@ -151,36 +168,36 @@ export default function AdminEconomyHisaab({ adminUser, refreshKey = 0 }: Props)
         /* ignore */
       }
       const given = bal + paid;
-      setEconomy({
-        totalUsers: usersSnap.size,
-        totalUserBalanceCoins: bal,
-        totalUserBalanceUsd: coinsToUsd(bal),
-        totalUserBalanceUsdLabel: formatUsd(coinsToUsd(bal)),
-        totalGivenToUsersCoins: given,
-        totalGivenToUsersUsd: coinsToUsd(given),
-        totalGivenToUsersUsdLabel: formatUsd(coinsToUsd(given)),
-        withdrawnPaidCoins: paid,
-        withdrawnPaidUsd: coinsToUsd(paid),
-        withdrawnPaidUsdLabel: formatUsd(coinsToUsd(paid)),
-        withdrawnPendingCoins: pending,
-        withdrawnPendingUsd: coinsToUsd(pending),
-        withdrawnPendingUsdLabel: formatUsd(coinsToUsd(pending)),
-        withdrawPaidCount: paidN,
-        withdrawPendingCount: pendingN,
-        adminOwnerUsd: ownerUsd,
-        adminOwnerCoins: ownerCoins,
-        adminOwnerUsdLabel: formatUsd(ownerUsd),
-        giftOwnerUsd: giftsUsd,
-        giftOwnerCoins: giftsCoins,
-        giftOwnerUsdLabel: formatUsd(giftsUsd),
-        adOwnerUsd: adsUsd,
-        adOwnerUsdLabel: formatUsd(adsUsd),
-        eventCount: events,
-        adminRemainingUsd: Math.max(0, ownerUsd - coinsToUsd(paid)),
-        adminRemainingUsdLabel: formatUsd(Math.max(0, ownerUsd - coinsToUsd(paid))),
-        platformSharePct: PLATFORM_EARN_SHARE,
-        userSharePct: USER_EARN_SHARE,
-      });
+      setEconomy(
+        withGross({
+          totalUsers: usersSnap.size,
+          totalUserBalanceCoins: bal,
+          totalUserBalanceUsd: coinsToUsd(bal),
+          totalUserBalanceUsdLabel: formatUsd(coinsToUsd(bal)),
+          totalGivenToUsersCoins: given,
+          totalGivenToUsersUsd: coinsToUsd(given),
+          totalGivenToUsersUsdLabel: formatUsd(coinsToUsd(given)),
+          withdrawnPaidCoins: paid,
+          withdrawnPaidUsd: coinsToUsd(paid),
+          withdrawnPaidUsdLabel: formatUsd(coinsToUsd(paid)),
+          withdrawnPendingCoins: pending,
+          withdrawnPendingUsd: coinsToUsd(pending),
+          withdrawnPendingUsdLabel: formatUsd(coinsToUsd(pending)),
+          withdrawPaidCount: paidN,
+          withdrawPendingCount: pendingN,
+          adminOwnerUsd: ownerUsd,
+          adminOwnerCoins: ownerCoins,
+          adminOwnerUsdLabel: formatUsd(ownerUsd),
+          giftOwnerUsd: giftsUsd,
+          giftOwnerCoins: giftsCoins,
+          giftOwnerUsdLabel: formatUsd(giftsUsd),
+          adOwnerUsd: adsUsd,
+          adOwnerUsdLabel: formatUsd(adsUsd),
+          eventCount: events,
+          adminRemainingUsd: Math.max(0, ownerUsd - coinsToUsd(paid)),
+          adminRemainingUsdLabel: formatUsd(Math.max(0, ownerUsd - coinsToUsd(paid))),
+        })
+      );
     } catch (e) {
       console.error('AdminEconomyHisaab', e);
       setEconomy(emptySummary());
@@ -194,8 +211,12 @@ export default function AdminEconomyHisaab({ adminUser, refreshKey = 0 }: Props)
   }, [load, refreshKey]);
 
   const e = economy || emptySummary();
-  const adminPct = Math.round((e.platformSharePct || PLATFORM_EARN_SHARE) * 100);
-  const userPct = Math.round((e.userSharePct || USER_EARN_SHARE) * 100);
+  const grossUsd =
+    e.totalGrossUsd ?? Number((e.adminOwnerUsd + e.totalGivenToUsersUsd).toFixed(4));
+  const grossCoins =
+    e.totalGrossCoins != null && e.totalGrossCoins > 0
+      ? e.totalGrossCoins
+      : (e.totalGivenToUsersCoins + e.adminOwnerCoins || Math.floor(grossUsd * COIN_RATE));
 
   return (
     <div
@@ -222,22 +243,24 @@ export default function AdminEconomyHisaab({ adminUser, refreshKey = 0 }: Props)
           </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
-          <div className="bg-white/5 rounded-xl p-2.5">
-            <p className="text-[8px] text-gray-500 font-black uppercase">Total users</p>
-            <p className="text-white text-lg font-black">{e.totalUsers.toLocaleString()}</p>
-          </div>
-          <div className="bg-white/5 rounded-xl p-2.5">
-            <p className="text-[8px] text-gray-500 font-black uppercase">Split</p>
-            <p className="text-white text-xs font-black mt-1">
-              You {adminPct}% · Users {userPct}%
-            </p>
-          </div>
+        <div className="rounded-2xl border border-yellow-500/30 bg-yellow-500/10 p-3 space-y-1">
+          <p className="text-[9px] text-yellow-300 font-black uppercase tracking-widest">
+            Total · 100%
+          </p>
+          <p className="text-3xl font-black text-yellow-300">
+            {grossCoins.toLocaleString()} 🪙
+          </p>
+          <p className="text-lg font-black text-emerald-400">
+            {e.totalGrossUsdLabel || formatUsd(grossUsd)}
+          </p>
+          <p className="text-[8px] text-gray-500 font-bold">
+            Users + admin ledger · {e.totalUsers.toLocaleString()} users · {e.eventCount} events
+          </p>
         </div>
 
         <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-3 space-y-1.5">
           <p className="text-[9px] text-cyan-300 font-black uppercase tracking-widest">
-            Users · {userPct}% share
+            Users · wallets
           </p>
           <p className="text-yellow-300 text-sm font-black">
             Wallets now: {e.totalUserBalanceCoins.toLocaleString()} 🪙
@@ -270,12 +293,12 @@ export default function AdminEconomyHisaab({ adminUser, refreshKey = 0 }: Props)
 
         <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/10 p-3 space-y-1.5">
           <p className="text-[9px] text-emerald-300 font-black uppercase tracking-widest">
-            Your admin · {adminPct}% share
+            Admin ledger
           </p>
-          <p className="text-3xl font-black text-yellow-300">
+          <p className="text-2xl font-black text-yellow-300">
             {(e.adminOwnerCoins || 0).toLocaleString()} 🪙
           </p>
-          <p className="text-lg font-black text-emerald-400">
+          <p className="text-base font-black text-emerald-400">
             {e.adminOwnerUsdLabel || formatUsd(e.adminOwnerUsd)}
           </p>
           <p className="text-[9px] text-gray-400 font-bold">
@@ -286,7 +309,7 @@ export default function AdminEconomyHisaab({ adminUser, refreshKey = 0 }: Props)
           </p>
           <div className="grid grid-cols-2 gap-2 pt-1">
             <div className="bg-black/20 rounded-xl p-2">
-              <p className="text-[8px] text-gray-500 font-black uppercase">Gifts (40%)</p>
+              <p className="text-[8px] text-gray-500 font-black uppercase">Gifts</p>
               <p className="text-white text-[11px] font-black">
                 {(e.giftOwnerCoins || 0).toLocaleString()} 🪙
               </p>
