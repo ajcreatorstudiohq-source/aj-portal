@@ -9926,6 +9926,21 @@ Tip: Social Hub se copy karo 📤`,
             {/* ── WITHDRAW ── */}
             {walletTab === 'withdraw' && (
               <div className="space-y-4">
+                <div
+                  className="rounded-2xl px-4 py-3 border border-cyan-400/40 bg-cyan-500/10"
+                  style={{ boxShadow: '0 0 20px rgba(34,211,238,0.18)' }}
+                  role="status"
+                >
+                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-cyan-300/90">
+                    Processing notice
+                  </p>
+                  <p className="text-sm font-black text-white mt-1 tracking-wide">
+                    Withdrawal approval in 24 to 48 hours
+                  </p>
+                  <p className="text-[10px] text-cyan-200/70 font-bold mt-1 leading-relaxed">
+                    Requests are reviewed manually. You’ll get an in-app update once approved.
+                  </p>
+                </div>
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
                   <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">Available Balance</p>
                   <p className="text-2xl font-black text-yellow-400">{balance.toFixed(0)} 🪙</p>
@@ -9977,6 +9992,9 @@ Tip: Social Hub se copy karo 📤`,
                 <button onClick={handleWithdraw} className="w-full py-4 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all shadow-[0_0_24px_rgba(34,211,238,0.3)]" style={{background:'linear-gradient(135deg,#0891b2,#0e7490)'}}>
                   💸 Request Withdrawal
                 </button>
+                <p className="text-center text-[10px] font-black uppercase tracking-widest text-cyan-400/80">
+                  Approval · 24–48 hours
+                </p>
               </div>
             )}
 
