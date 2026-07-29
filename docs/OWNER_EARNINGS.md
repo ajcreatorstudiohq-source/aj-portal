@@ -8,28 +8,13 @@
 2. App users ko activity earn pe sirf **30% AJ Coins** deti hai. **70% user wallet mein kabhi nahi jata.**
 3. Har earn event pe Firestore `AdminRevenue` mein aapka hissa **`ownerUsd` / `adminShare` (USD)** ke naam se record hota hai — yeh hisaab / ledger hai.
 
-## No-loss rule (important)
+## Ad-backed social economy
 
-User AJ Coins **sirf** tab milte hain jab peeche **real network $** ho:
+Modest coins on posts / games / referral are OK because those surfaces also run Adsterra.
+PK takes **100 coins from each player** (200 total) and opens ads on **start + end**.
+AI Trading Bot keeps daily % on invested coins so the feature stays useful.
 
-| Allowed | User gets |
-|---|---|
-| Watch Ads / Math / Captcha | 30% of `ADSTERRA_CLICK_USD` |
-| Offerwall / AdGem postback | 30% of partner payout `$` |
-| Gifts | zero-sum from sender (40/60) |
-| Coin purchase | user paid real `$` |
-
-| Blocked (0 coins) | Why |
-|---|---|
-| TikReel / Pulse post | no Adsterra `$` |
-| Referral bonus | no Adsterra `$` |
-| Live view / host / PK free earn | no Adsterra `$` |
-| Game milestone (in-app) | CPA only via `/api/postback` |
-| AI bot daily mint | would create coins from nothing |
-
-`NO_LOSS_ECONOMY = true` · `REFERRAL_BONUS_COINS = 0` · `POST_REWARD_COINS = 0` · `ACTIVITY_REWARD_COINS = 0`
-
-**Withdraw:** Adsterra/partner dashboard se `$` nikaalo, phir users ko pay karo. Free coins nahi → jeb se dena nahi padega (jab tak `ADSTERRA_CLICK_USD` ≤ real CPC ho).
+Watch Ads = **10** · Math/Captcha = **5** each · Posts = **2** · Referral = **5** · Games = **5**.
 
 ## Adsterra Direct Link / Watch Ads (no-loss)
 
@@ -42,16 +27,17 @@ Adsterra aapko click ka **100%** deta hai (dashboard). App usi `$` se split kart
 
 ### Exact coins shown in UI (same as credited)
 
-| Action | Coins | ≈ USD (withdraw) |
+| Action | Coins | Notes |
 |---|---|---|
-| Watch Ads | **15** | `$0.015` |
-| Math Challenge | **15** | `$0.015` |
-| Alpha Captcha | **15** | `$0.015` |
-| Offerwall postback | `floor(payout × 0.3 × 1000)` | 30% of partner `$` |
-| TikReel / Pulse post | **0** | — |
-| Referral | **0** | — |
-| Live / games free activity | **0** | — |
-| AI bot mint | **0** | — |
+| Watch Ads (rewarded) | **10** | Adsterra Direct Link |
+| Math Challenge | **5** | Opens Adsterra |
+| Alpha Captcha | **5** | Opens Adsterra |
+| TikReel / Pulse post | **2** | In-feed ads |
+| Referral | **5** | Invite growth |
+| Games install / milestone | **5** | Ads in games |
+| AI Trading Bot | invested × 2.5% / 5% | Daily claim |
+| Offerwall postback | `floor(payout × 0.3 × 1000)` | Partner `$` |
+| PK entry | **100 each** (200 total) | 5 min · ads start+end |
 
 - Constant: `ADSTERRA_CLICK_USD` (env: `NEXT_PUBLIC_ADSTERRA_CLICK_USD`)
 - Helpers: `splitAdClickUsd()` / `computeRewardSplit()` / `REWARD_COIN_AMOUNTS`

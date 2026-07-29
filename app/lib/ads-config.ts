@@ -2,18 +2,11 @@
  * Adsterra ad configuration for AJ Super Portal.
  * Monetag / gozen / sunny-sprout / alwingulla are permanently removed.
  *
- * Economy (Watch Ads / Direct Link claim):
- * - Adsterra pays YOU 100% of the click in their dashboard.
- * - App credits user only 30% of ADSTERRA_CLICK_USD as coins (CASH_RATE).
- * - Remaining 70% stays yours (AdminRevenue ledger + real Adsterra $).
- * Set NEXT_PUBLIC_ADSTERRA_CLICK_USD from your Adsterra average CPC so you never lose.
+ * Rewarded Watch Ads credit a fixed coin amount (ADSTERRA_REWARD_COINS).
+ * Owner still earns real $ from Adsterra dashboard on every Direct Link open.
  */
 
-import {
-  ADSTERRA_CLICK_USD,
-  adsterraUserRewardCoins,
-  splitAdClickUsd,
-} from './economy';
+import { ADSTERRA_CLICK_USD, splitAdClickUsd } from './economy';
 
 export { ADSTERRA_CLICK_USD };
 
@@ -33,16 +26,13 @@ export const ADSTERRA_REWARDED_LINK =
 /** Alias — impression/click track estimates use the same click $ base */
 export const AD_CLICK_VALUE_USD = ADSTERRA_CLICK_USD;
 
-/** Full 70/30 split of one Adsterra click */
+/** Full 70/30 split of one Adsterra click (ledger / hisaab) */
 export function getAdsterraClickSplit() {
   return splitAdClickUsd(ADSTERRA_CLICK_USD);
 }
 
-/**
- * User AJ Coins per Watch Ads / Math / Captcha claim = 30% of ADSTERRA_CLICK_USD.
- * Default $0.05 → 15 🪙 ($0.015 liability). Admin keeps 70% ($0.035).
- */
-export const ADSTERRA_REWARD_COINS = adsterraUserRewardCoins();
+/** User AJ Coins per Watch Ads / rewarded Direct Link claim */
+export const ADSTERRA_REWARD_COINS = 10;
 
 /** Watch-ad verification timer before Claim unlocks (high-quality visit) */
 export const ADSTERRA_VERIFY_SECONDS = 30;
@@ -76,6 +66,8 @@ export const AD_PLACEMENTS = [
   'live_go_banner',
   'live_join_banner',
   'live_matches_banner',
+  'pk_match_start',
+  'pk_match_end',
 ] as const;
 
 export type AdPlacement = (typeof AD_PLACEMENTS)[number];

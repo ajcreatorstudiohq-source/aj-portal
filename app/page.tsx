@@ -38,8 +38,8 @@ import { creditAdminEarnings } from './lib/admin-earnings';
 import { earnReward } from './lib/client-rewards';
 import { ensureUserReferralId, resolveReferrerUid } from './lib/referral';
 import { trackAdEvent } from './lib/ad-client';
-import { INFEED_AD_EVERY_N, ADSTERRA_REWARD_COINS } from './lib/ads-config';
-import { POST_REWARD_COINS, ACTIVITY_REWARD_COINS } from './lib/reward-sources';
+import { INFEED_AD_EVERY_N, ADSTERRA_REWARD_COINS, ADSTERRA_REWARDED_LINK } from './lib/ads-config';
+import { POST_REWARD_COINS, ACTIVITY_REWARD_COINS, GAME_REWARD_COINS } from './lib/reward-sources';
 import {
   normalizeTikReelPost,
   normalizePulsePost,
@@ -335,8 +335,8 @@ const REFERRAL_COINS = REFERRAL_BONUS_COINS;
 const ADMIN_EARN_SHARE = PLATFORM_EARN_SHARE; // 70% — owner USD ledger (AdminRevenue + ad networks)
 const USER_EARN_SHARE  = ECONOMY_USER_EARN_SHARE; // 30% — user AJ Coins only
 
-const PK_ENTRY_COINS = 100;
-const PK_DURATION    = 300;
+const PK_ENTRY_COINS = 100; // each player — total 200 deducted per match
+const PK_DURATION    = 300; // 5 minutes
 
 // ============================================================
 // ADS POLICY — Adsterra only (Monetag / gozen / sunny-sprout removed)
@@ -2992,7 +2992,7 @@ export function AJSuperPortal() {
           clearInterval(pkTimerRef.current!);
           setPkWinner(pkScoreRef.current.me >= pkScoreRef.current.rival ? (username||'You') : (pkRivalData?.username||'Rival'));
           setPkActive(false);
-          // FIX: PK battle end pe rival frames + audio cleanup
+          // FIX: PK battle end pe rival frames + audio cleanup (+ Adsterra in stopPkBattle)
           try { stopPkBattle(); } catch {}
           return 0;
         }
@@ -3753,6 +3753,23 @@ export function AJSuperPortal() {
   //   - Rival jab accept karega toh woh bhi same session join karega
   //   - Dono ki awaz + video chale, split-screen mein dikhe
   // ==========================================================
+  /** Open Adsterra Direct Link on PK start/end — owner earns from ads */
+  const openPkAdsterra = (placement: 'pk_match_start' | 'pk_match_end') => {
+    try {
+      const win = window.open(ADSTERRA_REWARDED_LINK, '_blank', 'noopener,noreferrer');
+      if (!win) {
+        try { window.location.assign(ADSTERRA_REWARDED_LINK); } catch {}
+      }
+      void trackAdEvent({
+        event: 'click',
+        placement,
+        meta: { network: 'adsterra', surface: 'pk_battle' },
+      });
+    } catch (e) {
+      console.warn('openPkAdsterra', e);
+    }
+  };
+
   const sendPkChallenge = async () => {
     if (!user || !pkTargetId.trim()) return setVvipAlert({msg:"Enter rival's User ID!"});
     if (balance < PK_ENTRY_COINS) return setVvipAlert({msg:`Need ${PK_ENTRY_COINS} AJ Coins to enter PK!`});
@@ -3826,6 +3843,7 @@ export function AJSuperPortal() {
       setPkRivalData(rivalSnap.data());
       setPkTimer(PK_DURATION); setPkScore({ me:0, rival:0 });
       setPkWinner(null); setPkActive(true); setPkChallengeOpen(false);
+      openPkAdsterra('pk_match_start');
       // FIX: Host apni video frames PK session pe broadcast kare — IMMEDIATELY
       // (agar rival 500ms ke andar accept kar le toh host ki frames nahi milti thi)
       // Reduced timeout to near-zero so host starts broadcasting as soon as possible.
@@ -3982,6 +4000,7 @@ export function AJSuperPortal() {
   // FIX: Stop PK battle — handles BOTH host and rival (challenged user) cleanup
   const stopPkBattle = () => {
     try {
+      try { openPkAdsterra('pk_match_end'); } catch {}
       // Stop listening to opponent frames (host listens to rival, rival listens to host)
       if (pkFrameUnsubRef.current) {
         try { pkFrameUnsubRef.current(); } catch {}
@@ -4067,6 +4086,12 @@ export function AJSuperPortal() {
     const pkRoomIdVal = challenge.pkRoomId || challenge.id;
     if (!pkRoomIdVal) return;
     try {
+      const entry = Number(challenge.entryCoins || PK_ENTRY_COINS);
+      if (balance < entry) {
+        setVvipAlert({ msg: `Need ${entry} AJ Coins to accept PK!`, icon: '💰' });
+        return;
+      }
+
       const pkSnap = await getDoc(doc(db, 'pk_sessions', pkRoomIdVal));
       if (!pkSnap.exists()) {
         setVvipAlert({msg: 'PK session not found. It may have expired.', icon: '⚠️'});
@@ -4074,22 +4099,34 @@ export function AJSuperPortal() {
         return;
       }
       const pkData = pkSnap.data();
-      if (pkData.status === 'ended') {
+      if (pkData.status === 'ended' || pkData.status === 'declined') {
         setVvipAlert({msg: 'This PK Battle has already ended.', icon: '⚠️'});
         setPkIncomingChallenge(null);
         return;
       }
+
+      // Guest also pays entry — total 200 coins / match (100 each)
+      await runTransaction(db, async (tx) => {
+        const uref = doc(db, 'users', user.uid);
+        const usnap = await tx.get(uref);
+        if (!usnap.exists()) throw new Error('user_not_found');
+        const bal = Number((usnap.data() as { balance?: number }).balance || 0);
+        if (bal < entry) throw new Error('insufficient_balance');
+        tx.update(uref, { balance: increment(-entry) });
+      });
+
       setPkRoomId(pkRoomIdVal);
       setPkRivalData({
         uid: pkData.hostUid,
         username: pkData.hostName,
         photo: pkData.hostPhoto || '',
       });
-      setPkTimer(PK_DURATION);
+      setPkTimer(Number(pkData.duration || PK_DURATION));
       setPkScore({ me: 0, rival: 0 });
       setPkWinner(null);
       setPkActive(true);
       setPkIncomingChallenge(null);
+      openPkAdsterra('pk_match_start');
 
       try {
         await updateDoc(doc(db, 'pk_sessions', pkRoomIdVal), {
@@ -4196,7 +4233,12 @@ export function AJSuperPortal() {
       setVvipAlert({msg: '⚔️ PK Battle started! Good luck!', icon: '⚔️'});
     } catch (e) {
       console.error('acceptPkChallenge failed:', e);
-      setVvipAlert({msg: 'Could not join PK Battle. Please try again.'});
+      const msg = e instanceof Error ? e.message : '';
+      if (msg === 'insufficient_balance') {
+        setVvipAlert({ msg: `Need ${PK_ENTRY_COINS} AJ Coins to accept PK!`, icon: '💰' });
+      } else {
+        setVvipAlert({msg: 'Could not join PK Battle. Please try again.'});
+      }
     }
   };
 
@@ -6342,12 +6384,13 @@ Kuch bhi poocho, seedha batata hoon! 🔥`,
 \\\\\\\\
 • Rate: ${COIN_RATE} AJ Coins 🪙 per purchase unit | Min withdraw ${WITHDRAW_MIN.toLocaleString()} AJ Coins 🪙\\\\\\\\
 • Starting balance: 0 AJ Coins 🪙 (no signup bonus)\\\\\\\\
-• Referral Bonus: +${REFERRAL_COINS} AJ Coins 🪙 per friend referred (0 = ads-only, no-loss)\\\\\\\\
-• Watch Ads / Math / Captcha: +${ADSTERRA_REWARD_COINS} AJ Coins 🪙 (Adsterra click only)\\\\\\\\
+• Referral Bonus: +${REFERRAL_COINS} AJ Coins 🪙 per friend referred\\\\\\\\
+• Watch Ads: +${ADSTERRA_REWARD_COINS} AJ Coins 🪙 · Math/Captcha: +5 each\\\\\\\\
 • Video Post (TikReel): +${POST_REWARD_COINS} AJ Coins 🪙 per verified upload (max 5/day)\\\\\\\\
 • Photo Post (Pulse): +${POST_REWARD_COINS} AJ Coins 🪙 per verified upload (max 5/day)\\\\\\\\
-• Live / games free activity: +${ACTIVITY_REWARD_COINS} AJ Coins 🪙 (0 = no-loss; use Offerwall)\\\\\\\\
-• Earn rule: coins only from Adsterra / Offerwall real $ — withdraw from network earnings, not owner pocket\\\\\\\\
+• Games install/milestone: +${GAME_REWARD_COINS} AJ Coins 🪙 (ads in games)\\\\\\\\
+• AI Trading Bot: daily % on invested coins (Basic 2.5% / VVIP 5%)\\\\\\\\
+• PK Battle: ${PK_ENTRY_COINS} coins each (200 total) · 5 min · ads on start & end\\\\\\\\
 • AI Bot (Basic): 2.5% daily on invested coins (24h server lock)\\\\\\\\
 • AI Bot (VVIP): 5% daily on invested coins (24h server lock)\\\\\\\\
 • Live gifts received: 60% goes to you!\\\\\\\\
@@ -7064,9 +7107,7 @@ Tip: Social Hub se copy karo 📤`,
               <span className="text-2xl">👥</span>
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-black text-white">
-                  {REFERRAL_COINS > 0
-                    ? `Refer & Earn · +${REFERRAL_COINS} 🪙 each`
-                    : 'Refer & Earn · invite friends'}
+                  Refer & Earn · +{REFERRAL_COINS} 🪙 each
                 </p>
                 <p className="text-[9px] text-gray-400 truncate">
                   Your ID: {myReferralId || '…generating…'}
@@ -9514,19 +9555,9 @@ Tip: Social Hub se copy karo 📤`,
                     </button>
                   </div>
                   <p className="text-[9px] text-gray-400 mt-2">
-                    {REFERRAL_COINS > 0 ? (
-                      <>
-                        Share this ID. Each friend who signs up and enters it → you get{' '}
-                        <span className="text-yellow-400 font-black">+{REFERRAL_COINS} AJ Coins</span>.
-                        No signup bonus.
-                      </>
-                    ) : (
-                      <>
-                        Share this ID to invite friends. Coin rewards come from{' '}
-                        <span className="text-yellow-400 font-black">Watch Ads / Offerwall</span> only
-                        (no-loss). No signup bonus.
-                      </>
-                    )}
+                    Share this ID. Each friend who signs up and enters it → you get{' '}
+                    <span className="text-yellow-400 font-black">+{REFERRAL_COINS} AJ Coins</span>.
+                    No signup bonus.
                   </p>
                 </div>
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3">
