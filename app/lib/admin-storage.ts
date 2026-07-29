@@ -1,7 +1,6 @@
 /**
  * Firebase Admin Storage helpers — signed URLs bypass client Storage rules (403).
  */
-import { getStorage } from 'firebase-admin/storage';
 import { getAdminApp } from './firebase-admin';
 
 const DEFAULT_BUCKET =
@@ -13,6 +12,8 @@ export function getAdminStorage() {
   const app = getAdminApp();
   if (!app) return null;
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { getStorage } = require('firebase-admin/storage') as typeof import('firebase-admin/storage');
     return getStorage(app);
   } catch (e) {
     console.warn('[firebase-admin] storage init failed', e);

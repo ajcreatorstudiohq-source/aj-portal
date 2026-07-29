@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { FieldValue } from 'firebase-admin/firestore';
 import {
   doc,
   runTransaction,
@@ -9,7 +8,7 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '../../../../firebaseConfig';
-import { getAdminDb } from '../../../lib/firebase-admin';
+import { FieldValue, getAdminDb } from '../../../lib/firebase-admin';
 import {
   bearerFromRequest,
   verifyFirebaseIdToken,

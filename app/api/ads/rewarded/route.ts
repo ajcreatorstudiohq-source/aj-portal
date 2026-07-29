@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { FieldValue } from 'firebase-admin/firestore';
-import { getAdminDb } from '../../../lib/firebase-admin';
+import { FieldValue, getAdminDb, getFirebaseAdminDiag } from '../../../lib/firebase-admin';
 import {
   ADSTERRA_CLICK_USD,
   ADSTERRA_REWARD_COINS,
@@ -16,6 +15,9 @@ import {
   bearerFromRequest,
   verifyFirebaseIdToken,
 } from '../../../lib/verify-id-token';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 const SESSION_TTL_MS = 10 * 60 * 1000;
 
@@ -150,12 +152,23 @@ export async function POST(request: Request) {
 
     // claim / complete need Admin SDK for ledger + balance
     if (!adminDb) {
+      const diag = getFirebaseAdminDiag();
+      console.error('[ads/rewarded] admin_sdk_missing', diag);
       return NextResponse.json(
         {
           ok: false,
           error: 'admin_sdk_missing',
           message:
+            diag.lastError ||
             'Server cannot credit coins. Configure FIREBASE_SERVICE_ACCOUNT_JSON on Vercel.',
+          diag: {
+            configured: diag.configured,
+            source: diag.source,
+            projectId: diag.projectId,
+            clientEmailSet: diag.clientEmailSet,
+            privateKeySet: diag.privateKeySet,
+          },
+          allowClientFallback: true,
         },
         { status: 503 }
       );
@@ -616,21 +629,66 @@ export async function POST(request: Request) {
         : msg === 'invalid_session' || msg === 'session_mismatch'
           ? 400
           : 500;
-    return NextResponse.json({ ok: false, error: msg }, { status });
+    const diag = getFirebaseAdminDiag();
+    return NextResponse.json(
+      {
+        ok: false,
+        error: msg,
+        message:
+          msg === 'daily_limit'
+            ? `Daily Watch Ads limit (${OFFERWALL_VIDEO_MAX_DAILY}) reached.`
+            : msg === 'invalid_session'
+              ? 'Start Watch Ads again.'
+              : msg === 'session_mismatch'
+                ? 'Ad session does not belong to this account.'
+                : `Claim failed on server (${msg}). ${
+                    diag.ready
+                      ? 'Please retry.'
+                      : diag.lastError ||
+                        'Admin SDK not ready — set FIREBASE_SERVICE_ACCOUNT_JSON.'
+                  }`,
+        diag: {
+          configured: diag.configured,
+          ready: diag.ready,
+          source: diag.source,
+          lastError: diag.lastError,
+        },
+        allowClientFallback: !diag.ready,
+      },
+      { status }
+    );
   }
 }
 
 export async function GET() {
-  const split = rewardedClaimSplit(ADSTERRA_REWARD_COINS);
-  return NextResponse.json({
-    ok: true,
-    maxDaily: OFFERWALL_VIDEO_MAX_DAILY,
-    rewardCoins: ADSTERRA_REWARD_COINS,
-    clickUsd: split.totalUsd,
-    userUsd: split.userUsd,
-    adminUsd: split.adminUsd,
-    provider: 'adsterra',
-    requiresStatus: 'completed',
-    adminSdk: !!getAdminDb(),
-  });
+  try {
+    const split = rewardedClaimSplit(ADSTERRA_REWARD_COINS);
+    const diag = getFirebaseAdminDiag();
+    return NextResponse.json({
+      ok: true,
+      maxDaily: OFFERWALL_VIDEO_MAX_DAILY,
+      rewardCoins: ADSTERRA_REWARD_COINS,
+      clickUsd: split.totalUsd,
+      userUsd: split.userUsd,
+      adminUsd: split.adminUsd,
+      provider: 'adsterra',
+      requiresStatus: 'completed',
+      adminSdk: diag.ready,
+      adminDiag: {
+        configured: diag.configured,
+        source: diag.source,
+        projectId: diag.projectId,
+        clientEmailSet: diag.clientEmailSet,
+        privateKeySet: diag.privateKeySet,
+        lastError: diag.lastError,
+      },
+    });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'rewarded_status_failed';
+    console.error('[ads/rewarded] GET', msg, e);
+    return NextResponse.json(
+      { ok: false, error: msg, message: msg },
+      { status: 500 }
+    );
+  }
 }
