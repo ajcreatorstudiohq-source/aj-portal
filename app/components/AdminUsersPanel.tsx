@@ -101,7 +101,7 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
   const [economyByUid, setEconomyByUid] = useState<Record<string, UserEconomyStat>>({});
   const [presenceByUid, setPresenceByUid] = useState<Record<string, boolean>>({});
   const [presenceMetaByUid, setPresenceMetaByUid] = useState<
-    Record<string, { username?: string; lastChanged?: number }>
+    Record<string, { username?: string; email?: string; photo?: string; lastChanged?: number }>
   >({});
   const [loading, setLoading] = useState(true);
   const [economyLoading, setEconomyLoading] = useState(false);
@@ -113,6 +113,8 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
   const [backfillBusy, setBackfillBusy] = useState(false);
   const [resetBusy, setResetBusy] = useState(false);
   const [unlockBusy, setUnlockBusy] = useState(false);
+  /** Forces online-count recompute so LIVE badge stays fresh */
+  const [liveTick, setLiveTick] = useState(0);
 
   // Hard client gate — never render admin tools for normal users
   useEffect(() => {
@@ -233,6 +235,8 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
         setUsers(rows);
         setLoading(false);
         void loadUserEconomy();
+        // Re-merge Auth directory so brand-new Google signups aren't dropped
+        void mergeAdminApiUsers();
       },
       (e) => {
         console.error('AdminUsersPanel users snapshot', e);
@@ -244,10 +248,14 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
     void mergeAdminApiUsers();
     const poll = window.setInterval(() => {
       void mergeAdminApiUsers();
-    }, 12000);
+    }, 5000);
+    const tick = window.setInterval(() => {
+      setLiveTick((n) => n + 1);
+    }, 4000);
     return () => {
       unsub();
       window.clearInterval(poll);
+      window.clearInterval(tick);
     };
   }, [allowed, adminUser, loadUserEconomy, mergeAdminApiUsers]);
 
@@ -262,23 +270,42 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
       forEach: (cb: (c: { key: string | null; val: () => PresenceSnapshot }) => void) => void;
     }) => {
       const nextOnline: Record<string, boolean> = {};
-      const nextMeta: Record<string, { username?: string; lastChanged?: number }> = {};
+      const nextMeta: Record<
+        string,
+        { username?: string; email?: string; photo?: string; lastChanged?: number }
+      > = {};
       snap.forEach((child) => {
         const uid = child.key;
         if (!uid) return;
         const val = child.val();
-        nextOnline[uid] = isRtdbPresenceOnline(val);
+        const on = isRtdbPresenceOnline(val);
+        nextOnline[uid] = on;
         nextMeta[uid] = {
           username: val?.username || undefined,
+          email: val?.email || undefined,
+          photo: val?.photo || undefined,
           lastChanged: Number(val?.lastChanged || 0) || undefined,
         };
       });
       setPresenceByUid(nextOnline);
       setPresenceMetaByUid(nextMeta);
+      setLiveTick((n) => n + 1);
     };
     onValue(presenceRef, handler);
     return () => off(presenceRef);
   }, [allowed]);
+
+  // New RTDB-online UIDs missing from Admin list → refresh directory immediately
+  useEffect(() => {
+    if (!allowed) return;
+    const known = new Set(users.map((u) => u.uid));
+    const missing = Object.entries(presenceByUid).some(([uid, on]) => on && !known.has(uid));
+    if (!missing) return;
+    const t = window.setTimeout(() => {
+      void mergeAdminApiUsers();
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [allowed, users, presenceByUid, mergeAdminApiUsers]);
 
   // If someone is online in RTDB but not yet in users list, fetch / stub them so count + list update live
   useEffect(() => {
@@ -309,13 +336,14 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
           uid,
           name: meta?.username || 'New user',
           username: meta?.username || '',
-          email: '',
-          photo: '/logo.png',
+          email: meta?.email || '',
+          photo: meta?.photo || '/logo.png',
           balance: 0,
           accountStatus: ACCOUNT_STATUS.ACTIVE,
           isBanned: false,
           status: 'online',
           lastSeenMs: meta?.lastChanged || Date.now(),
+          createdAtMs: meta?.lastChanged || Date.now(),
           presenceOnly: true,
         });
       }
@@ -591,18 +619,26 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
     });
   }, [allUsers, searchQuery, presenceByUid]);
 
-  // Real-time online = RTDB presence (source of truth), not only filtered Firestore rows
+  // Real-time online = RTDB presence (source of truth) ∪ fresh Firestore lastSeen
   const onlineCount = useMemo(() => {
-    const fromPresence = Object.values(presenceByUid).filter(Boolean).length;
-    if (fromPresence > 0) return fromPresence;
-    return allUsers.filter((u) =>
-      isUserOnlineNow({
-        rtdbOnline: presenceByUid[u.uid],
-        status: u.status,
-        lastSeenMs: u.lastSeenMs,
-      })
-    ).length;
-  }, [presenceByUid, allUsers]);
+    void liveTick;
+    const onlineUids = new Set<string>();
+    for (const [uid, on] of Object.entries(presenceByUid)) {
+      if (on) onlineUids.add(uid);
+    }
+    for (const u of allUsers) {
+      if (
+        isUserOnlineNow({
+          rtdbOnline: presenceByUid[u.uid],
+          status: u.status,
+          lastSeenMs: u.lastSeenMs,
+        })
+      ) {
+        onlineUids.add(u.uid);
+      }
+    }
+    return onlineUids.size;
+  }, [presenceByUid, allUsers, liveTick]);
 
   const totalUsers = allUsers.length;
   const offlineCount = Math.max(0, totalUsers - onlineCount);
@@ -678,15 +714,35 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
               ? `${filtered.length} match${filtered.length === 1 ? '' : 'es'} · “${search.trim()}”`
               : 'live list'}
           </span>
-          <span className="inline-flex items-center gap-1.5 text-emerald-400">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            {onlineCount} online
-          </span>
           <span className="inline-flex items-center gap-1.5 text-red-400">
             <span className="w-2 h-2 rounded-full bg-red-500" />
             {offlineCount} offline
           </span>
         </p>
+
+        {/* LIVE online counter — updates from RTDB presence in real time */}
+        <div
+          className="flex items-center justify-between gap-3 rounded-2xl px-4 py-3 border border-emerald-400/40 bg-gradient-to-r from-emerald-950/50 to-[#0a0a12]/90"
+          style={{ boxShadow: '0 0 22px rgba(52,211,153,0.2)' }}
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="relative flex h-3.5 w-3.5 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
+              <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-400" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[11px] font-black uppercase tracking-[0.2em] text-emerald-300">
+                Live · Online now
+              </p>
+              <p className="text-[10px] text-emerald-200/70 font-bold truncate">
+                Real-time presence · auto-refresh
+              </p>
+            </div>
+          </div>
+          <p className="text-2xl font-black text-emerald-300 tabular-nums shrink-0">
+            {onlineCount}
+          </p>
+        </div>
       </div>
 
       <div className="px-4 pt-4 pb-2 space-y-3">

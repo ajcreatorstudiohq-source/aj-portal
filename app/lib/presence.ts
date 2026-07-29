@@ -10,6 +10,8 @@ export type PresenceSnapshot = {
   state?: string;
   uid?: string;
   username?: string;
+  email?: string;
+  photo?: string;
   lastChanged?: number;
 };
 
