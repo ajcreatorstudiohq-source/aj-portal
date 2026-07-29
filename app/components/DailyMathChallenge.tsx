@@ -13,7 +13,7 @@ type Props = {
 };
 
 /**
- * Daily Math Challenge — Submit opens Adsterra, then Verify & Claim credits +5.
+ * Daily Math Challenge — Submit opens Adsterra, then Verify & Claim credits +2.
  */
 export default function DailyMathChallenge({ user, onAlert, onRefreshUser }: Props) {
   const [busy, setBusy] = useState(false);
