@@ -38,9 +38,37 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if signedIn();
-      allow write: if isOwner(userId);
-      // CEO: referral backfill OR fresh-start economy zero
-      allow update: if isOwner(userId)
+
+      // Profile create — balance / invested / purchasedCoins must start at 0
+      allow create: if isOwner(userId)
+        && (!('balance' in request.resource.data)
+            || request.resource.data.balance == 0)
+        && (!('invested' in request.resource.data)
+            || request.resource.data.invested == 0)
+        && (!('purchasedCoins' in request.resource.data)
+            || request.resource.data.purchasedCoins == 0);
+
+      // Owner may update profile fields ONLY — economy fields are Admin SDK only
+      allow update: if (isOwner(userId)
+            && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+              'balance',
+              'invested',
+              'purchasedCoins',
+              'botTier',
+              'offerwallVideoDayCount',
+              'offerwallVideoDayKey',
+              'offerwallDayCount',
+              'offerwallDayKey',
+              'dailyRewards',
+              'lastBotClaimAt',
+              'lastAdsterraClaimAt',
+              'lastRewardAt',
+              'lastRewardSource',
+              'lastOfferwallVideoAt',
+              'lastSync',
+              'lastWalletWriteAt',
+              'economyResetAt'
+            ]))
         || (isCeoAdmin()
             && request.resource.data.diff(resource.data).affectedKeys()
                 .hasOnly(['referralId', 'referralIdCreatedAt']))
@@ -49,12 +77,16 @@ service cloud.firestore {
                 .hasOnly([
                   'balance',
                   'invested',
+                  'purchasedCoins',
                   'offerwallVideoDayCount',
                   'offerwallDayCount',
                   'dailyRewards',
                   'economyResetAt'
                 ])
             && request.resource.data.balance == 0);
+
+      // No blanket owner write — use create/update above
+      allow write: if false;
       match /videos/{videoId} {
         allow read: if signedIn();
         allow write: if isOwner(userId);
