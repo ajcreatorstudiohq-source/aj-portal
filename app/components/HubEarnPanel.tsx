@@ -189,40 +189,44 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
       </div>
 
       {panel === 'earnplay' ? (
-        <div className="rounded-2xl border border-sky-500/25 bg-gradient-to-br from-[#061820]/90 to-[#050505] p-3 space-y-3">
-          <p className="text-[9px] font-black uppercase tracking-[0.18em] text-sky-300">
+        <div className="rounded-2xl border border-sky-500/25 bg-gradient-to-br from-[#061820]/90 to-[#050505] p-3.5 space-y-3.5">
+          <p className="text-[11px] font-black uppercase tracking-[0.18em] text-sky-300">
             Earn & Play · Games
           </p>
-          <div className="grid grid-cols-3 gap-2.5">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {PREMIUM_DIRECT_GAMES.map((game) => {
               const isNetlify = String(game.downloadUrl).includes('netlify');
               return (
                 <div
                   key={game.id}
-                  className="relative overflow-hidden rounded-2xl border border-indigo-500/35 bg-gradient-to-br from-[#0c1224] via-[#0a0e1a] to-[#050505] p-3 flex flex-col min-h-[148px]"
+                  className="relative overflow-hidden rounded-2xl border border-indigo-500/35 bg-gradient-to-br from-[#0c1224] via-[#0a0e1a] to-[#050505] p-3.5 flex flex-col min-h-[176px]"
                 >
                   <div className="absolute inset-0 pointer-events-none opacity-50 bg-[radial-gradient(ellipse_at_30%_0%,rgba(99,102,241,0.22),transparent_55%)]" />
-                  <div className="relative flex flex-col h-full gap-2">
-                    <div className="w-10 h-10 rounded-xl bg-indigo-500/20 border border-sky-400/30 flex items-center justify-center">
-                      <span className="text-xl leading-none">{game.emoji}</span>
+                  <div className="relative flex flex-col h-full gap-2.5">
+                    <div className="w-16 h-16 rounded-2xl bg-indigo-500/15 border border-sky-400/35 overflow-hidden flex items-center justify-center shadow-[0_0_16px_rgba(56,189,248,0.2)]">
+                      <img
+                        src={game.logo}
+                        alt={game.name}
+                        className="w-full h-full object-cover"
+                      />
                     </div>
                     <div className="min-w-0">
-                      <p className="text-[11px] font-black text-white leading-tight truncate">
+                      <p className="text-[13px] font-black text-white leading-snug">
                         {game.name}
                       </p>
-                      <p className="text-[8px] text-sky-200/70 font-bold mt-1 uppercase tracking-wider">
-                        {isNetlify ? 'Netlify' : 'Direct Play'}
+                      <p className="text-[10px] text-sky-200/80 font-bold mt-1 uppercase tracking-wider">
+                        {isNetlify ? 'Netlify Play' : 'Direct Play'}
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={(e) => playGame(e, game)}
-                      className="mt-auto w-full py-2.5 rounded-xl text-white text-[8px] font-black uppercase tracking-wide flex items-center justify-center gap-1.5 active:scale-[0.97]"
+                      className="mt-auto w-full py-3 rounded-xl text-white text-[11px] font-black uppercase tracking-wide flex items-center justify-center gap-1.5 active:scale-[0.97]"
                       style={{
                         background: 'linear-gradient(135deg,#2563eb 0%,#4f46e5 45%,#7c3aed 100%)',
                       }}
                     >
-                      <Download size={12} strokeWidth={2.5} />
+                      <Download size={14} strokeWidth={2.5} />
                       Play
                     </button>
                   </div>

@@ -36,6 +36,11 @@ export type AdminUserRow = {
   banReason?: string;
   status?: string;
   lastSeenMs?: number;
+  createdAtMs?: number;
+  referralId?: string;
+  followersCount?: number;
+  followingCount?: number;
+  postsCount?: number;
   /** True when row came from RTDB presence before Firestore doc loaded */
   presenceOnly?: boolean;
 };
@@ -53,8 +58,19 @@ function mapUserDoc(id: string, data: Record<string, unknown>): AdminUserRow {
     banReason: (data.banReason as string) || '',
     status: (data.status as string) || 'offline',
     lastSeenMs: Number(data.lastSeenMs || 0) || undefined,
+    createdAtMs: Number(data.createdAtMs || 0) || undefined,
+    referralId: (data.referralId as string) || '',
+    followersCount: Number(data.followersCount || data.followers || 0) || 0,
+    followingCount: Number(data.followingCount || data.following || 0) || 0,
+    postsCount: Number(data.postsCount || 0) || 0,
     presenceOnly: false,
   };
+}
+
+function isNewSignup(u: AdminUserRow): boolean {
+  const created = Number(u.createdAtMs || 0);
+  if (!created) return false;
+  return Date.now() - created < 24 * 60 * 60 * 1000;
 }
 
 type UserEconomyStat = {
@@ -158,11 +174,46 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
     setHisaabKey((k) => k + 1);
   }, [loadUserEconomy]);
 
+  const mergeAdminApiUsers = useCallback(async () => {
+    const current = auth.currentUser;
+    if (!current) return;
+    try {
+      const token = await current.getIdToken();
+      const res = await fetch('/api/admin/users', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        users?: AdminUserRow[];
+        error?: string;
+      };
+      if (!res.ok || !data.ok || !Array.isArray(data.users)) return;
+      setUsers((prev) => {
+        const byUid = new Map<string, AdminUserRow>();
+        for (const u of prev) byUid.set(u.uid, u);
+        for (const u of data.users!) {
+          const existing = byUid.get(u.uid);
+          byUid.set(u.uid, {
+            ...existing,
+            ...u,
+            photo: u.photo || existing?.photo || '/logo.png',
+            presenceOnly: false,
+          });
+        }
+        return Array.from(byUid.values());
+      });
+      void loadUserEconomy();
+    } catch (e) {
+      console.warn('admin users api', e);
+    }
+  }, [loadUserEconomy]);
+
   // Refresh hisaab totals when user count changes (new signup)
   useEffect(() => {
     if (!allowed || loading) return;
     setHisaabKey((k) => k + 1);
   }, [allowed, loading, users.length]);
+
   useEffect(() => {
     if (!allowed) return;
     const current = auth.currentUser;
@@ -189,8 +240,16 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
         setLoading(false);
       }
     );
-    return () => unsub();
-  }, [allowed, adminUser, loadUserEconomy]);
+    // Authoritative Auth+Firestore merge (picks up orphans / new Google signups)
+    void mergeAdminApiUsers();
+    const poll = window.setInterval(() => {
+      void mergeAdminApiUsers();
+    }, 12000);
+    return () => {
+      unsub();
+      window.clearInterval(poll);
+    };
+  }, [allowed, adminUser, loadUserEconomy, mergeAdminApiUsers]);
 
   // Real-time RTDB presence (+ pull in online users missing from Firestore list)
   useEffect(() => {
@@ -508,6 +567,8 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
       );
     });
     return [...rows].sort((a, b) => {
+      const aNew = isNewSignup(a) ? 1 : 0;
+      const bNew = isNewSignup(b) ? 1 : 0;
       const aOn = isUserOnlineNow({
         rtdbOnline: presenceByUid[a.uid],
         status: a.status,
@@ -523,7 +584,10 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
         ? 1
         : 0;
       if (bOn !== aOn) return bOn - aOn;
-      return (b.lastSeenMs || 0) - (a.lastSeenMs || 0);
+      if (bNew !== aNew) return bNew - aNew;
+      const ac = Number(a.createdAtMs || a.lastSeenMs || 0);
+      const bc = Number(b.createdAtMs || b.lastSeenMs || 0);
+      return bc - ac;
     });
   }, [allUsers, searchQuery, presenceByUid]);
 
@@ -569,11 +633,14 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
             Full Dashboard →
           </a>
           <button
-            onClick={() => refreshUsers()}
+            onClick={() => {
+              refreshUsers();
+              void mergeAdminApiUsers();
+            }}
             disabled={loading}
             className="p-2 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all shrink-0"
             type="button"
-            title="Refresh economy"
+            title="Refresh users + economy"
           >
             <RefreshCw size={14} className={`text-gray-400 ${loading || economyLoading ? 'animate-spin' : ''}`} />
           </button>
@@ -684,19 +751,26 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
             const withdrawReq = eco?.withdrawRequestedCoins ?? 0;
             const adminUsd = eco?.adminProfitUsd ?? 0;
             const adminCoins = eco?.adminProfitCoins ?? 0;
+            const isNew = isNewSignup(u);
 
             return (
               <div
                 key={u.uid}
-                className="rounded-2xl p-3 border border-pink-500/25 bg-gradient-to-br from-[#12081a]/90 to-[#0a0a14]/95"
-                style={{ boxShadow: '0 0 20px rgba(236,72,153,0.08)' }}
+                className={`rounded-2xl p-3 border bg-gradient-to-br from-[#12081a]/90 to-[#0a0a14]/95 ${
+                  isNew ? 'border-cyan-400/50' : 'border-pink-500/25'
+                }`}
+                style={{
+                  boxShadow: isNew
+                    ? '0 0 22px rgba(34,211,238,0.22)'
+                    : '0 0 20px rgba(236,72,153,0.08)',
+                }}
               >
                 <div className="flex items-start gap-3">
                   <div className="relative flex-shrink-0">
                     <img
                       src={u.photo || '/logo.png'}
                       alt=""
-                      className="w-11 h-11 rounded-full object-cover border border-cyan-400/30 shadow-[0_0_10px_rgba(34,211,238,0.25)]"
+                      className="w-12 h-12 rounded-full object-cover border border-cyan-400/30 shadow-[0_0_10px_rgba(34,211,238,0.25)]"
                     />
                     <span
                       title={online ? 'Online in portal' : 'Offline'}
@@ -709,11 +783,16 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-white text-xs font-black truncate">
+                      <p className="text-white text-sm font-black truncate">
                         @{u.username || u.name || 'user'}
                       </p>
                       {u.name && u.username ? (
-                        <span className="text-[9px] text-gray-400 truncate">{u.name}</span>
+                        <span className="text-[10px] text-gray-300 truncate">{u.name}</span>
+                      ) : null}
+                      {isNew ? (
+                        <span className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-cyan-500/25 border border-cyan-400/45 text-cyan-200">
+                          New
+                        </span>
                       ) : null}
                       <span
                         className={`text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border ${
@@ -734,12 +813,25 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
                         </span>
                       )}
                     </div>
-                    <p className="text-[9px] text-gray-500 truncate mt-0.5">{u.email || u.uid}</p>
-                    <p className="text-[9px] text-yellow-400/90 font-black mt-1">
+                    <p className="text-[10px] text-gray-400 truncate mt-0.5">{u.email || u.uid}</p>
+                    <p className="text-[10px] text-yellow-300 font-black mt-1">
                       Balance {(u.balance ?? 0).toLocaleString()} 🪙
-                      <span className="text-emerald-400/80 text-[9px] font-bold ml-1">
+                      <span className="text-emerald-400/90 text-[10px] font-bold ml-1">
                         ({formatUsd(coinsToUsd(u.balance ?? 0))})
                       </span>
+                    </p>
+                    <p className="text-[9px] text-gray-500 font-bold mt-1 flex flex-wrap gap-x-2 gap-y-0.5">
+                      {u.referralId ? <span className="text-fuchsia-300/90">ID {u.referralId}</span> : null}
+                      <span>
+                        {(u.followersCount ?? 0).toLocaleString()} followers ·{' '}
+                        {(u.followingCount ?? 0).toLocaleString()} following ·{' '}
+                        {(u.postsCount ?? 0).toLocaleString()} posts
+                      </span>
+                      {u.createdAtMs ? (
+                        <span>
+                          Joined {new Date(u.createdAtMs).toLocaleString()}
+                        </span>
+                      ) : null}
                     </p>
                   </div>
                   {banned ? (

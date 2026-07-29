@@ -250,21 +250,21 @@ export default function GamingZone({
         >
           <ArrowLeft size={14} className="text-gray-400" />
         </button>
-        <img src="/logo.png" alt="AJ" className="w-8 h-8 rounded-xl shadow-[0_0_14px_rgba(236,72,153,0.5)]" />
-        <h1 className="text-sm font-black bg-gradient-to-r from-pink-500 to-cyan-400 bg-clip-text text-transparent uppercase tracking-widest">
+        <img src="/logo.png" alt="AJ" className="w-10 h-10 rounded-xl shadow-[0_0_14px_rgba(236,72,153,0.5)]" />
+        <h1 className="text-base font-black bg-gradient-to-r from-pink-500 to-cyan-400 bg-clip-text text-transparent uppercase tracking-widest">
           Gaming Zone
         </h1>
         {!selectedGameUrl && (
           <div className="ml-auto flex gap-1 bg-white/5 rounded-xl p-0.5 border border-white/10">
             <button
               onClick={() => setTab('games')}
-              className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase ${tab === 'games' ? 'bg-pink-600 text-white' : 'text-gray-400'}`}
+              className={`px-3 py-1.5 rounded-lg text-[11px] font-black uppercase ${tab === 'games' ? 'bg-pink-600 text-white' : 'text-gray-300'}`}
             >
               Games
             </button>
             <button
               onClick={() => setTab('offerwall')}
-              className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase ${tab === 'offerwall' ? 'bg-amber-500 text-black' : 'text-gray-400'}`}
+              className={`px-3 py-1.5 rounded-lg text-[11px] font-black uppercase ${tab === 'offerwall' ? 'bg-amber-500 text-black' : 'text-gray-300'}`}
             >
               Offerwall
             </button>
@@ -411,18 +411,28 @@ export default function GamingZone({
                 key={game.id}
                 className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 hover:border-pink-500/30"
               >
-                <div className="flex items-center gap-3">
-                  <span className="text-3xl">{game.emoji}</span>
+                <div className="flex items-center gap-3.5">
+                  <div className="w-16 h-16 rounded-2xl overflow-hidden border border-pink-400/35 bg-white/5 flex items-center justify-center shrink-0 shadow-[0_0_16px_rgba(236,72,153,0.25)]">
+                    {game.logo ? (
+                      <img
+                        src={game.logo}
+                        alt={game.name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <span className="text-4xl leading-none">{game.emoji}</span>
+                    )}
+                  </div>
                   <div className="text-left flex-1 min-w-0">
-                    <p className="text-sm font-black text-white flex items-center gap-1.5">
+                    <p className="text-base font-black text-white flex items-center gap-1.5 leading-snug">
                       {game.name}
                       {!installed && !game.comingSoon && (
-                        <Lock size={12} className="text-amber-400" />
+                        <Lock size={14} className="text-amber-400" />
                       )}
                     </p>
-                    <p className="text-[10px] text-gray-400">{game.desc}</p>
+                    <p className="text-[12px] text-gray-300 mt-0.5 leading-snug">{game.desc}</p>
                     {!game.comingSoon && installed && (
-                      <p className="text-[9px] text-cyan-400/90 mt-1 font-bold">
+                      <p className="text-[11px] text-cyan-300 mt-1.5 font-bold">
                         Level {level} · Milestones{' '}
                         {game.milestones
                           .map((m) => (claimed.includes(m) ? `L${m}✓` : `L${m}`))
@@ -432,11 +442,11 @@ export default function GamingZone({
                   </div>
                 </div>
 
-                <div className="mt-3 flex gap-2">
+                <div className="mt-3.5 flex gap-2">
                   {game.comingSoon ? (
                     <button
                       onClick={() => onAlert(`${game.name} coming soon! 🔜`)}
-                      className="flex-1 py-2 rounded-xl bg-white/5 border border-white/10 text-[10px] font-black text-gray-400"
+                      className="flex-1 py-2.5 rounded-xl bg-white/5 border border-white/10 text-[12px] font-black text-gray-300"
                     >
                       COMING SOON
                     </button>
@@ -445,9 +455,9 @@ export default function GamingZone({
                       <button
                         disabled={busyId === game.id}
                         onClick={() => installGame(game.id)}
-                        className="w-full py-2 rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 text-black text-[10px] font-black flex items-center justify-center gap-1.5 disabled:opacity-50"
+                        className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 text-black text-[12px] font-black flex items-center justify-center gap-1.5 disabled:opacity-50"
                       >
-                        <Download size={12} />
+                        <Download size={14} />
                         {busyId === game.id
                           ? `Downloading ${downloadPct[game.id] || 0}%…`
                           : 'Download & Install'}
@@ -465,7 +475,7 @@ export default function GamingZone({
                     <>
                       <button
                         onClick={() => openGame(game.id, game.url)}
-                        className="flex-1 py-2 rounded-xl bg-gradient-to-r from-pink-600 to-fuchsia-600 text-white text-[10px] font-black"
+                        className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-pink-600 to-fuchsia-600 text-white text-[12px] font-black"
                       >
                         Play
                       </button>
@@ -476,7 +486,7 @@ export default function GamingZone({
                           <button
                             key={m}
                             onClick={() => claimMilestone(game.id, m)}
-                            className="px-3 py-2 rounded-xl bg-gradient-to-r from-yellow-400 to-orange-500 text-black text-[10px] font-black"
+                            className="px-3 py-2.5 rounded-xl bg-gradient-to-r from-yellow-400 to-orange-500 text-black text-[12px] font-black"
                           >
                             Claim L{m}
                           </button>

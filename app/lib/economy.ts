@@ -57,36 +57,42 @@ export const PREMIUM_DIRECT_GAMES = [
     id: 'neon',
     name: 'Neon Strike',
     emoji: '⚡',
+    logo: '/games/neon-strike/logo.png',
     downloadUrl: '/games/neon-strike/index.html',
   },
   {
     id: 'rider',
     name: 'Rider King',
     emoji: '🏍️',
+    logo: '/games/rider-king/logo.png',
     downloadUrl: '/games/rider-king/index.html',
   },
   {
     id: 'racer',
     name: 'Pulse Racer',
     emoji: '🏎️',
+    logo: '/games/pulse-racer/logo.png',
     downloadUrl: '/games/pulse-racer/index.html',
   },
   {
     id: 'subsea',
     name: 'SubSea Surge',
     emoji: '🐠',
+    logo: '/games/subsea-surge/logo.png',
     downloadUrl: '/games/subsea-surge/index.html',
   },
   {
     id: 'volcano',
     name: 'Volcano Escape',
     emoji: '🌋',
+    logo: '/games/volcano-escape/logo.png',
     downloadUrl: '/games/volcano-escape/index.html',
   },
   {
     id: 'ludo',
     name: 'Ludo Elite Royal',
     emoji: '🎲',
+    logo: '/games/ludo-elite-royal/logo.png',
     downloadUrl: 'https://ludoeliteroyal.netlify.app',
   },
 ] as const;
@@ -143,6 +149,7 @@ export type GameCatalogItem = {
   id: string;
   name: string;
   emoji: string;
+  logo?: string;
   desc: string;
   url: string;
   /** Levels that unlock real wallet rewards after install */
@@ -155,6 +162,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     id: 'rider',
     name: 'Rider King',
     emoji: '🏍️',
+    logo: '/games/rider-king/logo.png',
     desc: 'Install → clear levels → earn at milestones',
     url: '/games/rider-king/index.html',
     milestones: [3, 5, 10],
@@ -163,6 +171,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     id: 'racer',
     name: 'Pulse Racer',
     emoji: '🏎️',
+    logo: '/games/pulse-racer/logo.png',
     desc: 'Install → clear levels → earn at milestones',
     url: '/games/pulse-racer/index.html',
     milestones: [3, 5, 10],
@@ -171,6 +180,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     id: 'subsea',
     name: 'Subsea Surge',
     emoji: '🐠',
+    logo: '/games/subsea-surge/logo.png',
     desc: 'Install → clear levels → earn at milestones',
     url: '/games/subsea-surge/index.html',
     milestones: [3, 5, 10],
@@ -179,6 +189,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     id: 'neon',
     name: 'Neon Strike',
     emoji: '⚡',
+    logo: '/games/neon-strike/logo.png',
     desc: 'Install → clear levels → earn at milestones',
     url: '/games/neon-strike/index.html',
     milestones: [3, 5, 10],
@@ -187,6 +198,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     id: 'volcano',
     name: 'Volcano Escape',
     emoji: '🌋',
+    logo: '/games/volcano-escape/logo.png',
     desc: 'Install → clear levels → earn at milestones',
     url: '/games/volcano-escape/index.html',
     milestones: [3, 5, 10],
@@ -195,6 +207,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     id: 'ludo',
     name: 'Ludo Elite Royal',
     emoji: '🎲',
+    logo: '/games/ludo-elite-royal/logo.png',
     desc: 'Install → win matches → earn at milestones',
     url: '/games/ludo-elite-royal/index.html',
     milestones: [1, 3, 5],
