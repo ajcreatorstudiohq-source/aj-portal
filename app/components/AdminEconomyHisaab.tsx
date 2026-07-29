@@ -35,6 +35,9 @@ export type EconomySummary = {
   giftOwnerUsdLabel?: string;
   adOwnerUsd: number;
   adOwnerUsdLabel?: string;
+  pkOwnerCoins?: number;
+  pkOwnerUsd?: number;
+  pkOwnerUsdLabel?: string;
   eventCount: number;
   adminRemainingUsd: number;
   adminRemainingUsdLabel?: string;
@@ -67,6 +70,8 @@ function emptySummary(): EconomySummary {
     giftOwnerUsd: 0,
     giftOwnerCoins: 0,
     adOwnerUsd: 0,
+    pkOwnerCoins: 0,
+    pkOwnerUsd: 0,
     eventCount: 0,
     adminRemainingUsd: 0,
     totalGrossUsd: 0,
@@ -298,8 +303,15 @@ export default function AdminEconomyHisaab({ adminUser, refreshKey = 0 }: Props)
           <p className="text-2xl font-black text-yellow-300">
             {(e.adminOwnerCoins || 0).toLocaleString()} 🪙
           </p>
-          <p className="text-base font-black text-emerald-400">
+          <p className="text-sm font-black text-emerald-400">
             {e.adminOwnerUsdLabel || formatUsd(e.adminOwnerUsd)}
+          </p>
+          <p className="text-[9px] text-orange-300/90 font-bold">
+            PK entries saved: {(e.pkOwnerCoins || 0).toLocaleString()} 🪙
+            {e.pkOwnerUsdLabel ? ` · ${e.pkOwnerUsdLabel}` : ''}
+          </p>
+          <p className="text-[8px] text-gray-500 font-bold">
+            Gifts {e.giftOwnerCoins.toLocaleString()} 🪙 · Ads {formatUsd(e.adOwnerUsd)} · Events {e.eventCount}
           </p>
           <p className="text-[9px] text-gray-400 font-bold">
             After paid withdraws, remaining ≈{' '}
