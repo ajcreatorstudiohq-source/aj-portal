@@ -146,7 +146,8 @@ export async function GET(request: Request) {
       console.warn('[admin/user-economy] withdrawals', e);
     }
 
-    // AdminRevenue — profit share attributed to earner uid
+    // AdminRevenue — hub profit + lifetime fallback (userNetCoins)
+    const lifetimeFromRevenue = new Map<string, number>();
     try {
       const snap = await adminDb.collection('AdminRevenue').limit(4000).get();
       snap.forEach((docSnap) => {
@@ -157,11 +158,30 @@ export async function GET(request: Request) {
         const coins =
           Number(d.adminShareCoins ?? d.entryCoins ?? 0) ||
           Math.floor(usd * CASH_RATE);
-        if (usd <= 0 && coins <= 0) return;
-        const row = touch(uid);
-        row.adminProfitUsd += usd;
-        row.adminProfitCoins += coins;
-        row.adminEvents += 1;
+        if (usd > 0 || coins > 0) {
+          const row = touch(uid);
+          row.adminProfitUsd += usd;
+          row.adminProfitCoins += coins;
+          row.adminEvents += 1;
+        }
+        const userCoins = Math.max(
+          0,
+          Math.floor(
+            Number(
+              d.userNetCoins ??
+                d.userCoins ??
+                d.flatCoins ??
+                d.balanceCredited ??
+                0
+            ) || 0
+          )
+        );
+        if (userCoins > 0) {
+          lifetimeFromRevenue.set(
+            uid,
+            (lifetimeFromRevenue.get(uid) || 0) + userCoins
+          );
+        }
       });
     } catch (e) {
       console.warn('[admin/user-economy] AdminRevenue', e);
@@ -173,7 +193,13 @@ export async function GET(request: Request) {
       adminProfitUsdLabel: string;
     }> = {};
 
+    // Also ensure every revenue/ledger uid is present
+    for (const uid of lifetimeFromRevenue.keys()) touch(uid);
+
     for (const [uid, row] of byUid) {
+      if (row.lifetimeEarnedCoins <= 0) {
+        row.lifetimeEarnedCoins = lifetimeFromRevenue.get(uid) || 0;
+      }
       row.lifetimeEarnedUsd = coinsToUsd(row.lifetimeEarnedCoins);
       row.adminProfitUsd = Number(row.adminProfitUsd.toFixed(6));
       users[uid] = {

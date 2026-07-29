@@ -254,11 +254,6 @@ service cloud.firestore {
       allow read, write: if false; // Admin SDK only — credits via /api/rewards/alpha-captcha
     }
 
-    match /offerwall_ledger/{txId} {
-      allow read: if signedIn() && resource.data.uid == request.auth.uid;
-      allow write: if false; // server / Admin SDK only
-    }
-
     // Live streaming rooms + chat (TikTok-style)
     match /live_rooms/{roomId} {
       allow read: if signedIn();
@@ -324,16 +319,18 @@ service cloud.firestore {
       allow delete: if isCeoAdmin();
     }
 
-    // Earn ledgers — CEO may wipe for fresh-start reset
+    // Earn ledgers — owner read own rows; CEO may list all for Admin Users hisaab
     match /reward_ledger/{txId} {
-      allow read: if signedIn() && resource.data.uid == request.auth.uid;
+      allow read: if (signedIn() && resource.data.uid == request.auth.uid)
+        || isCeoAdmin();
       allow create: if false;
       allow update: if false;
       allow delete: if isCeoAdmin();
     }
 
     match /offerwall_ledger/{txId} {
-      allow read: if signedIn() && resource.data.uid == request.auth.uid;
+      allow read: if (signedIn() && resource.data.uid == request.auth.uid)
+        || isCeoAdmin();
       allow create, update: if false;
       allow delete: if isCeoAdmin();
     }
