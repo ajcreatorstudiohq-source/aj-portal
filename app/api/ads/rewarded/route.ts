@@ -3,16 +3,24 @@ import {
   doc,
   getDoc,
   setDoc,
+  addDoc,
+  collection,
   runTransaction,
   serverTimestamp,
   increment,
 } from 'firebase/firestore';
 import { db } from '../../../../firebaseConfig';
 import {
+  ADSTERRA_CLICK_USD,
   ADSTERRA_REWARD_COINS,
   OFFERWALL_VIDEO_MAX_DAILY,
+  getAdsterraClickSplit,
 } from '../../../lib/ads-config';
-import { REWARDED_VIDEO_COINS } from '../../../lib/reward-sources';
+import {
+  PLATFORM_EARN_SHARE,
+  USER_EARN_SHARE,
+} from '../../../lib/economy';
+import { creditAdminEarnings } from '../../../lib/admin-earnings';
 import {
   bearerFromRequest,
   verifyFirebaseIdToken,
@@ -29,7 +37,7 @@ function dayKeyUtc() {
  * Auth: Bearer <Firebase ID token>
  *
  * action: 'prepare' | 'complete' | 'claim_adsterra'
- * claim_adsterra → Firestore runTransaction increment(5) with daily limit
+ * claim_adsterra → user gets 30% of ADSTERRA_CLICK_USD as coins; admin ledger 70%
  */
 export async function POST(request: Request) {
   try {
@@ -150,7 +158,8 @@ export async function POST(request: Request) {
         { merge: true }
       );
 
-      const coins = ADSTERRA_REWARD_COINS || REWARDED_VIDEO_COINS || 5;
+      const split = getAdsterraClickSplit();
+      const coins = split.userCoins > 0 ? split.userCoins : ADSTERRA_REWARD_COINS;
       const txId = `adsterra_claim_${user.uid}_${dayKey}_${dailyCount}`;
       const ledgerRef = doc(db, 'offerwall_ledger', txId);
 
@@ -185,6 +194,9 @@ export async function POST(request: Request) {
           source: 'adsterra_watch',
           txId,
           coins,
+          clickUsd: split.totalUsd,
+          userUsd: split.userUsd,
+          adminUsd: split.adminUsd,
           status: 'completed',
           provider: 'adsterra',
           dayKey,
@@ -202,10 +214,43 @@ export async function POST(request: Request) {
         return { duplicate: false as const, credited: coins };
       });
 
+      if (!result.duplicate && split.adminUsd > 0) {
+        try {
+          await addDoc(collection(db, 'AdminRevenue'), {
+            type: 'adsterra_watch',
+            source: 'adsterra',
+            currency: 'USD',
+            platformSharePct: PLATFORM_EARN_SHARE,
+            userSharePct: USER_EARN_SHARE,
+            placement,
+            uid: user.uid,
+            totalPool: split.totalUsd,
+            adminShare: split.adminUsd,
+            ownerUsd: split.adminUsd,
+            adminShareCoins: split.adminCoins,
+            userNet: split.userUsd,
+            userNetCoins: result.credited,
+            clickUsd: ADSTERRA_CLICK_USD,
+            txId,
+            createdAt: serverTimestamp(),
+          });
+          await creditAdminEarnings({
+            ownerUsd: split.adminUsd,
+            ownerCoins: split.adminCoins,
+            source: 'adsterra_watch',
+          });
+        } catch {
+          /* non-fatal — user already credited */
+        }
+      }
+
       return NextResponse.json({
         ok: true,
         duplicate: result.duplicate,
         creditedCoins: result.credited,
+        clickUsd: split.totalUsd,
+        userUsd: split.userUsd,
+        adminUsd: split.adminUsd,
         remainingToday: Math.max(
           0,
           OFFERWALL_VIDEO_MAX_DAILY - (result.duplicate ? dailyCount : dailyCount + 1)
@@ -309,7 +354,8 @@ export async function POST(request: Request) {
     const slot = typeof session.slot === 'number' ? session.slot : dailyCount;
     const txId = `offerwall_video_${user.uid}_${dayKey}_${slot}`;
     const ledgerRef = doc(db, 'offerwall_ledger', txId);
-    const coins = REWARDED_VIDEO_COINS;
+    const split = getAdsterraClickSplit();
+    const coins = split.userCoins > 0 ? split.userCoins : ADSTERRA_REWARD_COINS;
 
     const creditResult = await runTransaction(db, async (tx) => {
       const [ledgerSnap, freshSession, freshUser] = await Promise.all([
@@ -359,10 +405,43 @@ export async function POST(request: Request) {
       return { duplicate: false as const, credited: coins };
     });
 
+    if (!creditResult.duplicate && split.adminUsd > 0) {
+      try {
+        await addDoc(collection(db, 'AdminRevenue'), {
+          type: 'adsterra_watch',
+          source: 'adsterra',
+          currency: 'USD',
+          platformSharePct: PLATFORM_EARN_SHARE,
+          userSharePct: USER_EARN_SHARE,
+          placement,
+          uid: user.uid,
+          totalPool: split.totalUsd,
+          adminShare: split.adminUsd,
+          ownerUsd: split.adminUsd,
+          adminShareCoins: split.adminCoins,
+          userNet: split.userUsd,
+          userNetCoins: creditResult.credited,
+          clickUsd: ADSTERRA_CLICK_USD,
+          txId,
+          createdAt: serverTimestamp(),
+        });
+        await creditAdminEarnings({
+          ownerUsd: split.adminUsd,
+          ownerCoins: split.adminCoins,
+          source: 'adsterra_watch',
+        });
+      } catch {
+        /* non-fatal */
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       duplicate: creditResult.duplicate,
       creditedCoins: creditResult.credited,
+      clickUsd: split.totalUsd,
+      userUsd: split.userUsd,
+      adminUsd: split.adminUsd,
       remainingToday: Math.max(
         0,
         OFFERWALL_VIDEO_MAX_DAILY -
@@ -386,10 +465,14 @@ export async function POST(request: Request) {
 }
 
 export async function GET() {
+  const split = getAdsterraClickSplit();
   return NextResponse.json({
     ok: true,
     maxDaily: OFFERWALL_VIDEO_MAX_DAILY,
-    rewardCoins: ADSTERRA_REWARD_COINS,
+    rewardCoins: split.userCoins,
+    clickUsd: split.totalUsd,
+    userUsd: split.userUsd,
+    adminUsd: split.adminUsd,
     provider: 'adsterra',
     requiresStatus: 'completed',
   });

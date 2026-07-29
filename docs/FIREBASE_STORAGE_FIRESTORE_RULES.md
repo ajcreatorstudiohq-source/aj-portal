@@ -113,6 +113,6 @@ Offer Hub → **Watch Ads** (`RewardedVideoOffer`):
 1. `POST /api/ads/rewarded` `action: prepare` → session in `ad_reward_sessions`
 2. Opens `ADSTERRA_REWARDED_LINK` (paid Direct Link / smartlink)
 3. Client requires **30s** away (visibility) → unlocks Claim
-4. `action: claim_adsterra` credits **`ADSTERRA_REWARD_COINS` (5)** to `users.balance` (daily cap `OFFERWALL_VIDEO_MAX_DAILY`, default 8)
+4. `action: claim_adsterra` credits **30% of `ADSTERRA_CLICK_USD`** as AJ Coins (`ADSTERRA_REWARD_COINS`, default **15** when click = `$0.05`) to `users.balance`; admin ledger gets **70%**. Daily cap `OFFERWALL_VIDEO_MAX_DAILY` (default 8). Override click $ via `NEXT_PUBLIC_ADSTERRA_CLICK_USD`.
 
 Strengthen: raise verify seconds / coins in `app/lib/ads-config.ts`, keep server `createdAtMs` gate, and ensure Adsterra Direct Link is the **paid** smartlink from your Adsterra dashboard (not a test URL).

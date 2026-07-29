@@ -1,7 +1,15 @@
 /**
  * Adsterra ad configuration for AJ Super Portal.
  * Monetag / gozen / sunny-sprout / alwingulla are permanently removed.
+ *
+ * Economy (Watch Ads / Direct Link claim):
+ * - Adsterra pays YOU 100% of the click in their dashboard.
+ * - App credits user only 30% of ADSTERRA_CLICK_USD as coins (CASH_RATE).
+ * - Remaining 70% stays yours (AdminRevenue ledger + real Adsterra $).
+ * Set NEXT_PUBLIC_ADSTERRA_CLICK_USD from your Adsterra average CPC so you never lose.
  */
+
+import { splitAdClickUsd } from './economy';
 
 /** Social Bar (layout body) */
 export const ADSTERRA_SOCIAL_BAR_SRC =
@@ -16,7 +24,33 @@ export const ADSTERRA_NATIVE_BANNER_SRC =
 export const ADSTERRA_REWARDED_LINK =
   'https://www.effectivecpmnetwork.com/b8jtkn6i4?key=77409a0e0aa4602b6d03798ff53516b3';
 
-export const ADSTERRA_REWARD_COINS = 5;
+/**
+ * Estimated USD YOU earn per successful Direct Link / Watch Ads click (Adsterra).
+ * Override with NEXT_PUBLIC_ADSTERRA_CLICK_USD (or ADSTERRA_CLICK_USD) from your dashboard CPC.
+ * Keep this ≤ real average CPC or user 30% withdraw liability can exceed Adsterra income.
+ */
+export const ADSTERRA_CLICK_USD = Math.max(
+  0,
+  Number(
+    process.env.NEXT_PUBLIC_ADSTERRA_CLICK_USD ||
+      process.env.ADSTERRA_CLICK_USD ||
+      0.05
+  ) || 0.05
+);
+
+/** Alias — impression/click track estimates use the same click $ base */
+export const AD_CLICK_VALUE_USD = ADSTERRA_CLICK_USD;
+
+/** Full 70/30 split of one Adsterra click */
+export function getAdsterraClickSplit() {
+  return splitAdClickUsd(ADSTERRA_CLICK_USD);
+}
+
+/**
+ * User AJ Coins per Watch Ads claim = 30% of ADSTERRA_CLICK_USD at withdraw rate.
+ * Default $0.05 → 15 🪙 ($0.015 liability). Admin keeps 70% ($0.035).
+ */
+export const ADSTERRA_REWARD_COINS = getAdsterraClickSplit().userCoins;
 
 /** Watch-ad verification timer before Claim unlocks (high-quality visit) */
 export const ADSTERRA_VERIFY_SECONDS = 30;
@@ -39,7 +73,6 @@ export const OFFERWALL_VIDEO_MAX_DAILY = Number(
 
 /** Estimated admin eCPM used when logging impression revenue (no user credit). */
 export const AD_IMPRESSION_ECPM_USD = 2.5;
-export const AD_CLICK_VALUE_USD = 0.05;
 
 export const AD_PLACEMENTS = [
   'hub_nav_interstitial',
