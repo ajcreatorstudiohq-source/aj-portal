@@ -4091,16 +4091,26 @@ export function AJSuperPortal() {
       return;
     }
 
-    // Deduct coins from gifter (boosts your PK bar — TikTok-style)
+    // Server Admin debit (+ optional creator credit) — no client balance writes
     try {
-      await runTransaction(db, async (tx) => {
-        const uref = doc(db, 'users', user.uid);
-        const snap = await tx.get(uref);
-        if (!snap.exists()) throw new Error('user_not_found');
-        const bal = Number((snap.data() as { balance?: number }).balance || 0);
-        if (bal < gift.cost) throw new Error('insufficient_balance');
-        tx.update(uref, { balance: increment(-gift.cost) });
+      const token = await user.getIdToken();
+      const giftRes = await fetch('/api/wallet/gift', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          toUid: creatorId,
+          giftCost: gift.cost,
+          giftId: `pk_${gift.name}`,
+          meta: { giftName: gift.name, pk: true },
+        }),
       });
+      const giftData = await giftRes.json().catch(() => ({}));
+      if (!giftRes.ok || !giftData.ok) {
+        throw new Error(giftData.error || 'gift_failed');
+      }
     } catch (e) {
       console.error('PK gift deduct', e);
       setVvipAlert({ msg: 'Gift failed. Please try again.', icon: '⚠️' });
@@ -4144,19 +4154,8 @@ export function AJSuperPortal() {
           scoreGuest: increment(creditHost ? 0 : gift.cost),
           lastGift: giftEvent,
         });
-        // Optional creator share to the other side / host live
-        const beneficiary = creditHost ? rivalId || hostId : hostId;
-        if (beneficiary && beneficiary !== user.uid) {
-          try {
-            await earnReward(user, 'live_gift', {
-              idempotencyKey: `${user.uid}_${pkRoomId}_${gift.name}_${Date.now()}`,
-              beneficiaryUid: beneficiary,
-              meta: { giftName: gift.name, giftCost: gift.cost, pkRoomId },
-            });
-          } catch {
-            /* score already updated */
-          }
-        }
+        // Optional creator share — already credited via /api/wallet/gift above when toUid matched
+        // Do NOT call earnReward again (would double-credit).
         setVvipAlert({
           msg: `${gift.icon} ${gift.name}! +${gift.cost} to your PK score`,
           icon: gift.icon,
@@ -4474,18 +4473,15 @@ export function AJSuperPortal() {
     gift: { name: string; cost: number; icon: string; mediaUrl?: string }
   ) => {
     if (!user || creatorId === user.uid) {
-      // Self-gift: only deduct and add (no split)
+      // Self-gift: cinematic only — no balance change
       if (creatorId === user.uid) {
         if (balance < gift.cost) {
           setVvipAlert({msg:`Insufficient Balance! Need ${gift.cost} 🪙`,icon:'💰'});
           return;
         }
-        try {
-          await updateDoc(doc(db,"users",user.uid), { balance: increment(0) }); // no-op for self
-          setCinematicGift(gift);
-          setCinematicSender(username || 'You');
-          setVvipAlert({msg:`${gift.icon} ${gift.name}! 🎉 (Self-gift, no coin change)`,icon:gift.icon});
-        } catch(e) { console.error('self-gift error', e); }
+        setCinematicGift(gift);
+        setCinematicSender(username || 'You');
+        setVvipAlert({msg:`${gift.icon} ${gift.name}! 🎉 (Self-gift, no coin change)`,icon:gift.icon});
         return;
       }
     }
@@ -4494,23 +4490,25 @@ export function AJSuperPortal() {
       return;
     }
     try {
-      // Deduct gift cost from sender via atomic transaction
-      await runTransaction(db, async (tx) => {
-        const uref = doc(db, 'users', user.uid);
-        const snap = await tx.get(uref);
-        if (!snap.exists()) throw new Error('user_not_found');
-        const bal = Number((snap.data() as { balance?: number }).balance || 0);
-        if (bal < gift.cost) throw new Error('insufficient_balance');
-        tx.update(uref, { balance: increment(-gift.cost) });
+      const token = await user.getIdToken();
+      const giftRes = await fetch('/api/wallet/gift', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          toUid: creatorId,
+          giftCost: gift.cost,
+          giftId: gift.name,
+          meta: { giftName: gift.name, giftCost: gift.cost },
+        }),
       });
-      // Creator earns AJ Coins via verified server reward engine
-      const giftKey = `${user.uid}_${creatorId}_${gift.name}_${Date.now()}`;
-      const reward = await earnReward(user, 'live_gift', {
-        idempotencyKey: giftKey,
-        beneficiaryUid: creatorId,
-        meta: { giftName: gift.name, giftCost: gift.cost },
-      });
-      const creatorShare = reward.creditedCoins || 0;
+      const giftData = await giftRes.json().catch(() => ({}));
+      if (!giftRes.ok || !giftData.ok) {
+        throw new Error(giftData.error || giftData.message || 'gift_failed');
+      }
+      const creatorShare = Number(giftData.creditedCoins || 0);
       try {
         await notifyUser(user, creatorId, {
           type: 'gift',
@@ -4526,9 +4524,7 @@ export function AJSuperPortal() {
       setCinematicGift(gift);
       setCinematicSender(username || 'Anonymous');
       setVvipAlert({
-        msg: reward.ok
-          ? `${gift.icon} ${gift.name} sent! Creator +${creatorShare} AJ Coins`
-          : `${gift.icon} ${gift.name} sent!`,
+        msg: `${gift.icon} ${gift.name} sent! Creator +${creatorShare} AJ Coins`,
         icon: gift.icon,
       });
     } catch(e) { console.error('sendGift', e); setVvipAlert({msg:'Gift failed. Please try again.'}); }
@@ -6275,22 +6271,28 @@ export function AJSuperPortal() {
     if (balance<cost) return setVvipAlert({msg:"Insufficient Balance!"});
     if (!user) return setVvipAlert({msg:"Please log in first."});
     try {
-      await runTransaction(db, async (tx) => {
-        const uref = doc(db, 'users', user.uid);
-        const snap = await tx.get(uref);
-        if (!snap.exists()) throw new Error('user_not_found');
-        const bal = Number((snap.data() as { balance?: number }).balance || 0);
-        if (bal < cost) throw new Error('insufficient_balance');
-        tx.update(uref, {
-          balance: increment(-cost),
-          botTier: tier,
-          invested: cost,
-          lastSync: serverTimestamp(),
-        });
+      const token = await user.getIdToken();
+      const res = await fetch('/api/bot/activate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ tier }),
       });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || data.message || 'activation_failed');
+      }
       setVisualProfit(0);
-      setVvipAlert({msg:`${tier.toUpperCase()} BOT ACTIVATED! Sync profits to earn AJ Coin rewards.`});
-    } catch(e) { console.error('activateBot', e); setVvipAlert({msg:'Activation failed. Please try again.'}); }
+      setVvipAlert({msg:`${String(tier).toUpperCase()} BOT ACTIVATED! Sync profits to earn AJ Coin rewards.`});
+    } catch(e) {
+      console.error('activateBot', e);
+      const msg = e instanceof Error ? e.message : 'Activation failed';
+      setVvipAlert({
+        msg: msg === 'insufficient_balance' ? 'Insufficient Balance!' : 'Activation failed. Please try again.',
+      });
+    }
   };
 
   /** Persist AI bot claim — server enforces 24h lock via lastBotClaimAt (anti clock-cheat). */
@@ -6358,7 +6360,7 @@ export function AJSuperPortal() {
   const SELF_TRANSFER_ALERT =
     'Transfer blocked. You cannot send coins to your own ID. Transfers only succeed when sent to another user.';
 
-  /** Atomic coin transfer — Admin API preferred; client runTransaction fallback. Blocks self-transfer. */
+  /** Atomic coin transfer — Admin API only. Blocks self-transfer. */
   const transferCoins = async () => {
     if (transferAmount<=0 || !transferId.trim()) return setVvipAlert({msg:"Fill all fields!", icon:'⚠️'});
     if (!user) return setVvipAlert({msg:"Please log in first.", icon:'🔒'});
@@ -6366,7 +6368,6 @@ export function AJSuperPortal() {
     const amount = Math.floor(transferAmount);
     if (amount <= 0) return setVvipAlert({msg:"Enter a valid amount.", icon:'⚠️'});
 
-    // Block paste of own Transfer ID (AJ…) or own Firebase uid
     const enteredUpper = entered.toUpperCase();
     if (
       (myReferralId && enteredUpper === myReferralId.toUpperCase()) ||
@@ -6376,7 +6377,6 @@ export function AJSuperPortal() {
     }
 
     try {
-      // Resolve unique Transfer ID (AJ…) → Firebase uid (also accepts legacy uid)
       const toUid = await resolveReferrerUid(entered);
       if (!toUid) {
         return setVvipAlert({
@@ -6388,89 +6388,49 @@ export function AJSuperPortal() {
         return setVvipAlert({ msg: SELF_TRANSFER_ALERT, icon: '🚫' });
       }
 
-      // Prefer Admin atomic transfer API when configured
-      try {
-        const token = await user.getIdToken();
-        const res = await fetch('/api/wallet/transfer', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ transferId: entered, toUid, amount }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok && data.ok) {
-          try {
-            await writeUserNotification(user.uid, {
-              type: 'transfer',
-              title: 'Transfer Sent',
-              message: `Sent ${amount} AJ Coins 🪙 to Transfer ID: ${enteredUpper}`,
-            });
-            await notifyUser(user, toUid, {
-              type: 'transfer',
-              title: 'Coins Received',
-              message: `+${amount} AJ Coins 🪙 from @${username || 'AJ_Member'}`,
-              fromUid: user.uid,
-              fromUsername: username || 'AJ_Member',
-              pushBody: `You received ${amount} AJ Coins on AJ Portal`,
-            });
-          } catch {}
-          setVvipAlert({msg: data.message || `✅ Transferred ${amount} AJ Coins 🪙`, icon:"✅"});
-          setTransferAmount(0); setTransferId(''); setWalletTab('main');
-          return;
-        }
-        if (data.error && data.error !== 'admin_not_configured') {
-          const map: Record<string, string> = {
-            insufficient_balance: 'Insufficient balance!',
-            recipient_not_found: 'Transfer ID not found!',
-            self_transfer: SELF_TRANSFER_ALERT,
-            sender_banned: 'Your account is restricted.',
-            recipient_banned: 'Recipient account is restricted.',
-          };
-          return setVvipAlert({
-            msg: data.message || map[data.error] || data.error,
-            icon: data.error === 'self_transfer' ? '🚫' : '⚠️',
-          });
-        }
-      } catch {
-        /* fall through to client transaction */
-      }
-
-      // Client Firestore runTransaction — atomic debit+credit, blocks self-transfer
-      await runTransaction(db, async (tx) => {
-        const senderRef = doc(db, 'users', user.uid);
-        const receiverRef = doc(db, 'users', toUid);
-        if (senderRef.id === receiverRef.id) throw new Error('self_transfer');
-        const [senderSnap, receiverSnap] = await Promise.all([
-          tx.get(senderRef),
-          tx.get(receiverRef),
-        ]);
-        if (!receiverSnap.exists()) throw new Error('recipient_not_found');
-        if (!senderSnap.exists()) throw new Error('sender_not_found');
-        const bal = Number((senderSnap.data() as { balance?: number }).balance || 0);
-        if (bal < amount) throw new Error('insufficient_balance');
-        tx.update(senderRef, { balance: increment(-amount) });
-        tx.update(receiverRef, { balance: increment(amount) });
+      const token = await user.getIdToken();
+      const res = await fetch('/api/wallet/transfer', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ transferId: entered, toUid, amount }),
       });
-
-      try {
-        await writeUserNotification(user.uid, {
-          type: 'transfer',
-          title: 'Transfer Sent',
-          message: `Sent ${amount} AJ Coins 🪙 to Transfer ID: ${enteredUpper}`,
-        });
-        await notifyUser(user, toUid, {
-          type: 'transfer',
-          title: 'Coins Received',
-          message: `+${amount} AJ Coins 🪙 from @${username || 'AJ_Member'}`,
-          fromUid: user.uid,
-          fromUsername: username || 'AJ_Member',
-          pushBody: `You received ${amount} AJ Coins on AJ Portal`,
-        });
-      } catch {}
-      setVvipAlert({msg:`✅ Transferred ${amount} AJ Coins 🪙`,icon:"✅"});
-      setTransferAmount(0); setTransferId(''); setWalletTab('main');
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) {
+        try {
+          await writeUserNotification(user.uid, {
+            type: 'transfer',
+            title: 'Transfer Sent',
+            message: `Sent ${amount} AJ Coins 🪙 to Transfer ID: ${enteredUpper}`,
+          });
+          await notifyUser(user, toUid, {
+            type: 'transfer',
+            title: 'Coins Received',
+            message: `+${amount} AJ Coins 🪙 from @${username || 'AJ_Member'}`,
+            fromUid: user.uid,
+            fromUsername: username || 'AJ_Member',
+            pushBody: `You received ${amount} AJ Coins on AJ Portal`,
+          });
+        } catch {}
+        setVvipAlert({msg: data.message || `✅ Transferred ${amount} AJ Coins 🪙`, icon:"✅"});
+        setTransferAmount(0); setTransferId(''); setWalletTab('main');
+        return;
+      }
+      const map: Record<string, string> = {
+        insufficient_balance: 'Insufficient balance!',
+        recipient_not_found: 'Transfer ID not found!',
+        self_transfer: SELF_TRANSFER_ALERT,
+        sender_banned: 'Your account is restricted.',
+        recipient_banned: 'Recipient account is restricted.',
+        admin_sdk_missing: 'Server transfer unavailable. Configure FIREBASE_SERVICE_ACCOUNT_JSON.',
+        admin_not_configured: 'Server transfer unavailable. Configure FIREBASE_SERVICE_ACCOUNT_JSON.',
+      };
+      return setVvipAlert({
+        msg: data.message || map[data.error] || data.error || 'Transfer failed. Please try again.',
+        icon: data.error === 'self_transfer' ? '🚫' : '⚠️',
+      });
     } catch(e: unknown) {
       const msg = e instanceof Error ? e.message : 'transfer_failed';
       console.error('transferCoins', e);
@@ -6480,6 +6440,7 @@ export function AJSuperPortal() {
       else setVvipAlert({msg:'Transfer failed. Please try again.', icon:'⚠️'});
     }
   };
+
   const handleTransfer = transferCoins;
 
   const handleWithdraw = async () => {
@@ -6508,20 +6469,20 @@ export function AJSuperPortal() {
         cardBank,
         cardCountry,
       };
-      const withdrawCoins = balance;
-      await runTransaction(db, async (tx) => {
-        const uref = doc(db, 'users', user!.uid);
-        const snap = await tx.get(uref);
-        if (!snap.exists()) throw new Error('user_not_found');
-        const bal = Number((snap.data() as { balance?: number }).balance || 0);
-        if (bal < WITHDRAW_MIN || bal < 20000) throw new Error('below_minimum');
-        tx.update(uref, { balance: 0 });
+      const token = await user!.getIdToken();
+      const wdRes = await fetch('/api/wallet/withdraw', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ method: payoutMethod, payoutDetails }),
       });
-      await addDoc(collection(db,"manual_withdrawals"), {
-        uid:user!.uid, email:user!.email, coins:withdrawCoins,
-        method:payoutMethod, payoutDetails,
-        status:"pending", date:serverTimestamp()
-      });
+      const wdData = await wdRes.json().catch(() => ({}));
+      if (!wdRes.ok || !wdData.ok) {
+        throw new Error(wdData.error || wdData.message || 'withdraw_failed');
+      }
+      const withdrawCoins = Number(wdData.coins || balance);
       try {
         await writeUserNotification(user!.uid, {
           type: 'withdraw',

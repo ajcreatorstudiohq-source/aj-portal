@@ -15,6 +15,7 @@ import {
   bearerFromRequest,
   verifyFirebaseIdToken,
 } from '../../../lib/verify-id-token';
+import { validateWatchAdsEconomics, revenueSplitLabel } from '../../../lib/ad-revenue-guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -168,10 +169,29 @@ export async function POST(request: Request) {
             clientEmailSet: diag.clientEmailSet,
             privateKeySet: diag.privateKeySet,
           },
-          allowClientFallback: true,
+          allowClientFallback: false,
         },
         { status: 503 }
       );
+    }
+
+    // Real CPC / revenue guard — never credit more liability than assumed CPC covers
+    if (action === 'claim_adsterra' || action === 'complete') {
+      const econ = validateWatchAdsEconomics(ADSTERRA_REWARD_COINS);
+      if (!econ.ok) {
+        console.error('[ads/rewarded] cpc_below_reward', econ);
+        return NextResponse.json(
+          {
+            ok: false,
+            error: 'cpc_below_reward',
+            message:
+              'Ad reward temporarily disabled: configured CPC cannot cover coin liability. Update ADSTERRA_REAL_CPC_USD.',
+            economics: econ,
+            revenue: revenueSplitLabel(),
+          },
+          { status: 503 }
+        );
+      }
     }
 
     const userRef = adminDb.collection('users').doc(user.uid);
@@ -653,7 +673,7 @@ export async function POST(request: Request) {
           source: diag.source,
           lastError: diag.lastError,
         },
-        allowClientFallback: !diag.ready,
+        allowClientFallback: false,
       },
       { status }
     );
@@ -674,6 +694,8 @@ export async function GET() {
       provider: 'adsterra',
       requiresStatus: 'completed',
       adminSdk: diag.ready,
+      economics: validateWatchAdsEconomics(ADSTERRA_REWARD_COINS),
+      revenue: revenueSplitLabel(),
       adminDiag: {
         configured: diag.configured,
         source: diag.source,

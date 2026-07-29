@@ -1,9 +1,8 @@
 /**
  * Cumulative owner earnings ledger (`admin_stats/earnings`).
- * Updated whenever platform share is logged to AdminRevenue.
+ * Admin SDK only.
  */
-import { doc, setDoc, increment, serverTimestamp } from 'firebase/firestore';
-import { db } from '../../firebaseConfig';
+import { FieldValue, getAdminDb } from './firebase-admin';
 import { COIN_RATE } from './economy';
 
 export const ADMIN_EARNINGS_DOC = 'admin_stats/earnings';
@@ -18,10 +17,6 @@ export type AdminEarningsTotals = {
   updatedAt?: unknown;
 };
 
-/**
- * Add owner share into the running portal total (coins + USD).
- * Safe to call after every AdminRevenue write — non-fatal on failure.
- */
 export async function creditAdminEarnings(opts: {
   ownerUsd: number;
   ownerCoins?: number;
@@ -34,24 +29,28 @@ export async function creditAdminEarnings(opts: {
       : Math.floor(ownerUsd * COIN_RATE);
   if (ownerUsd <= 0 && ownerCoins <= 0) return;
 
+  const db = getAdminDb();
+  if (!db) throw new Error('admin_sdk_missing');
+
   const source = String(opts.source || '');
   const isGift = source === 'live_gift' || source.includes('gift');
-  const isAd = source.startsWith('ad_') || source.includes('adsterra') || source === 'ad_network';
+  const isAd =
+    source.startsWith('ad_') || source.includes('adsterra') || source === 'ad_network';
 
   const patch: Record<string, unknown> = {
-    totalOwnerUsd: increment(ownerUsd),
-    totalOwnerCoins: increment(ownerCoins),
-    eventCount: increment(1),
-    updatedAt: serverTimestamp(),
+    totalOwnerUsd: FieldValue.increment(ownerUsd),
+    totalOwnerCoins: FieldValue.increment(ownerCoins),
+    eventCount: FieldValue.increment(1),
+    updatedAt: FieldValue.serverTimestamp(),
     currency: 'USD',
   };
   if (isGift) {
-    patch.giftOwnerUsd = increment(ownerUsd);
-    patch.giftOwnerCoins = increment(ownerCoins);
+    patch.giftOwnerUsd = FieldValue.increment(ownerUsd);
+    patch.giftOwnerCoins = FieldValue.increment(ownerCoins);
   }
   if (isAd) {
-    patch.adOwnerUsd = increment(ownerUsd);
+    patch.adOwnerUsd = FieldValue.increment(ownerUsd);
   }
 
-  await setDoc(doc(db, 'admin_stats', 'earnings'), patch, { merge: true });
+  await db.doc(ADMIN_EARNINGS_DOC).set(patch, { merge: true });
 }

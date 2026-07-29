@@ -14,7 +14,7 @@ export const ADGEM_WALL_BASE =
  * Production postback (configure in AdGem dashboard).
  * Macros: {amount} → payout, {state} → status, {player_id} → userId
  *
- * https://aj-portal-one.vercel.app/api/postback?payout={amount}&status={state}&userId={player_id}&secret=AJ_SUPER_SECURE_786_PORTAL
+ * https://YOUR_DOMAIN/api/postback?payout={amount}&status={state}&userId={player_id}&secret=YOUR_SECRET
  */
 export const ADGEM_POSTBACK_URL =
   process.env.NEXT_PUBLIC_ADGEM_POSTBACK_URL ||

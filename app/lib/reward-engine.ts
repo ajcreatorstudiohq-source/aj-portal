@@ -1,18 +1,8 @@
 /**
  * Server-side reward application with idempotency + AdminRevenue logging.
- * Credits AJ Coins 🪙 to user wallets (UI never shows currency as USD).
+ * Uses Firebase Admin SDK only — client cannot write users.balance.
  */
-import {
-  collection,
-  doc,
-  getDoc,
-  addDoc,
-  updateDoc,
-  increment,
-  serverTimestamp,
-  runTransaction,
-} from 'firebase/firestore';
-import { db } from '../../firebaseConfig';
+import { FieldValue, getAdminDb } from './firebase-admin';
 import {
   computeRewardSplit,
   PLATFORM_EARN_SHARE,
@@ -22,10 +12,7 @@ import {
   type RewardSplit,
   type GameProgressDoc,
 } from './economy';
-import {
-  DAILY_CAPS,
-  type RewardSource,
-} from './reward-sources';
+import { DAILY_CAPS, type RewardSource } from './reward-sources';
 import { creditAdminEarnings } from './admin-earnings';
 
 export type { RewardSource };
@@ -43,7 +30,6 @@ function dayKeyUtc() {
   return new Date().toISOString().slice(0, 10);
 }
 
-/** Fields written on every AdminRevenue row so owner share is clear in USD. */
 function adminRevenueFields(
   split: RewardSplit,
   extra: Record<string, unknown> = {},
@@ -64,10 +50,14 @@ function adminRevenueFields(
   };
 }
 
+function requireDb() {
+  const db = getAdminDb();
+  if (!db) throw new Error('admin_sdk_missing');
+  return db;
+}
+
 /**
  * Credit user wallet + log platform revenue. Idempotent on `txId`.
- * Default: user 30% AJ Coins, owner 70% USD ledger.
- * Gifts may pass splitOverride + share pct overrides (40/60).
  */
 export async function applySplitReward(opts: {
   uid: string;
@@ -76,9 +66,7 @@ export async function applySplitReward(opts: {
   seed: string;
   meta?: Record<string, unknown>;
   ledgerCollection?: string;
-  /** When true, enforce per-source daily caps on users/{uid} */
   enforceDailyCap?: boolean;
-  /** Override split (e.g. gifts = 40% admin / 60% creator of giftCost). */
   splitOverride?: RewardSplit;
   platformSharePct?: number;
   userSharePct?: number;
@@ -96,29 +84,33 @@ export async function applySplitReward(opts: {
     userSharePct,
   } = opts;
 
-  if (!uid || !txId) {
-    return { ok: false, error: 'missing_uid_or_tx' };
+  if (!uid || !txId) return { ok: false, error: 'missing_uid_or_tx' };
+
+  let db;
+  try {
+    db = requireDb();
+  } catch {
+    return { ok: false, error: 'admin_sdk_missing' };
   }
 
-  const ledgerRef = doc(db, ledgerCollection, txId);
-  const userRef = doc(db, 'users', uid);
+  const ledgerRef = db.collection(ledgerCollection).doc(txId);
+  const userRef = db.collection('users').doc(uid);
   const split = splitOverride ?? computeRewardSplit(seed);
   const dayKey = dayKeyUtc();
   const cap = DAILY_CAPS[source] ?? 5;
 
   try {
-    const result = await runTransaction(db, async (tx) => {
+    const result = await db.runTransaction(async (tx) => {
       const existing = await tx.get(ledgerRef);
-      if (existing.exists()) {
+      if (existing.exists) {
         return { duplicate: true as const, split, dailyCapHit: false };
       }
 
       const userSnap = await tx.get(userRef);
-      if (!userSnap.exists()) {
-        throw new Error('user_not_found');
-      }
+      if (!userSnap.exists) throw new Error('user_not_found');
 
       const data = userSnap.data() as {
+        balance?: number;
         dailyRewards?: Record<string, { dayKey?: string; count?: number }>;
       };
 
@@ -132,6 +124,7 @@ export async function applySplitReward(opts: {
         nextDailyCount = count + 1;
       }
 
+      const bal = Math.max(0, Math.floor(Number(data.balance) || 0));
       tx.set(ledgerRef, {
         uid,
         source,
@@ -139,13 +132,14 @@ export async function applySplitReward(opts: {
         ...split,
         meta,
         dayKey: typeof meta.dayKey === 'string' ? meta.dayKey : dayKey,
-        createdAt: serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
       });
 
       const userUpdate: Record<string, unknown> = {
-        balance: increment(split.userCoins),
-        lastRewardAt: serverTimestamp(),
+        balance: bal + split.userCoins,
+        lastRewardAt: FieldValue.serverTimestamp(),
         lastRewardSource: source,
+        lastWalletWriteAt: FieldValue.serverTimestamp(),
       };
       if (nextDailyCount !== null) {
         userUpdate[`dailyRewards.${source}.dayKey`] = dayKey;
@@ -168,8 +162,7 @@ export async function applySplitReward(opts: {
 
     if (!result.duplicate) {
       try {
-        await addDoc(
-          collection(db, 'AdminRevenue'),
+        await db.collection('AdminRevenue').add(
           adminRevenueFields(
             result.split,
             {
@@ -177,13 +170,13 @@ export async function applySplitReward(opts: {
               uid,
               txId,
               meta,
-              date: serverTimestamp(),
+              date: FieldValue.serverTimestamp(),
             },
             { platformSharePct, userSharePct }
           )
         );
       } catch {
-        // Non-fatal — user credit already committed
+        /* non-fatal */
       }
       try {
         await creditAdminEarnings({
@@ -209,9 +202,7 @@ export async function applySplitReward(opts: {
 }
 
 /**
- * Credit an exact AJ Coin amount (idempotent). Used for fixed post rewards etc.
- * Flat coins = user's share; USD valued at CASH_RATE (withdraw). Admin ledger gets
- * the complementary 70% of the implied pool so hisaab stays 100% consistent.
+ * Credit an exact AJ Coin amount (idempotent). Admin SDK only.
  */
 export async function applyFlatCoins(opts: {
   uid: string;
@@ -221,9 +212,7 @@ export async function applyFlatCoins(opts: {
   meta?: Record<string, unknown>;
   ledgerCollection?: string;
   enforceDailyCap?: boolean;
-  /** Extra user field updates inside the same transaction (e.g. lastBotClaimAt) */
   userPatch?: Record<string, unknown>;
-  /** Allow 0-coin no-op (e.g. no-loss bot stamp) */
   allowZero?: boolean;
 }): Promise<ApplyRewardResult> {
   const {
@@ -242,6 +231,13 @@ export async function applyFlatCoins(opts: {
   const credit = Math.max(0, Math.floor(coins));
   if (credit <= 0 && !allowZero) return { ok: false, error: 'invalid_coins' };
 
+  let db;
+  try {
+    db = requireDb();
+  } catch {
+    return { ok: false, error: 'admin_sdk_missing' };
+  }
+
   const zeroSplit: RewardSplit = {
     totalUsd: 0,
     userUsd: 0,
@@ -251,14 +247,14 @@ export async function applyFlatCoins(opts: {
   };
 
   if (credit <= 0 && allowZero) {
-    // Stamp-only path (e.g. bot claim lock without minting)
-    const userRef = doc(db, 'users', uid);
+    const userRef = db.collection('users').doc(uid);
     try {
       if (userPatch && Object.keys(userPatch).length) {
-        await updateDoc(userRef, {
+        await userRef.update({
           ...userPatch,
-          lastRewardAt: serverTimestamp(),
+          lastRewardAt: FieldValue.serverTimestamp(),
           lastRewardSource: source,
+          lastWalletWriteAt: FieldValue.serverTimestamp(),
         });
       }
       return { ok: true, duplicate: false, split: zeroSplit, balanceCredited: 0 };
@@ -268,17 +264,14 @@ export async function applyFlatCoins(opts: {
     }
   }
 
-  const ledgerRef = doc(db, ledgerCollection, txId);
-  const userRef = doc(db, 'users', uid);
+  const ledgerRef = db.collection(ledgerCollection).doc(txId);
+  const userRef = db.collection('users').doc(uid);
   const dayKey = dayKeyUtc();
   const cap = DAILY_CAPS[source] ?? 5;
 
-  // Flat credit is the user's 30% — back-calculate full pool for admin 70%
   const userUsd = coinsToUsd(credit);
   const totalUsd =
-    USER_EARN_SHARE > 0
-      ? Number((userUsd / USER_EARN_SHARE).toFixed(6))
-      : userUsd;
+    USER_EARN_SHARE > 0 ? Number((userUsd / USER_EARN_SHARE).toFixed(6)) : userUsd;
   const adminUsd = Number((totalUsd - userUsd).toFixed(6));
   const split: RewardSplit = {
     totalUsd,
@@ -289,16 +282,17 @@ export async function applyFlatCoins(opts: {
   };
 
   try {
-    const result = await runTransaction(db, async (tx) => {
+    const result = await db.runTransaction(async (tx) => {
       const existing = await tx.get(ledgerRef);
-      if (existing.exists()) {
+      if (existing.exists) {
         return { duplicate: true as const, split, dailyCapHit: false };
       }
 
       const userSnap = await tx.get(userRef);
-      if (!userSnap.exists()) throw new Error('user_not_found');
+      if (!userSnap.exists) throw new Error('user_not_found');
 
       const data = userSnap.data() as {
+        balance?: number;
         dailyRewards?: Record<string, { dayKey?: string; count?: number }>;
       };
 
@@ -312,6 +306,7 @@ export async function applyFlatCoins(opts: {
         nextDailyCount = count + 1;
       }
 
+      const bal = Math.max(0, Math.floor(Number(data.balance) || 0));
       tx.set(ledgerRef, {
         uid,
         source,
@@ -320,13 +315,14 @@ export async function applyFlatCoins(opts: {
         flatCoins: credit,
         meta,
         dayKey,
-        createdAt: serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
       });
 
       const userUpdate: Record<string, unknown> = {
-        balance: increment(credit),
-        lastRewardAt: serverTimestamp(),
+        balance: bal + credit,
+        lastRewardAt: FieldValue.serverTimestamp(),
         lastRewardSource: source,
+        lastWalletWriteAt: FieldValue.serverTimestamp(),
         ...(userPatch || {}),
       };
       if (nextDailyCount !== null) {
@@ -350,15 +346,14 @@ export async function applyFlatCoins(opts: {
 
     if (!result.duplicate && result.split.adminUsd > 0) {
       try {
-        await addDoc(
-          collection(db, 'AdminRevenue'),
+        await db.collection('AdminRevenue').add(
           adminRevenueFields(result.split, {
             type: source,
             uid,
             txId,
             meta,
             flatCoins: credit,
-            date: serverTimestamp(),
+            date: FieldValue.serverTimestamp(),
           })
         );
       } catch {
@@ -391,9 +386,9 @@ export async function ensureGameProgress(
   uid: string,
   gameId: string
 ): Promise<GameProgressDoc> {
-  const userRef = doc(db, 'users', uid);
-  const snap = await getDoc(userRef);
-  if (!snap.exists()) throw new Error('user_not_found');
+  const db = requireDb();
+  const snap = await db.collection('users').doc(uid).get();
+  if (!snap.exists) throw new Error('user_not_found');
   const data = snap.data() as {
     gameProgress?: Record<string, GameProgressDoc>;
   };
@@ -407,27 +402,29 @@ export async function ensureGameProgress(
 }
 
 export async function markGameInstalled(uid: string, gameId: string) {
-  const userRef = doc(db, 'users', uid);
-  const snap = await getDoc(userRef);
-  if (!snap.exists()) throw new Error('user_not_found');
+  const db = requireDb();
+  const userRef = db.collection('users').doc(uid);
+  const snap = await userRef.get();
+  if (!snap.exists) throw new Error('user_not_found');
   const data = snap.data() as {
     gameProgress?: Record<string, GameProgressDoc>;
     unlockedGames?: string[];
   };
   const unlocked = Array.isArray(data.unlockedGames) ? [...data.unlockedGames] : [];
+  const alreadyInstalled = !!data.gameProgress?.[gameId]?.installed;
   if (!unlocked.includes(gameId)) unlocked.push(gameId);
   const prev = data.gameProgress?.[gameId] || {
     installed: false,
     level: 0,
     claimedMilestones: [],
   };
-  await updateDoc(userRef, {
+  await userRef.update({
     unlockedGames: unlocked,
     [`gameProgress.${gameId}`]: {
       ...prev,
       installed: true,
-      installedAt: serverTimestamp(),
+      installedAt: FieldValue.serverTimestamp(),
     },
   });
-  return { unlockedGames: unlocked, alreadyInstalled: !!prev.installed };
+  return { unlockedGames: unlocked, alreadyInstalled };
 }

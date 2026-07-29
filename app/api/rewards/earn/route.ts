@@ -1,6 +1,4 @@
 import { NextResponse } from 'next/server';
-import { doc, getDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
-import { db } from '../../../../firebaseConfig';
 import { applySplitReward, applyFlatCoins } from '../../../lib/reward-engine';
 import {
   isRewardSource,
@@ -14,7 +12,10 @@ import {
   bearerFromRequest,
   verifyFirebaseIdToken,
 } from '../../../lib/verify-id-token';
-import { splitGiftCoins, GIFT_ADMIN_SHARE, GIFT_CREATOR_SHARE, REFERRAL_BONUS_COINS } from '../../../lib/economy';
+import {
+  REFERRAL_BONUS_COINS,
+} from '../../../lib/economy';
+import { FieldValue, getAdminDb } from '../../../lib/firebase-admin';
 
 const BOT_CLAIM_LOCK_MS = 24 * 60 * 60 * 1000;
 
@@ -40,11 +41,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: 'invalid_source' }, { status: 400 });
     }
     const source = sourceRaw as RewardSource;
-    const meta =
+    let meta: Record<string, unknown> =
       body.meta && typeof body.meta === 'object'
-        ? (body.meta as Record<string, unknown>)
+        ? { ...(body.meta as Record<string, unknown>) }
         : {};
 
+    // Gifts must debit sender via /api/wallet/gift — never credit-only via earn
+    if (source === 'live_gift') {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'use_wallet_gift',
+          message: 'Gifts must go through /api/wallet/gift (Admin debit + credit).',
+        },
+        { status: 403 }
+      );
+    }
     if (source === 'offerwall_video' && meta.networkShown !== true) {
       return NextResponse.json(
         { ok: false, error: 'ad_not_verified', message: 'Rewarded video not verified.' },
@@ -87,23 +99,29 @@ export async function POST(request: Request) {
 
     let creditUid = actor.uid;
     const beneficiary = String(body.beneficiaryUid || '').trim();
-    if (beneficiary) {
-      if (source === 'live_gift' || source === 'referral') {
-        if (beneficiary === actor.uid && source === 'live_gift') {
-          return NextResponse.json({ ok: false, error: 'invalid_beneficiary' }, { status: 400 });
-        }
-        creditUid = beneficiary;
-      }
+    if (beneficiary && source === 'referral') {
+      creditUid = beneficiary;
     }
 
-    // AI bot — 24h server-time lock (ignores client device clock)
+    // AI bot — 24h server-time lock; invested/botTier from Firestore (Admin), never client meta
     if (source === 'ai_bot_sync') {
-      const userSnap = await getDoc(doc(db, 'users', actor.uid));
-      if (!userSnap.exists()) {
+      const adminDb = getAdminDb();
+      if (!adminDb) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: 'admin_sdk_missing',
+            message: 'Server wallet unavailable. Configure FIREBASE_SERVICE_ACCOUNT_JSON.',
+          },
+          { status: 503 }
+        );
+      }
+      const userSnap = await adminDb.collection('users').doc(actor.uid).get();
+      if (!userSnap.exists) {
         return NextResponse.json({ ok: false, error: 'user_not_found' }, { status: 404 });
       }
       const ud = userSnap.data() as {
-        lastBotClaimAt?: Timestamp | { toMillis?: () => number; seconds?: number };
+        lastBotClaimAt?: { toMillis?: () => number; _seconds?: number; seconds?: number };
         botTier?: string;
         invested?: number;
       };
@@ -113,10 +131,17 @@ export async function POST(request: Request) {
           { status: 400 }
         );
       }
+      // Stash server truth for credit step
+      meta.botTier = ud.botTier;
+      meta.invested = Number(ud.invested) || 0;
+      meta.serverInvested = true;
+
       const last = ud.lastBotClaimAt;
       let lastMs = 0;
-      if (last && typeof (last as Timestamp).toMillis === 'function') {
-        lastMs = (last as Timestamp).toMillis();
+      if (last && typeof last.toMillis === 'function') {
+        lastMs = last.toMillis();
+      } else if (last && typeof (last as { _seconds?: number })._seconds === 'number') {
+        lastMs = Number((last as { _seconds: number })._seconds) * 1000;
       } else if (last && typeof (last as { seconds?: number }).seconds === 'number') {
         lastMs = Number((last as { seconds: number }).seconds) * 1000;
       }
@@ -158,25 +183,37 @@ export async function POST(request: Request) {
         enforceDailyCap: true,
       });
     } else if (source === 'ai_bot_sync') {
-      // AI Trading Bot: daily % of invested coins (feature stays useful)
+      // ONLY server-stored invested (set above) — ignore client meta.invested
+      const invested = Math.max(0, Math.floor(Number(meta.invested) || 0));
+      const tier = String(meta.botTier || 'basic');
+      if (!(invested > 0) || meta.serverInvested !== true) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: 'bot_inactive',
+            message: 'Activate an AI Trading Bot first (server verification failed).',
+          },
+          { status: 400 }
+        );
+      }
       const botCoins = Math.max(
         1,
-        Math.min(
-          500,
-          Math.floor(
-            Number(meta.invested || 0) *
-              (String(meta.botTier) === 'vvip' ? 0.05 : 0.025)
-          )
-        )
+        Math.min(500, Math.floor(invested * (tier === 'vvip' ? 0.05 : 0.025)))
       );
       result = await applyFlatCoins({
         uid: creditUid,
         txId,
         source,
         coins: botCoins,
-        meta: { ...meta, actorUid: actor.uid, label: SOURCE_LABELS[source] },
+        meta: {
+          botTier: tier,
+          invested,
+          serverInvested: true,
+          actorUid: actor.uid,
+          label: SOURCE_LABELS[source],
+        },
         enforceDailyCap: true,
-        userPatch: { lastBotClaimAt: serverTimestamp() },
+        userPatch: { lastBotClaimAt: FieldValue.serverTimestamp() },
       });
     } else if (source === 'referral') {
       if (REFERRAL_BONUS_COINS <= 0) {
@@ -194,34 +231,6 @@ export async function POST(request: Request) {
         source,
         coins: REFERRAL_BONUS_COINS,
         meta: { ...meta, actorUid: actor.uid, label: SOURCE_LABELS[source] },
-        enforceDailyCap: true,
-      });
-    } else if (source === 'live_gift') {
-      // Gift cost paid by sender: creator 60%, admin (owner) 40%.
-      // Example: 500 gift → creator 300, admin 200.
-      const giftCost = Math.floor(Number(meta.giftCost) || 0);
-      if (giftCost < 1) {
-        return NextResponse.json(
-          { ok: false, error: 'invalid_gift_cost', message: 'Gift cost required.' },
-          { status: 400 }
-        );
-      }
-      const giftSplit = splitGiftCoins(giftCost);
-      result = await applySplitReward({
-        uid: creditUid,
-        txId,
-        source,
-        seed: txId,
-        splitOverride: giftSplit,
-        platformSharePct: GIFT_ADMIN_SHARE,
-        userSharePct: GIFT_CREATOR_SHARE,
-        meta: {
-          ...meta,
-          actorUid: actor.uid,
-          label: SOURCE_LABELS[source],
-          giftCost,
-        },
-        ledgerCollection: 'reward_ledger',
         enforceDailyCap: true,
       });
     } else if (source === 'game_install' || source === 'game_milestone') {
@@ -280,7 +289,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const isGift = source === 'live_gift';
     return NextResponse.json({
       ok: true,
       duplicate: !!result.duplicate,
@@ -290,8 +298,8 @@ export async function POST(request: Request) {
       adminUsd: result.split?.adminUsd,
       ownerUsd: result.split?.adminUsd,
       totalPoolUsd: result.split?.totalUsd,
-      platformSharePct: isGift ? GIFT_ADMIN_SHARE : 0.7,
-      userSharePct: isGift ? GIFT_CREATOR_SHARE : 0.3,
+      platformSharePct: 0.7,
+      userSharePct: 0.3,
       message: result.duplicate
         ? 'Already credited'
         : `${SOURCE_LABELS[source]}: +${result.balanceCredited} AJ Coins 🪙`,

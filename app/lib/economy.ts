@@ -123,6 +123,22 @@ export const USER_EARN_SHARE = 0.3;
 export const GIFT_ADMIN_SHARE = 0.4;
 export const GIFT_CREATOR_SHARE = 0.6;
 
+/** Canonical gift prices — client cannot invent cheaper costs */
+export const GIFT_CATALOG: ReadonlyArray<{ id: number; name: string; cost: number }> = [
+  { id: 1, name: 'Coffee', cost: 500 },
+  { id: 2, name: 'Pizza Party', cost: 1000 },
+  { id: 3, name: 'Mega Heart', cost: 2500 },
+  { id: 4, name: 'Super Car', cost: 5000 },
+  { id: 5, name: 'Private Jet', cost: 8000 },
+  { id: 6, name: 'AJ Mansion', cost: 10000 },
+];
+
+const GIFT_COSTS = new Set(GIFT_CATALOG.map((g) => g.cost));
+
+export function isAllowedGiftCost(cost: number): boolean {
+  return GIFT_COSTS.has(Math.floor(Number(cost) || 0));
+}
+
 export type GameCatalogItem = {
   id: string;
   name: string;
@@ -379,7 +395,7 @@ export function getOfferwallServerConfig() {
     postbackSecret:
       process.env.OFFERWALL_POSTBACK_SECRET ||
       process.env.AJ_POSTBACK_SECRET ||
-      'AJ_SUPER_SECURE_786_PORTAL',
+      '',
     maxDailyCompletions: Number(process.env.OFFERWALL_MAX_DAILY || 5),
   };
 }

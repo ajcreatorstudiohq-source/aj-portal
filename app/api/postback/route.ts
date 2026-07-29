@@ -4,9 +4,7 @@ import { applyFlatCoins } from '../../lib/reward-engine';
 import { CASH_RATE, USER_EARN_SHARE, PLATFORM_EARN_SHARE } from '../../lib/economy';
 
 const POSTBACK_SECRET =
-  process.env.OFFERWALL_POSTBACK_SECRET ||
-  process.env.AJ_POSTBACK_SECRET ||
-  'AJ_SUPER_SECURE_786_PORTAL';
+  process.env.OFFERWALL_POSTBACK_SECRET || process.env.AJ_POSTBACK_SECRET || '';
 
 /**
  * Offerwall / AdGem postback — partner pays YOU 100% of payout USD.
@@ -20,14 +18,13 @@ function userCoinsFromPayoutUsd(payoutUsd: number): number {
 /**
  * GET|POST /api/postback
  * Partner S2S postback. User reward = floor(payoutUSD * 0.3 * 1000).
+ * Requires OFFERWALL_POSTBACK_SECRET (or AJ_POSTBACK_SECRET) + matching secret/HMAC.
  *
  * AdGem dashboard postback (app 33088):
- *   https://aj-portal-one.vercel.app/api/postback?payout={amount}&status={state}&userId={player_id}
- * Recommended (with secret):
- *   https://aj-portal-one.vercel.app/api/postback?payout={amount}&status={state}&userId={player_id}&secret=AJ_SUPER_SECURE_786_PORTAL
+ *   https://YOUR_DOMAIN/api/postback?payout={amount}&status={state}&userId={player_id}&secret=YOUR_SECRET
  *
  * Legacy CPAGrip:
- *   https://YOUR_DOMAIN/api/postback?userId={tracking_id}&payout={payout}&txid={offer_id}&status={status}&secret=AJ_SUPER_SECURE_786_PORTAL
+ *   https://YOUR_DOMAIN/api/postback?userId={tracking_id}&payout={payout}&txid={offer_id}&status={status}&secret=YOUR_SECRET
  */
 function readParams(url: URL, body: Record<string, unknown>) {
   const g = (k: string) => String(url.searchParams.get(k) || body[k] || '');
@@ -68,10 +65,15 @@ function safeEqual(a: string, b: string) {
 }
 
 function verifySecret(params: ReturnType<typeof readParams>): boolean {
+  // SECURITY: secret or HMAC sig REQUIRED — unsigned postbacks disabled
+  if (!POSTBACK_SECRET || POSTBACK_SECRET.length < 8) {
+    console.error('[postback] POSTBACK_SECRET not configured');
+    return false;
+  }
   if (params.secret) {
     return safeEqual(params.secret, POSTBACK_SECRET);
   }
-  if (params.sig) {
+  if (params.sig && params.uid && params.txId) {
     const payload = `${params.uid}:${params.txId}:${POSTBACK_SECRET}`;
     const digest = createHash('sha256').update(payload).digest('hex');
     try {
@@ -80,11 +82,7 @@ function verifySecret(params: ReturnType<typeof readParams>): boolean {
       return false;
     }
   }
-  // AdGem dashboard URL may omit secret — allow when explicitly enabled (default on)
-  const allowUnsigned =
-    process.env.OFFERWALL_ALLOW_UNSIGNED_POSTBACK !== '0' &&
-    process.env.OFFERWALL_REQUIRE_SECRET !== '1';
-  return allowUnsigned && !!params.uid;
+  return false;
 }
 
 function isSuccessStatus(status: string): boolean {
