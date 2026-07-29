@@ -37,14 +37,13 @@ export function formatUsd(usd: number): string {
 /** New-user wallet credit on first profile create — strictly zero (no signup bonus) */
 export const SIGNUP_BONUS_COINS = 0;
 /**
- * Referral bonus — ZERO in no-loss mode (no Adsterra/partner $ behind it).
- * Users can still share referral links; coins only from ads/offerwall.
+ * Referral bonus — small invite reward (ads + social growth).
  */
-export const REFERRAL_BONUS_COINS = 0;
+export const REFERRAL_BONUS_COINS = 5;
 
 /**
- * No-loss economy: user AJ Coins only when backed by real network $ (Adsterra / offerwall).
- * Unbacked posts / referral / live / bot mint = 0 so withdraw never comes from your pocket.
+ * Economy flag: prefer ad/offerwall-backed rewards; modest social/game bonuses OK
+ * because those surfaces also run Adsterra units.
  */
 export const NO_LOSS_ECONOMY = true;
 

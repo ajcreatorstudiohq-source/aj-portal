@@ -13,7 +13,7 @@ type Props = {
 };
 
 /**
- * Premium Alphanumeric Captcha — opens Adsterra; Verify & Claim = 30% of click (same as Watch Ads).
+ * Premium Alphanumeric Captcha — opens Adsterra; Verify & Claim +5 AJ Coins.
  */
 export default function AlphaCaptchaChallenge({ user, onAlert, onRefreshUser }: Props) {
   const [busy, setBusy] = useState(false);

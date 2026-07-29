@@ -1,12 +1,13 @@
 /**
  * Canonical multi-source earning channels for AJ Super Portal.
  *
- * NO-LOSS ECONOMY:
- * User AJ Coins ONLY when backed by real network dollars:
- *   - Watch Ads / Math / Captcha → 30% of ADSTERRA_CLICK_USD
- *   - Offerwall / AdGem postback → 30% of partner payout USD
- *   - Gifts → zero-sum from sender balance (40/60)
- * Everything else (posts, referral, live, bot mint, bare milestones) → 0 coins.
+ * Coin amounts (ad-backed social + games):
+ * - Watch Ads (rewarded) → 10
+ * - Math / Captcha → 5 each (open Adsterra)
+ * - TikReel / Pulse post → 2 each (in-feed ads)
+ * - Referral → 5
+ * - Games install/milestone → GAME_REWARD_COINS (ads in games)
+ * - AI bot → % of invested (users buy/earn coins; bot is a feature)
  */
 
 import { ADSTERRA_REWARD_COINS } from './ads-config';
@@ -73,30 +74,17 @@ export const SOURCE_LABELS: Record<RewardSource, string> = {
   alpha_captcha: 'Premium Alphanumeric Captcha',
 };
 
-/**
- * Sources that may credit user coins under no-loss rules.
- * (Gifts handled separately as zero-sum from sender.)
- */
-export const REVENUE_BACKED_SOURCES: ReadonlySet<RewardSource> = new Set([
-  'offerwall',
-  'offerwall_video',
-  'math_challenge',
-  'alpha_captcha',
-  'live_gift',
-]);
+/** TikReel video / Pulse photo — in-feed ads run on social */
+export const POST_REWARD_COINS = 2;
 
-/** TikReel / Pulse — 0 in no-loss mode (no Adsterra $ behind upload) */
-export const POST_REWARD_COINS = 0;
+/** Math & Captcha — open Adsterra, smaller faucet than Watch Ads */
+export const MATH_CHALLENGE_COINS = 5;
+export const ALPHA_CAPTCHA_COINS = 5;
 
-/**
- * Math & Captcha open Adsterra Direct Link → 30% of click (same as Watch Ads).
- * Default 15 🪙 when ADSTERRA_CLICK_USD = $0.05.
- */
-export const MATH_CHALLENGE_COINS = ADSTERRA_REWARD_COINS;
-export const ALPHA_CAPTCHA_COINS = ADSTERRA_REWARD_COINS;
-
-/** Unbacked live / games / install activity — always 0 (no-loss) */
-export const ACTIVITY_REWARD_COINS = 0;
+/** Games have Adsterra bridges — modest free coins per install/milestone */
+export const GAME_REWARD_COINS = 5;
+/** @deprecated alias */
+export const ACTIVITY_REWARD_COINS = GAME_REWARD_COINS;
 
 export { REFERRAL_BONUS_COINS, ADSTERRA_REWARD_COINS, NO_LOSS_ECONOMY };
 
@@ -111,6 +99,7 @@ export const REWARD_COIN_AMOUNTS = {
   tiktok_post: POST_REWARD_COINS,
   pulse_post: POST_REWARD_COINS,
   referral: REFERRAL_BONUS_COINS,
-  activity: ACTIVITY_REWARD_COINS,
-  ai_bot_sync: 0,
+  activity: GAME_REWARD_COINS,
+  game_install: GAME_REWARD_COINS,
+  game_milestone: GAME_REWARD_COINS,
 } as const;

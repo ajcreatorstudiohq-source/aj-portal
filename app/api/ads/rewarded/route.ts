@@ -14,11 +14,12 @@ import {
   ADSTERRA_CLICK_USD,
   ADSTERRA_REWARD_COINS,
   OFFERWALL_VIDEO_MAX_DAILY,
-  getAdsterraClickSplit,
 } from '../../../lib/ads-config';
 import {
   PLATFORM_EARN_SHARE,
   USER_EARN_SHARE,
+  CASH_RATE,
+  coinsToUsd,
 } from '../../../lib/economy';
 import { creditAdminEarnings } from '../../../lib/admin-earnings';
 import {
@@ -32,12 +33,26 @@ function dayKeyUtc() {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** Fixed Watch Ads coins + admin keeps rest of click USD (no-loss margin). */
+function rewardedClaimSplit(coins: number) {
+  const userUsd = coinsToUsd(coins);
+  const clickUsd = Math.max(ADSTERRA_CLICK_USD, userUsd);
+  const adminUsd = Number((clickUsd - userUsd).toFixed(6));
+  return {
+    totalUsd: clickUsd,
+    userUsd,
+    adminUsd,
+    userCoins: coins,
+    adminCoins: Math.floor(adminUsd * CASH_RATE),
+  };
+}
+
 /**
  * POST /api/ads/rewarded
  * Auth: Bearer <Firebase ID token>
  *
  * action: 'prepare' | 'complete' | 'claim_adsterra'
- * claim_adsterra → user gets 30% of ADSTERRA_CLICK_USD as coins; admin ledger 70%
+ * claim_adsterra → ADSTERRA_REWARD_COINS (10) after 30s verify
  */
 export async function POST(request: Request) {
   try {
@@ -158,8 +173,8 @@ export async function POST(request: Request) {
         { merge: true }
       );
 
-      const split = getAdsterraClickSplit();
-      const coins = split.userCoins > 0 ? split.userCoins : ADSTERRA_REWARD_COINS;
+      const coins = ADSTERRA_REWARD_COINS;
+      const split = rewardedClaimSplit(coins);
       const txId = `adsterra_claim_${user.uid}_${dayKey}_${dailyCount}`;
       const ledgerRef = doc(db, 'offerwall_ledger', txId);
 
@@ -354,8 +369,8 @@ export async function POST(request: Request) {
     const slot = typeof session.slot === 'number' ? session.slot : dailyCount;
     const txId = `offerwall_video_${user.uid}_${dayKey}_${slot}`;
     const ledgerRef = doc(db, 'offerwall_ledger', txId);
-    const split = getAdsterraClickSplit();
-    const coins = split.userCoins > 0 ? split.userCoins : ADSTERRA_REWARD_COINS;
+    const coins = ADSTERRA_REWARD_COINS;
+    const split = rewardedClaimSplit(coins);
 
     const creditResult = await runTransaction(db, async (tx) => {
       const [ledgerSnap, freshSession, freshUser] = await Promise.all([
@@ -465,11 +480,11 @@ export async function POST(request: Request) {
 }
 
 export async function GET() {
-  const split = getAdsterraClickSplit();
+  const split = rewardedClaimSplit(ADSTERRA_REWARD_COINS);
   return NextResponse.json({
     ok: true,
     maxDaily: OFFERWALL_VIDEO_MAX_DAILY,
-    rewardCoins: split.userCoins,
+    rewardCoins: ADSTERRA_REWARD_COINS,
     clickUsd: split.totalUsd,
     userUsd: split.userUsd,
     adminUsd: split.adminUsd,

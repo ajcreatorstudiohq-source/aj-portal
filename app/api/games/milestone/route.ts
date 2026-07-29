@@ -11,13 +11,15 @@ import {
 } from 'firebase/firestore';
 import { db } from '../../../../firebaseConfig';
 import {
-  computeRewardSplit,
+  coinsToUsd,
+  CASH_RATE,
+  USER_EARN_SHARE,
   getGameById,
   isValidMilestone,
   PLATFORM_EARN_SHARE,
-  USER_EARN_SHARE,
   type GameProgressDoc,
 } from '../../../lib/economy';
+import { GAME_REWARD_COINS } from '../../../lib/reward-sources';
 import { creditAdminEarnings } from '../../../lib/admin-earnings';
 import {
   bearerFromRequest,
@@ -29,8 +31,7 @@ import {
  * Body: { gameId: string, level: number }
  * Auth: Bearer <Firebase ID token>
  *
- * No-loss: marks milestone claimed but credits 0 AJ Coins here.
- * Real CPA / offerwall money only via /api/postback (30% of partner payout).
+ * Credits GAME_REWARD_COINS (games run Adsterra). CPA postbacks still via /api/postback.
  */
 export async function POST(request: Request) {
   try {
@@ -55,8 +56,18 @@ export async function POST(request: Request) {
     const txId = `milestone_${user.uid}_${gameId}_${level}`;
     const ledgerRef = doc(db, 'reward_ledger', txId);
     const userRef = doc(db, 'users', user.uid);
-    // No-loss: unbacked milestone = 0 user coins (CPA pays via /api/postback only)
-    const split = computeRewardSplit(txId);
+    const coins = GAME_REWARD_COINS;
+    const userUsd = coinsToUsd(coins);
+    const totalUsd =
+      USER_EARN_SHARE > 0 ? Number((userUsd / USER_EARN_SHARE).toFixed(6)) : userUsd;
+    const adminUsd = Number((totalUsd - userUsd).toFixed(6));
+    const split = {
+      totalUsd,
+      userUsd,
+      adminUsd,
+      userCoins: coins,
+      adminCoins: Math.floor(adminUsd * CASH_RATE),
+    };
 
     const outcome = await runTransaction(db, async (tx) => {
       const ledgerSnap = await tx.get(ledgerRef);
@@ -145,9 +156,7 @@ export async function POST(request: Request) {
       totalPoolUsd: outcome.split.totalUsd,
       message: outcome.duplicate
         ? 'Milestone already claimed'
-        : outcome.split.userCoins > 0
-          ? `Milestone L${level} complete! +${outcome.split.userCoins} AJ Coins`
-          : `Milestone L${level} saved. Coins only via Offerwall postback (no-loss).`,
+        : `Milestone L${level} complete! +${outcome.split.userCoins} AJ Coins`,
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'milestone_failed';
