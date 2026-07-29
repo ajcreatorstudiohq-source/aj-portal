@@ -1,6 +1,4 @@
 import { NextResponse } from 'next/server';
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
-import { db } from '../../../../firebaseConfig';
 import {
   AD_CLICK_VALUE_USD,
   AD_IMPRESSION_ECPM_USD,
@@ -14,13 +12,18 @@ import {
   bearerFromRequest,
   verifyFirebaseIdToken,
 } from '../../../lib/verify-id-token';
+import { FieldValue, getAdminDb } from '../../../lib/firebase-admin';
+import { normalizeServerClaimFailure } from '../../../lib/claim-errors';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 const EVENTS: AdEventType[] = ['impression', 'click', 'complete', 'skip', 'fail'];
 
 /**
  * POST /api/ads/track
  * Auth optional (Bearer). Logs impression/click/complete to `ad_events`
- * and attributes estimated admin revenue for impressions + clicks.
+ * via Admin SDK (client SDK has no auth on the server → permission denied).
  */
 export async function POST(request: Request) {
   try {
@@ -44,14 +47,25 @@ export async function POST(request: Request) {
     const meta =
       body.meta && typeof body.meta === 'object' ? (body.meta as Record<string, unknown>) : {};
 
-    const eventRef = await addDoc(collection(db, 'ad_events'), {
+    const adminDb = getAdminDb();
+    if (!adminDb) {
+      // Tracking must never crash the claim UX — soft-fail
+      return NextResponse.json({
+        ok: true,
+        skipped: true,
+        error: 'admin_sdk_missing',
+        message: 'Ad event not stored (Admin SDK missing).',
+      });
+    }
+
+    const eventRef = await adminDb.collection('ad_events').add({
       uid,
       event,
       placement,
       knownPlacement: isAdPlacement(placement),
       zoneId,
       meta,
-      createdAt: serverTimestamp(),
+      createdAt: FieldValue.serverTimestamp(),
       dayKey: new Date().toISOString().slice(0, 10),
     });
 
@@ -64,7 +78,7 @@ export async function POST(request: Request) {
 
     if (adminUsd > 0) {
       try {
-        await addDoc(collection(db, 'AdminRevenue'), {
+        await adminDb.collection('AdminRevenue').add({
           type: `ad_${event}`,
           source: 'ad_network',
           currency: 'USD',
@@ -79,13 +93,13 @@ export async function POST(request: Request) {
           userNet: 0,
           totalPool: adminUsd,
           eventId: eventRef.id,
-          createdAt: serverTimestamp(),
+          createdAt: FieldValue.serverTimestamp(),
         });
         await creditAdminEarnings({
           ownerUsd: adminUsd,
           ownerCoins: Math.floor(adminUsd * CASH_RATE),
           source: `ad_${event}`,
-          earnerUid: uid || undefined,
+          earnerUid: uid !== 'anonymous' ? uid : undefined,
           forceWalletCredit: true,
         });
       } catch {
@@ -95,8 +109,13 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true, eventId: eventRef.id, adminUsd });
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : 'track_failed';
-    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    console.error('[ads/track]', e);
+    const norm = normalizeServerClaimFailure(e);
+    // Soft-fail tracking — never break Hub claim UX
+    return NextResponse.json(
+      { ok: true, skipped: true, error: norm.error, message: norm.message },
+      { status: 200 }
+    );
   }
 }
 

@@ -232,22 +232,26 @@ service cloud.firestore {
       allow read: if signedIn() && resource.data.uid == request.auth.uid;
       allow create: if signedIn()
         && request.resource.data.uid == request.auth.uid
-        && request.resource.data.consumed == false;
-      // Clients may persist tracking fields, but must NOT mark consumed / invent credits
-      // (only Admin SDK credits coins and sets consumed: true).
+        && request.resource.data.consumed == false
+        && !('creditedCoins' in request.resource.data);
+      // Clients may refresh tracking fields on an open session only.
+      // Do NOT use `!('creditedCoins' in request.resource.data)` — that blocks
+      // legitimate merges after Admin already stored credit metadata.
       allow update: if signedIn()
         && resource.data.uid == request.auth.uid
         && request.resource.data.uid == resource.data.uid
+        && resource.data.consumed == false
         && request.resource.data.consumed == false
-        && !('creditedCoins' in request.resource.data);
+        && !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(['consumed', 'creditedCoins', 'txId', 'balanceAfter', 'previouslyCredited']);
     }
 
     match /math_challenge_sessions/{sessionId} {
-      allow read, write: if false; // Admin SDK only
+      allow read, write: if false; // Admin SDK only — credits via /api/rewards/math-challenge
     }
 
     match /alpha_captcha_sessions/{sessionId} {
-      allow read, write: if false; // Admin SDK only
+      allow read, write: if false; // Admin SDK only — credits via /api/rewards/alpha-captcha
     }
 
     match /offerwall_ledger/{txId} {

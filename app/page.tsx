@@ -7346,22 +7346,27 @@ Tip: Social Hub se copy karo 📤`,
             user={user}
             onAlert={(msg, icon) => setVvipAlert({ msg, icon: icon || '💰' })}
             onRefreshUser={async (patch?: WalletRefreshPatch) => {
-              // 1) Instant UI from claim API — flushSync so Hub card paints before popup
+              // Instant Hub UI from claim API — never write users.balance from client
+              // (Firestore rules block client economy writes → permission errors).
               let claimedTo: number | null = null;
-              flushSync(() => {
-                setBalance((prev) => {
-                  const next = computeClaimBalanceNext(prev, patch);
-                  if (next == null) return prev;
-                  claimedTo = next;
-                  balanceFloorRef.current = {
-                    min: next,
-                    until: Date.now() + CLAIM_BALANCE_FLOOR_MS,
-                  };
-                  return next;
+              try {
+                flushSync(() => {
+                  setBalance((prev) => {
+                    const next = computeClaimBalanceNext(prev, patch);
+                    if (next == null) return prev;
+                    claimedTo = next;
+                    balanceFloorRef.current = {
+                      min: next,
+                      until: Date.now() + CLAIM_BALANCE_FLOOR_MS,
+                    };
+                    return next;
+                  });
                 });
-              });
+              } catch (e) {
+                console.warn('[onRefreshUser] optimistic balance', e);
+              }
               if (!user?.uid) return;
-              // 2) Confirm from server; never let a lagging read wipe the claim floor
+              // Confirm from server; swallow permission/network errors — keep optimistic UI
               const confirm = async () => {
                 try {
                   const snap = await getDocFromServer(doc(db, 'users', user.uid));
@@ -7371,15 +7376,19 @@ Tip: Social Hub se copy karo 📤`,
                     mergeLiveBalance(live);
                     return live;
                   }
-                } catch {
-                  /* keep optimistic */
+                } catch (e) {
+                  console.warn('[onRefreshUser] confirm read skipped', e);
                 }
                 return null;
               };
-              let live = await confirm();
-              if (claimedTo != null && (live == null || live < claimedTo)) {
-                await new Promise((r) => setTimeout(r, 450));
-                live = await confirm();
+              try {
+                let live = await confirm();
+                if (claimedTo != null && (live == null || live < claimedTo)) {
+                  await new Promise((r) => setTimeout(r, 450));
+                  live = await confirm();
+                }
+              } catch {
+                /* keep optimistic */
               }
             }}
           />

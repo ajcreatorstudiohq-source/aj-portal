@@ -14,6 +14,7 @@ import {
 import { guardClick, startIntrusiveAdGuard } from '../../lib/ad-guards';
 import { prepareRewardedVideo } from '../../lib/ad-client';
 import type { OnRefreshUser } from '../../lib/wallet-refresh';
+import { publicClaimErrorMessage } from '../../lib/claim-errors';
 
 type Props = {
   user: { uid: string; getIdToken: () => Promise<string> } | null;
@@ -950,12 +951,26 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
           return;
         }
         onAlert(
-          data.message || data.error || 'Claim failed. Try again.',
+          publicClaimErrorMessage(
+            {
+              error: data.error,
+              message: data.message,
+            },
+            'Claim failed. Start Watch Ads again and retry.'
+          ),
           '⚠️'
         );
       } catch (err: unknown) {
         console.error('[WatchAds] claim fatal', err);
-        onAlert(err instanceof Error ? err.message : 'Claim failed', '⚠️');
+        onAlert(
+          publicClaimErrorMessage(
+            {
+              error: err instanceof Error ? err.message : 'claim_failed',
+            },
+            'Claim failed. Please try again.'
+          ),
+          '⚠️'
+        );
       } finally {
         setBusy(false);
       }

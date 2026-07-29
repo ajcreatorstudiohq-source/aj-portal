@@ -3,6 +3,8 @@
  * Strict sources require proof flags so free / unverified credits cannot slip through.
  */
 
+import { publicClaimErrorMessage } from './claim-errors';
+
 export type EarnResult = {
   ok: boolean;
   duplicate?: boolean;
@@ -29,7 +31,7 @@ export async function earnReward(
   source: string,
   opts?: { idempotencyKey?: string; meta?: Record<string, unknown>; beneficiaryUid?: string }
 ): Promise<EarnResult> {
-  if (!user) return { ok: false, error: 'not_signed_in' };
+  if (!user) return { ok: false, error: 'not_signed_in', message: 'Please sign in first.' };
 
   const proofKey = STRICT_SOURCES[source];
   if (proofKey) {
@@ -60,10 +62,24 @@ export async function earnReward(
     });
     const data = (await res.json().catch(() => ({}))) as EarnResult;
     if (!res.ok) {
-      return { ...data, ok: false, error: data.error || `http_${res.status}` };
+      const error = data.error || `http_${res.status}`;
+      return {
+        ...data,
+        ok: false,
+        error,
+        message: publicClaimErrorMessage(
+          { error, message: data.message },
+          'Reward failed. Please try again.'
+        ),
+      };
     }
     return data;
   } catch (e: unknown) {
-    return { ok: false, error: e instanceof Error ? e.message : 'earn_failed' };
+    const raw = e instanceof Error ? e.message : 'earn_failed';
+    return {
+      ok: false,
+      error: raw,
+      message: publicClaimErrorMessage({ error: raw }, 'Reward failed. Please try again.'),
+    };
   }
 }

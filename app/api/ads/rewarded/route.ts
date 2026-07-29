@@ -17,6 +17,7 @@ import {
 } from '../../../lib/verify-id-token';
 import { validateWatchAdsEconomics, revenueSplitLabel } from '../../../lib/ad-revenue-guard';
 import { creditAdminEarnings } from '../../../lib/admin-earnings';
+import { normalizeServerClaimFailure, publicClaimErrorMessage } from '../../../lib/claim-errors';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -664,32 +665,25 @@ export async function POST(request: Request) {
         : `Video complete! +${creditResult.credited} AJ Coins 🪙`,
     });
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : 'rewarded_failed';
-    console.error('[ads/rewarded]', msg, e);
-    const status =
-      msg === 'daily_limit'
-        ? 429
-        : msg === 'invalid_session' || msg === 'session_mismatch'
-          ? 400
-          : 500;
+    console.error('[ads/rewarded]', e);
+    const norm = normalizeServerClaimFailure(e);
     const diag = getFirebaseAdminDiag();
+    const message =
+      norm.error === 'daily_limit'
+        ? `Daily Watch Ads limit (${OFFERWALL_VIDEO_MAX_DAILY}) reached.`
+        : norm.error === 'invalid_session'
+          ? 'Start Watch Ads again.'
+          : norm.error === 'session_mismatch'
+            ? 'Ad session does not belong to this account.'
+            : publicClaimErrorMessage({
+                error: norm.error,
+                message: norm.message,
+              });
     return NextResponse.json(
       {
         ok: false,
-        error: msg,
-        message:
-          msg === 'daily_limit'
-            ? `Daily Watch Ads limit (${OFFERWALL_VIDEO_MAX_DAILY}) reached.`
-            : msg === 'invalid_session'
-              ? 'Start Watch Ads again.'
-              : msg === 'session_mismatch'
-                ? 'Ad session does not belong to this account.'
-                : `Claim failed on server (${msg}). ${
-                    diag.ready
-                      ? 'Please retry.'
-                      : diag.lastError ||
-                        'Admin SDK not ready — set FIREBASE_SERVICE_ACCOUNT_JSON.'
-                  }`,
+        error: norm.error,
+        message,
         diag: {
           configured: diag.configured,
           ready: diag.ready,
@@ -698,7 +692,7 @@ export async function POST(request: Request) {
         },
         allowClientFallback: false,
       },
-      { status }
+      { status: norm.status }
     );
   }
 }
