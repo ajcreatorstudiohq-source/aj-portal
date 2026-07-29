@@ -31,7 +31,12 @@ export async function POST(request: Request) {
     }
     if (toUid === actor.uid) {
       return NextResponse.json(
-        { ok: false, error: 'self_transfer', message: 'Cannot transfer to yourself.' },
+        {
+          ok: false,
+          error: 'self_transfer',
+          message:
+            'Transfer blocked. You cannot send coins to your own ID. Transfers only succeed when sent to another user.',
+        },
         { status: 400 }
       );
     }
