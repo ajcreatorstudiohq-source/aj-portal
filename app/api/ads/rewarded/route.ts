@@ -58,7 +58,97 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: 'invalid_token' }, { status: 401 });
     }
 
+    const body = await request.json().catch(() => ({}));
+    const action = String(body.action || 'complete');
+    const placement = String(body.placement || 'offerwall_rewarded_video').slice(0, 64);
+    const dayKey = dayKeyUtc();
+
     const adminDb = getAdminDb();
+
+    // ── prepare can run without Admin SDK (client may persist the session)
+    if (action === 'prepare') {
+      let dailyCount = 0;
+      if (adminDb) {
+        const userSnap = await adminDb.collection('users').doc(user.uid).get();
+        if (!userSnap.exists) {
+          return NextResponse.json({ ok: false, error: 'user_not_found' }, { status: 404 });
+        }
+        const ud = userSnap.data() as {
+          offerwallVideoDayKey?: string;
+          offerwallVideoDayCount?: number;
+          isBanned?: boolean;
+          accountStatus?: string;
+        };
+        if (ud.isBanned || ud.accountStatus === 'banned') {
+          return NextResponse.json(
+            { ok: false, error: 'account_banned', message: 'Account restricted.' },
+            { status: 403 }
+          );
+        }
+        dailyCount =
+          ud.offerwallVideoDayKey === dayKey ? Number(ud.offerwallVideoDayCount || 0) : 0;
+        if (dailyCount >= OFFERWALL_VIDEO_MAX_DAILY) {
+          return NextResponse.json(
+            {
+              ok: false,
+              error: 'daily_limit',
+              remainingToday: 0,
+              message: `Daily video ad limit (${OFFERWALL_VIDEO_MAX_DAILY}) reached.`,
+            },
+            { status: 429 }
+          );
+        }
+      }
+
+      const sessionId = `rv_${user.uid}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const expiresAt = Date.now() + SESSION_TTL_MS;
+      const createdAtMs = Date.now();
+      const sessionPayload = {
+        uid: user.uid,
+        placement,
+        createdAtMs,
+        expiresAt,
+        dayKey,
+        consumed: false,
+        slot: dailyCount,
+        verifySeconds: 30,
+      };
+
+      if (adminDb) {
+        try {
+          await adminDb.collection('ad_reward_sessions').doc(sessionId).set({
+            ...sessionPayload,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+          return NextResponse.json({
+            ok: true,
+            sessionId,
+            expiresAt,
+            createdAtMs,
+            remainingToday: Math.max(0, OFFERWALL_VIDEO_MAX_DAILY - dailyCount),
+            rewardCoins: ADSTERRA_REWARD_COINS,
+            persistClient: false,
+          });
+        } catch (writeErr) {
+          console.error('[ads/rewarded] prepare admin write failed', writeErr);
+          // Fall through — client will persist
+        }
+      }
+
+      return NextResponse.json({
+        ok: true,
+        sessionId,
+        expiresAt,
+        createdAtMs,
+        remainingToday: Math.max(0, OFFERWALL_VIDEO_MAX_DAILY - dailyCount),
+        rewardCoins: ADSTERRA_REWARD_COINS,
+        persistClient: true,
+        sessionPayload,
+        message: 'Session ready. Client will save tracking session.',
+      });
+    }
+
+    // claim / complete need Admin SDK for ledger + balance
     if (!adminDb) {
       return NextResponse.json(
         {
@@ -71,10 +161,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = await request.json().catch(() => ({}));
-    const action = String(body.action || 'complete');
-    const placement = String(body.placement || 'offerwall_rewarded_video').slice(0, 64);
-    const dayKey = dayKeyUtc();
     const userRef = adminDb.collection('users').doc(user.uid);
     const userSnap = await userRef.get();
     if (!userSnap.exists) {
@@ -123,23 +209,64 @@ export async function POST(request: Request) {
 
       const sessionRef = adminDb.collection('ad_reward_sessions').doc(sessionId);
       const sessionSnap = await sessionRef.get();
+      const meta =
+        body.meta && typeof body.meta === 'object'
+          ? (body.meta as {
+              totalAwayMs?: number;
+              enteredAdAt?: number;
+              leftAdAt?: number;
+              preparedAt?: number;
+              verifySeconds?: number;
+              provider?: string;
+            })
+          : {};
+
+      // If client persisted (or Admin prepare failed), recreate a valid session from claim meta
       if (!sessionSnap.exists) {
-        return NextResponse.json(
-          { ok: false, error: 'invalid_session', message: 'Start Watch Ads again.' },
-          { status: 400 }
-        );
+        const preparedAt = Number(meta.preparedAt || 0);
+        const awayMs = Math.max(0, Number(meta.totalAwayMs || 0));
+        const looksOwned =
+          sessionId.startsWith(`rv_${user.uid}_`) || sessionId.includes(user.uid);
+        if (!looksOwned || (!preparedAt && awayMs < 30_000)) {
+          return NextResponse.json(
+            { ok: false, error: 'invalid_session', message: 'Start Watch Ads again.' },
+            { status: 400 }
+          );
+        }
+        const createdAtMs = preparedAt || Date.now() - Math.max(awayMs, 30_000);
+        try {
+          await sessionRef.set({
+            uid: user.uid,
+            placement,
+            createdAt: FieldValue.serverTimestamp(),
+            createdAtMs,
+            expiresAt: Date.now() + SESSION_TTL_MS,
+            dayKey,
+            consumed: false,
+            slot: dailyCount,
+            verifySeconds: Number(meta.verifySeconds) > 0 ? Number(meta.verifySeconds) : 30,
+            clientRecovered: true,
+          });
+        } catch (recoverErr) {
+          console.error('[ads/rewarded] session recover failed', recoverErr);
+          return NextResponse.json(
+            { ok: false, error: 'invalid_session', message: 'Start Watch Ads again.' },
+            { status: 400 }
+          );
+        }
       }
-      const session = sessionSnap.data() as {
+
+      const sessionFresh = (await sessionRef.get()).data() as {
         uid: string;
         expiresAt: number;
         consumed?: boolean;
         createdAtMs?: number;
         verifySeconds?: number;
       };
-      if (session.uid !== user.uid) {
+      if (sessionFresh.uid !== user.uid) {
         return NextResponse.json({ ok: false, error: 'session_mismatch' }, { status: 403 });
       }
-      if (session.consumed) {
+      if (sessionFresh.consumed) {
         return NextResponse.json({
           ok: true,
           duplicate: true,
@@ -147,7 +274,7 @@ export async function POST(request: Request) {
           message: 'Already claimed for this ad session',
         });
       }
-      if (Date.now() > Number(session.expiresAt || 0)) {
+      if (Date.now() > Number(sessionFresh.expiresAt || 0)) {
         return NextResponse.json(
           {
             ok: false,
@@ -159,11 +286,13 @@ export async function POST(request: Request) {
       }
 
       const needMs =
-        (Number(session.verifySeconds) > 0 ? Number(session.verifySeconds) : 30) * 1000;
-      const startedMs = Number(session.createdAtMs || 0);
+        (Number(sessionFresh.verifySeconds) > 0
+          ? Number(sessionFresh.verifySeconds)
+          : 30) * 1000;
+      const startedMs = Number(sessionFresh.createdAtMs || meta.preparedAt || 0);
       const elapsedSincePrepare = startedMs > 0 ? Date.now() - startedMs : 0;
       // Also accept client-reported away time if wall-clock is slightly short (clock skew)
-      const clientAwayMs = Math.max(0, Number((body.meta as { totalAwayMs?: number })?.totalAwayMs || 0));
+      const clientAwayMs = Math.max(0, Number(meta.totalAwayMs || 0));
       const effectiveElapsed = Math.max(elapsedSincePrepare, clientAwayMs);
       if (!startedMs || effectiveElapsed < needMs) {
         const left = Math.max(0, Math.ceil((needMs - effectiveElapsed) / 1000));
@@ -176,11 +305,6 @@ export async function POST(request: Request) {
           { status: 403 }
         );
       }
-
-      const meta =
-        body.meta && typeof body.meta === 'object'
-          ? (body.meta as { totalAwayMs?: number; enteredAdAt?: number; leftAdAt?: number })
-          : {};
 
       await sessionRef.set(
         {
@@ -306,42 +430,6 @@ export async function POST(request: Request) {
         message: result.duplicate
           ? 'Already claimed'
           : `+${result.credited} AJ Coins 🪙 added to your wallet!`,
-      });
-    }
-
-    if (action === 'prepare') {
-      if (dailyCount >= OFFERWALL_VIDEO_MAX_DAILY) {
-        return NextResponse.json(
-          {
-            ok: false,
-            error: 'daily_limit',
-            remainingToday: 0,
-            message: `Daily video ad limit (${OFFERWALL_VIDEO_MAX_DAILY}) reached.`,
-          },
-          { status: 429 }
-        );
-      }
-      const sessionId = `rv_${user.uid}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      const expiresAt = Date.now() + SESSION_TTL_MS;
-      const createdAtMs = Date.now();
-      await adminDb.collection('ad_reward_sessions').doc(sessionId).set({
-        uid: user.uid,
-        placement,
-        createdAt: FieldValue.serverTimestamp(),
-        createdAtMs,
-        expiresAt,
-        dayKey,
-        consumed: false,
-        slot: dailyCount,
-        verifySeconds: 30,
-      });
-      return NextResponse.json({
-        ok: true,
-        sessionId,
-        expiresAt,
-        createdAtMs,
-        remainingToday: Math.max(0, OFFERWALL_VIDEO_MAX_DAILY - dailyCount),
-        rewardCoins: ADSTERRA_REWARD_COINS,
       });
     }
 

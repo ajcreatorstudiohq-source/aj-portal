@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ExternalLink, Gift, Loader2, Play, X } from 'lucide-react';
+import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { db } from '../../firebase';
 import {
   ADSTERRA_REWARD_COINS,
   ADSTERRA_REWARDED_LINK,
@@ -10,6 +12,7 @@ import {
   REWARDED_VIDEO_COOLDOWN_MS,
 } from '../../lib/ads-config';
 import { guardClick, startIntrusiveAdGuard } from '../../lib/ad-guards';
+import { prepareRewardedVideo } from '../../lib/ad-client';
 
 type Props = {
   user: { uid: string; getIdToken: () => Promise<string> } | null;
@@ -76,12 +79,16 @@ function AdWatchPopup({
   icon,
   onClose,
   variant = 'warn',
+  onRetry,
+  retryLabel = 'Retry Ad',
 }: {
   title: string;
   message: string;
   icon: string;
   onClose: () => void;
   variant?: 'warn' | 'ok';
+  onRetry?: () => void;
+  retryLabel?: string;
 }) {
   const border =
     variant === 'ok' ? 'rgba(34,211,238,0.55)' : 'rgba(251,191,36,0.55)';
@@ -146,19 +153,34 @@ function AdWatchPopup({
           <p className="text-zinc-300 text-[13px] leading-relaxed font-medium whitespace-pre-wrap">
             {message}
           </p>
-          <button
-            type="button"
-            onClick={onClose}
-            className="mt-2 px-8 py-2.5 rounded-full text-[11px] font-black uppercase tracking-[0.18em] text-black active:scale-95"
-            style={{
-              background:
-                variant === 'ok'
-                  ? 'linear-gradient(135deg,#22d3ee,#818cf8)'
-                  : 'linear-gradient(135deg,#fbbf24,#f59e0b)',
-            }}
-          >
-            OK
-          </button>
+          <div className="flex w-full gap-2 mt-2">
+            {onRetry ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onRetry();
+                }}
+                className="flex-1 px-4 py-2.5 rounded-full text-[11px] font-black uppercase tracking-[0.14em] text-black active:scale-95"
+                style={{ background: 'linear-gradient(135deg,#22d3ee,#a855f7)' }}
+              >
+                {retryLabel}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={onClose}
+              className={`${onRetry ? 'flex-1' : 'w-full'} px-4 py-2.5 rounded-full text-[11px] font-black uppercase tracking-[0.14em] text-black active:scale-95`}
+              style={{
+                background:
+                  variant === 'ok'
+                    ? 'linear-gradient(135deg,#22d3ee,#818cf8)'
+                    : 'linear-gradient(135deg,#fbbf24,#f59e0b)',
+              }}
+            >
+              OK
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -187,6 +209,8 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
     message: string;
     icon: string;
     variant: 'warn' | 'ok';
+    onRetry?: () => void;
+    retryLabel?: string;
   } | null>(null);
 
   const verifyingRef = useRef(false);
@@ -227,9 +251,23 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
     });
   }, []);
 
-  const showWarnPopup = useCallback((title: string, message: string) => {
-    setPopup({ title, message, icon: '⏱️', variant: 'warn' });
-  }, []);
+  const showWarnPopup = useCallback(
+    (
+      title: string,
+      message: string,
+      opts?: { onRetry?: () => void; retryLabel?: string; icon?: string }
+    ) => {
+      setPopup({
+        title,
+        message,
+        icon: opts?.icon || '⏱️',
+        variant: 'warn',
+        onRetry: opts?.onRetry,
+        retryLabel: opts?.retryLabel,
+      });
+    },
+    []
+  );
 
   const showOkPopup = useCallback((title: string, message: string) => {
     setPopup({ title, message, icon: '✅', variant: 'ok' });
@@ -475,62 +513,76 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
     return () => clearTick();
   }, [verifying, claimReady, clearTick, syncUiFromAway, persist]);
 
-  const openAdsterra = useCallback(
-    async (e?: { preventDefault?: () => void; stopPropagation?: () => void }) => {
-      guardClick(e);
-      startIntrusiveAdGuard();
-      if (!user) return onAlert('Please sign in to earn AJ Coins 🪙', '🔒');
-      if (verifyingRef.current) return;
-      if (claimReadyRef.current) {
-        return onAlert('Claim your coins first, then start another ad.', '🎁');
+  /** Persist ad session to Firestore when server asks client to save (or as fallback). */
+  const persistSessionClient = useCallback(
+    async (
+      sid: string,
+      payload: {
+        createdAtMs: number;
+        expiresAt: number;
+        verifySeconds?: number;
+        slot?: number;
       }
-
-      const now = Date.now();
-      if (now - lastWatchAt < REWARDED_VIDEO_COOLDOWN_MS) {
-        const wait = Math.ceil(
-          (REWARDED_VIDEO_COOLDOWN_MS - (now - lastWatchAt)) / 1000
-        );
-        return onAlert(`Please wait ${wait}s before another ad`, '⏱️');
-      }
-
-      let sid: string | null = null;
-      let preparedAt = Date.now();
+    ) => {
+      if (!user) return false;
       try {
-        const token = await user.getIdToken();
-        const res = await fetch('/api/ads/rewarded', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            action: 'prepare',
+        await setDoc(
+          doc(db, 'ad_reward_sessions', sid),
+          {
+            uid: user.uid,
             placement: 'offerwall_rewarded_video',
-            meta: { verifySeconds: ADSTERRA_VERIFY_SECONDS, provider: 'adsterra' },
-          }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok && data.ok && data.sessionId) {
-          sid = String(data.sessionId);
-          preparedAt = Number(data.createdAtMs) || Date.now();
-          if (typeof data.remainingToday === 'number') setRemaining(data.remainingToday);
-        } else if (data.error === 'daily_limit') {
-          onAlert(`Daily ad claim limit (${OFFERWALL_VIDEO_MAX_DAILY}) reached.`, '⚠️');
-          return;
-        } else {
-          onAlert(data.message || 'Could not start ad session. Try again.', '⚠️');
-          return;
+            createdAt: serverTimestamp(),
+            createdAtMs: payload.createdAtMs,
+            expiresAt: payload.expiresAt,
+            dayKey: new Date().toISOString().slice(0, 10),
+            consumed: false,
+            slot: typeof payload.slot === 'number' ? payload.slot : 0,
+            verifySeconds: payload.verifySeconds || ADSTERRA_VERIFY_SECONDS,
+            clientPersisted: true,
+          },
+          { merge: true }
+        );
+        return true;
+      } catch (e) {
+        console.error('[WatchAds] client session persist failed', e);
+        return false;
+      }
+    },
+    [user]
+  );
+
+  const openAdLink = useCallback(() => {
+    if (!ADSTERRA_REWARDED_LINK) {
+      throw new Error('Ad link not configured');
+    }
+    let opened = false;
+    try {
+      const win = window.open(ADSTERRA_REWARDED_LINK, '_blank', 'noopener,noreferrer');
+      if (win) {
+        opened = true;
+        try {
+          win.opener = null;
+        } catch {
+          /* ignore */
         }
-      } catch {
-        onAlert('Could not start ad session. Check your connection and try again.', '⚠️');
-        return;
       }
+    } catch (e) {
+      console.warn('[WatchAds] window.open failed', e);
+      opened = false;
+    }
+    if (!opened) {
+      onAlert(
+        'Popup blocked. Opening ad in this tab — stay 30s, then press Back to claim.',
+        'ℹ️'
+      );
+      window.location.assign(ADSTERRA_REWARDED_LINK);
+      return 'same_tab' as const;
+    }
+    return 'new_tab' as const;
+  }, [onAlert]);
 
-      if (!sid) {
-        onAlert('Could not start ad session. Try again.', '⚠️');
-        return;
-      }
-
+  const beginVerifiedWatch = useCallback(
+    (sid: string, preparedAt: number) => {
       sessionIdRef.current = sid;
       preparedAtRef.current = preparedAt;
       claimReadyRef.current = false;
@@ -547,51 +599,174 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
       setTimingLabel('Opening Adsterra… switch to that tab and stay 30s');
       setPopup(null);
       verifiedPopupShownRef.current = false;
-
-      writePersisted({
-        sessionId: sid,
-        uid: user.uid,
-        preparedAt,
-        enteredAdAt: null,
-        totalAwayMs: 0,
-        awayStartedAt: null,
-        claimReady: false,
-      });
-
-      let opened = false;
-      try {
-        const win = window.open(ADSTERRA_REWARDED_LINK, '_blank');
-        if (win) {
-          opened = true;
-          try {
-            win.opener = null;
-          } catch {
-            /* ignore */
-          }
-        }
-      } catch {
-        opened = false;
-      }
-
-      // If popup blocked: same-tab open — session is persisted for back-navigation
-      if (!opened) {
-        onAlert(
-          'Popup blocked. Opening ad in this tab — stay 30s, then press Back to claim.',
-          'ℹ️'
-        );
-        window.location.assign(ADSTERRA_REWARDED_LINK);
-        return;
-      }
-
-      // If browser already hid this tab, start counting immediately
-      if (typeof document !== 'undefined' && document.hidden) {
-        awayStartedAtRef.current = Date.now();
-        enteredAdAtRef.current = Date.now();
-        setPortalHidden(true);
-        persist();
+      if (user) {
+        writePersisted({
+          sessionId: sid,
+          uid: user.uid,
+          preparedAt,
+          enteredAdAt: null,
+          totalAwayMs: 0,
+          awayStartedAt: null,
+          claimReady: false,
+        });
       }
     },
-    [user, lastWatchAt, onAlert, persist]
+    [user]
+  );
+
+  const openAdsterra = useCallback(
+    async (e?: { preventDefault?: () => void; stopPropagation?: () => void }) => {
+      guardClick(e);
+      try {
+        startIntrusiveAdGuard();
+      } catch (guardErr) {
+        console.warn('[WatchAds] ad guard', guardErr);
+      }
+
+      if (!user) return onAlert('Please sign in to earn AJ Coins 🪙', '🔒');
+      if (verifyingRef.current) return;
+      if (claimReadyRef.current) {
+        return onAlert('Claim your coins first, then start another ad.', '🎁');
+      }
+
+      const now = Date.now();
+      if (now - lastWatchAt < REWARDED_VIDEO_COOLDOWN_MS) {
+        const wait = Math.ceil(
+          (REWARDED_VIDEO_COOLDOWN_MS - (now - lastWatchAt)) / 1000
+        );
+        return onAlert(`Please wait ${wait}s before another ad`, '⏱️');
+      }
+
+      if (busy) return;
+      setBusy(true);
+
+      let sid: string | null = null;
+      let preparedAt = Date.now();
+      let persistClient = false;
+      let sessionPayload: {
+        createdAtMs?: number;
+        expiresAt?: number;
+        verifySeconds?: number;
+        slot?: number;
+      } | null = null;
+      let lastError = '';
+
+      try {
+        // Retry prepare up to 3 times
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            const data = await prepareRewardedVideo(user, 'offerwall_rewarded_video');
+            if (data.ok && data.sessionId) {
+              sid = String(data.sessionId);
+              preparedAt = Number(data.createdAtMs) || Date.now();
+              persistClient = !!data.persistClient;
+              sessionPayload = data.sessionPayload || null;
+              if (typeof data.remainingToday === 'number') setRemaining(data.remainingToday);
+              lastError = '';
+              break;
+            }
+            if (data.error === 'daily_limit') {
+              onAlert(
+                `Daily ad claim limit (${OFFERWALL_VIDEO_MAX_DAILY}) reached.`,
+                '⚠️'
+              );
+              setBusy(false);
+              return;
+            }
+            lastError = data.error || 'prepare_failed';
+            console.warn(`[WatchAds] prepare attempt ${attempt} failed`, data);
+          } catch (prepErr) {
+            lastError = prepErr instanceof Error ? prepErr.message : 'prepare_failed';
+            console.error(`[WatchAds] prepare attempt ${attempt}`, prepErr);
+          }
+          if (attempt < 3) {
+            await new Promise((r) => setTimeout(r, 400 * attempt));
+          }
+        }
+
+        // Client fallback session — never leave user stuck
+        if (!sid) {
+          sid = `rv_${user.uid}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          preparedAt = Date.now();
+          persistClient = true;
+          sessionPayload = {
+            createdAtMs: preparedAt,
+            expiresAt: preparedAt + 10 * 60 * 1000,
+            verifySeconds: ADSTERRA_VERIFY_SECONDS,
+            slot: 0,
+          };
+          console.warn('[WatchAds] using client fallback session', sid, lastError);
+        }
+
+        if (persistClient || sessionPayload) {
+          const ok = await persistSessionClient(sid, {
+            createdAtMs: Number(sessionPayload?.createdAtMs) || preparedAt,
+            expiresAt:
+              Number(sessionPayload?.expiresAt) || preparedAt + 10 * 60 * 1000,
+            verifySeconds: sessionPayload?.verifySeconds || ADSTERRA_VERIFY_SECONDS,
+            slot: sessionPayload?.slot,
+          });
+          if (!ok) {
+            // Still allow ad open — claim may recreate via admin if session missing later
+            console.warn('[WatchAds] session persist soft-fail — continuing to open ad');
+          }
+        }
+
+        beginVerifiedWatch(sid, preparedAt);
+
+        try {
+          const mode = openAdLink();
+          if (mode === 'same_tab') {
+            setBusy(false);
+            return;
+          }
+        } catch (adErr) {
+          console.error('[WatchAds] ad open failed', adErr);
+          verifyingRef.current = false;
+          setVerifying(false);
+          writePersisted(null);
+          showWarnPopup(
+            'Ad Failed to Open',
+            'Ad network link could not open. Check popup blocker / connection, then retry.\n\nNo coins were credited.',
+            { onRetry: () => void openAdsterra(), retryLabel: 'Retry Ad', icon: '⚠️' }
+          );
+          setBusy(false);
+          return;
+        }
+
+        if (typeof document !== 'undefined' && document.hidden) {
+          awayStartedAtRef.current = Date.now();
+          enteredAdAtRef.current = Date.now();
+          setPortalHidden(true);
+          persist();
+        }
+      } catch (fatal) {
+        console.error('[WatchAds] openAdsterra fatal', fatal);
+        verifyingRef.current = false;
+        claimReadyRef.current = false;
+        setVerifying(false);
+        setClaimReady(false);
+        writePersisted(null);
+        showWarnPopup(
+          'Could Not Start Ad Session',
+          `${fatal instanceof Error ? fatal.message : 'Unexpected error'}\n\nTap Retry — no coins were taken or credited.`,
+          { onRetry: () => void openAdsterra(), retryLabel: 'Retry Ad', icon: '⚠️' }
+        );
+      } finally {
+        setBusy(false);
+      }
+    },
+    [
+      user,
+      lastWatchAt,
+      busy,
+      onAlert,
+      persist,
+      persistSessionClient,
+      beginVerifiedWatch,
+      openAdLink,
+      showWarnPopup,
+    ]
   );
 
   const claimCoins = useCallback(
@@ -649,6 +824,7 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
               provider: 'adsterra',
               link: ADSTERRA_REWARDED_LINK,
               verifySeconds: ADSTERRA_VERIFY_SECONDS,
+              preparedAt: preparedAtRef.current || undefined,
               enteredAdAt: enteredAdAtRef.current,
               leftAdAt: leftAdAtRef.current,
               totalAwayMs: awayMs,
@@ -811,6 +987,8 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
           icon={popup.icon}
           variant={popup.variant}
           onClose={() => setPopup(null)}
+          onRetry={popup.onRetry}
+          retryLabel={popup.retryLabel}
         />
       ) : null}
     </div>

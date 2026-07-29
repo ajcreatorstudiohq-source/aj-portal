@@ -20,6 +20,15 @@ export type RewardedVideoResult = {
   message?: string;
   sessionId?: string;
   remainingToday?: number;
+  createdAtMs?: number;
+  expiresAt?: number;
+  persistClient?: boolean;
+  sessionPayload?: {
+    createdAtMs?: number;
+    expiresAt?: number;
+    verifySeconds?: number;
+    slot?: number;
+  };
 };
 
 const FETCH_TIMEOUT_MS = 15000;
