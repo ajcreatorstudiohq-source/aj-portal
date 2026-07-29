@@ -116,19 +116,28 @@ export default function AlphaCaptchaChallenge({ user, onAlert, onRefreshUser }: 
         meta: { provider: 'adsterra', link: ADSTERRA_REWARDED_LINK },
       });
       if (typeof data.remainingToday === 'number') setRemaining(data.remainingToday);
+      const credited = Number(data.creditedCoins || 0);
+      const creditForUi =
+        !data.duplicate ? (credited > 0 ? credited : ALPHA_CAPTCHA_COINS) : 0;
+      // Hub balance MUST update before the success popup (first claim).
+      await onRefreshUser?.(
+        data.duplicate
+          ? typeof data.balance === 'number'
+            ? { balance: data.balance }
+            : undefined
+          : {
+              ...(typeof data.balance === 'number' ? { balance: data.balance } : {}),
+              creditedCoins: creditForUi,
+            }
+      );
       onAlert(
-        data.message || `+${data.creditedCoins || ALPHA_CAPTCHA_COINS} AJ Coins 🪙`,
+        data.message || `+${creditForUi || ALPHA_CAPTCHA_COINS} AJ Coins 🪙`,
         data.duplicate ? 'ℹ️' : '🔑'
       );
       setSessionId(null);
       setCode('');
       setTyped('');
       setClaimReady(false);
-      const credited = Number(data.creditedCoins || 0);
-      void onRefreshUser?.({
-        balance: typeof data.balance === 'number' ? data.balance : undefined,
-        creditedCoins: !data.duplicate && credited > 0 ? credited : undefined,
-      });
     } catch (err: unknown) {
       const e2 = err as Error & { data?: { error?: string; message?: string } };
       onAlert(e2.data?.message || e2.message || 'Verification failed', '⚠️');

@@ -115,16 +115,22 @@ export default function GamingZone({
         method: 'POST',
         body: JSON.stringify({ gameId, level, reportedLevel: level }),
       });
+      const credited = Number(data.creditedCoins || 0);
+      await onRefreshUser?.(
+        !data.duplicate && credited > 0
+          ? {
+              ...(typeof data.balance === 'number' ? { balance: data.balance } : {}),
+              creditedCoins: credited,
+            }
+          : typeof data.balance === 'number'
+            ? { balance: data.balance }
+            : undefined
+      );
       if (data.duplicate) {
         onAlert('Milestone already claimed', 'ℹ️');
       } else {
         onAlert(data.message || `+${data.creditedCoins} AJ Coins`, '💰');
       }
-      const credited = Number(data.creditedCoins || 0);
-      void onRefreshUser?.({
-        balance: typeof data.balance === 'number' ? data.balance : undefined,
-        creditedCoins: !data.duplicate && credited > 0 ? credited : undefined,
-      });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'claim_failed';
       if (msg !== 'level_not_reached') {

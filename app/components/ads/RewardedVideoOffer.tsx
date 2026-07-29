@@ -880,6 +880,17 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
           setSessionId(null);
           sessionIdRef.current = null;
           const credited = Number(data.creditedCoins || 0);
+          // Refresh Hub balance FIRST (before popup) so UI updates on first claim
+          await onRefreshUser?.(
+            !data.duplicate && credited > 0
+              ? {
+                  ...(typeof data.balance === 'number' ? { balance: data.balance } : {}),
+                  creditedCoins: credited,
+                }
+              : typeof data.balance === 'number'
+                ? { balance: data.balance }
+                : undefined
+          );
           if (data.duplicate || credited <= 0) {
             showWarnPopup(
               'Already Claimed',
@@ -892,11 +903,6 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
               data.message || `+${credited} AJ Coins 🪙 added to your wallet.`
             );
           }
-          // Push absolute balance (or credited delta) so Hub UI updates immediately
-          void onRefreshUser?.({
-            balance: typeof data.balance === 'number' ? data.balance : undefined,
-            creditedCoins: credited > 0 ? credited : undefined,
-          });
           return;
         }
 
