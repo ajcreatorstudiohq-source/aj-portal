@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Ban, RefreshCw, Search, Shield } from 'lucide-react';
+import { ArrowLeft, Ban, RefreshCw, Search, Shield, X } from 'lucide-react';
 import {
   collection,
   doc,
@@ -37,6 +37,21 @@ export type AdminUserRow = {
   lastSeenMs?: number;
 };
 
+type UserEconomyStat = {
+  uid: string;
+  lifetimeEarnedCoins: number;
+  lifetimeEarnedUsd: number;
+  lifetimeEarnedUsdLabel?: string;
+  withdrawRequestedCoins: number;
+  withdrawPaidCoins: number;
+  withdrawPendingCoins: number;
+  withdrawRequestedUsdLabel?: string;
+  adminProfitUsd: number;
+  adminProfitCoins: number;
+  adminProfitUsdLabel?: string;
+  adminEvents: number;
+};
+
 type Props = {
   /** Current signed-in user — must pass admin gate */
   adminUser?: { uid?: string | null; email?: string | null } | null;
@@ -46,8 +61,10 @@ type Props = {
 
 export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
   const [users, setUsers] = useState<AdminUserRow[]>([]);
+  const [economyByUid, setEconomyByUid] = useState<Record<string, UserEconomyStat>>({});
   const [presenceByUid, setPresenceByUid] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
+  const [economyLoading, setEconomyLoading] = useState(false);
   const [banningUid, setBanningUid] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [error, setError] = useState('');
@@ -71,7 +88,6 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
     }
     setAllowed(true);
 
-    // Bind CEO Hub wallet so other users' earns credit owner-share here
     void (async () => {
       try {
         const u = auth.currentUser;
@@ -87,6 +103,32 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
     })();
   }, [adminUser, onBack]);
 
+  const loadUserEconomy = useCallback(async () => {
+    const current = auth.currentUser;
+    if (!current) return;
+    setEconomyLoading(true);
+    try {
+      const token = await current.getIdToken();
+      const res = await fetch('/api/admin/user-economy', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        users?: Record<string, UserEconomyStat>;
+        error?: string;
+      };
+      if (res.ok && data.ok && data.users) {
+        setEconomyByUid(data.users);
+      } else if (data.error && data.error !== 'admin_sdk_missing') {
+        console.warn('user-economy', data.error);
+      }
+    } catch (e) {
+      console.warn('user-economy fetch', e);
+    } finally {
+      setEconomyLoading(false);
+    }
+  }, []);
+
   const loadUsers = useCallback(async () => {
     const current = auth.currentUser;
     if (!isPortalAdminUser(adminUser || { uid: current?.uid, email: current?.email })) {
@@ -97,12 +139,12 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
     setLoading(true);
     setError('');
     try {
-      const q = query(collection(db, 'users'), orderBy('lastSync', 'desc'), limit(100));
+      const q = query(collection(db, 'users'), orderBy('lastSync', 'desc'), limit(200));
       let snap;
       try {
         snap = await getDocs(q);
       } catch {
-        snap = await getDocs(query(collection(db, 'users'), limit(100)));
+        snap = await getDocs(query(collection(db, 'users'), limit(200)));
       }
       const rows: AdminUserRow[] = snap.docs.map((d) => {
         const data = d.data() as Record<string, unknown>;
@@ -121,13 +163,14 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
         };
       });
       setUsers(rows);
+      void loadUserEconomy();
     } catch (e) {
       console.error('AdminUsersPanel loadUsers', e);
       setError('Failed to load users.');
     } finally {
       setLoading(false);
     }
-  }, [adminUser]);
+  }, [adminUser, loadUserEconomy]);
 
   useEffect(() => {
     if (!allowed) return;
@@ -138,111 +181,82 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
     return () => window.clearInterval(t);
   }, [allowed, loadUsers]);
 
-  // Real-time RTDB presence — who is actually in the portal right now
+  // Real-time RTDB presence
   useEffect(() => {
     if (!allowed) return;
     const app = getApps()[0];
     if (!app) return;
     const rtdb = getDatabase(app);
     const presenceRef = ref(rtdb, 'presence');
-    const handler = (snap: { forEach: (cb: (c: { key: string | null; val: () => PresenceSnapshot }) => void) => void }) => {
+    const handler = (snap: {
+      forEach: (cb: (c: { key: string | null; val: () => PresenceSnapshot }) => void) => void;
+    }) => {
       const next: Record<string, boolean> = {};
       snap.forEach((child) => {
-        if (!child.key) return;
-        next[child.key] = isRtdbPresenceOnline(child.val());
+        const uid = child.key;
+        if (!uid) return;
+        next[uid] = isRtdbPresenceOnline(child.val());
       });
       setPresenceByUid(next);
     };
-    onValue(presenceRef, handler, (err) => {
-      console.warn('Admin presence listen failed — publish database.rules.json presence', err);
-    });
-    return () => {
-      off(presenceRef);
-    };
+    onValue(presenceRef, handler);
+    return () => off(presenceRef);
   }, [allowed]);
 
-  const markBannedInUi = (uid: string, banReason: string) => {
-    setUsers((prev) =>
-      prev.map((u) =>
-        u.uid === uid
-          ? {
-              ...u,
-              accountStatus: ACCOUNT_STATUS.BANNED,
-              isBanned: true,
-              banReason,
-            }
-          : u
-      )
-    );
-  };
-
-  const banViaClientFallback = async (targetUid: string, reason: string) => {
-    const current = auth.currentUser;
-    if (!current || !isPortalAdminUser(current)) {
-      throw new Error('Forbidden');
-    }
-    const fields = buildBanUpdate(current.uid, reason);
-    await updateDoc(doc(db, 'users', targetUid), {
-      ...fields,
-      bannedAt: serverTimestamp(),
-    });
-  };
-
-  const handleBanUser = async (target: AdminUserRow) => {
-    if (!allowed) return;
-    if (isUserBanned(target)) return;
-    if (
-      !window.confirm(
-        `Are you sure you want to ban this user?\n\n@${target.username || target.name || target.uid}`
-      )
-    ) {
-      return;
-    }
-
-    setBanningUid(target.uid);
-    const reason = 'Banned by admin (one-click)';
-    try {
+  const handleBanUser = useCallback(
+    async (target: AdminUserRow) => {
       const current = auth.currentUser;
-      if (!current || !isPortalAdminUser(current)) {
-        onAlert?.('Admin session expired. Please sign in again.', '⚠️');
-        onBack();
+      if (!current || !isPortalAdminUser(adminUser || { uid: current.uid, email: current.email })) {
         return;
       }
-      const token = await current.getIdToken();
-      const res = await fetch(`/api/admin/ban-user/${encodeURIComponent(target.uid)}`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ reason }),
-      });
-
-      const data = await res.json().catch(() => ({}));
-
-      if (res.ok) {
-        markBannedInUi(target.uid, data?.user?.banReason || reason);
-        onAlert?.(
-          '🚫 User banned. Their active session will be terminated immediately.',
-          '🚫'
-        );
-        return;
-      }
-
-      console.warn('ban API failed, using client fallback:', data?.error || res.status);
-      await banViaClientFallback(target.uid, reason);
-      markBannedInUi(target.uid, reason);
-      onAlert?.(
-        '🚫 User banned. Their active session will be terminated immediately.',
-        '🚫'
+      const ok = window.confirm(
+        `Ban @${target.username || target.name || target.uid}?\nThey will be signed out immediately.`
       );
-    } catch (e) {
-      console.error('handleBanUser', e);
-      onAlert?.('Ban request failed. Check your connection / Firestore rules.', '⚠️');
-    } finally {
-      setBanningUid(null);
-    }
-  };
+      if (!ok) return;
+      setBanningUid(target.uid);
+      try {
+        const token = await current.getIdToken();
+        const res = await fetch(`/api/admin/ban-user/${encodeURIComponent(target.uid)}`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ reason: 'Banned by admin' }),
+        });
+        if (res.ok) {
+          onAlert?.(`Banned @${target.username || target.name || 'user'}`, '🚫');
+          setUsers((prev) =>
+            prev.map((u) =>
+              u.uid === target.uid
+                ? { ...u, isBanned: true, accountStatus: ACCOUNT_STATUS.BANNED }
+                : u
+            )
+          );
+          return;
+        }
+        // Client fallback
+        await updateDoc(doc(db, 'users', target.uid), {
+          ...buildBanUpdate('Banned by admin'),
+          bannedAt: serverTimestamp(),
+        });
+        onAlert?.(`Banned @${target.username || target.name || 'user'}`, '🚫');
+        setUsers((prev) =>
+          prev.map((u) =>
+            u.uid === target.uid
+              ? { ...u, isBanned: true, accountStatus: ACCOUNT_STATUS.BANNED }
+              : u
+          )
+        );
+      } catch (e) {
+        console.error('ban user', e);
+        onAlert?.('Ban failed', '⚠️');
+      } finally {
+        setBanningUid(null);
+      }
+    },
+    [adminUser, onAlert]
+  );
 
   const handleBackfillReferrals = useCallback(async () => {
     const current = auth.currentUser;
@@ -251,29 +265,31 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
     }
     setBackfillBusy(true);
     try {
-      // Prefer API when available; always also run client ensure (CEO rules)
+      const token = await current.getIdToken();
       try {
-        const token = await current.getIdToken();
-        await fetch('/api/admin/backfill-referrals', {
+        const res = await fetch('/api/admin/backfill-referrals', {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}` },
         });
+        const data = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          message?: string;
+        };
+        if (res.ok && data.ok) {
+          onAlert?.(data.message || 'Referral IDs assigned', '👥');
+          void loadUsers();
+          return;
+        }
       } catch {
-        /* optional */
-      }
-
-      let snap;
-      try {
-        snap = await getDocs(query(collection(db, 'users'), orderBy('lastSync', 'desc'), limit(500)));
-      } catch {
-        snap = await getDocs(query(collection(db, 'users'), limit(500)));
+        /* client fallback */
       }
       let assigned = 0;
       let skipped = 0;
       let failed = 0;
+      const snap = await getDocs(query(collection(db, 'users'), limit(500)));
       for (const d of snap.docs) {
-        const existing = String((d.data() as { referralId?: string }).referralId || '').trim();
-        if (existing) {
+        const data = d.data() as { referralId?: string };
+        if (data.referralId) {
           skipped += 1;
           continue;
         }
@@ -319,7 +335,6 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
         ok?: boolean;
         message?: string;
         error?: string;
-        balance?: number;
       };
       if (res.ok && data.ok) {
         onAlert?.(data.message || 'Claims unlocked — try Watch Ads / Faucet again', '✅');
@@ -351,7 +366,6 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
 
     setResetBusy(true);
     try {
-      // Try server Admin SDK first (best)
       try {
         const token = await current.getIdToken();
         const res = await fetch('/api/admin/reset-economy', {
@@ -379,7 +393,6 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
           void loadUsers();
           return;
         }
-        // Fall through to client if SA missing
         if (data.error !== 'admin_sdk_missing') {
           console.warn('reset-economy API', data.error || res.status);
         }
@@ -387,7 +400,6 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
         console.warn('reset-economy API failed, trying client', e);
       }
 
-      // Client fallback (needs published firestore.rules for CEO)
       const result = await resetEconomyFreshStart(db);
       onAlert?.(
         `Reset done · users ${result.usersZeroed}/${result.usersScanned} · AdminRevenue -${result.adminRevenueDeleted} · ads -${result.adEventsDeleted}`,
@@ -406,18 +418,24 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
     }
   }, [adminUser, onAlert, loadUsers]);
 
+  const searchQuery = search.trim().toLowerCase();
+
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = searchQuery;
     const rows = users.filter((u) => {
       if (!q) return true;
+      const name = (u.name || '').toLowerCase();
+      const username = (u.username || '').toLowerCase();
+      const email = (u.email || '').toLowerCase();
+      const uid = u.uid.toLowerCase();
       return (
-        u.uid.toLowerCase().includes(q) ||
-        (u.email || '').toLowerCase().includes(q) ||
-        (u.username || '').toLowerCase().includes(q) ||
-        (u.name || '').toLowerCase().includes(q)
+        name.includes(q) ||
+        username.includes(q) ||
+        email.includes(q) ||
+        uid.includes(q) ||
+        `@${username}`.includes(q)
       );
     });
-    // Online users first
     return [...rows].sort((a, b) => {
       const aOn = isUserOnlineNow({
         rtdbOnline: presenceByUid[a.uid],
@@ -435,7 +453,7 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
         : 0;
       return bOn - aOn;
     });
-  }, [users, search, presenceByUid]);
+  }, [users, searchQuery, presenceByUid]);
 
   const onlineCount = filtered.filter((u) =>
     isUserOnlineNow({
@@ -449,36 +467,80 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
 
   return (
     <div className="flex flex-col min-h-screen bg-[#050505]">
-      <div className="sticky top-0 z-40 bg-[#050505]/95 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center gap-3">
-        <button
-          onClick={onBack}
-          className="p-1.5 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all"
-          type="button"
-        >
-          <ArrowLeft size={14} className="text-gray-400" />
-        </button>
-        <div className="flex items-center gap-2">
-          <Shield size={16} className="text-red-400" />
-          <h1 className="text-sm font-black text-white uppercase tracking-widest">Admin · Users</h1>
+      <div className="sticky top-0 z-40 bg-[#050505]/95 backdrop-blur-xl border-b border-pink-500/20 px-4 py-3 space-y-3 shadow-[0_0_24px_rgba(236,72,153,0.12)]">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onBack}
+            className="p-1.5 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all"
+            type="button"
+          >
+            <ArrowLeft size={14} className="text-gray-400" />
+          </button>
+          <div className="flex items-center gap-2 min-w-0">
+            <Shield size={16} className="text-red-400 shrink-0" />
+            <h1 className="text-sm font-black text-white uppercase tracking-widest truncate">
+              Admin · Users
+            </h1>
+          </div>
+          <a
+            href="/aj-admin"
+            className="ml-auto text-[9px] font-black text-cyan-400 uppercase tracking-widest px-2 py-1 rounded-lg bg-cyan-500/10 border border-cyan-500/20 shrink-0"
+          >
+            Full Dashboard →
+          </a>
+          <button
+            onClick={() => {
+              void loadUsers();
+              setHisaabKey((k) => k + 1);
+            }}
+            disabled={loading}
+            className="p-2 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all shrink-0"
+            type="button"
+            title="Refresh"
+          >
+            <RefreshCw size={14} className={`text-gray-400 ${loading || economyLoading ? 'animate-spin' : ''}`} />
+          </button>
         </div>
-        <a
-          href="/aj-admin"
-          className="ml-auto text-[9px] font-black text-cyan-400 uppercase tracking-widest px-2 py-1 rounded-lg bg-cyan-500/10 border border-cyan-500/20"
+
+        {/* Real-time search — sticky top */}
+        <div
+          className="flex items-center gap-2 rounded-2xl px-3 py-2.5 border border-cyan-400/35 bg-[#0a0a12]/90"
+          style={{ boxShadow: '0 0 18px rgba(34,211,238,0.18), inset 0 0 12px rgba(34,211,238,0.05)' }}
         >
-          Full Dashboard →
-        </a>
-        <button
-          onClick={() => {
-            void loadUsers();
-            setHisaabKey((k) => k + 1);
-          }}
-          disabled={loading}
-          className="p-2 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all"
-          type="button"
-          title="Refresh"
-        >
-          <RefreshCw size={14} className={`text-gray-400 ${loading ? 'animate-spin' : ''}`} />
-        </button>
+          <Search size={16} className="text-cyan-400 shrink-0" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search instantly by name, username, or email…"
+            autoComplete="off"
+            spellCheck={false}
+            className="flex-1 bg-transparent text-white text-sm font-medium focus:outline-none placeholder:text-gray-500 tracking-wide"
+          />
+          {search ? (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              className="p-1 rounded-lg bg-white/5 border border-white/10 text-gray-400 active:scale-90"
+              aria-label="Clear search"
+            >
+              <X size={12} />
+            </button>
+          ) : null}
+        </div>
+        <p className="text-[10px] text-gray-500 font-black uppercase tracking-widest flex items-center gap-3 flex-wrap">
+          <span className="text-cyan-400/90">
+            {filtered.length} match{filtered.length === 1 ? '' : 'es'}
+            {searchQuery ? ` · “${search.trim()}”` : ''}
+          </span>
+          <span className="inline-flex items-center gap-1.5 text-emerald-400">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            {onlineCount} online
+          </span>
+          <span className="inline-flex items-center gap-1.5 text-red-400">
+            <span className="w-2 h-2 rounded-full bg-red-500" />
+            {Math.max(0, filtered.length - onlineCount)} offline
+          </span>
+        </p>
       </div>
 
       <div className="px-4 pt-4 pb-2 space-y-3">
@@ -517,29 +579,6 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
             ? 'Resetting all balances to 0…'
             : '⚠ Reset ALL coins + admin earnings → 0'}
         </button>
-
-        <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-2xl px-3 py-2.5">
-          <Search size={14} className="text-gray-500" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name, email, username, or UID…"
-            className="flex-1 bg-transparent text-white text-sm focus:outline-none placeholder:text-gray-600"
-          />
-        </div>
-        <p className="text-[10px] text-gray-500 mt-2 font-black uppercase tracking-widest flex items-center gap-3">
-          <span>
-            {filtered.length} user{filtered.length === 1 ? '' : 's'}
-          </span>
-          <span className="inline-flex items-center gap-1.5 text-emerald-400">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            {onlineCount} online
-          </span>
-          <span className="inline-flex items-center gap-1.5 text-red-400">
-            <span className="w-2 h-2 rounded-full bg-red-500" />
-            {Math.max(0, filtered.length - onlineCount)} offline
-          </span>
-        </p>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 pb-8">
@@ -548,10 +587,12 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
           <p className="text-gray-500 text-xs text-center py-10">Loading users…</p>
         )}
         {!loading && filtered.length === 0 && !error && (
-          <p className="text-gray-500 text-xs text-center py-10">No users found.</p>
+          <p className="text-gray-500 text-xs text-center py-10">
+            {searchQuery ? 'No users match this search.' : 'No users found.'}
+          </p>
         )}
 
-        <div className="space-y-2">
+        <div className="space-y-3">
           {filtered.map((u) => {
             const banned = isUserBanned(u);
             const online = isUserOnlineNow({
@@ -559,78 +600,128 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
               status: u.status,
               lastSeenMs: u.lastSeenMs,
             });
+            const eco = economyByUid[u.uid];
+            const earned = eco?.lifetimeEarnedCoins ?? 0;
+            const withdrawReq = eco?.withdrawRequestedCoins ?? 0;
+            const adminUsd = eco?.adminProfitUsd ?? 0;
+            const adminCoins = eco?.adminProfitCoins ?? 0;
+
             return (
               <div
                 key={u.uid}
-                className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl p-3"
+                className="rounded-2xl p-3 border border-pink-500/25 bg-gradient-to-br from-[#12081a]/90 to-[#0a0a14]/95"
+                style={{ boxShadow: '0 0 20px rgba(236,72,153,0.08)' }}
               >
-                <div className="relative flex-shrink-0">
-                  <img
-                    src={u.photo || '/logo.png'}
-                    alt=""
-                    className="w-10 h-10 rounded-full object-cover border border-white/20"
-                  />
-                  <span
-                    title={online ? 'Online in portal' : 'Offline'}
-                    className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-[#0a0a0a] ${
-                      online ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : 'bg-red-500'
-                    }`}
-                  />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span
-                      className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                        online ? 'bg-emerald-400 animate-pulse' : 'bg-red-500'
-                      }`}
-                      title={online ? 'Online' : 'Offline'}
+                <div className="flex items-start gap-3">
+                  <div className="relative flex-shrink-0">
+                    <img
+                      src={u.photo || '/logo.png'}
+                      alt=""
+                      className="w-11 h-11 rounded-full object-cover border border-cyan-400/30 shadow-[0_0_10px_rgba(34,211,238,0.25)]"
                     />
-                    <p className="text-white text-xs font-black truncate">
-                      @{u.username || u.name || 'user'}
-                    </p>
                     <span
-                      className={`text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border ${
+                      title={online ? 'Online in portal' : 'Offline'}
+                      className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-[#0a0a0a] ${
                         online
-                          ? 'bg-emerald-600/25 border-emerald-500/40 text-emerald-300'
-                          : 'bg-red-600/20 border-red-500/35 text-red-400'
+                          ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]'
+                          : 'bg-red-500'
                       }`}
-                    >
-                      {online ? 'Online' : 'Offline'}
-                    </span>
-                    {banned ? (
-                      <span className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-red-600/30 border border-red-500/40 text-red-400">
-                        Banned
-                      </span>
-                    ) : (
-                      <span className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-white/5 border border-white/15 text-gray-400">
-                        Active
-                      </span>
-                    )}
+                    />
                   </div>
-                  <p className="text-[9px] text-gray-500 truncate mt-0.5">{u.email || u.uid}</p>
-                  <p className="text-[9px] text-yellow-500/80 font-black mt-0.5">
-                    {(u.balance ?? 0).toLocaleString()} 🪙
-                    <span className="text-emerald-400/80 text-[9px] font-bold ml-1">
-                      ({formatUsd(coinsToUsd(u.balance ?? 0))} withdraw)
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-white text-xs font-black truncate">
+                        @{u.username || u.name || 'user'}
+                      </p>
+                      {u.name && u.username ? (
+                        <span className="text-[9px] text-gray-400 truncate">{u.name}</span>
+                      ) : null}
+                      <span
+                        className={`text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border ${
+                          online
+                            ? 'bg-emerald-600/25 border-emerald-500/40 text-emerald-300'
+                            : 'bg-red-600/20 border-red-500/35 text-red-400'
+                        }`}
+                      >
+                        {online ? 'Online' : 'Offline'}
+                      </span>
+                      {banned ? (
+                        <span className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-red-600/30 border border-red-500/40 text-red-400">
+                          Banned
+                        </span>
+                      ) : (
+                        <span className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-white/5 border border-white/15 text-gray-400">
+                          Active
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[9px] text-gray-500 truncate mt-0.5">{u.email || u.uid}</p>
+                    <p className="text-[9px] text-yellow-400/90 font-black mt-1">
+                      Balance {(u.balance ?? 0).toLocaleString()} 🪙
+                      <span className="text-emerald-400/80 text-[9px] font-bold ml-1">
+                        ({formatUsd(coinsToUsd(u.balance ?? 0))})
+                      </span>
+                    </p>
+                  </div>
+                  {banned ? (
+                    <span className="flex-shrink-0 text-[9px] font-black text-red-400 uppercase tracking-widest px-3 py-2">
+                      Banned
                     </span>
-                  </p>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={banningUid === u.uid}
+                      onClick={() => handleBanUser(u)}
+                      className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest text-white active:scale-95 transition-all disabled:opacity-50"
+                      style={{ background: 'linear-gradient(135deg,#dc2626,#991b1b)' }}
+                    >
+                      <Ban size={12} />
+                      {banningUid === u.uid ? '…' : 'Ban'}
+                    </button>
+                  )}
                 </div>
-                {banned ? (
-                  <span className="flex-shrink-0 text-[9px] font-black text-red-400 uppercase tracking-widest px-3 py-2">
-                    Banned
-                  </span>
-                ) : (
-                  <button
-                    type="button"
-                    disabled={banningUid === u.uid}
-                    onClick={() => handleBanUser(u)}
-                    className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest text-white active:scale-95 transition-all disabled:opacity-50"
-                    style={{ background: 'linear-gradient(135deg,#dc2626,#991b1b)' }}
-                  >
-                    <Ban size={12} />
-                    {banningUid === u.uid ? '…' : 'Ban User'}
-                  </button>
-                )}
+
+                {/* Lifetime / withdraw / admin hub profit */}
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <div className="rounded-xl border border-amber-400/30 bg-amber-500/5 px-2 py-2">
+                    <p className="text-[8px] font-black uppercase tracking-widest text-amber-300/90">
+                      Lifetime earn
+                    </p>
+                    <p className="text-[11px] font-black text-amber-200 mt-0.5 tabular-nums">
+                      {earned.toLocaleString()} 🪙
+                    </p>
+                    <p className="text-[8px] text-amber-400/70 font-bold">
+                      {eco?.lifetimeEarnedUsdLabel || formatUsd(coinsToUsd(earned))}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-fuchsia-400/30 bg-fuchsia-500/5 px-2 py-2">
+                    <p className="text-[8px] font-black uppercase tracking-widest text-fuchsia-300/90">
+                      Withdraws
+                    </p>
+                    <p className="text-[11px] font-black text-fuchsia-200 mt-0.5 tabular-nums">
+                      {withdrawReq.toLocaleString()} 🪙
+                    </p>
+                    <p className="text-[8px] text-fuchsia-400/70 font-bold">
+                      {eco
+                        ? `paid ${(eco.withdrawPaidCoins || 0).toLocaleString()} · pend ${(eco.withdrawPendingCoins || 0).toLocaleString()}`
+                        : economyLoading
+                          ? '…'
+                          : 'none'}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-cyan-400/35 bg-cyan-500/5 px-2 py-2 shadow-[0_0_12px_rgba(34,211,238,0.12)]">
+                    <p className="text-[8px] font-black uppercase tracking-widest text-cyan-300/90">
+                      Hub profit
+                    </p>
+                    <p className="text-[11px] font-black text-cyan-200 mt-0.5 tabular-nums">
+                      {eco?.adminProfitUsdLabel || formatUsd(adminUsd)}
+                    </p>
+                    <p className="text-[8px] text-cyan-400/70 font-bold">
+                      {adminCoins.toLocaleString()} 🪙 share
+                      {eco?.adminEvents ? ` · ${eco.adminEvents} evt` : ''}
+                    </p>
+                  </div>
+                </div>
               </div>
             );
           })}
