@@ -135,7 +135,7 @@ export async function applyAdsterraSettledPayout(
       fromPostback: true,
       settled: true,
       estimated: false,
-      psid: input.psid || undefined,
+      ...(input.psid ? { psid: input.psid } : {}),
       ...(input.extraMeta || {}),
     },
     ledgerCollection: 'offerwall_ledger',

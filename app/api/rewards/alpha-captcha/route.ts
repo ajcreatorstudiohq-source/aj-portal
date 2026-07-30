@@ -14,7 +14,7 @@ import { normalizeServerClaimFailure } from '../../../lib/claim-errors';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const SESSION_TTL_MS = 5 * 60 * 1000;
+const SESSION_TTL_MS = 15 * 60 * 1000; // allow Adsterra open + return without expiry
 const MAX_DAILY = DAILY_CAPS.alpha_captcha;
 const CHARSET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no I/O/0/1 ambiguity
 
@@ -170,7 +170,8 @@ export async function POST(request: Request) {
       );
     }
 
-    // Session-scoped ledger — never soft-lock on day/slot after economy reset.
+    // Session-scoped ledger. Day limit already via alphaCaptchaDayCount —
+    // skip dailyRewards.* gate (soft-locks after economy resets).
     const txId = `alpha_captcha_${sessionId}`;
     const result = await applyFlatCoins({
       uid: user.uid,
@@ -184,8 +185,9 @@ export async function POST(request: Request) {
         estimated: true,
         settled: false,
         displayLabel: 'Premium Captcha',
+        adViewed: body.adViewed === true,
       },
-      enforceDailyCap: true,
+      enforceDailyCap: false,
       userPatch: {
         alphaCaptchaDayKey: dayKey,
         alphaCaptchaDayCount: dailyCount + 1,
@@ -195,6 +197,11 @@ export async function POST(request: Request) {
 
     if (!result.ok) {
       const status = result.error === 'daily_limit' || result.dailyCapHit ? 429 : 500;
+      console.error('[alpha-captcha] credit failed', {
+        uid: user.uid,
+        sessionId,
+        error: result.error,
+      });
       return NextResponse.json(
         {
           ok: false,
@@ -203,12 +210,35 @@ export async function POST(request: Request) {
           message:
             result.error === 'admin_sdk_missing'
               ? 'Server cannot credit coins. Configure FIREBASE_SERVICE_ACCOUNT_JSON.'
-              : result.dailyCapHit
+              : result.dailyCapHit || result.error === 'daily_limit'
                 ? `Daily captcha limit (${MAX_DAILY}) reached.`
-                : 'Credit failed. Please try a new captcha.',
+                : result.error === 'user_not_found'
+                  ? 'Account not found. Sign out and sign in again.'
+                  : 'Credit failed. Please try a new captcha.',
         },
         { status }
       );
+    }
+
+    if (result.duplicate && (result.balanceCredited ?? 0) <= 0) {
+      await sessionRef.set(
+        {
+          consumed: true,
+          completedAt: FieldValue.serverTimestamp(),
+          creditedCoins: 0,
+          txId,
+          duplicateReplay: true,
+        },
+        { merge: true }
+      );
+      return NextResponse.json({
+        ok: true,
+        duplicate: true,
+        creditedCoins: 0,
+        balance: result.balance ?? currentBalance,
+        remainingToday: Math.max(0, MAX_DAILY - dailyCount),
+        message: 'Already credited for this captcha session',
+      });
     }
 
     await sessionRef.set(
