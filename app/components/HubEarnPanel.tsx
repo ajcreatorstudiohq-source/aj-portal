@@ -104,7 +104,7 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
     fireSurveyAdsterra('start');
     setPanel('surveys');
     setSurveysOpen(true);
-    onAlert('Surveys opening · Adsterra launched · earn AJ Coins after verified postback', '📋');
+    onAlert('Surveys opening · complete tasks to earn AJ Coins 🪙', '📋');
   };
 
   const closeSurveys = () => {

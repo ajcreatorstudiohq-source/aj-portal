@@ -5,6 +5,9 @@ export type AdminEarningsTotals = {
   giftOwnerUsd: number;
   giftOwnerCoins: number;
   adOwnerUsd: number;
+  /** TheoremReach / offerwall survey owner share (70%). */
+  surveyOwnerUsd?: number;
+  surveyOwnerCoins?: number;
   eventCount: number;
   updatedAt?: unknown;
 };

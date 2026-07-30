@@ -59,8 +59,8 @@ export const DAILY_CAPS: Record<RewardSource, number> = {
 export const SOURCE_LABELS: Record<RewardSource, string> = {
   game_install: 'Game Download & Install',
   game_milestone: 'Game Level Milestone',
-  offerwall: 'Offerwall Task',
-  offerwall_video: 'Offerwall Rewarded Video',
+  offerwall: 'Survey Reward',
+  offerwall_video: 'Watch Ads Reward',
   app_download: 'Portal App Download',
   tiktok_post: 'TikReel Upload',
   pulse_post: 'Pulse Upload',

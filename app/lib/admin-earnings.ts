@@ -177,12 +177,16 @@ export async function creditAdminEarnings(opts: {
 
   const source = String(opts.source || '');
   const isGift = source === 'live_gift' || source.includes('gift');
+  /** TheoremReach / offerwall surveys — separate from Adsterra click ads */
+  const isSurvey =
+    source === 'offerwall' ||
+    source.includes('theoremreach') ||
+    source.includes('survey');
   const isAd =
     source.startsWith('ad_') ||
     source.includes('adsterra') ||
     source === 'ad_network' ||
-    source === 'offerwall_video' ||
-    source === 'offerwall';
+    source === 'offerwall_video';
   const isPk = source === 'pk_match' || source.includes('pk');
 
   const patch: Record<string, unknown> = {
@@ -196,7 +200,12 @@ export async function creditAdminEarnings(opts: {
     patch.giftOwnerUsd = FieldValue.increment(ownerUsd);
     patch.giftOwnerCoins = FieldValue.increment(ownerCoins);
   }
-  if (isAd) {
+  if (isSurvey) {
+    patch.surveyOwnerUsd = FieldValue.increment(ownerUsd);
+    patch.surveyOwnerCoins = FieldValue.increment(ownerCoins);
+    // Keep adOwnerUsd growing for older Hisaab "ads" rollups that included offerwall
+    patch.adOwnerUsd = FieldValue.increment(ownerUsd);
+  } else if (isAd) {
     patch.adOwnerUsd = FieldValue.increment(ownerUsd);
   }
   if (isPk) {

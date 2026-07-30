@@ -20,6 +20,7 @@ import { flushSync } from 'react-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import LiveMatchesPanel from './components/LiveMatchesPanel';
 import HubEarnPanel from './components/HubEarnPanel';
+import UserEarningsHistory from './components/UserEarningsHistory';
 import BannerAdSlot from './components/ads/BannerAdSlot';
 import InFeedAdShell from './components/ads/InFeedAdShell';
 import InFeedVideoAd from './components/ads/InFeedVideoAd';
@@ -9893,6 +9894,7 @@ Tip: Social Hub se copy karo 📤`,
                     </button>
                   ))}
                 </div>
+                <UserEarningsHistory uid={user?.uid} refreshKey={balance} />
               </>
             )}
 
