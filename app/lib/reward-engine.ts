@@ -249,7 +249,7 @@ export async function applyFlatCoins(opts: {
    * uses this settled gross instead of inventing gross from coins / 0.3.
    */
   settledPayoutUsd?: number;
-  /** When false, user coins still credit but AdminRevenue is marked estimated and Hisaab is not incremented. */
+  /** When false, user coins still credit but Admin Hub / Hisaab are NOT incremented. Default true — every user earn books matching 70% to Hub. */
   bookAdminEarnings?: boolean;
 }): Promise<ApplyRewardResult> {
   const {
@@ -313,26 +313,43 @@ export async function applyFlatCoins(opts: {
     typeof settledPayoutUsd === 'number' &&
     Number.isFinite(settledPayoutUsd) &&
     settledPayoutUsd > 0;
+  // User coins are always the 30% share shown in wallet.
+  // Gross pool = userUsd / 0.3 → admin 70% of that pool (never 0 when user earns).
   const totalUsd = hasSettled
     ? Number(settledPayoutUsd!.toFixed(6))
     : USER_EARN_SHARE > 0
       ? Number((userUsd / USER_EARN_SHARE).toFixed(6))
       : userUsd;
   const adminUsd = Number((Math.max(0, totalUsd - userUsd)).toFixed(6));
+  const adminCoinsRaw = Math.floor(adminUsd * CASH_RATE);
+  // When user earned coins, admin share coins must be > 0 for Hub wallet credit
+  const adminCoins =
+    bookAdminEarnings && credit > 0 && adminUsd > 0
+      ? Math.max(1, adminCoinsRaw)
+      : adminCoinsRaw;
   const split: RewardSplit = {
     totalUsd,
     userUsd,
     adminUsd,
     userCoins: credit,
-    adminCoins: Math.floor(adminUsd * CASH_RATE),
+    adminCoins,
   };
-  const settled = hasSettled && bookAdminEarnings;
+  /**
+   * Hub booking: whenever bookAdminEarnings, the 70% platform share is a real
+   * Admin Hub credit (partner postback OR reverse 70/30 from user coins).
+   * Hisaab / Hub wallet must never stay $0 when a user earn is booked.
+   */
+  const settled = bookAdminEarnings && (hasSettled || credit > 0);
+  const estimated = !settled;
   // Never put `undefined` into Firestore (rejects the whole credit write).
   const ledgerMeta = stripUndefined({
     ...meta,
     settled,
-    estimated: !settled,
-    ...(hasSettled ? { settledPayoutUsd } : {}),
+    estimated,
+    bookedToHub: settled,
+    userSharePct: USER_EARN_SHARE,
+    platformSharePct: PLATFORM_EARN_SHARE,
+    ...(hasSettled ? { settledPayoutUsd, partnerSettled: true } : { partnerSettled: false }),
   });
 
   try {
@@ -423,14 +440,16 @@ export async function applyFlatCoins(opts: {
             meta: ledgerMeta,
             flatCoins: credit,
             settled,
-            estimated: !settled,
+            estimated,
+            bookedToHub: settled,
             date: FieldValue.serverTimestamp(),
           })
         );
       } catch {
         /* non-fatal */
       }
-      if (settled && bookAdminEarnings) {
+      // Instant 70% Admin Hub credit whenever bookAdminEarnings (not only partner postbacks)
+      if (bookAdminEarnings && settled) {
         try {
           await creditAdminEarnings({
             ownerUsd: result.split.adminUsd,
@@ -438,8 +457,13 @@ export async function applyFlatCoins(opts: {
             source,
             earnerUid: uid,
           });
-        } catch {
-          /* non-fatal */
+        } catch (hubErr) {
+          console.error('[applyFlatCoins] creditAdminEarnings failed', hubErr, {
+            uid,
+            txId,
+            source,
+            adminUsd: result.split.adminUsd,
+          });
         }
       }
     }

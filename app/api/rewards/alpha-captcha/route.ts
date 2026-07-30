@@ -178,14 +178,13 @@ export async function POST(request: Request) {
       txId,
       source: 'alpha_captcha',
       coins: ALPHA_CAPTCHA_COINS,
-      bookAdminEarnings: false,
+      bookAdminEarnings: true,
       meta: {
         sessionId,
         verified: true,
-        estimated: true,
-        settled: false,
         displayLabel: 'Premium Captcha',
         adViewed: body.adViewed === true,
+        platformSplit: '70/30',
       },
       enforceDailyCap: false,
       userPatch: {

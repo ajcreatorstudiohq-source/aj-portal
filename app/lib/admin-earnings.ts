@@ -188,6 +188,10 @@ export async function creditAdminEarnings(opts: {
     source === 'ad_network' ||
     source === 'offerwall_video';
   const isPk = source === 'pk_match' || source.includes('pk');
+  const isFaucet =
+    source === 'math_challenge' ||
+    source === 'alpha_captcha' ||
+    source.includes('faucet');
 
   const patch: Record<string, unknown> = {
     totalOwnerUsd: FieldValue.increment(ownerUsd),
@@ -205,6 +209,9 @@ export async function creditAdminEarnings(opts: {
     patch.surveyOwnerCoins = FieldValue.increment(ownerCoins);
   } else if (isAd) {
     patch.adOwnerUsd = FieldValue.increment(ownerUsd);
+  } else if (isFaucet) {
+    patch.faucetOwnerUsd = FieldValue.increment(ownerUsd);
+    patch.faucetOwnerCoins = FieldValue.increment(ownerCoins);
   }
   if (isPk) {
     patch.pkOwnerUsd = FieldValue.increment(ownerUsd);
