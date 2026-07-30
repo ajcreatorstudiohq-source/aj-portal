@@ -101,19 +101,9 @@ export const PREMIUM_DIRECT_GAMES = [
 export const PREMIUM_CPA_GAMES = PREMIUM_DIRECT_GAMES;
 
 /**
- * Estimated USD for economics guards / reference only — NOT booked as Hisaab profit.
- * Set ADSTERRA_REAL_CPC_USD from your real Adsterra dashboard average CPC
- * (e.g. if dashboard shows $0.03 across clicks, use that CPC — never invent $0.05).
- * Override with NEXT_PUBLIC_ADSTERRA_CLICK_USD / ADSTERRA_CLICK_USD.
+ * Deprecated estimate — always 0. Real Adsterra $ only via /api/ads/adsterra-postback.
  */
-export const ADSTERRA_CLICK_USD = Math.max(
-  0,
-  Number(
-    process.env.NEXT_PUBLIC_ADSTERRA_CLICK_USD ||
-      process.env.ADSTERRA_CLICK_USD ||
-      0.05
-  ) || 0.05
-);
+export const ADSTERRA_CLICK_USD = 0;
 
 /**
  * Hard revenue split — every non-gift earn path must keep this ratio.
@@ -277,11 +267,11 @@ export function splitPoolUsd(totalUsd: number): RewardSplit {
 /**
  * Ad-network click / Direct Link split (no-loss vs withdraw).
  *
- * You receive 100% of Adsterra click USD in the Adsterra dashboard.
+ * Split ONLY on real Adsterra payout USD (postback), never estimated CPC.
  * From that same dollar: user gets 30% as AJ Coins at CASH_RATE (withdraw liability),
- * you keep 70% (ledger + real Adsterra balance). Never pay users more than 30% of click $.
+ * you keep 70% (Hub wallet + settled Hisaab). Never pay users more than 30% of payout $.
  *
- * Example: click = $0.05 → user $0.015 = 15 🪙 · admin $0.035.
+ * Example: real payout = $0.03 → user $0.009 = 9 🪙 · admin $0.021.
  */
 export function splitAdClickUsd(clickUsd: number): RewardSplit {
   const total = Math.max(0, Number(Number(clickUsd).toFixed(6)));

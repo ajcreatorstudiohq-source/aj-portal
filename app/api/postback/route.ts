@@ -71,6 +71,7 @@ function readParams(url: URL, body: Record<string, unknown>) {
     payout:
       parseFloat(
         g('payout') ||
+          g('atpay') ||
           g('currency') ||
           g('amount') ||
           g('revenue') ||

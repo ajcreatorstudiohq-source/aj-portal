@@ -14,8 +14,6 @@ import {
   ALPHA_CAPTCHA_COINS,
 } from '../lib/reward-sources';
 import {
-  ADSTERRA_REWARD_COINS,
-  ADSTERRA_REWARDED_LINK,
   openAdsterraDirectLink,
 } from '../lib/ads-config';
 import { handleEarnAndPlayGame } from '../lib/direct-download';
@@ -60,7 +58,10 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
   }, [user?.uid, surveyTxId]);
 
   const fireSurveyAdsterra = (phase: 'start' | 'end') => {
-    openAdsterraDirectLink();
+    openAdsterraDirectLink({
+      uid: user?.uid,
+      sessionId: surveyTxId || undefined,
+    });
     if (!user) return;
     trackAdEvent(
       {
@@ -70,8 +71,8 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
         meta: {
           action: phase === 'start' ? 'survey_start_adsterra' : 'survey_end_adsterra',
           provider: 'adsterra',
-          link: ADSTERRA_REWARDED_LINK,
           surveyProvider: 'theoremreach',
+          phase,
         },
       },
       user
@@ -323,7 +324,7 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
             <div className="min-w-0">
               <p className="text-[12px] font-black text-white leading-tight">Watch Ads</p>
               <p className="text-[9px] font-black uppercase tracking-wider text-rose-300 mt-1">
-                30s in-ad · +{ADSTERRA_REWARD_COINS} 🪙
+                30s verify · real payout 70/30
               </p>
             </div>
           </div>

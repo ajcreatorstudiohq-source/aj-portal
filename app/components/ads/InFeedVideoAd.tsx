@@ -5,9 +5,9 @@ import { Eye, Gift, Heart, MessageSquare, Share2 } from 'lucide-react';
 import {
   ADSTERRA_NATIVE_BANNER_ID,
   ADSTERRA_NATIVE_BANNER_SRC,
-  ADSTERRA_REWARDED_LINK,
   AD_FALLBACK_POSTERS,
   AD_FALLBACK_VIDEOS,
+  openAdsterraDirectLink,
 } from '../../lib/ads-config';
 import { guardClick, startIntrusiveAdGuard } from '../../lib/ad-guards';
 
@@ -161,11 +161,8 @@ export default function InFeedVideoAd({ slotKey = 'feed', active = true }: Props
   const openOffer = (e?: { preventDefault?: () => void; stopPropagation?: () => void }) => {
     guardClick(e);
     startIntrusiveAdGuard();
-    try {
-      const win = window.open(ADSTERRA_REWARDED_LINK, '_blank');
-      if (!win) window.location.assign(ADSTERRA_REWARDED_LINK);
-    } catch {
-      window.location.assign(ADSTERRA_REWARDED_LINK);
+    if (!openAdsterraDirectLink()) {
+      /* popup blocked — openAdsterraDirectLink already logs */
     }
   };
 

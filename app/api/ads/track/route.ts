@@ -1,7 +1,5 @@
 import { NextResponse } from 'next/server';
 import {
-  AD_CLICK_VALUE_USD,
-  AD_IMPRESSION_ECPM_USD,
   isAdPlacement,
   MONETAG_INTERSTITIAL_ZONE,
   type AdEventType,
@@ -20,11 +18,7 @@ const EVENTS: AdEventType[] = ['impression', 'click', 'complete', 'skip', 'fail'
 
 /**
  * POST /api/ads/track
- * Auth optional (Bearer). Logs impression/click/complete to `ad_events` only.
- *
- * IMPORTANT: Does NOT credit AdminRevenue / admin_stats with assumed CPC.
- * Those estimates inflated Hisaab far above real Adsterra dashboard $.
- * Real Adsterra cash stays in the Adsterra publisher dashboard.
+ * Logs ad events only. Never books estimated CPC into Hisaab / Hub wallet.
  */
 export async function POST(request: Request) {
   try {
@@ -67,10 +61,8 @@ export async function POST(request: Request) {
       meta,
       createdAt: FieldValue.serverTimestamp(),
       dayKey: new Date().toISOString().slice(0, 10),
-      // Reference only — never booked as settled profit
-      estimatedClickUsd: event === 'click' ? AD_CLICK_VALUE_USD : 0,
-      estimatedImpressionUsd:
-        event === 'impression' ? Number((AD_IMPRESSION_ECPM_USD / 1000).toFixed(6)) : 0,
+      estimatedClickUsd: 0,
+      estimatedImpressionUsd: 0,
     });
 
     return NextResponse.json({
@@ -78,7 +70,7 @@ export async function POST(request: Request) {
       eventId: eventRef.id,
       adminUsd: 0,
       bookedToHisaab: false,
-      note: 'Events logged only — Adsterra real $ is in the publisher dashboard, not invented here.',
+      note: 'Event logged only. Real Adsterra $ via /api/ads/adsterra-postback.',
     });
   } catch (e: unknown) {
     console.error('[ads/track]', e);
@@ -94,8 +86,7 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     events: EVENTS,
-    impressionEcpmUsd: AD_IMPRESSION_ECPM_USD,
-    clickValueUsd: AD_CLICK_VALUE_USD,
     booksToHisaab: false,
+    settledPostback: '/api/ads/adsterra-postback',
   });
 }

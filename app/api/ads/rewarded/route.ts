@@ -1,21 +1,11 @@
 import { NextResponse } from 'next/server';
 import { FieldValue, getAdminDb, getFirebaseAdminDiag } from '../../../lib/firebase-admin';
-import {
-  ADSTERRA_CLICK_USD,
-  ADSTERRA_REWARD_COINS,
-  OFFERWALL_VIDEO_MAX_DAILY,
-} from '../../../lib/ads-config';
-import {
-  PLATFORM_EARN_SHARE,
-  USER_EARN_SHARE,
-  CASH_RATE,
-  coinsToUsd,
-} from '../../../lib/economy';
+import { OFFERWALL_VIDEO_MAX_DAILY } from '../../../lib/ads-config';
+import { PLATFORM_EARN_SHARE, USER_EARN_SHARE } from '../../../lib/economy';
 import {
   bearerFromRequest,
   verifyFirebaseIdToken,
 } from '../../../lib/verify-id-token';
-import { validateWatchAdsEconomics, revenueSplitLabel, getEffectiveAdCpcUsd } from '../../../lib/ad-revenue-guard';
 import { normalizeServerClaimFailure, publicClaimErrorMessage } from '../../../lib/claim-errors';
 
 export const runtime = 'nodejs';
@@ -28,32 +18,13 @@ function dayKeyUtc() {
 }
 
 /**
- * Watch Ads user coins + reference CPC split for audit only.
- * Owner USD here is ESTIMATED from configured CPC — NOT Adsterra dashboard cash.
- * Do not creditAdminEarnings with this amount (prevents Hisaab inflation).
- */
-function rewardedClaimSplit(coins: number) {
-  const userUsd = coinsToUsd(coins);
-  const clickUsd = Math.max(getEffectiveAdCpcUsd(), userUsd);
-  const adminUsd = Number((clickUsd - userUsd).toFixed(6));
-  return {
-    totalUsd: clickUsd,
-    userUsd,
-    adminUsd,
-    userCoins: coins,
-    adminCoins: Math.floor(adminUsd * CASH_RATE),
-  };
-}
-
-/**
  * POST /api/ads/rewarded
  * Auth: Bearer <Firebase ID token>
  *
- * Uses Firebase Admin SDK so balance / offerwall_ledger writes succeed
- * (client SDK was blocked by firestore.rules → coins never increased).
+ * prepare → create session
+ * claim_adsterra / complete → verify 30s watch ONLY (no invented coins)
  *
- * action: 'prepare' | 'complete' | 'claim_adsterra'
- * claim_adsterra → ADSTERRA_REWARD_COINS after 30s verify
+ * Real 70/30 credit: POST /api/ads/adsterra-postback with exact Adsterra payout USD.
  */
 export async function POST(request: Request) {
   try {
@@ -134,7 +105,8 @@ export async function POST(request: Request) {
             expiresAt,
             createdAtMs,
             remainingToday: Math.max(0, OFFERWALL_VIDEO_MAX_DAILY - dailyCount),
-            rewardCoins: ADSTERRA_REWARD_COINS,
+            rewardCoins: 0,
+            inventsCoins: false,
             persistClient: false,
           });
         } catch (writeErr) {
@@ -149,7 +121,8 @@ export async function POST(request: Request) {
         expiresAt,
         createdAtMs,
         remainingToday: Math.max(0, OFFERWALL_VIDEO_MAX_DAILY - dailyCount),
-        rewardCoins: ADSTERRA_REWARD_COINS,
+        rewardCoins: 0,
+        inventsCoins: false,
         persistClient: true,
         sessionPayload,
         message: 'Session ready. Client will save tracking session.',
@@ -180,24 +153,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // Real CPC / revenue guard — never credit more liability than assumed CPC covers
-    if (action === 'claim_adsterra' || action === 'complete') {
-      const econ = validateWatchAdsEconomics(ADSTERRA_REWARD_COINS);
-      if (!econ.ok) {
-        console.error('[ads/rewarded] cpc_below_reward', econ);
-        return NextResponse.json(
-          {
-            ok: false,
-            error: 'cpc_below_reward',
-            message:
-              'Ad reward temporarily disabled: configured CPC cannot cover coin liability. Update ADSTERRA_REAL_CPC_USD.',
-            economics: econ,
-            revenue: revenueSplitLabel(),
-          },
-          { status: 503 }
-        );
-      }
-    }
+    // No estimated-CPC invent path — coins only via /api/ads/adsterra-postback real payout
 
     const userRef = adminDb.collection('users').doc(user.uid);
     const userSnap = await userRef.get();
@@ -209,6 +165,7 @@ export async function POST(request: Request) {
       offerwallVideoDayCount?: number;
       isBanned?: boolean;
       accountStatus?: string;
+      balance?: number;
     };
     if (ud.isBanned || ud.accountStatus === 'banned') {
       return NextResponse.json(
@@ -218,8 +175,9 @@ export async function POST(request: Request) {
     }
     const dailyCount =
       ud.offerwallVideoDayKey === dayKey ? Number(ud.offerwallVideoDayCount || 0) : 0;
+    const balNow = Math.max(0, Math.floor(Number(ud.balance) || 0));
 
-    // ── Adsterra claim: require prepare session + min 30s elapsed
+    // ── Adsterra verify: mark session verified — NEVER invent fixed coins
     if (action === 'claim_adsterra') {
       if (dailyCount >= OFFERWALL_VIDEO_MAX_DAILY) {
         return NextResponse.json(
@@ -259,7 +217,6 @@ export async function POST(request: Request) {
             })
           : {};
 
-      // If client persisted (or Admin prepare failed), recreate a valid session from claim meta
       if (!sessionSnap.exists) {
         const preparedAt = Number(meta.preparedAt || 0);
         const awayMs = Math.max(0, Number(meta.totalAwayMs || 0));
@@ -281,6 +238,7 @@ export async function POST(request: Request) {
             expiresAt: Date.now() + SESSION_TTL_MS,
             dayKey,
             consumed: false,
+            verified: false,
             slot: dailyCount,
             verifySeconds: Number(meta.verifySeconds) > 0 ? Number(meta.verifySeconds) : 30,
             clientRecovered: true,
@@ -305,27 +263,24 @@ export async function POST(request: Request) {
         uid: string;
         expiresAt: number;
         consumed?: boolean;
+        verified?: boolean;
         createdAtMs?: number;
         verifySeconds?: number;
         creditedCoins?: number;
+        settledTxId?: string;
       };
       if (sessionFresh.uid !== user.uid) {
         return NextResponse.json({ ok: false, error: 'session_mismatch' }, { status: 403 });
       }
-      if (sessionFresh.consumed) {
-        const bal = Math.max(
-          0,
-          Math.floor(Number((userSnap.data() as { balance?: number }).balance) || 0)
-        );
-        const prior = Math.max(0, Math.floor(Number(sessionFresh.creditedCoins) || 0));
+      if (sessionFresh.consumed && Number(sessionFresh.creditedCoins || 0) > 0) {
         return NextResponse.json({
           ok: true,
           duplicate: true,
           creditedCoins: 0,
-          balance: bal,
-          previouslyCredited: prior,
-          message:
-            'Already claimed for this ad session. Start Watch Ads again for a new claim.',
+          balance: balNow,
+          previouslyCredited: Math.floor(Number(sessionFresh.creditedCoins) || 0),
+          settled: true,
+          message: 'Already settled for this ad session from real Adsterra payout.',
         });
       }
       if (Date.now() > Number(sessionFresh.expiresAt || 0)) {
@@ -345,7 +300,6 @@ export async function POST(request: Request) {
           : 30) * 1000;
       const startedMs = Number(sessionFresh.createdAtMs || meta.preparedAt || 0);
       const elapsedSincePrepare = startedMs > 0 ? Date.now() - startedMs : 0;
-      // Also accept client-reported away time if wall-clock is slightly short (clock skew)
       const clientAwayMs = Math.max(0, Number(meta.totalAwayMs || 0));
       const effectiveElapsed = Math.max(elapsedSincePrepare, clientAwayMs);
       if (!startedMs || effectiveElapsed < needMs) {
@@ -354,7 +308,7 @@ export async function POST(request: Request) {
           {
             ok: false,
             error: 'verify_too_fast',
-            message: `Please wait ${left}s more, then claim. Full 30s required. No AJ Coins were credited.`,
+            message: `Please wait ${left}s more. Full 30s required. No AJ Coins were credited.`,
           },
           { status: 403 }
         );
@@ -366,133 +320,63 @@ export async function POST(request: Request) {
           leftAdAt: meta.leftAdAt ?? null,
           totalAwayMs: Number(meta.totalAwayMs || 0) || null,
           elapsedSincePrepareMs: elapsedSincePrepare,
+          verified: true,
+          verifiedAt: FieldValue.serverTimestamp(),
           claimAttemptAt: FieldValue.serverTimestamp(),
+          awaitingSettlement: true,
         },
         { merge: true }
       );
 
-      const coins = ADSTERRA_REWARD_COINS;
-      const split = rewardedClaimSplit(coins);
-      // Session-scoped ledger — day/slot keys soft-locked accounts after economy reset
-      // (ledger existed, dayCount stayed 0, every claim hit the same txId forever).
-      const txId = `adsterra_claim_${sessionId}`;
-      const ledgerRef = adminDb.collection('offerwall_ledger').doc(txId);
-
-      const result = await adminDb.runTransaction(async (tx) => {
-        const [ledgerSnap, freshSession, freshUser] = await Promise.all([
-          tx.get(ledgerRef),
-          tx.get(sessionRef),
-          tx.get(userRef),
-        ]);
-        if (!freshUser.exists) throw new Error('user_not_found');
-        const bal = Math.max(
-          0,
-          Math.floor(Number((freshUser.data() as { balance?: number }).balance) || 0)
-        );
-        if (ledgerSnap.exists) {
-          return { duplicate: true as const, credited: 0, balance: bal, nextCount: dailyCount };
-        }
-        if (!freshSession.exists) throw new Error('invalid_session');
-        const s = freshSession.data() as { uid: string; consumed?: boolean };
-        if (s.uid !== user.uid) throw new Error('session_mismatch');
-        if (s.consumed) {
-          return { duplicate: true as const, credited: 0, balance: bal, nextCount: dailyCount };
-        }
-        const u = freshUser.data() as {
-          offerwallVideoDayKey?: string;
-          offerwallVideoDayCount?: number;
-          balance?: number;
-        };
-        const count =
-          u.offerwallVideoDayKey === dayKey ? Number(u.offerwallVideoDayCount || 0) : 0;
-        if (count >= OFFERWALL_VIDEO_MAX_DAILY) throw new Error('daily_limit');
-
-        const nextBal = bal + coins;
-        const nextCount = count + 1;
-
-        tx.set(
-          sessionRef,
-          {
-            consumed: true,
-            consumedAt: FieldValue.serverTimestamp(),
-            creditedCoins: coins,
-            txId,
-            balanceAfter: nextBal,
-          },
-          { merge: true }
-        );
-
-        tx.set(ledgerRef, {
-          uid: user.uid,
-          source: 'adsterra_watch',
-          txId,
-          sessionId,
-          coins,
-          clickUsd: split.totalUsd,
-          userUsd: split.userUsd,
-          adminUsd: split.adminUsd,
-          status: 'completed',
-          provider: 'adsterra',
-          dayKey,
-          createdAt: FieldValue.serverTimestamp(),
-          meta: body.meta && typeof body.meta === 'object' ? body.meta : {},
+      // Check if a real Adsterra postback already settled coins for this user recently
+      let settledCoins = 0;
+      try {
+        const recent = await adminDb
+          .collection('offerwall_ledger')
+          .where('uid', '==', user.uid)
+          .where('source', '==', 'offerwall_video')
+          .limit(20)
+          .get();
+        recent.forEach((d) => {
+          const row = d.data() as Record<string, unknown>;
+          const metaRow =
+            row.meta && typeof row.meta === 'object'
+              ? (row.meta as Record<string, unknown>)
+              : {};
+          if (
+            metaRow.via === 'adsterra_real_postback' &&
+            metaRow.settled === true &&
+            String(metaRow.psid || '').includes(sessionId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8))
+          ) {
+            settledCoins += Math.floor(Number(row.flatCoins ?? row.coins ?? 0) || 0);
+          }
         });
-        tx.update(userRef, {
-          balance: nextBal,
-          offerwallVideoDayKey: dayKey,
-          offerwallVideoDayCount: nextCount,
-          lastAdsterraClaimAt: FieldValue.serverTimestamp(),
-          lastRewardAt: FieldValue.serverTimestamp(),
-          lastRewardSource: 'adsterra_watch',
-          lastWalletWriteAt: FieldValue.serverTimestamp(),
-        });
-        return { duplicate: false as const, credited: coins, balance: nextBal, nextCount };
-      });
+      } catch {
+        /* ignore */
+      }
 
-      if (!result.duplicate) {
-        try {
-          // Audit-only estimate — real Adsterra $ stays in publisher dashboard.
-          // Never creditAdminEarnings here (was inflating Hisaab vs ~$0.03 reality).
-          await adminDb.collection('AdminRevenue').add({
-            type: 'adsterra_watch',
-            source: 'adsterra',
-            currency: 'USD',
-            platformSharePct: PLATFORM_EARN_SHARE,
-            userSharePct: USER_EARN_SHARE,
-            placement,
-            uid: user.uid,
-            totalPool: split.totalUsd,
-            adminShare: split.adminUsd,
-            ownerUsd: split.adminUsd,
-            adminShareCoins: split.adminCoins,
-            userNet: split.userUsd,
-            userNetCoins: result.credited,
-            clickUsd: getEffectiveAdCpcUsd(),
-            assumedClickUsd: ADSTERRA_CLICK_USD,
-            estimated: true,
-            settled: false,
-            txId,
-            createdAt: FieldValue.serverTimestamp(),
-          });
-        } catch {
-          /* non-fatal — user already credited */
-        }
+      if (settledCoins > 0) {
+        return NextResponse.json({
+          ok: true,
+          creditedCoins: settledCoins,
+          balance: balNow,
+          settled: true,
+          bookedToHisaab: true,
+          message: `+${settledCoins} AJ Coins 🪙 from real Adsterra payout (30% share).`,
+        });
       }
 
       return NextResponse.json({
         ok: true,
-        duplicate: result.duplicate,
-        creditedCoins: result.credited,
-        balance: result.balance,
-        clickUsd: split.totalUsd,
-        userUsd: split.userUsd,
-        adminUsd: 0,
-        estimatedAdminUsd: split.adminUsd,
+        creditedCoins: 0,
+        balance: balNow,
+        verified: true,
+        settled: false,
+        awaitingSettlement: true,
         bookedToHisaab: false,
-        remainingToday: Math.max(0, OFFERWALL_VIDEO_MAX_DAILY - result.nextCount),
-        message: result.duplicate
-          ? 'Already claimed for this ad session. Start Watch Ads again.'
-          : `+${result.credited} AJ Coins 🪙 added to your wallet!`,
+        remainingToday: Math.max(0, OFFERWALL_VIDEO_MAX_DAILY - dailyCount),
+        message:
+          'Ad verified. AJ Coins credit when Adsterra registers the real payout (30% to you · 70% to Hub). No estimated coins.',
       });
     }
 
@@ -500,172 +384,41 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: 'invalid_action' }, { status: 400 });
     }
 
+    // Legacy "complete" → verify-only (no invented coins)
     const sessionId = String(body.sessionId || '').trim();
     if (!sessionId) {
       return NextResponse.json({ ok: false, error: 'missing_session' }, { status: 400 });
     }
-
-    const status = String(body.status || '').toLowerCase();
-    const networkShown = body.networkShown === true;
-    if (status !== 'completed' || !networkShown) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: status !== 'completed' ? 'status_required' : 'ad_not_verified',
-          message: 'Coins credited only when status is completed.',
-        },
-        { status: 403 }
-      );
-    }
-
     const sessionRef = adminDb.collection('ad_reward_sessions').doc(sessionId);
     const sessionSnap = await sessionRef.get();
     if (!sessionSnap.exists) {
       return NextResponse.json({ ok: false, error: 'invalid_session' }, { status: 400 });
     }
-    const session = sessionSnap.data() as {
-      uid: string;
-      expiresAt: number;
-      consumed?: boolean;
-      slot?: number;
-      placement?: string;
-    };
+    const session = sessionSnap.data() as { uid: string; expiresAt: number };
     if (session.uid !== user.uid) {
       return NextResponse.json({ ok: false, error: 'session_mismatch' }, { status: 403 });
-    }
-    if (session.consumed) {
-      const bal = Math.max(
-        0,
-        Math.floor(Number((userSnap.data() as { balance?: number }).balance) || 0)
-      );
-      return NextResponse.json({
-        ok: true,
-        duplicate: true,
-        creditedCoins: 0,
-        balance: bal,
-        message: 'Session already rewarded. Start Watch Ads again for a new claim.',
-      });
     }
     if (Date.now() > Number(session.expiresAt || 0)) {
       return NextResponse.json({ ok: false, error: 'session_expired' }, { status: 400 });
     }
-    if (dailyCount >= OFFERWALL_VIDEO_MAX_DAILY) {
-      return NextResponse.json(
-        { ok: false, error: 'daily_limit', remainingToday: 0 },
-        { status: 429 }
-      );
-    }
-
-    const txId = `offerwall_video_${sessionId}`;
-    const ledgerRef = adminDb.collection('offerwall_ledger').doc(txId);
-    const coins = ADSTERRA_REWARD_COINS;
-    const split = rewardedClaimSplit(coins);
-
-    const creditResult = await adminDb.runTransaction(async (tx) => {
-      const [ledgerSnap, freshSession, freshUser] = await Promise.all([
-        tx.get(ledgerRef),
-        tx.get(sessionRef),
-        tx.get(userRef),
-      ]);
-      if (!freshUser.exists) throw new Error('user_not_found');
-      const bal = Math.max(
-        0,
-        Math.floor(Number((freshUser.data() as { balance?: number }).balance) || 0)
-      );
-      if (ledgerSnap.exists) {
-        return { duplicate: true as const, credited: 0, balance: bal, nextCount: dailyCount };
-      }
-      if (!freshSession.exists) throw new Error('invalid_session');
-      const s = freshSession.data() as { uid: string; consumed?: boolean };
-      if (s.uid !== user.uid) throw new Error('session_mismatch');
-      if (s.consumed) {
-        return { duplicate: true as const, credited: 0, balance: bal, nextCount: dailyCount };
-      }
-      const u = freshUser.data() as {
-        offerwallVideoDayKey?: string;
-        offerwallVideoDayCount?: number;
-        balance?: number;
-      };
-      const count =
-        u.offerwallVideoDayKey === dayKey ? Number(u.offerwallVideoDayCount || 0) : 0;
-      if (count >= OFFERWALL_VIDEO_MAX_DAILY) throw new Error('daily_limit');
-
-      const nextBal = bal + coins;
-      const nextCount = count + 1;
-
-      tx.set(ledgerRef, {
-        uid: user.uid,
-        source: 'offerwall_video',
-        txId,
-        coins,
-        status: 'completed',
-        sessionId,
-        dayKey,
-        createdAt: FieldValue.serverTimestamp(),
-      });
-      tx.update(userRef, {
-        balance: nextBal,
-        offerwallVideoDayKey: dayKey,
-        offerwallVideoDayCount: nextCount,
-        lastOfferwallVideoAt: FieldValue.serverTimestamp(),
-        lastRewardAt: FieldValue.serverTimestamp(),
-        lastRewardSource: 'offerwall_video',
-        lastWalletWriteAt: FieldValue.serverTimestamp(),
-      });
-      tx.update(sessionRef, {
-        consumed: true,
-        completedAt: FieldValue.serverTimestamp(),
-        status: 'completed',
-        txId,
-        creditedCoins: coins,
-        balanceAfter: nextBal,
-      });
-      return { duplicate: false as const, credited: coins, balance: nextBal, nextCount };
-    });
-
-    if (!creditResult.duplicate) {
-      try {
-        await adminDb.collection('AdminRevenue').add({
-          type: 'adsterra_watch',
-          source: 'adsterra',
-          currency: 'USD',
-          platformSharePct: PLATFORM_EARN_SHARE,
-          userSharePct: USER_EARN_SHARE,
-          placement,
-          uid: user.uid,
-          totalPool: split.totalUsd,
-          adminShare: split.adminUsd,
-          ownerUsd: split.adminUsd,
-          adminShareCoins: split.adminCoins,
-          userNet: split.userUsd,
-          userNetCoins: creditResult.credited,
-          clickUsd: getEffectiveAdCpcUsd(),
-          assumedClickUsd: ADSTERRA_CLICK_USD,
-          estimated: true,
-          settled: false,
-          txId,
-          createdAt: FieldValue.serverTimestamp(),
-        });
-      } catch {
-        /* non-fatal */
-      }
-    }
-
+    await sessionRef.set(
+      {
+        verified: true,
+        verifiedAt: FieldValue.serverTimestamp(),
+        awaitingSettlement: true,
+      },
+      { merge: true }
+    );
     return NextResponse.json({
       ok: true,
-      duplicate: creditResult.duplicate,
-      creditedCoins: creditResult.credited,
-      balance: creditResult.balance,
-      clickUsd: split.totalUsd,
-      userUsd: split.userUsd,
-      adminUsd: 0,
-      estimatedAdminUsd: split.adminUsd,
+      creditedCoins: 0,
+      balance: balNow,
+      verified: true,
+      settled: false,
+      awaitingSettlement: true,
       bookedToHisaab: false,
-      remainingToday: Math.max(0, OFFERWALL_VIDEO_MAX_DAILY - creditResult.nextCount),
-      status: 'completed',
-      message: creditResult.duplicate
-        ? 'Video reward already claimed for this session'
-        : `Video complete! +${creditResult.credited} AJ Coins 🪙`,
+      message:
+        'Session verified. Coins credit only from real Adsterra payout postback (30% user · 70% Hub).',
     });
   } catch (e: unknown) {
     console.error('[ads/rewarded]', e);
@@ -695,35 +448,24 @@ export async function POST(request: Request) {
         },
         allowClientFallback: false,
       },
-      { status: norm.status }
+      { status: norm.status || 500 }
     );
   }
 }
 
 export async function GET() {
   try {
-    const split = rewardedClaimSplit(ADSTERRA_REWARD_COINS);
     const diag = getFirebaseAdminDiag();
     return NextResponse.json({
       ok: true,
       maxDaily: OFFERWALL_VIDEO_MAX_DAILY,
-      rewardCoins: ADSTERRA_REWARD_COINS,
-      clickUsd: split.totalUsd,
-      userUsd: split.userUsd,
-      adminUsd: split.adminUsd,
+      rewardCoins: 0,
+      inventsCoins: false,
+      settledPostback: '/api/ads/adsterra-postback',
+      split: { user: USER_EARN_SHARE, admin: PLATFORM_EARN_SHARE },
       provider: 'adsterra',
-      requiresStatus: 'completed',
       adminSdk: diag.ready,
-      economics: validateWatchAdsEconomics(ADSTERRA_REWARD_COINS),
-      revenue: revenueSplitLabel(),
-      adminDiag: {
-        configured: diag.configured,
-        source: diag.source,
-        projectId: diag.projectId,
-        clientEmailSet: diag.clientEmailSet,
-        privateKeySet: diag.privateKeySet,
-        lastError: diag.lastError,
-      },
+      note: 'Watch Ads never invents CPC. Real payout → 30% user coins + 70% Hub.',
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'rewarded_status_failed';

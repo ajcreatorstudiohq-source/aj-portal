@@ -225,7 +225,7 @@ export default function GamingZone({
         },
         user
       ).catch(() => {});
-      openAdsterraDirectLink();
+      openAdsterraDirectLink({ uid: user?.uid });
       const result = openTheoremReach(user.uid);
       if (result.ok) {
         onAlert(

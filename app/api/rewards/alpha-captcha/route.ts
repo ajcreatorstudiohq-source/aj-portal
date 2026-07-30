@@ -177,7 +177,14 @@ export async function POST(request: Request) {
       txId,
       source: 'alpha_captcha',
       coins: ALPHA_CAPTCHA_COINS,
-      meta: { sessionId, verified: true },
+      bookAdminEarnings: false,
+      meta: {
+        sessionId,
+        verified: true,
+        estimated: true,
+        settled: false,
+        displayLabel: 'Premium Captcha',
+      },
       enforceDailyCap: true,
       userPatch: {
         alphaCaptchaDayKey: dayKey,

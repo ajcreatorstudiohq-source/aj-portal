@@ -197,7 +197,14 @@ export async function POST(request: Request) {
       txId,
       source: 'math_challenge',
       coins: MATH_CHALLENGE_COINS,
-      meta: { sessionId, promptAnswered: true },
+      bookAdminEarnings: false,
+      meta: {
+        sessionId,
+        promptAnswered: true,
+        estimated: true,
+        settled: false,
+        displayLabel: 'Daily Math Challenge',
+      },
       ledgerCollection: 'reward_ledger',
       enforceDailyCap: true,
       userPatch: {

@@ -52,7 +52,7 @@ import {
 import { ensureUserReferralId, resolveReferrerUid } from './lib/referral';
 import { ensureClientUserProfile } from './lib/ensure-user-profile';
 import { trackAdEvent } from './lib/ad-client';
-import { INFEED_AD_EVERY_N, ADSTERRA_REWARD_COINS, ADSTERRA_REWARDED_LINK } from './lib/ads-config';
+import { INFEED_AD_EVERY_N, openAdsterraDirectLink } from './lib/ads-config';
 import { POST_REWARD_COINS, ACTIVITY_REWARD_COINS, GAME_REWARD_COINS } from './lib/reward-sources';
 import {
   normalizeTikReelPost,
@@ -1455,11 +1455,7 @@ function InterstitialAdOverlay({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (closed) return;
     try {
-      window.open(
-        'https://www.effectivecpmnetwork.com/b8jtkn6i4?key=77409a0e0aa4602b6d03798ff53516b3',
-        '_blank',
-        'noopener,noreferrer'
-      );
+      openAdsterraDirectLink();
     } catch {}
     const interval = setInterval(() => {
       setCountdown((c) => {
@@ -3911,13 +3907,10 @@ export function AJSuperPortal() {
   //   - Rival jab accept karega toh woh bhi same session join karega
   //   - Dono ki awaz + video chale, split-screen mein dikhe
   // ==========================================================
-  /** Open Adsterra Direct Link on PK start/end — owner earns from ads */
+  /** Open Adsterra Direct Link on PK start/end — real payout via postback only */
   const openPkAdsterra = (placement: 'pk_match_start' | 'pk_match_end') => {
     try {
-      const win = window.open(ADSTERRA_REWARDED_LINK, '_blank', 'noopener,noreferrer');
-      if (!win) {
-        try { window.location.assign(ADSTERRA_REWARDED_LINK); } catch {}
-      }
+      openAdsterraDirectLink({ uid: user?.uid, sessionId: placement });
       void trackAdEvent({
         event: 'click',
         placement,
@@ -6776,7 +6769,7 @@ Kuch bhi poocho, seedha batata hoon! 🔥`,
 • Rate: ${COIN_RATE} AJ Coins 🪙 per purchase unit | Min withdraw ${WITHDRAW_MIN.toLocaleString()} AJ Coins 🪙\\\\\\\\
 • Starting balance: 0 AJ Coins 🪙 (no signup bonus)\\\\\\\\
 • Referral Bonus: +${REFERRAL_COINS} AJ Coins 🪙 per friend referred\\\\\\\\
-• Watch Ads: +${ADSTERRA_REWARD_COINS} AJ Coins 🪙 · Math/Captcha: +2 each\\\\\\\\
+• Watch Ads: real Adsterra payout → 30% coins · Math/Captcha: +2 each\\\\\\\\
 • Video Post (TikReel): +${POST_REWARD_COINS} AJ Coins 🪙 per verified upload (max 5/day)\\\\\\\\
 • Photo Post (Pulse): +${POST_REWARD_COINS} AJ Coins 🪙 per verified upload (max 5/day)\\\\\\\\
 • Games install/milestone: +${GAME_REWARD_COINS} AJ Coins 🪙 (ads in games)\\\\\\\\
