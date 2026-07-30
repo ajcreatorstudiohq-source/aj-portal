@@ -234,7 +234,7 @@ export default function TikReelsLiveTab({
           ))}
         </div>
         <p className="text-[9px] text-gray-500 text-center mt-3">
-          Creator gets 60% · Admin Hub 40%
+          Send gifts with AJ Coins
         </p>
       </div>
     ) : null;

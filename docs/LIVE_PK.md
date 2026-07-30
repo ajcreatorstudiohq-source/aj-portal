@@ -16,10 +16,7 @@
 - Short Live ID shown on host UI with Copy
 
 ## Gifting (coins)
-During **live streams** and **live matches**, viewers send catalog gifts via `/api/wallet/gift`:
-- Sender pays full gift cost
-- Creator receives **60%**
-- Admin Hub receives **40%** (`live_gift`)
-- Cinematic overlay syncs via `live_rooms/{id}/gifts` or `pk_sessions/{id}/gifts`
+During **live streams** and **live matches**, viewers send catalog gifts via `/api/wallet/gift`.
+Cinematic overlay syncs via `live_rooms/{id}/gifts` or `pk_sessions/{id}/gifts`.
 
 Gift catalog costs: 500 · 1000 · 2500 · 5000 · 8000 · 10000 AJ Coins

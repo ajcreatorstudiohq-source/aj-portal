@@ -319,7 +319,7 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
         verifiedPopupShownRef.current = true;
         showOkPopup(
           'Ad Verified',
-          `You completed ${ADSTERRA_VERIFY_SECONDS} seconds on the ad.\n\nTap Confirm — coins credit only from real Adsterra payout (your 30% as a normal reward).`
+          `You completed ${ADSTERRA_VERIFY_SECONDS} seconds on the ad.\n\nTap Confirm — coins credit only from real Adsterra payout.`
         );
       }
     },
@@ -370,7 +370,7 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
         verifiedPopupShownRef.current = true;
         showOkPopup(
           'Ad Verified',
-          `You completed ${ADSTERRA_VERIFY_SECONDS} seconds on the ad.\n\nTap Confirm — coins credit only from real Adsterra payout (your 30% as a normal reward).`
+          `You completed ${ADSTERRA_VERIFY_SECONDS} seconds on the ad.\n\nTap Confirm — coins credit only from real Adsterra payout.`
         );
       }
       return;
@@ -917,7 +917,7 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
             showOkPopup(
               'Verified · Awaiting Payout',
               data.message ||
-                'Ad verified. AJ Coins credit when Adsterra registers the real payout (30% to you).'
+                'Ad verified. AJ Coins credit when Adsterra registers the real payout.'
             );
           } else if (credited <= 0) {
             showWarnPopup(
@@ -1019,8 +1019,8 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
           <p className="text-sm font-black text-white">Watch Ads</p>
           <p className="text-[11px] text-gray-300 leading-relaxed mt-0.5">
             Open Adsterra and stay {ADSTERRA_VERIFY_SECONDS}s. Coins credit only from the{' '}
-            <span className="text-sky-300 font-bold">real Adsterra payout</span> — you get 30% as
-            your standard reward; Hub keeps 70%.
+            <span className="text-sky-300 font-bold">real Adsterra payout</span> as your
+            standard reward.
           </p>
           <p className="text-[9px] text-gray-500 mt-1">
             Adsterra · up to {OFFERWALL_VIDEO_MAX_DAILY}/day
