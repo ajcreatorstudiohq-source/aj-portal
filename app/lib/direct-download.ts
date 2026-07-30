@@ -5,19 +5,12 @@
  * STEP 2: Open / navigate to the game.
  */
 
-import { ADSTERRA_REWARDED_LINK } from './ads-config';
+import { ADSTERRA_REWARDED_LINK, openAdsterraDirectLink } from './ads-config';
 
 export { ADSTERRA_REWARDED_LINK as ADSTERRA_DIRECT_LINK };
 
 function openAdsterraNewTab(): void {
-  try {
-    const adWin = window.open(ADSTERRA_REWARDED_LINK, '_blank', 'noopener,noreferrer');
-    if (!adWin) {
-      console.warn('[AJ] Adsterra popup blocked');
-    }
-  } catch (e) {
-    console.warn('[AJ] Adsterra open failed', e);
-  }
+  openAdsterraDirectLink();
 }
 
 /**

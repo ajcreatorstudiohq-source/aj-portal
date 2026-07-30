@@ -1,95 +1,82 @@
 /**
- * Offer Hub destinations.
- * Coins from external walls credit ONLY via /api/postback (never on click).
- */
-
-/** AdGem Offerwall — app / property id */
-export const ADGEM_APP_ID = process.env.NEXT_PUBLIC_ADGEM_APP_ID || '33088';
-
-/** AdGem wall base (Direct Link + IFrame) */
-export const ADGEM_WALL_BASE =
-  process.env.NEXT_PUBLIC_ADGEM_URL || 'https://adunits.adgem.com/wall';
-
-/**
- * Production postback (configure in AdGem dashboard).
- * Macros: {amount} → payout, {state} → status, {player_id} → userId
+ * Offer Hub — TheoremReach rewarded surveys.
+ * Coins credit ONLY via /api/postback (never on click / iframe open).
  *
- * https://YOUR_DOMAIN/api/postback?payout={amount}&status={state}&userId={player_id}&secret=YOUR_SECRET
+ * Web entry (iframe / new tab):
+ * https://theoremreach.com/respondent_entry/direct?api_key=…&user_id=…&transaction_id=…
+ * @see https://theoremreach.com/docs/web
  */
-export const ADGEM_POSTBACK_URL =
-  process.env.NEXT_PUBLIC_ADGEM_POSTBACK_URL ||
-  'https://aj-portal-one.vercel.app/api/postback?payout={amount}&status={state}&userId={player_id}';
 
-/** @deprecated CPX Research replaced by AdGem */
-export const CPX_RESEARCH_APP_ID = ADGEM_APP_ID;
-/** @deprecated */
-export const CPX_RESEARCH_BASE = ADGEM_WALL_BASE;
-/** @deprecated BitLabs / CPX → AdGem */
-export const BITLABS_SURVEYS_URL = ADGEM_WALL_BASE;
-/** @deprecated Monlix removed from Offer Hub */
-export const MONLIX_OFFERS_URL =
-  process.env.NEXT_PUBLIC_MONLIX_URL || 'https://offers.monlix.com/';
+/** Public TheoremReach API key (iframe / direct entry) */
+export const THEOREMREACH_API_KEY =
+  process.env.NEXT_PUBLIC_THEOREMREACH_API_KEY || 'f31fa650772c961832f9b620e978';
+
+/** Direct / iframe entry base */
+export const THEOREMREACH_ENTRY_BASE =
+  process.env.NEXT_PUBLIC_THEOREMREACH_URL ||
+  'https://theoremreach.com/respondent_entry/direct';
 
 /**
- * Build AdGem offerwall URL.
- * Template: https://adunits.adgem.com/wall?appid=33088&playerid=USER_ID
+ * Dashboard postback (configure in TheoremReach app settings):
+ * https://YOUR_DOMAIN/api/postback?user_id={user_id}&payout={currency}&txid={transaction_id}&secret=YOUR_SECRET
+ *
+ * TheoremReach also sends currency (USD), reward (virtual coins), hash, debug.
+ * Secret: set OFFERWALL_POSTBACK_SECRET or THEOREMREACH_SECRET on the server
+ * (dashboard token — store in env, not client).
  */
-export function buildAdGemUrl(uid: string): string {
-  const playerId = String(uid || '').trim();
+export const THEOREMREACH_POSTBACK_URL =
+  process.env.NEXT_PUBLIC_THEOREMREACH_POSTBACK_URL ||
+  'https://aj-portal-one.vercel.app/api/postback?user_id={user_id}&payout={currency}&txid={transaction_id}&secret=YOUR_SECRET';
+
+function newTransactionId(uid: string): string {
+  const stamp = Date.now().toString(36);
+  const rand =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID().slice(0, 8)
+      : Math.random().toString(36).slice(2, 10);
+  return `tr_${String(uid || 'guest').slice(0, 12)}_${stamp}_${rand}`;
+}
+
+/**
+ * Build TheoremReach survey wall URL.
+ * https://theoremreach.com/respondent_entry/direct?api_key=…&user_id=…&transaction_id=…
+ */
+export function buildTheoremReachUrl(
+  uid: string,
+  opts?: { transactionId?: string }
+): string {
+  const userId = String(uid || '').trim() || 'guest';
+  const transactionId = opts?.transactionId || newTransactionId(userId);
   try {
-    const url = new URL(ADGEM_WALL_BASE);
-    url.searchParams.set('appid', ADGEM_APP_ID);
-    if (playerId) url.searchParams.set('playerid', playerId);
+    const url = new URL(THEOREMREACH_ENTRY_BASE);
+    url.searchParams.set('api_key', THEOREMREACH_API_KEY);
+    url.searchParams.set('user_id', userId);
+    url.searchParams.set('transaction_id', transactionId);
     return url.toString();
   } catch {
     const q = new URLSearchParams({
-      appid: ADGEM_APP_ID,
-      ...(playerId ? { playerid: playerId } : {}),
+      api_key: THEOREMREACH_API_KEY,
+      user_id: userId,
+      transaction_id: transactionId,
     });
-    return `${ADGEM_WALL_BASE}?${q.toString()}`;
+    return `${THEOREMREACH_ENTRY_BASE}?${q.toString()}`;
   }
 }
 
-/** @deprecated use buildAdGemUrl */
-export function buildCpxResearchUrl(uid: string): string {
-  return buildAdGemUrl(uid);
-}
-
-export function openAdGem(uid: string): { ok: boolean; url?: string; error?: string } {
+export function openTheoremReach(uid: string): {
+  ok: boolean;
+  url?: string;
+  error?: string;
+} {
   if (typeof window === 'undefined') return { ok: false, error: 'client_only' };
   if (!uid) return { ok: false, error: 'Please sign in first' };
   try {
-    const href = buildAdGemUrl(uid);
+    const href = buildTheoremReachUrl(uid);
     const win = window.open(href, '_blank', 'noopener,noreferrer');
     if (win) return { ok: true, url: href };
     window.location.assign(href);
     return { ok: true, url: href };
   } catch {
-    return { ok: false, error: 'Could not open ADGem (popup blocked).' };
+    return { ok: false, error: 'Could not open TheoremReach (popup blocked).' };
   }
-}
-
-/** @deprecated use openAdGem */
-export function openCpxResearch(uid: string) {
-  return openAdGem(uid);
-}
-
-/** @deprecated use openAdGem */
-export function openBitLabsSurveys(uid?: string | null): {
-  ok: boolean;
-  url?: string;
-  error?: string;
-} {
-  if (!uid) return { ok: false, error: 'Please sign in first' };
-  return openAdGem(uid);
-}
-
-/** @deprecated Monlix removed — use openAdGem */
-export function openMonlixOffers(uid?: string | null): {
-  ok: boolean;
-  url?: string;
-  error?: string;
-} {
-  if (!uid) return { ok: false, error: 'Please sign in first' };
-  return openAdGem(uid);
 }

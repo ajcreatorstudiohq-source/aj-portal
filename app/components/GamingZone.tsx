@@ -7,10 +7,11 @@ import {
   type GameProgressDoc,
 } from '../lib/economy';
 import { openCpaGripOfferWall } from '../lib/cpagrip';
+import { openTheoremReach } from '../lib/offer-hub';
 import BannerAdSlot from './ads/BannerAdSlot';
 import RewardedVideoOffer from './ads/RewardedVideoOffer';
 import { trackAdEvent } from '../lib/ad-client';
-import { MONETAG_INTERSTITIAL_ZONE } from '../lib/ads-config';
+import { MONETAG_INTERSTITIAL_ZONE, openAdsterraDirectLink } from '../lib/ads-config';
 import type { OnRefreshUser } from '../lib/wallet-refresh';
 import { claimRefreshPatch } from '../lib/wallet-refresh';
 
@@ -213,6 +214,29 @@ export default function GamingZone({
 
   const openPartnerOffer = (offerId: string) => {
     if (!user) return onAlert('Please sign in first', '🔒');
+    // Surveys → TheoremReach + Adsterra start/end; other offers → CPAGrip
+    if (offerId.startsWith('survey')) {
+      trackAdEvent(
+        {
+          event: 'click',
+          placement: 'offerwall_rewarded_video',
+          zoneId: MONETAG_INTERSTITIAL_ZONE,
+          meta: { action: 'open_theoremreach', offerId, provider: 'theoremreach' },
+        },
+        user
+      ).catch(() => {});
+      openAdsterraDirectLink();
+      const result = openTheoremReach(user.uid);
+      if (result.ok) {
+        onAlert(
+          'TheoremReach surveys opening · Adsterra launched · AJ Coins after verified postback.',
+          '📋'
+        );
+      } else {
+        onAlert(result.error || 'Could not open TheoremReach surveys.', '⚠️');
+      }
+      return;
+    }
     trackAdEvent(
       {
         event: 'click',
@@ -387,7 +411,7 @@ export default function GamingZone({
 
           <p className="text-[9px] text-gray-500 text-center px-2">
             Video ads credit via <code className="text-gray-400">/api/ads/rewarded</code>.
-            CPAGrip postbacks: <code className="text-gray-400">/api/postback</code>.
+            TheoremReach / CPAGrip postbacks: <code className="text-gray-400">/api/postback</code>.
           </p>
         </div>
       ) : (

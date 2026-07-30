@@ -7401,7 +7401,7 @@ Tip: Social Hub se copy karo 📤`,
             </div>
           </div>
 
-          {/* Offer Hub — ADGem, Earn & Play, Math/Captcha */}
+          {/* Offer Hub — TheoremReach Surveys, Earn & Play, Math/Captcha */}
           <HubEarnPanel
             user={user}
             onAlert={(msg, icon) => setVvipAlert({ msg, icon: icon || '💰' })}
