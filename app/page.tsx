@@ -38,6 +38,10 @@ import {
 } from './lib/economy';
 import { earnReward } from './lib/client-rewards';
 import {
+  allocateUniqueJoinCode,
+  normalizeJoinCode,
+} from './lib/join-codes';
+import {
   CLAIM_BALANCE_FLOOR_MS,
   computeClaimBalanceNext,
   claimRefreshPatch,
@@ -1946,8 +1950,10 @@ export function AJSuperPortal() {
   const liveVideoRef  = useRef<HTMLVideoElement>(null);
   const liveStreamRef = useRef<MediaStream|null>(null);
 
-  // ── PK CHALLENGE
+  // ── PK CHALLENGE (Ludo-style short Match ID)
   const [pkChallengeOpen, setPkChallengeOpen] = useState(false);
+  const [pkMatchMode,     setPkMatchMode]     = useState<'create'|'join'>('create');
+  const [pkJoinCodeInput, setPkJoinCodeInput] = useState('');
   const [pkTargetId,      setPkTargetId]      = useState('');
   const [pkActive,        setPkActive]        = useState(false);
   const [pkTimer,         setPkTimer]         = useState(PK_DURATION);
@@ -1955,7 +1961,8 @@ export function AJSuperPortal() {
   const [pkWinner,        setPkWinner]        = useState<string|null>(null);
   const [pkRivalData,     setPkRivalData]     = useState<any>(null);
   const [pkRivalFrame,    setPkRivalFrame]    = useState('');  // rival ki live video frame
-  const [pkRoomId,        setPkRoomId]        = useState('');  // PK session ka RTDB room ID
+  const [pkRoomId,        setPkRoomId]        = useState('');  // short PK Match ID
+  const [pkWaitingRival,  setPkWaitingRival]  = useState(false);
   const pkTimerRef   = useRef<NodeJS.Timeout|null>(null);
   const pkFrameUnsubRef = useRef<any>(null);  // PK rival frame listener cleanup
   // PK ACCEPTANCE (rival side) — jab koi user ko PK challenge bheje
@@ -3172,9 +3179,12 @@ export function AJSuperPortal() {
         hostUid?: string;
         hostId?: string;
         rivalUid?: string;
+        rivalName?: string;
+        rivalPhoto?: string;
         challengerId?: string;
+        status?: string;
+        isPkActive?: boolean;
       };
-      // Host is the original challenger (hostUid). challengerId = accepting guest.
       const hostId = d.hostUid || d.hostId || '';
       const iAmHost = hostId === user.uid;
       const hostScore = Number(d.scoreHost || 0);
@@ -3184,6 +3194,22 @@ export function AJSuperPortal() {
           ? { me: hostScore, rival: guestScore }
           : { me: guestScore, rival: hostScore }
       );
+      // Host: friend joined via Match ID → stop waiting, wire rival stream
+      if (iAmHost && d.rivalUid && d.rivalUid !== user.uid) {
+        setPkWaitingRival(false);
+        setPkRivalData((prev: any) =>
+          prev?.uid === d.rivalUid
+            ? prev
+            : {
+                uid: d.rivalUid,
+                username: d.rivalName || d.rivalUid,
+                photo: d.rivalPhoto || '',
+              }
+        );
+        try {
+          joinPkRivalStream(pkRoomId);
+        } catch {}
+      }
     });
     const giftsUnsub = onSnapshot(
       query(collection(db, 'pk_sessions', pkRoomId, 'gifts'), orderBy('createdAtMs', 'desc'), limit(1)),
@@ -3478,7 +3504,14 @@ export function AJSuperPortal() {
       setScreen('social');
       setSocialScreen('tikreels');
       setTiktabMode('live');
-      const roomId = `live_${user.uid}_${Date.now()}`;
+      // Short unique Live ID — copy/send → friend joins instantly (Ludo-style)
+      const roomId = await allocateUniqueJoinCode({
+        kind: 'live',
+        exists: async (id) => {
+          const snap = await getDoc(doc(db, 'live_rooms', id));
+          return snap.exists();
+        },
+      });
       setLiveRoomId(roomId);
       setLiveActive(true);
       await setDoc(doc(db, 'live_rooms', roomId), {
@@ -3486,6 +3519,7 @@ export function AJSuperPortal() {
         username: username || 'AJ_Member',
         photo: tempPhoto || user.photoURL || '',
         roomId,
+        joinCode: roomId,
         startedAt: serverTimestamp(),
         active: true,
         lastSeenMs: Date.now(),
@@ -3494,7 +3528,6 @@ export function AJSuperPortal() {
         liveViewers: 0,
         hostId: user.uid,
         provider: 'agora',
-        // Match-battle / PK removed from product surface
         challengerId: '',
         matchStatus: 'none',
         isPkActive: false,
@@ -3695,20 +3728,40 @@ export function AJSuperPortal() {
   // JOIN LIVE AS VIEWER (FIXED: ZegoCloud viewer attach)
   // ==========================================================
   const joinLiveByRoomId = async (roomId?: string) => {
-    const rid = (roomId || joinRoomInput).trim();
-    if (!rid) return setVvipAlert({msg:"Please enter Live Room ID or PK Match ID."});
+    const rid = normalizeJoinCode(roomId || joinRoomInput);
+    if (!rid) return setVvipAlert({msg:"Please enter Live ID or PK Match ID."});
     try {
-      // TikTok-style: paste PK match ID to join/accept the battle
+      // Ludo-style: paste short PK Match ID → join free match instantly
       try {
-        const pkSnap = await getDoc(doc(db, 'pk_sessions', rid));
+        let pkSnap = await getDoc(doc(db, 'pk_sessions', rid));
+        if (!pkSnap.exists()) {
+          const byCode = await getDocs(
+            query(collection(db, 'pk_sessions'), where('joinCode', '==', rid), limit(1))
+          );
+          if (!byCode.empty) pkSnap = byCode.docs[0];
+        }
         if (pkSnap.exists() && user) {
           const pk = { id: pkSnap.id, pkRoomId: pkSnap.id, ...pkSnap.data() } as any;
           const status = String(pk.status || '');
           const iAmRival = pk.rivalUid === user.uid;
           const iAmHost = pk.hostUid === user.uid || pk.hostId === user.uid;
+          const openLobby =
+            (status === 'pending' || status === 'waiting') &&
+            (!pk.rivalUid || pk.rivalUid === '' || pk.rivalUid === user.uid);
+
           if (iAmRival && status !== 'ended' && status !== 'declined') {
             setJoinRoomInput('');
             await acceptPkChallenge(pk);
+            return;
+          }
+          // Friend joins open Free Match lobby with Match ID (like Ludo)
+          if (!iAmHost && openLobby) {
+            setJoinRoomInput('');
+            await acceptPkChallenge({
+              ...pk,
+              rivalUid: user.uid,
+              openLobby: true,
+            });
             return;
           }
           if (iAmHost && status !== 'ended' && status !== 'declined') {
@@ -3725,17 +3778,19 @@ export function AJSuperPortal() {
             });
             setPkWinner(null);
             setPkActive(true);
+            setPkWaitingRival(!pk.rivalUid);
             setScreen('social');
-            setSocialScreen('golive');
+            setSocialScreen('tikreels');
+            setTiktabMode('live');
             setLiveActive(true);
             try { joinPkRivalStream(pkSnap.id); } catch {}
             setJoinRoomInput('');
             setVvipAlert({ msg: '⚔️ Rejoined PK Match!', icon: '⚔️' });
             return;
           }
-          if (status === 'active' || status === 'pending') {
+          if (status === 'active' || status === 'pending' || status === 'waiting') {
             const hostUid = pk.hostUid || pk.hostId;
-            if (hostUid) {
+            if (hostUid && hostUid !== user.uid) {
               const hostLive = await getDocs(
                 query(collection(db, 'live_rooms'), where('uid', '==', hostUid), limit(1))
               );
@@ -3752,18 +3807,47 @@ export function AJSuperPortal() {
 
       let roomSnap:any = await getDoc(doc(db, 'live_rooms', rid));
       if (!roomSnap.exists()) {
-        const all2 = await getDocs(query(collection(db,'live_rooms'),limit(50)));
-        const m = all2.docs.find(d => d.id.endsWith(rid) || d.id===rid);
-        if (m) roomSnap = m;
+        const byCode = await getDocs(
+          query(collection(db, 'live_rooms'), where('joinCode', '==', rid), limit(1))
+        );
+        if (!byCode.empty) {
+          roomSnap = byCode.docs[0];
+        } else {
+          const all2 = await getDocs(query(collection(db,'live_rooms'),limit(50)));
+          const m = all2.docs.find(d => {
+            const data = d.data() as any;
+            return (
+              d.id === rid ||
+              normalizeJoinCode(String(data.joinCode || '')) === rid ||
+              d.id.endsWith(rid)
+            );
+          });
+          if (m) roomSnap = m;
+        }
       }
-      if (!roomSnap.exists()) return setVvipAlert({msg:'Room not found. Paste full Live Room ID or PK Match ID.'});
+      if (!roomSnap.exists()) return setVvipAlert({msg:'Not found. Check short Live ID or PK Match ID.'});
       if (!roomSnap.data()?.active) return setVvipAlert({msg:'This stream has ended.'});
+
+      // Prefer TikReels Agora watch when provider is agora
+      const roomData = roomSnap.data() as any;
+      if (roomData.provider === 'agora') {
+        setJoinRoomInput('');
+        setScreen('social');
+        setSocialScreen('tikreels');
+        setTiktabMode('live');
+        setTikLiveWatchId(roomSnap.id);
+        setVvipAlert({
+          msg: `🔴 Joining Live ${roomSnap.id}…`,
+          icon: '🔴',
+        });
+        return;
+      }
+
       setScreen('social');
       setSocialScreen('joinlive');
-      setViewerRoom({ id: roomSnap.id, ...roomSnap.data() });
+      setViewerRoom({ id: roomSnap.id, ...roomData });
       setViewerRoomId(roomSnap.id);
       setJoinRoomInput('');
-      // FIX: Increment liveViewers count when a viewer joins
       try { await updateDoc(doc(db, 'live_rooms', roomSnap.id), { liveViewers: increment(1) }); } catch {}
       const unsub = onSnapshot(
         query(collection(db, 'live_rooms', roomSnap.id, 'messages'), orderBy('createdAt', 'asc')),
@@ -3773,7 +3857,6 @@ export function AJSuperPortal() {
         }
       );
       viewerUnsubRef.current = unsub;
-      // Real-time viewers + room meta for watchers
       try {
         if ((viewerUnsubRef as any)._roomMeta) {
           try { (viewerUnsubRef as any)._roomMeta(); } catch {}
@@ -3784,9 +3867,6 @@ export function AJSuperPortal() {
           setViewerRoom((prev: any) => (prev ? { ...prev, ...data, id: metaSnap.id } : { id: metaSnap.id, ...data }));
         });
       } catch {}
-      // FIX ROUND 7: Listen to RTDB for host's live video frames —
-      // host broadcasts frames to live_frames/{roomId}/current and
-      // viewer displays them in real-time on an <img> element.
       try {
         const rtdb = getDatabase();
         const frameRef = ref(rtdb, `live_frames/${roomSnap.id}/current`);
@@ -3800,10 +3880,6 @@ export function AJSuperPortal() {
       } catch (frameErr) {
         console.warn('joinLiveByRoomId: frame listener setup failed', frameErr);
       }
-      // FIX: Join host's mic audio via WebRTC (RTDB signaling).
-      // Yeh host ki awaz (mic) ko real-time mein viewer tak pahunchata hai.
-      // Audio element pe autoplay lagta hai lekin kai browsers pe pehli baar
-      // user gesture chahiye — isliye onConnected mein hum play() retry karte hain.
       try {
         joinAudioStream(roomSnap.id, () => {
           console.log('joinLiveByRoomId: WebRTC audio connected');
@@ -3811,7 +3887,6 @@ export function AJSuperPortal() {
       } catch (audioErr) {
         console.warn('joinLiveByRoomId: audio join failed (non-fatal — video still works)', audioErr);
       }
-      // Live view reward after ~60s of uninterrupted watching (AJ Coins via server)
       try {
         if ((liveStreamRef as any)._liveViewTimer) clearTimeout((liveStreamRef as any)._liveViewTimer);
         (liveStreamRef as any)._liveViewTimer = setTimeout(async () => {
@@ -3985,6 +4060,8 @@ export function AJSuperPortal() {
   /** Open free PK / live-match challenge UI (no coin gate). */
   const openPkChallengeGate = async () => {
     if (!user) return setVvipAlert({ msg: 'Please log in first.', icon: '🔒' });
+    setPkMatchMode('create');
+    setPkJoinCodeInput('');
     setPkChallengeOpen(true);
   };
 
@@ -4030,38 +4107,158 @@ export function AJSuperPortal() {
     }
   };
 
-  const sendPkChallenge = async () => {
+  /** Create Free Match lobby with short PK Match ID (Ludo friend-join style). */
+  const createFreeMatchLobby = async () => {
+    if (!user) return setVvipAlert({ msg: 'Please log in first.', icon: '🔒' });
+    try {
+      await payPkEntry({ role: 'host', entryCoins: 0 });
 
+      const newPkRoomId = await allocateUniqueJoinCode({
+        kind: 'pk',
+        exists: async (id) => {
+          const snap = await getDoc(doc(db, 'pk_sessions', id));
+          return snap.exists();
+        },
+      });
+      setPkRoomId(newPkRoomId);
+      setPkWaitingRival(true);
+      setPkRivalData(null);
+
+      try {
+        await setDoc(doc(db, 'pk_sessions', newPkRoomId), {
+          pkRoomId: newPkRoomId,
+          joinCode: newPkRoomId,
+          hostUid: user.uid,
+          hostId: user.uid,
+          hostName: username || 'AJ_Member',
+          hostPhoto: tempPhoto || user.photoURL || '',
+          rivalUid: '',
+          rivalName: '',
+          rivalPhoto: '',
+          status: 'waiting',
+          matchStatus: 'waiting',
+          isPkActive: false,
+          challengerId: '',
+          scoreHost: 0,
+          scoreGuest: 0,
+          entryCoins: 0,
+          freeMatch: true,
+          openLobby: true,
+          duration: PK_DURATION,
+          createdAt: serverTimestamp(),
+          startedAt: null,
+          endedAt: null,
+          winnerUid: null,
+          hostEntryPaid: true,
+          hostEntryCoins: 0,
+        });
+      } catch (pkErr) {
+        console.warn('PK session write failed (non-fatal):', pkErr);
+      }
+
+      // Link Match ID on host live room if live
+      try {
+        if (liveRoomId) {
+          await updateDoc(doc(db, 'live_rooms', liveRoomId), {
+            pkMatchId: newPkRoomId,
+            matchStatus: 'waiting',
+            isPkActive: false,
+          });
+        }
+      } catch {}
+
+      setPkTimer(PK_DURATION);
+      setPkScore({ me: 0, rival: 0 });
+      setPkWinner(null);
+      setPkActive(true);
+      setPkChallengeOpen(false);
+      openPkAdsterra('pk_match_start');
+
+      setTimeout(() => {
+        try {
+          if (liveStreamRef.current) {
+            startFrameBroadcast(newPkRoomId + '_host', liveStreamRef.current);
+            startAudioBroadcast(newPkRoomId + '_host', liveStreamRef.current);
+          } else if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+            navigator.mediaDevices
+              .getUserMedia({ video: { facingMode: 'user' }, audio: true })
+              .then((stream) => {
+                liveStreamRef.current = stream;
+                if (liveVideoRef.current) {
+                  try {
+                    liveVideoRef.current.srcObject = stream;
+                  } catch {}
+                }
+                startFrameBroadcast(newPkRoomId + '_host', stream);
+                startAudioBroadcast(newPkRoomId + '_host', stream);
+              })
+              .catch((err) => console.warn('PK: getUserMedia fallback failed:', err));
+          }
+        } catch (e) {
+          console.warn('PK host frame broadcast failed:', e);
+        }
+      }, 50);
+
+      try {
+        await copyToClipboard(newPkRoomId);
+      } catch {}
+      setVvipAlert({
+        msg: `⚔️ Match ID ${newPkRoomId} — copy & send to friend (like Ludo)!`,
+        icon: '⚔️',
+      });
+    } catch (e) {
+      console.error('createFreeMatchLobby', e);
+      setVvipAlert({ msg: 'Could not create Free Match. Try again.' });
+    }
+  };
+
+  /** Join Free Match by short PK Match ID (friend paste → instant join). */
+  const joinFreeMatchByCode = async (rawCode?: string) => {
+    const code = normalizeJoinCode(rawCode || pkJoinCodeInput || joinRoomInput);
+    if (!code) return setVvipAlert({ msg: 'Enter PK Match ID', icon: '⚔️' });
+    setPkChallengeOpen(false);
+    setPkJoinCodeInput('');
+    await joinLiveByRoomId(code);
+  };
+
+  /** Optional: challenge a specific user by UID (still free; short Match ID). */
+  const sendPkChallenge = async () => {
     if (!user || !pkTargetId.trim()) return setVvipAlert({msg:"Enter rival's User ID!"});
     try {
       const rivalUid = pkTargetId.trim();
       const rivalSnap = await getDoc(doc(db,"users",rivalUid));
       if (!rivalSnap.exists()) return setVvipAlert({msg:"Rival not found! Check User ID."});
 
-      // Free live match — register only (no coin deduction)
       await payPkEntry({ role: 'host', entryCoins: 0, rivalUid });
 
-      // FIX: PK session ka unique room ID — dono users ke liye common
-      const newPkRoomId = `pk_${user.uid}_${rivalUid}_${Date.now()}`;
+      const newPkRoomId = await allocateUniqueJoinCode({
+        kind: 'pk',
+        exists: async (id) => {
+          const snap = await getDoc(doc(db, 'pk_sessions', id));
+          return snap.exists();
+        },
+      });
       setPkRoomId(newPkRoomId);
-      // Write PK session to Firestore so rival can find & accept it
+      setPkWaitingRival(true);
       try {
         await setDoc(doc(db, "pk_sessions", newPkRoomId), {
           pkRoomId: newPkRoomId,
+          joinCode: newPkRoomId,
           hostUid: user.uid,
-          hostId: user.uid,              // FIX: Auto-populate hostId with logged-in user's UID
+          hostId: user.uid,
           hostName: username || 'AJ_Member',
           hostPhoto: tempPhoto || user.photoURL || '',
           rivalUid: rivalUid,
           rivalName: rivalSnap.data().username || rivalUid,
-          status: 'pending',  // pending → active → ended
-          matchStatus: 'pending',        // FIX: PK match status field for live_rooms sync
-          isPkActive: false,             // FIX: PK active flag — true when rival joins
-          challengerId: '',              // FIX: Khali jab tak rival accept na kare
+          status: 'pending',
+          matchStatus: 'pending',
+          isPkActive: false,
+          challengerId: '',
           scoreHost: 0,
           scoreGuest: 0,
           entryCoins: 0,
           freeMatch: true,
+          openLobby: false,
           duration: PK_DURATION,
           createdAt: serverTimestamp(),
           startedAt: null,
@@ -4071,33 +4268,28 @@ export function AJSuperPortal() {
           hostEntryCoins: 0,
         });
       } catch (pkErr) { console.warn('PK session write failed (non-fatal):', pkErr); }
-      // Send notification to rival
       try {
         await notifyUser(user, rivalUid, {
           type: 'pk',
           title: '⚔️ Free Live Match!',
-          message: `@${username || 'AJ_Member'} challenged you to a FREE live match! Room: ${newPkRoomId}`,
+          message: `@${username || 'AJ_Member'} challenged you! Match ID: ${newPkRoomId}`,
           fromUid: user.uid,
           fromUsername: username || 'AJ_Member',
           deepLink: `/pk/${newPkRoomId}`,
-          meta: { pkRoomId: newPkRoomId, free: true },
-          pushBody: `@${username || 'AJ_Member'} challenged you to a free match!`,
+          meta: { pkRoomId: newPkRoomId, joinCode: newPkRoomId, free: true },
+          pushBody: `Match ID ${newPkRoomId} — join free match!`,
         });
       } catch {}
       setPkRivalData(rivalSnap.data());
       setPkTimer(PK_DURATION); setPkScore({ me:0, rival:0 });
       setPkWinner(null); setPkActive(true); setPkChallengeOpen(false);
       openPkAdsterra('pk_match_start');
-      // FIX: Host apni video frames PK session pe broadcast kare — IMMEDIATELY
-      // (agar rival 500ms ke andar accept kar le toh host ki frames nahi milti thi)
-      // Reduced timeout to near-zero so host starts broadcasting as soon as possible.
       setTimeout(() => {
         try {
           if (liveStreamRef.current) {
             startFrameBroadcast(newPkRoomId + '_host', liveStreamRef.current);
             startAudioBroadcast(newPkRoomId + '_host', liveStreamRef.current);
           } else {
-            // Fallback: try to get camera/mic if not already live
             if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
               navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: true })
                 .then(stream => {
@@ -4110,14 +4302,14 @@ export function AJSuperPortal() {
             }
           }
         } catch (e) { console.warn('PK host frame broadcast failed:', e); }
-      }, 50);  // 50ms — quick start, right after state updates settle
-      // FIX: Host rival ki frames + audio listen kare (slight delay for rival to accept)
+      }, 50);
       setTimeout(() => {
         try {
           joinPkRivalStream(newPkRoomId);
         } catch (e) { console.warn('PK rival stream join failed:', e); }
       }, 200);
-      setVvipAlert({msg:`⚔️ PK Challenge sent to @${rivalSnap.data().username || pkTargetId}! Match starting...`,icon:"⚔️"});
+      try { await copyToClipboard(newPkRoomId); } catch {}
+      setVvipAlert({msg:`⚔️ Match ID ${newPkRoomId} sent to @${rivalSnap.data().username || pkTargetId}!`,icon:"⚔️"});
     } catch(e) {
       console.error('sendPkChallenge', e);
       const msg = e instanceof Error ? e.message : '';
@@ -4315,6 +4507,7 @@ export function AJSuperPortal() {
       } catch {}
       setPkActive(false);
       setPkMyBroadcastActive(false);
+      setPkWaitingRival(false);
       setPkWinner(null);
       setPkTimer(PK_DURATION);
       setPkScore({ me: 0, rival: 0 });
@@ -4354,6 +4547,18 @@ export function AJSuperPortal() {
         return;
       }
 
+      // Open lobby already taken by someone else?
+      const existingRival = String(pkData.rivalUid || '').trim();
+      if (
+        existingRival &&
+        existingRival !== user.uid &&
+        (pkData.status === 'active' || pkData.openLobby)
+      ) {
+        setVvipAlert({ msg: 'This Match ID is already full. Ask for a new one.', icon: '⚔️' });
+        setPkIncomingChallenge(null);
+        return;
+      }
+
       // Free register (no deduction)
       await payPkEntry({
         role: 'guest',
@@ -4363,6 +4568,7 @@ export function AJSuperPortal() {
       });
 
       setPkRoomId(pkRoomIdVal);
+      setPkWaitingRival(false);
       setPkRivalData({
         uid: pkData.hostUid,
         username: pkData.hostName,
@@ -4379,25 +4585,21 @@ export function AJSuperPortal() {
         await updateDoc(doc(db, 'pk_sessions', pkRoomIdVal), {
           status: 'active',
           startedAt: serverTimestamp(),
-          // FIX: Auto-populate challengerId with the accepting user's logged-in UID
-          // Taaki jab rival PK match accept kare, uski UID automatic set ho (manual entry nahi)
-          challengerId: user.uid,        // Automatic — accept karne wale user ki UID
-          matchStatus: 'active',         // PK match now active
-          isPkActive: true,              // PK match is now live
+          challengerId: user.uid,
+          rivalUid: user.uid,
+          rivalName: username || 'AJ_Member',
+          rivalPhoto: tempPhoto || user.photoURL || '',
+          matchStatus: 'active',
+          isPkActive: true,
           guestEntryPaid: true,
           guestEntryCoins: 0,
+          openLobby: false,
         });
       } catch (e) { console.warn('PK session status update failed (non-fatal):', e); }
 
-      // FIX: Also update the host's live_rooms document with challengerId + PK status
-      // Taaki live_rooms document mein bhi challengerId, matchStatus, isPkActive
-      // automatic set ho jayein jab rival PK match accept kare.
-      // Host ki live_rooms room ID format: live_{hostUid}_{timestamp}
-      // Hum pk_sessions se hostUid nikal kar host ki live room find karte hain.
+      // Also update the host's live_rooms document with challengerId + PK status
       try {
         if (pkData && pkData.hostUid) {
-          const hostLiveRoomId = `live_${pkData.hostUid}`;
-          // Host ki live room find karne ke liye query
           const hostLiveQuery = query(
             collection(db, 'live_rooms'),
             where('uid', '==', pkData.hostUid),
@@ -4407,9 +4609,10 @@ export function AJSuperPortal() {
           if (!hostLiveSnap.empty) {
             const hostRoomDoc = hostLiveSnap.docs[0];
             await updateDoc(doc(db, 'live_rooms', hostRoomDoc.id), {
-              challengerId: user.uid,    // Automatic — accept karne wale user ki UID
-              matchStatus: 'active',     // PK match now active
-              isPkActive: true,          // PK match is now live
+              challengerId: user.uid,
+              pkMatchId: pkRoomIdVal,
+              matchStatus: 'active',
+              isPkActive: true,
             });
           }
         }
@@ -4475,11 +4678,12 @@ export function AJSuperPortal() {
         console.warn('acceptPkChallenge: host audio join failed (non-fatal):', audioErr);
       }
 
-      // Navigate to golive screen so PK battle UI shows
+      // Navigate so PK battle UI shows (TikReels Live / golive)
       setScreen('social');
-      setSocialScreen('golive');
+      setSocialScreen('tikreels');
+      setTiktabMode('live');
       setLiveActive(true);
-      setVvipAlert({msg: '⚔️ PK Battle started! Good luck!', icon: '⚔️'});
+      setVvipAlert({msg: `⚔️ Joined Match ${pkRoomIdVal}! Good luck!`, icon: '⚔️'});
     } catch (e) {
       console.error('acceptPkChallenge failed:', e);
       const msg = e instanceof Error ? e.message : '';
@@ -7846,6 +8050,7 @@ Tip: Social Hub se copy karo 📤`,
                     hostId: r.hostId || r.uid,
                     liveViewers: Number(r.liveViewers || r.viewerCount || 0),
                     title: r.title,
+                    joinCode: r.joinCode || r.id,
                   })).filter((r: any) => r.id)}
                   onAlert={(msg, icon) => setVvipAlert({ msg, icon: icon || '🔴' })}
                   onStartHost={startTikReelsAgoraLive}
@@ -7859,6 +8064,9 @@ Tip: Social Hub se copy karo 📤`,
                   }}
                   onOpenFreeMatch={() => void openPkChallengeGate()}
                   onWatchingChange={(id) => setTikLiveWatchId(id || '')}
+                  externalWatchId={tikLiveWatchId}
+                  onJoinByCode={(code) => void joinLiveByRoomId(code)}
+                  onCopyCode={(code) => copyToClipboard(code)}
                 />
               )}
 
@@ -8749,13 +8957,14 @@ Tip: Social Hub se copy karo 📤`,
                         <div className="h-full bg-gradient-to-r from-purple-500 to-cyan-400 rounded-full" style={{ width: '72%' }}/>
                       </div>
                     </div>
-                    <p className="text-[9px] text-gray-400 font-black uppercase tracking-widest mb-1">Room ID</p>
+                    <p className="text-[9px] text-gray-400 font-black uppercase tracking-widest mb-1">Live ID · copy &amp; send</p>
                     <div className="flex items-center gap-2">
-                      <p className="text-white text-xs font-black flex-1 truncate">{liveRoomId}</p>
+                      <p className="text-white text-xl font-black flex-1 tracking-[0.2em] font-mono">{liveRoomId}</p>
                       <button onClick={() => copyToClipboard(liveRoomId)} className="bg-pink-600/20 border border-pink-500/30 text-pink-400 text-[9px] font-black px-3 py-1.5 rounded-xl active:scale-90 transition-all">
-                        {copied ? '✓' : 'Copy'}
+                        {copied ? '✓ Copied' : 'Copy'}
                       </button>
                     </div>
+                    <p className="text-[9px] text-emerald-400/80 mt-1">Friend pastes this ID → joins instantly</p>
                   </div>
                 )}
                 {/* PK Battle */}
@@ -8772,17 +8981,28 @@ Tip: Social Hub se copy karo 📤`,
                   <div className="w-full max-w-sm space-y-3">
                     {pkRoomId ? (
                       <div className="bg-white/5 border border-orange-500/20 rounded-2xl p-3">
-                        <p className="text-[9px] text-orange-400 font-black uppercase tracking-widest mb-1">PK Match ID (share to join)</p>
+                        <p className="text-[9px] text-orange-400 font-black uppercase tracking-widest mb-1">
+                          PK Match ID · share like Ludo
+                        </p>
                         <div className="flex items-center gap-2">
-                          <p className="text-white text-[10px] font-mono flex-1 truncate">{pkRoomId}</p>
+                          <p className="text-white text-2xl font-black font-mono tracking-[0.18em] flex-1">
+                            {pkRoomId}
+                          </p>
                           <button
                             type="button"
                             onClick={() => copyToClipboard(pkRoomId)}
                             className="bg-orange-600/20 border border-orange-500/30 text-orange-300 text-[9px] font-black px-3 py-1.5 rounded-xl active:scale-90 transition-all"
                           >
-                            {copied ? '✓' : 'Copy'}
+                            {copied ? '✓ Copied' : 'Copy'}
                           </button>
                         </div>
+                        {pkWaitingRival ? (
+                          <p className="text-[10px] text-amber-300 mt-2 animate-pulse font-bold">
+                            Waiting for friend to join with this Match ID…
+                          </p>
+                        ) : (
+                          <p className="text-[9px] text-emerald-400/80 mt-1">Friend joined · battle live</p>
+                        )}
                       </div>
                     ) : null}
                     {/* Dynamic Blue (Host) vs Red (Guest) score bar */}
@@ -8977,24 +9197,88 @@ Tip: Social Hub se copy karo 📤`,
                 </div>
               )}
 
-              {/* PK Challenge Modal */}
+              {/* PK Challenge Modal — Ludo-style Match ID */}
               {pkChallengeOpen && (
                 <div className="fixed inset-0 z-[9000] bg-black/80 backdrop-blur-md flex flex-col justify-end">
                   <div className="bg-[#0a0a1a] border-t border-white/10 rounded-t-3xl p-6">
                     <div className="flex items-center justify-between mb-4">
-                      <p className="text-sm font-black text-white">⚔️ PK Challenge</p>
+                      <p className="text-sm font-black text-white">⚔️ Free Match</p>
                       <button onClick={() => setPkChallengeOpen(false)}><X size={18} className="text-gray-400"/></button>
                     </div>
-                    <p className="text-[10px] text-gray-400 mb-3">Enter your rival&apos;s User ID for a <span className="text-emerald-300 font-black">FREE</span> 5-minute live match. No coins to start — gift anytime during the battle.</p>
-                    <p className="text-[9px] text-amber-300/80 font-bold mb-3">Your balance: {balance.toLocaleString()} 🪙 (gifts only)</p>
-                    <input value={pkTargetId} onChange={e => setPkTargetId(e.target.value)} placeholder="Rival's User ID" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-orange-500/50 mb-4"/>
-                    <button
-                      onClick={() => void sendPkChallenge()}
-                      className="w-full py-3 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all"
-                      style={{background:'linear-gradient(135deg,#f97316,#ea580c)'}}
-                    >
-                      ⚔️ Start Free Match!
-                    </button>
+                    <div className="flex gap-2 mb-4">
+                      <button
+                        type="button"
+                        onClick={() => setPkMatchMode('create')}
+                        className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase ${
+                          pkMatchMode === 'create'
+                            ? 'bg-orange-500/30 border border-orange-400 text-orange-200'
+                            : 'bg-white/5 border border-white/10 text-gray-400'
+                        }`}
+                      >
+                        Create Match ID
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPkMatchMode('join')}
+                        className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase ${
+                          pkMatchMode === 'join'
+                            ? 'bg-cyan-500/30 border border-cyan-400 text-cyan-200'
+                            : 'bg-white/5 border border-white/10 text-gray-400'
+                        }`}
+                      >
+                        Join with ID
+                      </button>
+                    </div>
+
+                    {pkMatchMode === 'create' ? (
+                      <>
+                        <p className="text-[10px] text-gray-400 mb-3">
+                          Get a short <span className="text-orange-300 font-black">PK Match ID</span> — copy &amp; send to friend (like Ludo). They paste it and join free.
+                        </p>
+                        <button
+                          onClick={() => void createFreeMatchLobby()}
+                          className="w-full py-3 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all"
+                          style={{background:'linear-gradient(135deg,#f97316,#ea580c)'}}
+                        >
+                          ⚔️ Create Free Match ID
+                        </button>
+                        <details className="mt-4">
+                          <summary className="text-[9px] text-gray-500 cursor-pointer">Or challenge by User ID</summary>
+                          <input
+                            value={pkTargetId}
+                            onChange={e => setPkTargetId(e.target.value)}
+                            placeholder="Rival's User ID"
+                            className="w-full mt-2 bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-orange-500/50 mb-3"
+                          />
+                          <button
+                            onClick={() => void sendPkChallenge()}
+                            className="w-full py-2.5 rounded-2xl bg-white/10 border border-white/20 text-white text-[11px] font-black uppercase"
+                          >
+                            Challenge User
+                          </button>
+                        </details>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-[10px] text-gray-400 mb-3">
+                          Paste friend&apos;s <span className="text-cyan-300 font-black">Match ID</span> — join instantly.
+                        </p>
+                        <input
+                          value={pkJoinCodeInput}
+                          onChange={e => setPkJoinCodeInput(e.target.value.toUpperCase())}
+                          placeholder="e.g. M3X8Q2"
+                          className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-lg font-mono tracking-[0.2em] text-center focus:outline-none focus:border-cyan-500/50 mb-4"
+                          autoCapitalize="characters"
+                        />
+                        <button
+                          onClick={() => void joinFreeMatchByCode()}
+                          className="w-full py-3 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all"
+                          style={{background:'linear-gradient(135deg,#0891b2,#0e7490)'}}
+                        >
+                          Join Free Match
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               )}
