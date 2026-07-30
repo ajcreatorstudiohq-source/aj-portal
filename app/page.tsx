@@ -15,15 +15,15 @@
 // ============================================================
 
 import Script from 'next/script';
-import React, { useState, useEffect, useRef, Component } from 'react';
+import React, { useState, useEffect, useRef, useMemo, Component } from 'react';
 import { flushSync } from 'react-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import LiveMatchesPanel from './components/LiveMatchesPanel';
 import HubEarnPanel from './components/HubEarnPanel';
 import UserEarningsHistory from './components/UserEarningsHistory';
 import BannerAdSlot from './components/ads/BannerAdSlot';
 import InFeedAdShell from './components/ads/InFeedAdShell';
 import InFeedVideoAd from './components/ads/InFeedVideoAd';
+import TikReelsLiveTab from './components/tikreels/TikReelsLiveTab';
 import {
   SIGNUP_BONUS_COINS,
   REFERRAL_BONUS_COINS,
@@ -278,10 +278,9 @@ class AJErrorBoundary extends Component<
 }
 
 // ============================================================
-// ZEGOCLOUD CONFIGURATION
+// AGORA LIVE (TikReels) — ZegoCloud removed from runtime.
+// Token + certificate: /api/agora/token · App ID in app/lib/agora-config.ts
 // ============================================================
-const ZEGO_APP_ID = 242898579;
-const ZEGO_APP_SIGN = "130ff078a6687c7cba1da329dbacdfbc30ccbe5db976b9118a8108848f2195f17d";
 
 // ── Firebase inline config ──────────────────────────────────
 import { initializeApp, getApps } from 'firebase/app';
@@ -334,8 +333,6 @@ const UNSPLASH_ACCESS_KEY      = "W4x76VphkyY9fzP3DbJPfXLhdD6x063gW--Voifn_UE";
 const YOUTUBE_API_KEY          = "AIzaSyD9vR3hNLt7pBNlm6PMaZWbJOB9QGcrD1Y";
 const NOWPAYMENTS_API_KEY      = "3THXNSZ-AYVMTP6-HQ9KGKK-9J6CQD7";
 const CEO_WHATSAPP             = "https://wa.me/96878994093";
-const AGORA_APP_ID             = "7863c5369b3648bf931893a52ebaa6db";
-const AGORA_APP_CERTIFICATE    = "dc66528c5a5646da8e3ce5d2426759af";
 const VAPID_KEY                = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY || "BMaPMtGtA2VDsj_JH_yv5dOv66Mpguf9v4TkqY96dcs-gwqS-r50IQrJQmZbNkaj-7_iMfBGGN0qc4H0qx4H0qvKg";
 const PULSE_AD_VIDEO_ID        = 'aqz-KE-bpKQ';
 const NOWPAYMENTS_IPN_SECRET   = '9eeeBo6K1ljJSQtUCb1Up88Gv6n1AreU';
@@ -2017,7 +2014,7 @@ export function AJSuperPortal() {
   const [soundEnabledVideos, setSoundEnabledVideos] = useState<{[key:string]:boolean}>({});
 
   // ── TIKREELS
-  const [tiktabMode,       setTiktabMode]       = useState<'feed'|'create'|'profile'>('feed');
+  const [tiktabMode,       setTiktabMode]       = useState<'following'|'feed'|'live'|'create'|'profile'>('feed');
   // FIX: TikReels profile — fetch ALL of the current user's posts (not just latest 20 from global feed)
   const [tikProfileMyPosts, setTikProfileMyPosts] = useState<any[]>([]);
   const [tikProfileFollowers, setTikProfileFollowers] = useState(0);
@@ -2322,6 +2319,15 @@ export function AJSuperPortal() {
       return () => {};
     }
   };
+
+  useEffect(() => {
+    // Global Go Live / Join Live screens removed — live is TikReels → Live
+    if (socialScreen === 'golive' || socialScreen === 'joinlive') {
+      setSocialScreen('tikreels');
+      setTiktabMode('live');
+      setViewerRoom(null);
+    }
+  }, [socialScreen]);
 
   // ==========================================================
   // FIREBASE LISTENERS
@@ -3424,11 +3430,96 @@ export function AJSuperPortal() {
   };
 
   // ==========================================================
-  // GO LIVE (FIXED: ZegoCloud script loader + camera fix)
+  // TIKREELS LIVE (Agora) — room registry only; media via Agora SDK
   // ==========================================================
-  // FIX: ZegoCloud removed — loadZegoScript is now a no-op.
-  // ZegoCloud SDK hata diya gaya hai (login room fail error fix).
-  // Ab pure WebRTC use hota hai — no external SDK needed.
+  const startTikReelsAgoraLive = async (): Promise<string | null> => {
+    if (!user) return null;
+    try {
+      setScreen('social');
+      setSocialScreen('tikreels');
+      setTiktabMode('live');
+      const roomId = `live_${user.uid}_${Date.now()}`;
+      setLiveRoomId(roomId);
+      setLiveActive(true);
+      await setDoc(doc(db, 'live_rooms', roomId), {
+        uid: user.uid,
+        username: username || 'AJ_Member',
+        photo: tempPhoto || user.photoURL || '',
+        roomId,
+        startedAt: serverTimestamp(),
+        active: true,
+        lastSeenMs: Date.now(),
+        viewerCount: 0,
+        startedAtMs: Date.now(),
+        liveViewers: 0,
+        hostId: user.uid,
+        provider: 'agora',
+        // Match-battle / PK removed from product surface
+        challengerId: '',
+        matchStatus: 'none',
+        isPkActive: false,
+      });
+      const heartbeat = setInterval(async () => {
+        try {
+          await updateDoc(doc(db, 'live_rooms', roomId), { lastSeenMs: Date.now() });
+        } catch {
+          /* ignore */
+        }
+      }, 10000);
+      (liveStreamRef as any)._heartbeat = heartbeat;
+      return roomId;
+    } catch (e) {
+      console.error('startTikReelsAgoraLive', e);
+      setLiveActive(false);
+      setLiveRoomId('');
+      return null;
+    }
+  };
+
+  const stopTikReelsAgoraLive = async () => {
+    try {
+      if ((liveStreamRef as any)._heartbeat) {
+        clearInterval((liveStreamRef as any)._heartbeat);
+        (liveStreamRef as any)._heartbeat = null;
+      }
+      try {
+        if (user && liveRoomId) {
+          const day = new Date().toISOString().slice(0, 10);
+          const reward = await earnReward(user, 'live_host', {
+            idempotencyKey: `${user.uid}_${day}`,
+            meta: { roomId: liveRoomId, provider: 'agora' },
+          });
+          if (reward.ok && !reward.duplicate && (reward.creditedCoins || 0) > 0) {
+            setVvipAlert({
+              msg: reward.message || `Live host reward +${reward.creditedCoins}`,
+              icon: '🔴',
+            });
+            applyClaimToBalance(reward);
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+      if (liveRoomId) {
+        try {
+          await deleteDoc(doc(db, 'live_rooms', liveRoomId));
+        } catch {
+          /* ignore */
+        }
+      }
+    } finally {
+      setLiveActive(false);
+      setLiveRoomId('');
+      setLiveViewerCount(0);
+      setSocialScreen('tikreels');
+      setTiktabMode('live');
+    }
+  };
+
+  // ==========================================================
+  // GO LIVE (legacy path redirected → TikReels Live / Agora)
+  // ==========================================================
+  // ZegoCloud removed. Legacy startLive now opens TikReels Live tab.
   const loadZegoScript = (): Promise<void> => Promise.resolve();
 
   // FIX: Camera/Mic permission request function — naye login pe aur Live start pe
@@ -3470,163 +3561,19 @@ export function AJSuperPortal() {
   };
 
   const startLive = async () => {
-    if (!user) return;
-    // FIX (Hinglish): Pehle Social screen aur Go-Live screen ensure karte hain
-    // taaki #video-container mount ho — warna camera container nahi milta
-    // aur camera nae chalne ki shikayat aati thi.
+    // Global Go Live removed — live lives inside TikReels → Live (Agora)
     setScreen('social');
-    setSocialScreen('golive');
-
-    // FIX (Hinglish): START LIVE ROBUST FIX — "Camera & mic permission denied"
-    // wala error dusre mobile pe isliye aata tha kyunki:
-    //   1. Kai mobile browsers pe getUserMedia SIRF HTTPS pe chalta hai (secure
-    //      context). Agar site HTTP pe serve ho rahi ho toh camera/mic nahi milta.
-    //   2. Agar user ne pehle permission deny ki thi toh browser usay cache kar
-    //      leta hai aur dobara prompt nahi dikhata — direct error aa jaata hai.
-    //   3. Pehle code mein permission fail hone par ek dead-end alert dikh jata
-    //      tha jiska sirf "OK" button tha, aur live start nahi hota tha.
-    //
-    // AB fix:
-    //   - HTTPS check karke clear error message dikhate hain agar non-HTTPS ho.
-    //   - Agar video+audio dono fail hon, toh SIRF audio (mic) try karte hain
-    //     (audio-only live — kai phones pe camera block hota hai lekin mic chal
-    //     jaata hai, user audio-only live kar sakta hai).
-    //   - Agar mic bhi fail ho, toh ek RETRY wala alert dikhate hain jisme user
-    //     ko bata jaata hai ki browser settings mein permission do aur dobara
-    //     try kare — dead-end nahi.
-    //   - Live hamesha start hota hai (camera/mic mile toh preview, nahi mile
-    //     toh placeholder) — user ko kabhi "stuck" nahi hone dete.
-
-    // Step 1: Check if getUserMedia is available (HTTPS / secure context required)
-    if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      // FIX: Agar getUserMedia available nahi hai, check karo ki kya site HTTPS
-      // pe hai. Agar nahi hai toh clear message do. Agar HTTPS hai lekin phir bhi
-      // nahi mila (koi purana browser) toh bhi live start kar do (placeholder).
-      const isHTTPS = typeof window !== 'undefined' && (window.location.protocol === 'https:' || window.location.hostname === 'localhost');
-      if (!isHTTPS) {
-        setVvipAlert({msg:"⚠️ Camera needs HTTPS. Please open this app via the installed app icon (HTTPS). For now, starting audio-only live…"});
-      } else {
-        setVvipAlert({msg:"⚠️ Your browser doesn't support camera access. Starting audio-only live…"});
-      }
-      // Don't abort — continue with live (no camera preview, but live still works)
-    } else {
-      // Step 2: Try to get camera + mic permission
-      let cameraMicOk = false;
-      let audioOnlyMode = false;
-      try {
-        const testStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } },
-          audio: true
-        });
-        cameraMicOk = true;
-        setCameraPermissionResult('granted');
-        if (liveVideoRef.current) {
-          try { liveVideoRef.current.srcObject = testStream; } catch {}
-        }
-        // FIX ROUND 6: Camera black screen fix — hum tracks STOP nahi karte!
-        liveStreamRef.current = testStream;
-        if (liveVideoRef.current && !liveVideoRef.current.srcObject) {
-          try { liveVideoRef.current.srcObject = testStream; } catch {}
-        }
-      } catch (mediaErr: any) {
-        // FIX: Agar video+audio fail ho, toh SIRF audio try karo (audio-only live)
-        console.warn('getUserMedia video+audio failed, trying audio-only:', mediaErr?.name || mediaErr);
-        try {
-          const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-          audioOnlyMode = true;
-          setCameraPermissionResult('granted');
-          // Audio-only live — no video preview, but mic works
-          if (liveVideoRef.current) {
-            try { liveVideoRef.current.srcObject = audioStream; } catch {}
-          }
-          liveStreamRef.current = audioStream;
-          setVvipAlert({msg:"📷 Camera blocked, but mic works! Starting audio-only live…"});
-        } catch (audioErr: any) {
-          // FIX: Dono fail ho gaye — permission denied for both camera AND mic.
-          // Pehle yahan dead-end alert tha. Ab ek helpful RETRY message dikhate
-          // hain jisme user ko bata jaata hai ki browser settings mein permission
-          // do. Lekin live START nahi hota — bina camera/mic ke live bekar hai.
-          console.error('getUserMedia permission error (camera + mic both denied):', audioErr?.name || audioErr);
-          setCameraPermissionResult('denied');
-          // Check the error type for a more helpful message
-          const errName = audioErr?.name || '';
-          if (errName === 'NotAllowedError' || errName === 'SecurityError') {
-            setVvipAlert({msg:"⚠️ Camera & mic permission denied. Please tap the 🔒 lock icon in your browser address bar → Site settings → Allow Camera & Microphone. Then reload and press START LIVE again."});
-          } else if (errName === 'NotFoundError' || errName === 'DevicesNotFoundError') {
-            setVvipAlert({msg:"⚠️ No camera/mic found on this device. Please connect a camera/mic or try another phone."});
-          } else if (errName === 'NotReadableError') {
-            setVvipAlert({msg:"⚠️ Camera is being used by another app. Please close other apps using the camera and try again."});
-          } else {
-            setVvipAlert({msg:"⚠️ Camera & mic not available. Please allow access in browser settings (🔒 lock icon → Site settings), then press START LIVE again."});
-          }
-          // Reset to hub so the user can retry
-          setSocialScreen('hub');
-          return; // Can't go live without any media
-        }
-      }
-      setCameraReady(true);
-      if (cameraMicOk) {
-        setVvipAlert({msg: "✅ Camera & mic are working! Going live…"});
-      }
-    }
-
-    // Start live — WebRTC handles camera/mic (no external SDK)
-    try {
-      const roomId = `live_${user.uid}_${Date.now()}`;
-      setLiveRoomId(roomId);
-      setLiveActive(true);
-      // Wait for DOM to render, then attach local WebRTC camera
-      setTimeout(() => {
-        requestAnimationFrame(() => {
-          handleStartLiveOrCall(roomId, user.uid, username || 'AJ Member', () => setZegoAttached(true));
-        });
-      }, 600);
-      // FIX ROUND 7: Start broadcasting video frames to RTDB so viewers can see the live stream
-      setTimeout(() => {
-        if (liveStreamRef.current) {
-          startFrameBroadcast(roomId, liveStreamRef.current);
-        }
-      }, 1000);
-      // FIX: Start broadcasting mic audio to viewers via WebRTC (RTDB signaling)
-      // Yeh ensure karta hai ki host ki awaz (mic) viewers tak real-time mein pahunche.
-      setTimeout(() => {
-        if (liveStreamRef.current) {
-          startAudioBroadcast(roomId, liveStreamRef.current);
-        }
-      }, 1200);
-      await setDoc(doc(db, "live_rooms", roomId), {
-        uid: user.uid, username: username || 'AJ_Member',
-        photo: tempPhoto || user.photoURL || '',
-        roomId, startedAt: serverTimestamp(), active: true, lastSeenMs: Date.now(),
-        viewerCount: 0, startedAtMs: Date.now(), liveViewers: 0,
-        // FIX: Auto-populate hostId with logged-in user's UID + PK match fields
-        // Taaki live_rooms document mein hostId automatic set ho (manual entry nahi)
-        // Aur PK match ke liye challengerId khali, matchStatus pending, isPkActive false
-        hostId: user.uid,            // Automatic — logged-in user ki UID
-        challengerId: '',             // Khali jab tak koi PK challenge accept na kare
-        matchStatus: 'pending',      // 'pending' → 'active' jab rival join kare
-        isPkActive: false,           // false → true jab PK match start ho
+    setSocialScreen('tikreels');
+    setTiktabMode('live');
+    const roomId = await startTikReelsAgoraLive();
+    if (!roomId) {
+      setVvipAlert({
+        msg: 'Could not start live. Check permissions and try again from TikReels → Live.',
+        icon: '⚠️',
       });
-      const heartbeat = setInterval(async () => {
-        try { await updateDoc(doc(db, "live_rooms", roomId), { lastSeenMs: Date.now() }); } catch {}
-      }, 10000);
-      (liveStreamRef as any)._heartbeat = heartbeat;
-      try {
-        await writeUserNotification(user.uid, {
-          type: 'live',
-          title: '🔴 Live Now!',
-          message: `@${username || 'AJ_Member'} — you are LIVE. Share your Room ID.`,
-          deepLink: `/live/${roomId}`,
-        });
-      } catch {}
-    } catch(e) {
-      console.error('startLive error', e);
-      setVvipAlert({msg:"⚠️ Could not start live stream. Please check your internet connection and try again."});
-      setCameraReady(false);
-      setLiveActive(false);
-      setSocialScreen('hub');
     }
   };
+
 
   const stopLive = async () => {
     // FIX: Pura stopLive ek try/finally mein wrap kiya gaya hai — chahe koi bhi
@@ -3698,8 +3645,9 @@ export function AJSuperPortal() {
       setZegoAttached(false);
       setCameraReady(false);
       setLiveActive(false);
-      setSocialScreen('hub');
-      setVvipAlert({msg:'Live ended. You are back to Social Hub.'});
+      setSocialScreen('tikreels');
+      setTiktabMode('live');
+      setVvipAlert({msg:'Live ended. Back to TikReels Live.'});
     }
   };
 
@@ -3996,6 +3944,13 @@ export function AJSuperPortal() {
 
   /** Open PK challenge UI only when entry coins are available. */
   const openPkChallengeGate = async () => {
+    setVvipAlert({
+      msg: 'PK / match-battle removed. Go live from TikReels → Live.',
+      icon: 'ℹ️',
+    });
+    setSocialScreen('tikreels');
+    setTiktabMode('live');
+    return;
     if (!user) return setVvipAlert({ msg: 'Please log in first.', icon: '🔒' });
     const have = await readLiveBalance();
     if (have < PK_ENTRY_COINS) {
@@ -7085,7 +7040,7 @@ Tip: Social Hub se copy karo 📤`,
 
       {/* FIX: PK INCOMING CHALLENGE MODAL — jab koi user current user ko
           PK challenge bhejta hai, yeh modal accept/decline ke liye dikhta hai */}
-      {pkIncomingChallenge && !pkActive && (
+      {false && pkIncomingChallenge && !pkActive && (
         <div className="fixed inset-0 z-[9100] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-6">
           <div className="bg-gradient-to-br from-orange-900/60 to-red-900/60 border-2 border-orange-500/50 rounded-3xl p-6 max-w-sm w-full" style={{animation:'fadeInOverlay 0.5s ease-out'}}>
             <div className="text-center mb-4">
@@ -7685,10 +7640,8 @@ Tip: Social Hub se copy karo 📤`,
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-                {[ { icon: '🎬', label: 'AJ TikReels', sub: 'Short Videos', action: () => { setSocialScreen('tikreels'); setTiktabMode('feed'); } },
+                {[ { icon: '🎬', label: 'AJ TikReels', sub: 'For You · Following · Live', action: () => { setSocialScreen('tikreels'); setTiktabMode('feed'); } },
                   { icon: '🎬', label: 'AJ Pulse', sub: 'Photos', action: () => { setSocialScreen('pulse'); setPulseTab('feed'); } },
-                  { icon: 'G', label: 'Go Live', sub: 'Social features', action: () => { setSocialScreen('golive'); } },
-                  { icon: 'J', label: 'Join Live', sub: 'Social features', action: () => { setSocialScreen('joinlive'); } },
                 ].map(item => (
                   <button key={item.label} onClick={item.action} className="w-full flex items-center gap-4 bg-white/5 border border-white/10 rounded-2xl p-4 active:scale-95 transition-all hover:border-pink-500/30">
                     <span className="text-2xl">{item.icon}</span>
@@ -7747,14 +7700,125 @@ Tip: Social Hub se copy karo 📤`,
                 </div>
               </div>
 
-              {/* Tab Bar */}
-              <div className="flex border-b border-white/5">
-                {(['feed','create','profile'] as const).map(tab => (
-                  <button key={tab} onClick={() => setTiktabMode(tab)} className={`flex-1 py-2.5 text-[10px] font-black uppercase tracking-widest transition-all ${tiktabMode===tab ? 'text-pink-400 border-b-2 border-pink-500' : 'text-gray-500'}`}>
-                    {tab==='feed' ? '🎬 Feed' : tab==='create' ? '➕ Post' : '👤 Profile'}
+              {/* Tab Bar — TikTok-style: Following · For You · Live · Post · Profile */}
+              <div className="flex border-b border-white/5 overflow-x-auto scrollbar-hide">
+                {([
+                  { id: 'following' as const, label: 'Following' },
+                  { id: 'feed' as const, label: 'For You' },
+                  { id: 'live' as const, label: 'Live' },
+                  { id: 'create' as const, label: 'Post' },
+                  { id: 'profile' as const, label: 'Profile' },
+                ]).map(tab => (
+                  <button
+                    key={tab.id}
+                    onClick={() => {
+                      setTiktabMode(tab.id);
+                      if (tab.id === 'following') void loadFollowingList();
+                    }}
+                    className={`flex-1 min-w-[4.5rem] py-2.5 text-[10px] font-black uppercase tracking-widest transition-all ${tiktabMode===tab.id ? 'text-pink-400 border-b-2 border-pink-500' : 'text-gray-500'}`}
+                  >
+                    {tab.label}
                   </button>
                 ))}
               </div>
+
+              {/* ── FOLLOWING (creators you follow only) ── */}
+              {tiktabMode === 'following' && (
+                <div
+                  className="flex-1 overflow-y-scroll snap-y snap-mandatory scrollbar-hide flex flex-col overscroll-y-contain"
+                  style={{ scrollSnapType:'y mandatory', WebkitOverflowScrolling:'touch' }}
+                >
+                  {(() => {
+                    const followIds = new Set(
+                      (followingList || [])
+                        .map((u: any) => String(u.uid || u.id || ''))
+                        .filter(Boolean)
+                    );
+                    const followedPosts = (userPosts || []).filter((p: any) =>
+                      followIds.has(String(p.uid || p.userId || ''))
+                    );
+                    if (!user) {
+                      return (
+                        <div className="min-h-[70vh] flex items-center justify-center px-6 text-center">
+                          <p className="text-sm text-gray-400 font-bold">Sign in to see Following</p>
+                        </div>
+                      );
+                    }
+                    if (followIds.size === 0) {
+                      return (
+                        <div className="min-h-[70vh] flex flex-col items-center justify-center gap-2 px-6 text-center">
+                          <p className="text-sm font-black text-white">No one followed yet</p>
+                          <p className="text-[11px] text-gray-400">Follow creators — their TikReels show up here.</p>
+                        </div>
+                      );
+                    }
+                    if (followedPosts.length === 0) {
+                      return (
+                        <div className="min-h-[70vh] flex flex-col items-center justify-center gap-2 px-6 text-center">
+                          <p className="text-sm font-black text-white">No posts from following</p>
+                          <p className="text-[11px] text-gray-400">When people you follow post, they appear here.</p>
+                        </div>
+                      );
+                    }
+                    return followedPosts.map((post: any, idx: number) => {
+                      const media = getPlayableSrc(post);
+                      const mediaUrl = media.src;
+                      const playAsVideo =
+                        media.kind === 'video' ||
+                        isPlayableTikReel(post) ||
+                        post.isVideo === true;
+                      return (
+                        <div
+                          key={`fol_${post.id}`}
+                          className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden bg-[#050505] flex flex-col justify-end"
+                          style={{ scrollSnapAlign: 'start' }}
+                        >
+                          {playAsVideo && mediaUrl ? (
+                            <video
+                              src={mediaUrl}
+                              className="absolute inset-0 w-full h-full object-cover"
+                              autoPlay={idx === 0}
+                              loop
+                              muted
+                              playsInline
+                            />
+                          ) : mediaUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={mediaUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                          ) : (
+                            <div className="absolute inset-0 bg-gradient-to-br from-purple-900/50 to-pink-900/50" />
+                          )}
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent pointer-events-none" />
+                          <div className="relative z-10 p-4 pb-20">
+                            <p className="text-sm font-black text-white">@{post.username || 'creator'}</p>
+                            <p className="text-[11px] text-gray-300 mt-1 line-clamp-2">{post.caption || post.text || ''}</p>
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+              )}
+
+              {/* ── LIVE (Agora reels) ── */}
+              {tiktabMode === 'live' && (
+                <TikReelsLiveTab
+                  user={user}
+                  rooms={(liveNowList || []).map((r: any) => ({
+                    id: String(r.id || r.roomId || ''),
+                    hostName: r.username || r.hostName,
+                    hostPhoto: r.photo || r.hostPhoto,
+                    hostId: r.hostId || r.uid,
+                    liveViewers: Number(r.liveViewers || r.viewerCount || 0),
+                    title: r.title,
+                  })).filter((r: any) => r.id)}
+                  onAlert={(msg, icon) => setVvipAlert({ msg, icon: icon || '🔴' })}
+                  onStartHost={startTikReelsAgoraLive}
+                  onEndHost={stopTikReelsAgoraLive}
+                  hostActive={liveActive}
+                  hostRoomId={liveRoomId}
+                />
+              )}
 
               {/* ── FEED ── */}
               {tiktabMode === 'feed' && (
@@ -8580,7 +8644,8 @@ Tip: Social Hub se copy karo 📤`,
           )}
 
           {/* ── GO LIVE ── */}
-          {socialScreen === 'golive' && (
+          {/* Legacy Go Live / Join Live screens removed — redirected to TikReels → Live (Agora) */}
+          {false && socialScreen === 'golive' && (
             <div className="flex flex-col h-full bg-[#050510]">
               <div className="sticky top-0 z-40 bg-[#050510]/95 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center gap-3">
                 <button onClick={() => setSocialScreen('hub')} className="p-1.5 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all">
@@ -8905,7 +8970,7 @@ Tip: Social Hub se copy karo 📤`,
           )}
 
           {/* ── JOIN LIVE ── */}
-          {socialScreen === 'joinlive' && !viewerRoom && (
+          {false && socialScreen === 'joinlive' && !viewerRoom && (
             <div className="flex flex-col h-full">
               <div className="sticky top-0 z-40 bg-[#050505]/95 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center gap-3">
                 <button onClick={() => setSocialScreen('hub')} className="p-1.5 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all">
@@ -8916,20 +8981,9 @@ Tip: Social Hub se copy karo 📤`,
               <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
                 <BannerAdSlot placement="live_join_banner" user={user} label="Join Live" />
                 <BannerAdSlot placement="live_matches_banner" user={user} label="PK Matches" />
-                <LiveMatchesPanel
-                  youtubeApiKey={YOUTUBE_API_KEY}
-                  onAlert={(msg, icon) => setVvipAlert({ msg, icon })}
-                  onWatchEarn={async () => {
-                    const day = new Date().toISOString().slice(0, 10);
-                    const r = await earnReward(user, 'live_view', {
-                      idempotencyKey: `${user?.uid}_match_${day}`,
-                      meta: { channel: 'pakistan_match' },
-                    });
-                    if (r.ok && !r.duplicate && (r.creditedCoins || 0) > 0) {
-                      setVvipAlert({ msg: r.message || `Match watch +${r.creditedCoins} coins`, icon: '🏏' });
-                    }
-                  }}
-                />
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-[11px] text-gray-400">
+                  Match-battle / cricket panel removed. Watch creators live in TikReels → Live.
+                </div>
                 {liveNowList.length > 0 && (
                   <div className="w-full">
                     <p className="text-[10px] text-pink-400 font-black uppercase tracking-widest mb-3">🔴 Portal Live Rooms</p>
@@ -8962,7 +9016,7 @@ Tip: Social Hub se copy karo 📤`,
           )}
 
           {/* ── VIEWER ROOM ── */}
-          {socialScreen === 'joinlive' && viewerRoom && (
+          {false && socialScreen === 'joinlive' && viewerRoom && (
             <div className="flex flex-col h-full bg-black">
               <div className="sticky top-0 z-40 bg-black/80 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center gap-3">
                 <button onClick={leaveViewerRoom} className="p-1.5 rounded-xl bg-white/5 border border-white/10 active:scale-90 transition-all">

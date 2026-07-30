@@ -11,7 +11,7 @@ import {
 const SITE_URL = 'https://aj-portal-one.vercel.app'
 const SITE_TITLE = 'AJ Super Portal'
 const SITE_DESCRIPTION =
-  'Offer Hub · Earn AJ Coins · Live PK · TikReels · Premium Dark GPT Hub'
+  'Offer Hub · Earn AJ Coins · TikReels Live · Premium Dark GPT Hub'
 /** WhatsApp / Facebook preview — 1200×630 JPEG under ~300KB */
 const OG_IMAGE = `${SITE_URL}/og-image.jpg`
 
@@ -34,7 +34,8 @@ export const metadata: Metadata = {
     'AJ Coins',
     'Watch Ads',
     'TikReels',
-    'Live PK',
+    'TikReels Live',
+    'Agora Live',
     'Offer Hub',
   ],
   authors: [{ name: 'AJ Creator Studio' }],
