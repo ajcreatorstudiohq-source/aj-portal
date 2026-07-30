@@ -1703,10 +1703,30 @@ function AJFooter() {
               >
                 <img
                   src="/founder_card.jpg"
-                  alt="Ali Asim"
+                  alt="Ali Asim — Founder & CEO"
                   className="w-full h-full object-cover"
                   style={{ display: 'block' }}
                 />
+                <div
+                  className="absolute bottom-0 left-0 right-0 p-4"
+                  style={{ background: 'linear-gradient(to top, rgba(5,5,5,0.95) 0%, transparent 100%)' }}
+                >
+                  <p className="text-white font-black text-base tracking-wide uppercase">ALI ASIM</p>
+                  <p
+                    className="text-xs font-black uppercase tracking-[0.2em] mt-0.5"
+                    style={{ background: 'linear-gradient(90deg,#ec4899,#22d3ee)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}
+                  >
+                    Founder &amp; CEO
+                  </p>
+                  <a
+                    href="https://wa.me/96878994093"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 mt-2 text-[10px] font-black uppercase tracking-widest text-cyan-300"
+                  >
+                    Message
+                  </a>
+                </div>
               </div>
             </div>
           </div>
@@ -3194,21 +3214,20 @@ export function AJSuperPortal() {
           ? { me: hostScore, rival: guestScore }
           : { me: guestScore, rival: hostScore }
       );
-      // Host: friend joined via Match ID → stop waiting, wire rival stream
+      // Host: friend joined via Match ID → stop waiting, wire rival stream once
       if (iAmHost && d.rivalUid && d.rivalUid !== user.uid) {
         setPkWaitingRival(false);
-        setPkRivalData((prev: any) =>
-          prev?.uid === d.rivalUid
-            ? prev
-            : {
-                uid: d.rivalUid,
-                username: d.rivalName || d.rivalUid,
-                photo: d.rivalPhoto || '',
-              }
-        );
-        try {
-          joinPkRivalStream(pkRoomId);
-        } catch {}
+        setPkRivalData((prev: any) => {
+          if (prev?.uid === d.rivalUid) return prev;
+          try {
+            joinPkRivalStream(pkRoomId);
+          } catch {}
+          return {
+            uid: d.rivalUid,
+            username: d.rivalName || d.rivalUid,
+            photo: d.rivalPhoto || '',
+          };
+        });
       }
     });
     const giftsUnsub = onSnapshot(
@@ -6969,7 +6988,7 @@ Kuch bhi poocho, seedha batata hoon! 🔥`,
 • Rate: ${COIN_RATE} AJ Coins 🪙 per purchase unit | Min withdraw ${WITHDRAW_MIN.toLocaleString()} AJ Coins 🪙\\\\\\\\
 • Starting balance: 0 AJ Coins 🪙 (no signup bonus)\\\\\\\\
 • Referral Bonus: +${REFERRAL_COINS} AJ Coins 🪙 per friend referred\\\\\\\\
-• Watch Ads: real Adsterra payout → 30% coins · Math/Captcha: +2 each\\\\\\\\
+• Watch Ads: real Adsterra payout → AJ Coins · Math/Captcha: +2 each\\\\\\\\
 • Video Post (TikReel): +${POST_REWARD_COINS} AJ Coins 🪙 per verified upload (max 5/day)\\\\\\\\
 • Photo Post (Pulse): +${POST_REWARD_COINS} AJ Coins 🪙 per verified upload (max 5/day)\\\\\\\\
 • Games install/milestone: +${GAME_REWARD_COINS} AJ Coins 🪙 (ads in games)\\\\\\\\
@@ -6977,7 +6996,7 @@ Kuch bhi poocho, seedha batata hoon! 🔥`,
 • Live Match / PK: FREE to start & join · 5 min · gifts score the battle\\\\\\\\
 • AI Bot (Basic): 2.5% daily on invested coins (24h server lock)\\\\\\\\
 • AI Bot (VVIP): 5% daily on invested coins (24h server lock)\\\\\\\\
-• Live gifts received: 60% you · 40% Admin Hub\\\\\\\\
+• Live gifts: receive gifts during Live & Free Match\\\\\\\\
 \\\\\\\\
 Go to Wallet → Purchase to top up anytime. 💰`,
       hin: `Bhai, yeh lo puri detail! 🪙\\\\\\\\
@@ -6989,7 +7008,7 @@ Go to Wallet → Purchase to top up anytime. 💰`,
 • Pulse photo post: +${POST_REWARD_COINS} AJ Coins 🪙\\\\\\\\
 • AI Bot Basic: 2.5% daily profit (24h server lock)\\\\\\\\
 • AI Bot VVIP: 5% daily profit 🔥\\\\\\\\
-• Live pe gifts milein: 60% tumhara!\\\\\\\\
+• Live pe gifts milein — coins wallet mein!\\\\\\\\
 \\\\\\\\
 Wallet → Purchase se recharge karo, dost! 💰`,
       ur:  `🪙 AJ Coins — مکمل تفصیل:\\\\\\\\
@@ -7001,7 +7020,7 @@ Wallet → Purchase se recharge karo, dost! 💰`,
 • Pulse فوٹو: +${POST_REWARD_COINS} Coins 🪙\\\\\\\\
 • AI Bot Basic: 2.5% روزانہ\\\\\\\\
 • AI Bot VVIP: 5% روزانہ 🔥\\\\\\\\
-• Live تحفے: 60% آپ کا!\\\\\\\\
+• Live تحفے — سکے والیٹ میں!\\\\\\\\
 \\\\\\\\
 Wallet → Purchase 💰`,
       hi:  `🪙 AJ Coins:\\\\\\\\
@@ -7012,7 +7031,7 @@ Wallet → Purchase 💰`,
 • TikReel Video: +${POST_REWARD_COINS} Coins 🪙\\\\\\\\
 • Pulse Photo: +${POST_REWARD_COINS} Coins 🪙\\\\\\\\
 • AI Bot Basic: 2.5% | VVIP: 5% 🔥\\\\\\\\
-• Gifts: 60% आपका!\\\\\\\\
+• Gifts: Live pe gifts receive karo!\\\\\\\\
 \\\\\\\\
 Wallet → Purchase 💰`,
       ar:  `🪙 AJ Coins:\\\\\\\\
@@ -7023,7 +7042,7 @@ Wallet → Purchase 💰`,
 • TikReel Video: +${POST_REWARD_COINS}\\\\\\\\
 • Pulse Photo: +${POST_REWARD_COINS}\\\\\\\\
 • AI Bot: 2-5% 🔥\\\\\\\\
-• Gifts: 60%\\\\\\\\
+• Gifts: استلم الهدايا في البث!\\\\\\\\
 \\\\\\\\
 المحفظة → الشراء 💰`,
     },
@@ -7080,7 +7099,7 @@ Wallet → Purchase 💰`,
 \\\\\\\\
 🔴 Go Live:\\\\\\\\
 • TikReels → Live → GO LIVE (free to watch)\\\\\\\\
-• Viewers send gifts → You keep 60% · Admin Hub 40%\\\\\\\\
+• Viewers send gifts during live — coins credit to your wallet\\\\\\\\
 \\\\\\\\
 ⚔️ Free Live Match: no entry fee · 5-min · gifts with coins 🏆`,
       hin: `📡 AJ Pulse:\\\\\\\\
@@ -7091,7 +7110,7 @@ Wallet → Purchase 💰`,
 \\\\\\\\
 🔴 Live:\\\\\\\\
 • TikReels → Live → GO LIVE\\\\\\\\
-• Gifts → 60% tumhara! 💰\\\\\\\\
+• Gifts → coins wallet mein! 💰\\\\\\\\
 \\\\\\\\
 ⚔️ Free Match: bilkul FREE · 5 min 🏆`,
       ur:  `📡 AJ Pulse:\\\\\\\\
@@ -7101,20 +7120,20 @@ Wallet → Purchase 💰`,
 \\\\\\\\
 🔴 Live:\\\\\\\\
 • TikReels → Live → GO LIVE\\\\\\\\
-• Gifts → 60% آپ کا!\\\\\\\\
+• Gifts → سکے والیٹ میں!\\\\\\\\
 \\\\\\\\
 ⚔️ Free Match: مفت · 5 منٹ 🏆`,
       hi:  `📡 AJ Pulse:\\\\\\\\
 \\\\\\\\
 • Photo/Video: +${POST_REWARD_COINS} AJ Coins 🪙\\\\\\\\
 • TikReels → Live → GO LIVE\\\\\\\\
-• Gifts → 60% आपका!\\\\\\\\
+• Gifts → wallet mein coins!\\\\\\\\
 • Free Match: कोई entry fee नहीं 🏆`,
       ar:  `📡 AJ Pulse:\\\\\\\\
 \\\\\\\\
 • Photo: +${POST_REWARD_COINS} | Video: +${POST_REWARD_COINS} كوين\\\\\\\\
 • TikReels → Live → GO LIVE\\\\\\\\
-• Gifts → 60%\\\\\\\\
+• Gifts → اعملات في المحفظة!\\\\\\\\
 • Free Match: مجاني 🏆`,
     },
     social: {

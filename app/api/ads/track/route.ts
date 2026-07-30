@@ -101,7 +101,7 @@ export async function POST(request: Request) {
       bookedToHisaab: false,
       unifiedTracking: true,
       settledPostback: ADSTERRA_SETTLED_POSTBACK,
-      note: 'Event logged only. Real Adsterra $ via unified postback (all formats · 70/30).',
+      note: 'Event logged only. Real Adsterra $ via unified postback.',
     });
   } catch (e: unknown) {
     console.error('[ads/track]', e);

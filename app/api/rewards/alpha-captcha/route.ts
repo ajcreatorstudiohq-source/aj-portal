@@ -184,7 +184,6 @@ export async function POST(request: Request) {
         verified: true,
         displayLabel: 'Premium Captcha',
         adViewed: body.adViewed === true,
-        platformSplit: '70/30',
       },
       enforceDailyCap: false,
       userPatch: {

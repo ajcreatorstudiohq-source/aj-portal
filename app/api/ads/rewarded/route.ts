@@ -362,7 +362,7 @@ export async function POST(request: Request) {
           balance: balNow,
           settled: true,
           bookedToHisaab: true,
-          message: `+${settledCoins} AJ Coins 🪙 from real Adsterra payout (30% share).`,
+          message: `+${settledCoins} AJ Coins 🪙 from real Adsterra payout.`,
         });
       }
 
@@ -376,7 +376,7 @@ export async function POST(request: Request) {
         bookedToHisaab: false,
         remainingToday: Math.max(0, OFFERWALL_VIDEO_MAX_DAILY - dailyCount),
         message:
-          'Ad verified. AJ Coins credit when Adsterra registers the real payout (30% to you · 70% to Hub). No estimated coins.',
+          'Ad verified. AJ Coins credit when Adsterra registers the real payout. No estimated coins.',
       });
     }
 
@@ -418,7 +418,7 @@ export async function POST(request: Request) {
       awaitingSettlement: true,
       bookedToHisaab: false,
       message:
-        'Session verified. Coins credit only from real Adsterra payout postback (30% user · 70% Hub).',
+        'Session verified. Coins credit only from real Adsterra payout postback.',
     });
   } catch (e: unknown) {
     console.error('[ads/rewarded]', e);
@@ -465,7 +465,7 @@ export async function GET() {
       split: { user: USER_EARN_SHARE, admin: PLATFORM_EARN_SHARE },
       provider: 'adsterra',
       adminSdk: diag.ready,
-      note: 'Watch Ads never invents CPC. Real payout → 30% user coins + 70% Hub.',
+      note: 'Watch Ads never invents CPC. Real payout credits AJ Coins when Adsterra settles.',
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'rewarded_status_failed';

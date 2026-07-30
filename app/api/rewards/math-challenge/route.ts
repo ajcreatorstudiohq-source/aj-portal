@@ -204,7 +204,6 @@ export async function POST(request: Request) {
         promptAnswered: true,
         displayLabel: 'Daily Math Challenge',
         adViewed: body.adViewed === true,
-        platformSplit: '70/30',
       },
       ledgerCollection: 'reward_ledger',
       enforceDailyCap: false,
