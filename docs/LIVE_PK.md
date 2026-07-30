@@ -1,22 +1,19 @@
-# Live (TikReels · Agora)
+# Live Matches (FREE) + Gifting
 
-ZegoCloud and standalone Go Live / Join Live screens are removed.
+## Free live matches
+- Starting or joining a live match / PK battle costs **0 coins**
+- `/api/pk/entry` only registers participation — no balance deduction
+- UI: TikReels → Live → **Free Match**, or challenge modal (no entry fee)
 
-## Host
-1. Social Hub → **AJ TikReels** → **Live** tab
-2. Tap **Go Live** (Agora publishes camera + mic)
-3. Room is listed for others in the Live reel feed
+## Live streams
+- TikReels → Live → Go Live (Agora) — free to watch
+- Vertical swipe reels of active rooms
 
-## Viewer
-1. TikReels → **Live**
-2. Swipe vertical reels of active streams · tap to join (Agora audience)
+## Gifting (coins)
+During **live streams** and **live matches**, viewers send catalog gifts via `/api/wallet/gift`:
+- Sender pays full gift cost
+- Creator receives **60%**
+- Admin Hub receives **40%** (`live_gift`)
+- Cinematic overlay syncs via `live_rooms/{id}/gifts` or `pk_sessions/{id}/gifts`
 
-## Following
-TikReels → **Following** shows videos only from accounts you follow.
-
-## Config
-- `NEXT_PUBLIC_AGORA_APP_ID`
-- `AGORA_APP_CERTIFICATE` (server-only; used by `/api/agora/token`)
-
-## Firestore
-`live_rooms` — discovery, heartbeats, viewer counts (rules still required).
+Gift catalog costs: 500 · 1000 · 2500 · 5000 · 8000 · 10000 AJ Coins

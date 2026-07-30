@@ -4,17 +4,14 @@ import {
   bearerFromRequest,
   verifyFirebaseIdToken,
 } from '../../../lib/verify-id-token';
-import { coinsToUsd } from '../../../lib/economy';
-import { creditAdminEarnings } from '../../../lib/admin-earnings';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-/** Must match client PK_ENTRY_COINS */
-const DEFAULT_PK_ENTRY = 100;
-
 /**
- * POST /api/pk/entry — Admin SDK only (no client balance fallback).
+ * POST /api/pk/entry
+ * Live matches / PK battles are FREE — no coin deduction, no ticket fee.
+ * Registers participation only (optional audit row).
  */
 export async function POST(request: Request) {
   try {
@@ -29,9 +26,10 @@ export async function POST(request: Request) {
 
     const body = await request.json().catch(() => ({}));
     const role = String(body.role || 'host').toLowerCase() === 'guest' ? 'guest' : 'host';
-    const entry = Math.max(1, Math.floor(Number(body.entryCoins) || DEFAULT_PK_ENTRY));
     const rivalUid = String(body.rivalUid || '').trim();
     const pkRoomId = String(body.pkRoomId || '').trim();
+    // Force free — ignore any client-sent entryCoins
+    const entryCoins = 0;
 
     const adminDb = getAdminDb();
     if (!adminDb) {
@@ -39,81 +37,55 @@ export async function POST(request: Request) {
         {
           ok: false,
           error: 'admin_sdk_missing',
-          message: 'Server wallet unavailable. Configure FIREBASE_SERVICE_ACCOUNT_JSON.',
+          message: 'Server unavailable. Configure FIREBASE_SERVICE_ACCOUNT_JSON.',
         },
         { status: 503 }
       );
     }
 
     const userRef = adminDb.collection('users').doc(actor.uid);
-    const result = await adminDb.runTransaction(async (tx) => {
-      const snap = await tx.get(userRef);
-      if (!snap.exists) throw new Error('user_not_found');
-      const bal = Math.max(
-        0,
-        Math.floor(Number((snap.data() as { balance?: number }).balance) || 0)
-      );
-      if (bal < entry) {
-        return { ok: false as const, balance: bal, need: entry };
-      }
-      const next = bal - entry;
-      tx.update(userRef, {
-        balance: next,
-        lastPkEntryAt: FieldValue.serverTimestamp(),
-        lastPkEntryCoins: entry,
-        lastWalletWriteAt: FieldValue.serverTimestamp(),
-      });
-      return { ok: true as const, balance: next, previous: bal };
-    });
-
-    if (!result.ok) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: 'insufficient_balance',
-          balance: result.balance,
-          need: result.need,
-          message: 'Not enough coins for PK match',
-        },
-        { status: 400 }
-      );
+    const snap = await userRef.get();
+    if (!snap.exists) {
+      return NextResponse.json({ ok: false, error: 'user_not_found' }, { status: 404 });
     }
+    const balance = Math.max(
+      0,
+      Math.floor(Number((snap.data() as { balance?: number }).balance) || 0)
+    );
 
-    const ownerUsd = coinsToUsd(entry);
-    await adminDb.collection('AdminRevenue').add({
-      type: 'pk_match',
-      role,
-      currency: 'USD',
-      entryCoins: entry,
-      totalDeducted: entry,
-      adminShareCoins: entry,
-      ownerUsd,
-      platformSharePct: 1,
-      userSharePct: 0,
-      payerUid: actor.uid,
-      challenger: role === 'host' ? actor.uid : rivalUid || '',
-      rival: role === 'guest' ? actor.uid : rivalUid || '',
-      pkRoomId: pkRoomId || null,
-      date: FieldValue.serverTimestamp(),
-      savedToAdmin: true,
-    });
+    await userRef.set(
+      {
+        lastPkEntryAt: FieldValue.serverTimestamp(),
+        lastPkEntryCoins: 0,
+        lastPkEntryFree: true,
+      },
+      { merge: true }
+    );
 
-    const credit = await creditAdminEarnings({
-      ownerUsd,
-      ownerCoins: entry,
-      source: 'pk_match',
-      earnerUid: actor.uid,
-      forceWalletCredit: true,
-    });
+    try {
+      await adminDb.collection('pk_entry_log').add({
+        type: 'pk_match_free',
+        role,
+        entryCoins: 0,
+        free: true,
+        payerUid: actor.uid,
+        rivalUid: rivalUid || null,
+        pkRoomId: pkRoomId || null,
+        date: FieldValue.serverTimestamp(),
+      });
+    } catch {
+      /* non-fatal */
+    }
 
     return NextResponse.json({
       ok: true,
-      entryCoins: entry,
-      balance: result.balance,
-      adminCoinsSaved: entry,
-      adminWalletCredited: credit.walletCredited,
-      ownerUsd,
-      message: `PK entry ${entry} 🪙 saved to admin wallet`,
+      free: true,
+      entryCoins,
+      balance,
+      adminCoinsSaved: 0,
+      adminWalletCredited: 0,
+      ownerUsd: 0,
+      message: 'Free live match — no coins deducted',
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'entry_failed';

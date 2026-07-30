@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Eye, Radio, X } from 'lucide-react';
+import { Eye, Gift, Radio, Swords, X } from 'lucide-react';
 import {
   startAgoraAudience,
   startAgoraHost,
@@ -18,6 +18,14 @@ type LiveRoom = {
   title?: string;
 };
 
+type GiftItem = {
+  id: number;
+  name: string;
+  cost: number;
+  icon: string;
+  mediaUrl?: string;
+};
+
 type UserLike = {
   uid: string;
   getIdToken: () => Promise<string>;
@@ -27,15 +35,18 @@ type Props = {
   user: UserLike;
   rooms: LiveRoom[];
   onAlert: (msg: string, icon?: string) => void;
-  onStartHost: () => Promise<string | null>; // returns channel/roomId
+  onStartHost: () => Promise<string | null>;
   onEndHost: () => Promise<void>;
   hostActive?: boolean;
   hostRoomId?: string;
+  giftCatalog?: GiftItem[];
+  onSendGift?: (toUid: string, gift: GiftItem, roomId: string) => void | Promise<void>;
+  onOpenFreeMatch?: () => void;
+  onWatchingChange?: (roomId: string | null) => void;
 };
 
 /**
- * TikReels → Live tab: vertical snap reels of active Agora live streams.
- * Host can Go Live from this tab (no global Social Hub buttons).
+ * TikReels → Live tab: Agora live reels + free match entry + gifting.
  */
 export default function TikReelsLiveTab({
   user,
@@ -45,9 +56,14 @@ export default function TikReelsLiveTab({
   onEndHost,
   hostActive = false,
   hostRoomId = '',
+  giftCatalog = [],
+  onSendGift,
+  onOpenFreeMatch,
+  onWatchingChange,
 }: Props) {
   const [watchingId, setWatchingId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [giftOpen, setGiftOpen] = useState(false);
   const hostSessionRef = useRef<AgoraLiveSession | null>(null);
   const audienceSessionRef = useRef<AgoraLiveSession | null>(null);
   const hostVideoRef = useRef<HTMLDivElement | null>(null);
@@ -74,7 +90,6 @@ export default function TikReelsLiveTab({
       const roomId = await onStartHost();
       if (!roomId) throw new Error('live_start_failed');
 
-      // Wait a tick for host video container mount
       await new Promise((r) => setTimeout(r, 80));
       const el = hostVideoRef.current;
       if (!el) throw new Error('video_container_missing');
@@ -85,7 +100,7 @@ export default function TikReelsLiveTab({
         getIdToken: () => user.getIdToken(),
         videoContainer: el,
       });
-      onAlert('You are live on TikReels · Agora', '🔴');
+      onAlert('You are live · FREE to join · gifts welcome', '🔴');
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Could not start live';
       onAlert(msg, '⚠️');
@@ -107,6 +122,7 @@ export default function TikReelsLiveTab({
       await onEndHost();
     } finally {
       setBusy(false);
+      setGiftOpen(false);
     }
   };
 
@@ -118,6 +134,7 @@ export default function TikReelsLiveTab({
       await stopAgoraSession(audienceSessionRef.current);
       audienceSessionRef.current = null;
       setWatchingId(room.id);
+      onWatchingChange?.(room.id);
       await new Promise((r) => setTimeout(r, 60));
       const el = audienceVideoRef.current;
       if (!el) throw new Error('viewer_container_missing');
@@ -138,27 +155,72 @@ export default function TikReelsLiveTab({
     await stopAgoraSession(audienceSessionRef.current);
     audienceSessionRef.current = null;
     setWatchingId(null);
+    onWatchingChange?.(null);
+    setGiftOpen(false);
   };
+
+  const giftPanel = (toUid: string, roomId: string) =>
+    giftOpen && giftCatalog.length > 0 && onSendGift ? (
+      <div className="absolute inset-x-0 bottom-0 z-30 bg-black/90 border-t border-white/10 p-4 pb-8 rounded-t-3xl">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-sm font-black text-white">Send a Gift 🎁</p>
+          <button type="button" onClick={() => setGiftOpen(false)}>
+            <X size={18} className="text-gray-400" />
+          </button>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {giftCatalog.map((g) => (
+            <button
+              key={g.id}
+              type="button"
+              onClick={() => {
+                void onSendGift(toUid, g, roomId);
+                setGiftOpen(false);
+              }}
+              className="flex flex-col items-center gap-1.5 bg-white/5 border border-white/10 rounded-2xl p-3 active:scale-90 hover:border-yellow-500/40"
+            >
+              <span className="text-2xl">{g.icon}</span>
+              <span className="text-[10px] font-black text-white">{g.name}</span>
+              <span className="text-[9px] text-yellow-300 font-bold">{g.cost} 🪙</span>
+            </button>
+          ))}
+        </div>
+        <p className="text-[9px] text-gray-500 text-center mt-3">
+          Creator gets 60% · Admin Hub 40%
+        </p>
+      </div>
+    ) : null;
 
   if (hostActive) {
     return (
       <div className="relative flex-1 min-h-0 bg-black flex flex-col">
         <div ref={hostVideoRef} className="absolute inset-0 bg-black" />
-        <div className="relative z-10 mt-auto p-4 flex items-center justify-between bg-gradient-to-t from-black via-black/70 to-transparent">
+        <div className="relative z-10 mt-auto p-4 flex items-center justify-between gap-2 bg-gradient-to-t from-black via-black/70 to-transparent">
           <div>
             <p className="text-xs font-black text-red-400 uppercase tracking-widest flex items-center gap-1">
-              <Radio size={12} className="animate-pulse" /> Live · Agora
+              <Radio size={12} className="animate-pulse" /> Live · Free to join
             </p>
             <p className="text-[10px] text-gray-300 font-mono">{hostRoomId}</p>
           </div>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void endHost()}
-            className="px-4 py-2 rounded-xl bg-red-600 text-white text-[11px] font-black uppercase"
-          >
-            End Live
-          </button>
+          <div className="flex items-center gap-2">
+            {onOpenFreeMatch && (
+              <button
+                type="button"
+                onClick={onOpenFreeMatch}
+                className="px-3 py-2 rounded-xl bg-orange-500/20 border border-orange-500/40 text-orange-300 text-[10px] font-black uppercase flex items-center gap-1"
+              >
+                <Swords size={12} /> Match
+              </button>
+            )}
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void endHost()}
+              className="px-4 py-2 rounded-xl bg-red-600 text-white text-[11px] font-black uppercase"
+            >
+              End Live
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -166,6 +228,7 @@ export default function TikReelsLiveTab({
 
   if (watchingId) {
     const room = rooms.find((r) => r.id === watchingId);
+    const hostUid = String(room?.hostId || '');
     return (
       <div className="relative flex-1 min-h-0 bg-black flex flex-col">
         <div ref={audienceVideoRef} className="absolute inset-0 bg-black" />
@@ -179,32 +242,55 @@ export default function TikReelsLiveTab({
               <Eye size={10} /> {room?.liveViewers || 0}
             </span>
           </div>
-          <button
-            type="button"
-            onClick={() => void leaveWatch()}
-            className="p-2 rounded-full bg-black/50 border border-white/20"
-          >
-            <X size={16} className="text-white" />
-          </button>
+          <div className="flex items-center gap-2">
+            {hostUid && onSendGift && (
+              <button
+                type="button"
+                onClick={() => setGiftOpen(true)}
+                className="p-2 rounded-full bg-yellow-500/20 border border-yellow-500/40"
+              >
+                <Gift size={16} className="text-yellow-300" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => void leaveWatch()}
+              className="p-2 rounded-full bg-black/50 border border-white/20"
+            >
+              <X size={16} className="text-white" />
+            </button>
+          </div>
         </div>
+        {hostUid ? giftPanel(hostUid, watchingId) : null}
       </div>
     );
   }
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      <div className="px-4 py-3 flex items-center justify-between border-b border-white/5">
+      <div className="px-4 py-3 flex items-center justify-between gap-2 border-b border-white/5">
         <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
-          Swipe live broadcasts · Agora
+          Free live · swipe · gift
         </p>
-        <button
-          type="button"
-          disabled={busy || !user}
-          onClick={() => void beginHost()}
-          className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-red-600 to-pink-600 text-[10px] font-black uppercase text-white active:scale-95"
-        >
-          Go Live
-        </button>
+        <div className="flex items-center gap-2">
+          {onOpenFreeMatch && (
+            <button
+              type="button"
+              onClick={onOpenFreeMatch}
+              className="px-3 py-1.5 rounded-xl border border-orange-500/40 text-orange-300 text-[10px] font-black uppercase flex items-center gap-1"
+            >
+              <Swords size={12} /> Free Match
+            </button>
+          )}
+          <button
+            type="button"
+            disabled={busy || !user}
+            onClick={() => void beginHost()}
+            className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-red-600 to-pink-600 text-[10px] font-black uppercase text-white active:scale-95"
+          >
+            Go Live
+          </button>
+        </div>
       </div>
 
       <div
@@ -216,7 +302,7 @@ export default function TikReelsLiveTab({
             <Radio size={36} className="text-pink-500/60" />
             <p className="text-sm font-black text-white">No live streams yet</p>
             <p className="text-[11px] text-gray-400">
-              Be the first — tap Go Live to broadcast inside TikReels.
+              Go Live free — viewers can join and send gifts.
             </p>
           </div>
         )}
@@ -245,11 +331,11 @@ export default function TikReelsLiveTab({
             </div>
             <div className="relative z-10 p-5 pb-24 bg-gradient-to-t from-black via-black/80 to-transparent">
               <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-red-400 mb-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" /> LIVE
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" /> LIVE · FREE
               </span>
               <p className="text-lg font-black text-white">@{room.hostName || 'Creator'}</p>
               <p className="text-[11px] text-gray-300 mt-1 flex items-center gap-1">
-                <Eye size={12} /> {Number(room.liveViewers || 0)} watching · Tap to join
+                <Eye size={12} /> {Number(room.liveViewers || 0)} watching · Tap to join · Gift inside
               </p>
             </div>
           </button>

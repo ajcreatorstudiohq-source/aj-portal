@@ -249,13 +249,13 @@ export async function POST(request: Request) {
       source === 'pk_match' ||
       source === 'app_download'
     ) {
-      // Live view/host free earn stays off — PK entry fees + ads monetize live.
+      // Live view/host/PK free — monetize via gifts (60/40) + Watch Ads / offerwall.
       return NextResponse.json({
         ok: true,
         duplicate: false,
         source,
         creditedCoins: 0,
-        message: `${SOURCE_LABELS[source]}: earn via Watch Ads / Offerwall / Games.`,
+        message: `${SOURCE_LABELS[source]}: free to join · earn via gifts / Watch Ads / Offerwall / Games.`,
       });
     } else {
       result = await applySplitReward({
