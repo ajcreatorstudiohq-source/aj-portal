@@ -348,7 +348,7 @@ const REFERRAL_COINS = REFERRAL_BONUS_COINS;
 const ADMIN_EARN_SHARE = PLATFORM_EARN_SHARE; // 70% — owner USD ledger (AdminRevenue + ad networks)
 const USER_EARN_SHARE  = ECONOMY_USER_EARN_SHARE; // 30% — user AJ Coins only
 
-const PK_ENTRY_COINS = 100; // each player — total 200 deducted per match
+const PK_ENTRY_COINS = 0; // Live matches are FREE — no entry fee / ticket
 const PK_DURATION    = 300; // 5 minutes
 
 // ============================================================
@@ -1195,7 +1195,7 @@ function VVIPAlert({ msg, icon, onClose }: { msg: string; icon?: string; onClose
   );
 }
 
-/** Stylish PK gate — not enough coins to start / accept match */
+/** Not enough coins for a gift (live matches are free — no entry fee). */
 function PkNotEnoughCoinsAlert({
   have,
   need,
@@ -1231,16 +1231,16 @@ function PkNotEnoughCoinsAlert({
             className="w-[72px] h-[72px] rounded-2xl flex items-center justify-center border border-orange-400/50 bg-orange-500/15"
             style={{ boxShadow: '0 0 32px rgba(249,115,22,0.45)' }}
           >
-            <span className="text-4xl" style={{ filter: 'drop-shadow(0 0 10px rgba(251,146,60,0.9))' }}>💰</span>
+            <span className="text-4xl" style={{ filter: 'drop-shadow(0 0 10px rgba(251,146,60,0.9))' }}>🎁</span>
           </div>
           <p className="text-orange-300 text-[11px] font-black uppercase tracking-[0.22em]">
             Not Enough Coins
           </p>
           <p className="text-white text-lg font-black leading-tight">
-            You do not have enough coins for a PK match
+            You need more coins to send this gift
           </p>
           <p className="text-[11px] text-gray-400 font-bold leading-relaxed">
-            A match starts only when you have the full entry fee. Add coins first, then send or accept a challenge.
+            Live matches are free. Coins are only used for gifts during live streams and battles.
           </p>
           <div className="w-full grid grid-cols-2 gap-2 mt-1">
             <div className="rounded-2xl bg-white/5 border border-white/10 px-3 py-3">
@@ -1248,7 +1248,7 @@ function PkNotEnoughCoinsAlert({
               <p className="text-amber-300 text-sm font-black mt-1">{have.toLocaleString()} 🪙</p>
             </div>
             <div className="rounded-2xl bg-orange-500/10 border border-orange-500/30 px-3 py-3">
-              <p className="text-[8px] text-orange-300/80 font-black uppercase tracking-widest">PK entry</p>
+              <p className="text-[8px] text-orange-300/80 font-black uppercase tracking-widest">Gift cost</p>
               <p className="text-orange-300 text-sm font-black mt-1">{need.toLocaleString()} 🪙</p>
             </div>
           </div>
@@ -2015,6 +2015,7 @@ export function AJSuperPortal() {
 
   // ── TIKREELS
   const [tiktabMode,       setTiktabMode]       = useState<'following'|'feed'|'live'|'create'|'profile'>('feed');
+  const [tikLiveWatchId, setTikLiveWatchId] = useState('');
   // FIX: TikReels profile — fetch ALL of the current user's posts (not just latest 20 from global feed)
   const [tikProfileMyPosts, setTikProfileMyPosts] = useState<any[]>([]);
   const [tikProfileFollowers, setTikProfileFollowers] = useState(0);
@@ -3216,6 +3217,45 @@ export function AJSuperPortal() {
     };
   }, [pkActive, pkRoomId, user]);
 
+  // Agora / TikReels live room gift sync — host + viewers see cinematic overlay
+  useEffect(() => {
+    const roomId = (liveActive && liveRoomId) || viewerRoomId || tikLiveWatchId || '';
+    if (!roomId || !user) return;
+    const unsub = onSnapshot(
+      query(collection(db, 'live_rooms', roomId, 'gifts'), orderBy('createdAtMs', 'desc'), limit(1)),
+      (snap) => {
+        snap.docChanges().forEach((change) => {
+          if (change.type !== 'added') return;
+          const g = change.doc.data() as {
+            giftName?: string;
+            giftIcon?: string;
+            giftCost?: number;
+            giftMediaUrl?: string;
+            fromUsername?: string;
+            fromUid?: string;
+            createdAtMs?: number;
+          };
+          if (g.fromUid === user.uid && Date.now() - Number(g.createdAtMs || 0) < 2000) return;
+          setCinematicGift({
+            name: g.giftName || 'Gift',
+            icon: g.giftIcon || '🎁',
+            cost: Number(g.giftCost || 0),
+            mediaUrl: g.giftMediaUrl || '',
+          });
+          setCinematicSender(g.fromUsername || 'Viewer');
+        });
+      },
+      () => {}
+    );
+    return () => {
+      try {
+        unsub();
+      } catch {
+        /* ignore */
+      }
+    };
+  }, [liveActive, liveRoomId, viewerRoomId, tikLiveWatchId, user]);
+
   // Live Chat listener
   useEffect(() => {
     if (!liveActive || !liveRoomId) return;
@@ -3942,25 +3982,13 @@ export function AJSuperPortal() {
     });
   };
 
-  /** Open PK challenge UI only when entry coins are available. */
+  /** Open free PK / live-match challenge UI (no coin gate). */
   const openPkChallengeGate = async () => {
-    setVvipAlert({
-      msg: 'PK / match-battle removed. Go live from TikReels → Live.',
-      icon: 'ℹ️',
-    });
-    setSocialScreen('tikreels');
-    setTiktabMode('live');
-    return;
     if (!user) return setVvipAlert({ msg: 'Please log in first.', icon: '🔒' });
-    const have = await readLiveBalance();
-    if (have < PK_ENTRY_COINS) {
-      showPkNotEnough(have, PK_ENTRY_COINS);
-      return;
-    }
     setPkChallengeOpen(true);
   };
 
-  /** Server PK entry — deducts user coins and saves them to admin ledger (not popup). */
+  /** Free match register — never deducts coins. */
   const payPkEntry = async (opts: {
     role: 'host' | 'guest';
     entryCoins?: number;
@@ -3968,7 +3996,6 @@ export function AJSuperPortal() {
     pkRoomId?: string;
   }): Promise<{ ok: boolean; balance?: number; need?: number; error?: string }> => {
     if (!user) return { ok: false, error: 'unauthorized' };
-    const entry = Math.max(1, Math.floor(Number(opts.entryCoins) || PK_ENTRY_COINS));
     try {
       const token = await user.getIdToken();
       const res = await fetch('/api/pk/entry', {
@@ -3979,7 +4006,8 @@ export function AJSuperPortal() {
         },
         body: JSON.stringify({
           role: opts.role,
-          entryCoins: entry,
+          entryCoins: 0,
+          free: true,
           rivalUid: opts.rivalUid || '',
           pkRoomId: opts.pkRoomId || '',
         }),
@@ -3988,46 +4016,30 @@ export function AJSuperPortal() {
         ok?: boolean;
         error?: string;
         balance?: number;
-        need?: number;
       };
       if (!res.ok || !data.ok) {
-        const have =
-          typeof data.balance === 'number' ? data.balance : await readLiveBalance();
-        if (data.error === 'insufficient_balance' || res.status === 400) {
-          showPkNotEnough(have, Number(data.need) || entry);
-          return { ok: false, balance: have, need: Number(data.need) || entry, error: 'insufficient_balance' };
-        }
-        return { ok: false, error: data.error || 'pk_entry_failed' };
+        // Still allow free match if register endpoint fails (no fee to collect)
+        console.warn('payPkEntry free register', data.error);
+        return { ok: true, balance: await readLiveBalance() };
       }
       if (typeof data.balance === 'number') setBalance(data.balance);
       return { ok: true, balance: data.balance };
     } catch (e) {
       console.error('payPkEntry', e);
-      return { ok: false, error: 'pk_entry_failed' };
+      return { ok: true, balance: await readLiveBalance() };
     }
   };
 
   const sendPkChallenge = async () => {
 
     if (!user || !pkTargetId.trim()) return setVvipAlert({msg:"Enter rival's User ID!"});
-    const haveNow = await readLiveBalance();
-    if (haveNow < PK_ENTRY_COINS) {
-      showPkNotEnough(haveNow, PK_ENTRY_COINS);
-      return;
-    }
     try {
       const rivalUid = pkTargetId.trim();
       const rivalSnap = await getDoc(doc(db,"users",rivalUid));
       if (!rivalSnap.exists()) return setVvipAlert({msg:"Rival not found! Check User ID."});
 
-      // Deduct entry + save coins to admin ledger (server). Short balance → Not Enough popup only.
-      const paid = await payPkEntry({ role: 'host', entryCoins: PK_ENTRY_COINS, rivalUid });
-      if (!paid.ok) {
-        if (paid.error !== 'insufficient_balance') {
-          setVvipAlert({ msg: 'PK entry failed. Coins not deducted — try again.', icon: '⚠️' });
-        }
-        return;
-      }
+      // Free live match — register only (no coin deduction)
+      await payPkEntry({ role: 'host', entryCoins: 0, rivalUid });
 
       // FIX: PK session ka unique room ID — dono users ke liye common
       const newPkRoomId = `pk_${user.uid}_${rivalUid}_${Date.now()}`;
@@ -4048,27 +4060,28 @@ export function AJSuperPortal() {
           challengerId: '',              // FIX: Khali jab tak rival accept na kare
           scoreHost: 0,
           scoreGuest: 0,
-          entryCoins: PK_ENTRY_COINS,
+          entryCoins: 0,
+          freeMatch: true,
           duration: PK_DURATION,
           createdAt: serverTimestamp(),
           startedAt: null,
           endedAt: null,
           winnerUid: null,
           hostEntryPaid: true,
-          hostEntryCoins: PK_ENTRY_COINS,
+          hostEntryCoins: 0,
         });
       } catch (pkErr) { console.warn('PK session write failed (non-fatal):', pkErr); }
       // Send notification to rival
       try {
         await notifyUser(user, rivalUid, {
           type: 'pk',
-          title: '⚔️ PK Challenge!',
-          message: `@${username || 'AJ_Member'} challenged you to a PK Battle! ${PK_ENTRY_COINS} Coins entry. Room: ${newPkRoomId}`,
+          title: '⚔️ Free Live Match!',
+          message: `@${username || 'AJ_Member'} challenged you to a FREE live match! Room: ${newPkRoomId}`,
           fromUid: user.uid,
           fromUsername: username || 'AJ_Member',
           deepLink: `/pk/${newPkRoomId}`,
-          meta: { pkRoomId: newPkRoomId },
-          pushBody: `@${username || 'AJ_Member'} challenged you to PK!`,
+          meta: { pkRoomId: newPkRoomId, free: true },
+          pushBody: `@${username || 'AJ_Member'} challenged you to a free match!`,
         });
       } catch {}
       setPkRivalData(rivalSnap.data());
@@ -4123,10 +4136,7 @@ export function AJSuperPortal() {
   ) => {
     if (!user) return;
     if (balance < gift.cost) {
-      setVvipAlert({
-        msg: `Insufficient Balance! Need ${gift.cost} 🪙 — Go to Wallet to recharge.`,
-        icon: '💰',
-      });
+      showPkNotEnough(balance, gift.cost);
       return;
     }
 
@@ -4148,8 +4158,13 @@ export function AJSuperPortal() {
       });
       const giftData = await giftRes.json().catch(() => ({}));
       if (!giftRes.ok || !giftData.ok) {
+        if (giftData.error === 'insufficient_balance') {
+          showPkNotEnough(Number(giftData.fromBalance ?? balance), gift.cost);
+          return;
+        }
         throw new Error(giftData.error || 'gift_failed');
       }
+      if (typeof giftData.fromBalance === 'number') setBalance(giftData.fromBalance);
     } catch (e) {
       console.error('PK gift deduct', e);
       setVvipAlert({ msg: 'Gift failed. Please try again.', icon: '⚠️' });
@@ -4325,13 +4340,7 @@ export function AJSuperPortal() {
     const pkRoomIdVal = challenge.pkRoomId || challenge.id;
     if (!pkRoomIdVal) return;
     try {
-      const entry = Number(challenge.entryCoins || PK_ENTRY_COINS);
-      const haveNow = await readLiveBalance();
-      if (haveNow < entry) {
-        showPkNotEnough(haveNow, entry);
-        return;
-      }
-
+      // Free match — no coin / ticket check
       const pkSnap = await getDoc(doc(db, 'pk_sessions', pkRoomIdVal));
       if (!pkSnap.exists()) {
         setVvipAlert({msg: 'PK session not found. It may have expired.', icon: '⚠️'});
@@ -4340,24 +4349,18 @@ export function AJSuperPortal() {
       }
       const pkData = pkSnap.data();
       if (pkData.status === 'ended' || pkData.status === 'declined') {
-        setVvipAlert({msg: 'This PK Battle has already ended.', icon: '⚠️'});
+        setVvipAlert({msg: 'This Live Match has already ended.', icon: '⚠️'});
         setPkIncomingChallenge(null);
         return;
       }
 
-      // Guest pays entry via server — coins save to admin ledger (not lost in popup)
-      const paid = await payPkEntry({
+      // Free register (no deduction)
+      await payPkEntry({
         role: 'guest',
-        entryCoins: entry,
+        entryCoins: 0,
         rivalUid: String(pkData.hostUid || ''),
         pkRoomId: pkRoomIdVal,
       });
-      if (!paid.ok) {
-        if (paid.error !== 'insufficient_balance') {
-          setVvipAlert({ msg: 'PK entry failed. Coins not deducted — try again.', icon: '⚠️' });
-        }
-        return;
-      }
 
       setPkRoomId(pkRoomIdVal);
       setPkRivalData({
@@ -4382,7 +4385,7 @@ export function AJSuperPortal() {
           matchStatus: 'active',         // PK match now active
           isPkActive: true,              // PK match is now live
           guestEntryPaid: true,
-          guestEntryCoins: entry,
+          guestEntryCoins: 0,
         });
       } catch (e) { console.warn('PK session status update failed (non-fatal):', e); }
 
@@ -4515,7 +4518,7 @@ export function AJSuperPortal() {
       // Self-gift: cinematic only — no balance change
       if (creatorId === user.uid) {
         if (balance < gift.cost) {
-          setVvipAlert({msg:`Insufficient Balance! Need ${gift.cost} 🪙`,icon:'💰'});
+          showPkNotEnough(balance, gift.cost);
           return;
         }
         setCinematicGift(gift);
@@ -4525,7 +4528,7 @@ export function AJSuperPortal() {
       }
     }
     if (balance < gift.cost) {
-      setVvipAlert({msg:`Insufficient Balance! Need ${gift.cost} 🪙 — Go to Wallet to recharge.`,icon:'💰'});
+      showPkNotEnough(balance, gift.cost);
       return;
     }
     try {
@@ -4545,9 +4548,42 @@ export function AJSuperPortal() {
       });
       const giftData = await giftRes.json().catch(() => ({}));
       if (!giftRes.ok || !giftData.ok) {
+        if (giftData.error === 'insufficient_balance') {
+          showPkNotEnough(Number(giftData.fromBalance ?? balance), gift.cost);
+          return;
+        }
         throw new Error(giftData.error || giftData.message || 'gift_failed');
       }
+      if (typeof giftData.fromBalance === 'number') {
+        setBalance(giftData.fromBalance);
+      }
       const creatorShare = Number(giftData.creditedCoins || 0);
+      // Sync cinematic gift to live room / match so host + viewers see animation
+      try {
+        const roomForGift =
+          (liveActive && liveRoomId) ||
+          viewerRoomId ||
+          tikLiveWatchId ||
+          (pkActive && pkRoomId) ||
+          '';
+        if (roomForGift) {
+          const col = pkActive && pkRoomId && roomForGift === pkRoomId ? 'pk_sessions' : 'live_rooms';
+          await addDoc(collection(db, col, roomForGift, 'gifts'), {
+            fromUid: user.uid,
+            fromUsername: username || 'Anonymous',
+            toUid: creatorId,
+            giftName: gift.name,
+            giftIcon: gift.icon,
+            giftCost: gift.cost,
+            giftMediaUrl: gift.mediaUrl || '',
+            creatorShare,
+            createdAtMs: Date.now(),
+            createdAt: serverTimestamp(),
+          });
+        }
+      } catch (syncErr) {
+        console.warn('live gift sync', syncErr);
+      }
       try {
         await notifyUser(user, creatorId, {
           type: 'gift',
@@ -6734,10 +6770,10 @@ Kuch bhi poocho, seedha batata hoon! 🔥`,
 • Photo Post (Pulse): +${POST_REWARD_COINS} AJ Coins 🪙 per verified upload (max 5/day)\\\\\\\\
 • Games install/milestone: +${GAME_REWARD_COINS} AJ Coins 🪙 (ads in games)\\\\\\\\
 • AI Trading Bot: daily % on invested coins (Basic 2.5% / VVIP 5%)\\\\\\\\
-• PK Battle: ${PK_ENTRY_COINS} coins each (200 total) · 5 min · ads on start & end\\\\\\\\
+• Live Match / PK: FREE to start & join · 5 min · gifts score the battle\\\\\\\\
 • AI Bot (Basic): 2.5% daily on invested coins (24h server lock)\\\\\\\\
 • AI Bot (VVIP): 5% daily on invested coins (24h server lock)\\\\\\\\
-• Live gifts received: 60% goes to you!\\\\\\\\
+• Live gifts received: 60% you · 40% Admin Hub\\\\\\\\
 \\\\\\\\
 Go to Wallet → Purchase to top up anytime. 💰`,
       hin: `Bhai, yeh lo puri detail! 🪙\\\\\\\\
@@ -6839,11 +6875,10 @@ Wallet → Purchase 💰`,
 • Post your own content → +${POST_REWARD_COINS} AJ Coins 🪙 (verified upload, max 5/day)\\\\\\\\
 \\\\\\\\
 🔴 Go Live:\\\\\\\\
-• Social Hub → GO LIVE button\\\\\\\\
-• Share your Room ID so viewers can join\\\\\\\\
-• Viewers send gifts → You keep 60%!\\\\\\\\
+• TikReels → Live → GO LIVE (free to watch)\\\\\\\\
+• Viewers send gifts → You keep 60% · Admin Hub 40%\\\\\\\\
 \\\\\\\\
-⚔️ PK Battle: 100 Coins entry, 5-min battle 🏆`,
+⚔️ Free Live Match: no entry fee · 5-min · gifts with coins 🏆`,
       hin: `📡 AJ Pulse:\\\\\\\\
 \\\\\\\\
 📸 Feed:\\\\\\\\
@@ -6851,32 +6886,32 @@ Wallet → Purchase 💰`,
 • Photo/Video post: +${POST_REWARD_COINS} AJ Coins 🪙\\\\\\\\
 \\\\\\\\
 🔴 Live:\\\\\\\\
-• GO LIVE → Room ID share karo\\\\\\\\
+• TikReels → Live → GO LIVE\\\\\\\\
 • Gifts → 60% tumhara! 💰\\\\\\\\
 \\\\\\\\
-⚔️ PK Battle: 100 Coins, 5 min 🏆`,
+⚔️ Free Match: bilkul FREE · 5 min 🏆`,
       ur:  `📡 AJ Pulse:\\\\\\\\
 \\\\\\\\
 📸 فیڈ:\\\\\\\\
 • Photo/Video: +${POST_REWARD_COINS} AJ Coins 🪙\\\\\\\\
 \\\\\\\\
 🔴 Live:\\\\\\\\
-• GO LIVE → Room ID شیئر\\\\\\\\
+• TikReels → Live → GO LIVE\\\\\\\\
 • Gifts → 60% آپ کا!\\\\\\\\
 \\\\\\\\
-⚔️ PK: 100 Coins، 5 منٹ 🏆`,
+⚔️ Free Match: مفت · 5 منٹ 🏆`,
       hi:  `📡 AJ Pulse:\\\\\\\\
 \\\\\\\\
 • Photo/Video: +${POST_REWARD_COINS} AJ Coins 🪙\\\\\\\\
-• GO LIVE → Room ID share\\\\\\\\
+• TikReels → Live → GO LIVE\\\\\\\\
 • Gifts → 60% आपका!\\\\\\\\
-• PK Battle: 100 Coins 🏆`,
+• Free Match: कोई entry fee नहीं 🏆`,
       ar:  `📡 AJ Pulse:\\\\\\\\
 \\\\\\\\
 • Photo: +${POST_REWARD_COINS} | Video: +${POST_REWARD_COINS} كوين\\\\\\\\
-• GO LIVE → Room ID\\\\\\\\
+• TikReels → Live → GO LIVE\\\\\\\\
 • Gifts → 60%\\\\\\\\
-• PK: 100 كوين 🏆`,
+• Free Match: مجاني 🏆`,
     },
     social: {
       en:  `👤 Social Features:\\\\\\\\
@@ -7040,7 +7075,7 @@ Tip: Social Hub se copy karo 📤`,
 
       {/* FIX: PK INCOMING CHALLENGE MODAL — jab koi user current user ko
           PK challenge bhejta hai, yeh modal accept/decline ke liye dikhta hai */}
-      {false && pkIncomingChallenge && !pkActive && (
+      {pkIncomingChallenge && !pkActive && (
         <div className="fixed inset-0 z-[9100] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-6">
           <div className="bg-gradient-to-br from-orange-900/60 to-red-900/60 border-2 border-orange-500/50 rounded-3xl p-6 max-w-sm w-full" style={{animation:'fadeInOverlay 0.5s ease-out'}}>
             <div className="text-center mb-4">
@@ -7053,7 +7088,7 @@ Tip: Social Hub se copy karo 📤`,
               <span className="text-2xl font-black text-white">VS</span>
               <img src={tempPhoto || user?.photoURL || '/logo.png'} className="w-14 h-14 rounded-full border-2 border-orange-500 object-cover" alt="You"/>
             </div>
-            <p className="text-center text-[10px] text-gray-400 mb-4">Entry: {pkIncomingChallenge.entryCoins || PK_ENTRY_COINS} Coins · 5-min battle · Full entry fee required</p>
+            <p className="text-center text-[10px] text-gray-400 mb-4">FREE live match · 5-min battle · Send gifts with coins anytime</p>
             <div className="flex gap-3">
               <button
                 onClick={() => void acceptPkChallenge(pkIncomingChallenge)}
@@ -7817,6 +7852,13 @@ Tip: Social Hub se copy karo 📤`,
                   onEndHost={stopTikReelsAgoraLive}
                   hostActive={liveActive}
                   hostRoomId={liveRoomId}
+                  giftCatalog={giftItems}
+                  onSendGift={async (toUid, gift, roomId) => {
+                    setTikLiveWatchId(roomId);
+                    await sendGift(toUid, gift);
+                  }}
+                  onOpenFreeMatch={() => void openPkChallengeGate()}
+                  onWatchingChange={(id) => setTikLiveWatchId(id || '')}
                 />
               )}
 
@@ -8721,8 +8763,8 @@ Tip: Social Hub se copy karo 📤`,
                   <button onClick={() => void openPkChallengeGate()} className="w-full max-w-sm flex items-center gap-3 bg-orange-500/10 border border-orange-500/30 rounded-2xl p-4 active:scale-95 transition-all">
                     <Swords size={20} className="text-orange-400"/>
                     <div className="text-left">
-                      <p className="text-sm font-black text-orange-400">⚔️ PK Battle</p>
-                      <p className="text-[9px] text-gray-400">{PK_ENTRY_COINS} Coins entry · need full balance · 5-min battle</p>
+                      <p className="text-sm font-black text-orange-400">⚔️ Free Live Match</p>
+                      <p className="text-[9px] text-gray-400">No entry fee · gift with coins during battle</p>
                     </div>
                   </button>
                 )}
@@ -8943,26 +8985,16 @@ Tip: Social Hub se copy karo 📤`,
                       <p className="text-sm font-black text-white">⚔️ PK Challenge</p>
                       <button onClick={() => setPkChallengeOpen(false)}><X size={18} className="text-gray-400"/></button>
                     </div>
-                    <p className="text-[10px] text-gray-400 mb-3">Enter your rival&apos;s User ID to challenge them to a 5-minute PK Battle. Entry: <span className="text-orange-300 font-black">{PK_ENTRY_COINS} Coins</span>. The match will not start if your balance is too low.</p>
-                    <p className="text-[9px] text-amber-300/80 font-bold mb-3">Your balance: {balance.toLocaleString()} 🪙</p>
+                    <p className="text-[10px] text-gray-400 mb-3">Enter your rival&apos;s User ID for a <span className="text-emerald-300 font-black">FREE</span> 5-minute live match. No coins to start — gift anytime during the battle.</p>
+                    <p className="text-[9px] text-amber-300/80 font-bold mb-3">Your balance: {balance.toLocaleString()} 🪙 (gifts only)</p>
                     <input value={pkTargetId} onChange={e => setPkTargetId(e.target.value)} placeholder="Rival's User ID" className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-orange-500/50 mb-4"/>
                     <button
                       onClick={() => void sendPkChallenge()}
-                      disabled={balance < PK_ENTRY_COINS}
-                      className={`w-full py-3 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all ${balance < PK_ENTRY_COINS ? 'opacity-40 cursor-not-allowed' : ''}`}
+                      className="w-full py-3 rounded-2xl text-white font-black uppercase tracking-widest active:scale-95 transition-all"
                       style={{background:'linear-gradient(135deg,#f97316,#ea580c)'}}
                     >
-                      {balance < PK_ENTRY_COINS ? '💰 Not Enough Coins' : '⚔️ Challenge!'}
+                      ⚔️ Start Free Match!
                     </button>
-                    {balance < PK_ENTRY_COINS ? (
-                      <button
-                        type="button"
-                        onClick={() => showPkNotEnough(balance, PK_ENTRY_COINS)}
-                        className="w-full mt-2 py-2.5 rounded-2xl border border-orange-500/40 text-orange-300 text-[10px] font-black uppercase tracking-widest active:scale-95"
-                      >
-                        Why can&apos;t I start?
-                      </button>
-                    ) : null}
                   </div>
                 </div>
               )}
