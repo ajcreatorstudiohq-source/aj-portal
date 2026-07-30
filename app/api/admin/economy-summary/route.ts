@@ -11,13 +11,12 @@ import { db } from '../../../../firebaseConfig';
 import { verifyAdminFromRequest } from '../../../lib/admin-auth';
 import {
   CASH_RATE,
-  COIN_RATE,
   PLATFORM_EARN_SHARE,
   USER_EARN_SHARE,
   coinsToUsd,
   formatUsd,
 } from '../../../lib/economy';
-import { getAdminDb, FieldValue } from '../../../lib/firebase-admin';
+import { getAdminDb } from '../../../lib/firebase-admin';
 import { persistPortalAdminUid } from '../../../lib/admin-earnings';
 
 function isPaidStatus(status: string) {
@@ -85,6 +84,11 @@ export async function GET(request: Request) {
     let giftOwnerUsd = 0;
     let giftOwnerCoins = 0;
     let adOwnerUsd = 0;
+    let surveyOwnerUsd = 0;
+    let surveyOwnerCoins = 0;
+    let surveyUserCoins = 0;
+    let surveyGrossUsd = 0;
+    let surveyEventCount = 0;
     let pkOwnerCoins = 0;
     let pkOwnerUsd = 0;
     let eventCount = 0;
@@ -98,6 +102,8 @@ export async function GET(request: Request) {
         giftOwnerUsd = Number(d.giftOwnerUsd || 0);
         giftOwnerCoins = Number(d.giftOwnerCoins || 0);
         adOwnerUsd = Number(d.adOwnerUsd || 0);
+        surveyOwnerUsd = Number(d.surveyOwnerUsd || 0);
+        surveyOwnerCoins = Number(d.surveyOwnerCoins || 0);
         pkOwnerCoins = Number(d.pkOwnerCoins || 0);
         pkOwnerUsd = Number(d.pkOwnerUsd || 0);
         eventCount = Number(d.eventCount || 0);
@@ -111,10 +117,78 @@ export async function GET(request: Request) {
         giftOwnerUsd = Number(d.giftOwnerUsd || 0);
         giftOwnerCoins = Number(d.giftOwnerCoins || 0);
         adOwnerUsd = Number(d.adOwnerUsd || 0);
+        surveyOwnerUsd = Number(d.surveyOwnerUsd || 0);
+        surveyOwnerCoins = Number(d.surveyOwnerCoins || 0);
         pkOwnerCoins = Number(d.pkOwnerCoins || 0);
         pkOwnerUsd = Number(d.pkOwnerUsd || 0);
         eventCount = Number(d.eventCount || 0);
       }
+    }
+
+    // Rebuild survey breakdown from offerwall_ledger (TheoremReach + offer tasks)
+    try {
+      let ledgerSnap;
+      if (adminDb) {
+        ledgerSnap = await adminDb.collection('offerwall_ledger').limit(2000).get();
+      } else {
+        ledgerSnap = await getDocs(
+          query(collection(db, 'offerwall_ledger'), limit(2000))
+        );
+      }
+      let rebuiltSurveyUsd = 0;
+      let rebuiltSurveyCoins = 0;
+      let rebuiltUserCoins = 0;
+      let rebuiltGross = 0;
+      let rebuiltEvents = 0;
+      ledgerSnap.forEach((r) => {
+        const d = r.data() as Record<string, unknown>;
+        const meta = (d.meta && typeof d.meta === 'object'
+          ? (d.meta as Record<string, unknown>)
+          : {}) as Record<string, unknown>;
+        const via = String(meta.via || '').toLowerCase();
+        const provider = String(meta.provider || '').toLowerCase();
+        const source = String(d.source || '');
+        const isSurvey =
+          via.includes('theorem') ||
+          provider.includes('theorem') ||
+          (source === 'offerwall' && !provider.includes('adsterra'));
+        if (!isSurvey) return;
+        const userCoins = Math.max(
+          0,
+          Math.floor(Number(d.flatCoins ?? d.userCoins ?? meta.userReward ?? 0) || 0)
+        );
+        const adminUsdRow = Number(d.adminUsd ?? meta.adminUsd ?? 0);
+        const grossFromMeta = Number(
+          meta.providerPayoutUsd ?? meta.providerPayout ?? d.totalUsd ?? 0
+        );
+        const adminUsd =
+          adminUsdRow > 0
+            ? adminUsdRow
+            : grossFromMeta > 0
+              ? grossFromMeta * PLATFORM_EARN_SHARE
+              : 0;
+        const gross =
+          grossFromMeta > 0
+            ? grossFromMeta
+            : USER_EARN_SHARE > 0
+              ? Number((coinsToUsd(userCoins) / USER_EARN_SHARE).toFixed(6))
+              : coinsToUsd(userCoins);
+        rebuiltSurveyUsd += adminUsd || gross * PLATFORM_EARN_SHARE;
+        rebuiltSurveyCoins +=
+          Number(d.adminCoins ?? 0) || Math.floor((adminUsd || gross * PLATFORM_EARN_SHARE) * CASH_RATE);
+        rebuiltUserCoins += userCoins;
+        rebuiltGross += gross;
+        rebuiltEvents += 1;
+      });
+      if (rebuiltEvents > 0) {
+        surveyGrossUsd = rebuiltGross;
+        surveyUserCoins = rebuiltUserCoins;
+        surveyEventCount = rebuiltEvents;
+        if (surveyOwnerUsd <= 0) surveyOwnerUsd = rebuiltSurveyUsd;
+        if (surveyOwnerCoins <= 0) surveyOwnerCoins = rebuiltSurveyCoins;
+      }
+    } catch {
+      /* ignore */
     }
 
     // Always rebuild from AdminRevenue when ledger totals look empty OR to backfill PK coins
@@ -259,6 +333,15 @@ export async function GET(request: Request) {
       giftOwnerUsdLabel: formatUsd(giftOwnerUsd),
       adOwnerUsd,
       adOwnerUsdLabel: formatUsd(adOwnerUsd),
+      surveyOwnerUsd,
+      surveyOwnerUsdLabel: formatUsd(surveyOwnerUsd),
+      surveyOwnerCoins,
+      surveyUserCoins,
+      surveyUserUsd: coinsToUsd(surveyUserCoins),
+      surveyUserUsdLabel: formatUsd(coinsToUsd(surveyUserCoins)),
+      surveyGrossUsd,
+      surveyGrossUsdLabel: formatUsd(surveyGrossUsd),
+      surveyEventCount,
       pkOwnerCoins,
       pkOwnerUsd,
       pkOwnerUsdLabel: formatUsd(pkOwnerUsd),

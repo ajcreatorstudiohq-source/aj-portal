@@ -21,6 +21,11 @@ export type ClientUserEconomyStat = {
   lifetimeEarnedCoins: number;
   lifetimeEarnedUsd: number;
   lifetimeEarnedUsdLabel: string;
+  surveyEarnedCoins: number;
+  surveyEarnedUsd: number;
+  surveyEarnedUsdLabel: string;
+  surveyAdminUsd: number;
+  surveyAdminUsdLabel: string;
   withdrawRequestedCoins: number;
   withdrawPaidCoins: number;
   withdrawPendingCoins: number;
@@ -53,6 +58,11 @@ function empty(uid: string): ClientUserEconomyStat {
     lifetimeEarnedCoins: 0,
     lifetimeEarnedUsd: 0,
     lifetimeEarnedUsdLabel: formatUsd(0),
+    surveyEarnedCoins: 0,
+    surveyEarnedUsd: 0,
+    surveyEarnedUsdLabel: formatUsd(0),
+    surveyAdminUsd: 0,
+    surveyAdminUsdLabel: formatUsd(0),
     withdrawRequestedCoins: 0,
     withdrawPaidCoins: 0,
     withdrawPendingCoins: 0,
@@ -147,13 +157,16 @@ export async function loadClientUserEconomy(): Promise<
     console.warn('[user-economy-client] reward_ledger', e);
   }
 
-  // Lifetime from offerwall_ledger
+  // Lifetime from offerwall_ledger (+ survey breakdown)
   try {
     const snap = await getDocs(query(collection(db, 'offerwall_ledger'), limit(4000)));
     snap.forEach((docSnap) => {
       const d = docSnap.data() as Record<string, unknown>;
       const uid = String(d.uid || '');
       if (!uid) return;
+      const meta = (d.meta && typeof d.meta === 'object'
+        ? (d.meta as Record<string, unknown>)
+        : {}) as Record<string, unknown>;
       const coins = Math.max(
         0,
         Math.floor(Number(d.coins ?? d.flatCoins ?? d.userCoins ?? 0) || 0)
@@ -161,6 +174,21 @@ export async function loadClientUserEconomy(): Promise<
       if (coins > 0) {
         touch(byUid, uid);
         lifetimeFromLedger.set(uid, (lifetimeFromLedger.get(uid) || 0) + coins);
+      }
+      const via = String(meta.via || '').toLowerCase();
+      const provider = String(meta.provider || '').toLowerCase();
+      const source = String(d.source || '');
+      const isSurvey =
+        via.includes('theorem') ||
+        provider.includes('theorem') ||
+        (source === 'offerwall' && !provider.includes('adsterra'));
+      if (isSurvey && coins > 0) {
+        const row = touch(byUid, uid);
+        row.surveyEarnedCoins += coins;
+        row.surveyAdminUsd +=
+          Number(d.adminUsd ?? meta.adminUsd ?? 0) ||
+          Number(meta.providerPayoutUsd ?? meta.providerPayout ?? 0) * 0.7 ||
+          0;
       }
     });
   } catch (e) {
@@ -192,10 +220,14 @@ export async function loadClientUserEconomy(): Promise<
     // Prefer ledger totals; fall back to AdminRevenue userNetCoins if ledgers empty/unreadable
     row.lifetimeEarnedCoins = fromLedger > 0 ? fromLedger : fromRevenue;
     row.lifetimeEarnedUsd = coinsToUsd(row.lifetimeEarnedCoins);
+    row.surveyEarnedUsd = coinsToUsd(row.surveyEarnedCoins);
+    row.surveyAdminUsd = Number(row.surveyAdminUsd.toFixed(6));
     row.adminProfitUsd = Number(row.adminProfitUsd.toFixed(6));
     out[uid] = {
       ...row,
       lifetimeEarnedUsdLabel: formatUsd(row.lifetimeEarnedUsd),
+      surveyEarnedUsdLabel: formatUsd(row.surveyEarnedUsd),
+      surveyAdminUsdLabel: formatUsd(row.surveyAdminUsd),
       withdrawRequestedUsdLabel: formatUsd(coinsToUsd(row.withdrawRequestedCoins)),
       adminProfitUsdLabel: formatUsd(row.adminProfitUsd),
     };

@@ -35,6 +35,17 @@ export type EconomySummary = {
   giftOwnerUsdLabel?: string;
   adOwnerUsd: number;
   adOwnerUsdLabel?: string;
+  /** TheoremReach surveys — admin 70% */
+  surveyOwnerUsd?: number;
+  surveyOwnerUsdLabel?: string;
+  surveyOwnerCoins?: number;
+  /** User 30% credited as full standard reward */
+  surveyUserCoins?: number;
+  surveyUserUsd?: number;
+  surveyUserUsdLabel?: string;
+  surveyGrossUsd?: number;
+  surveyGrossUsdLabel?: string;
+  surveyEventCount?: number;
   pkOwnerCoins?: number;
   pkOwnerUsd?: number;
   pkOwnerUsdLabel?: string;
@@ -70,6 +81,11 @@ function emptySummary(): EconomySummary {
     giftOwnerUsd: 0,
     giftOwnerCoins: 0,
     adOwnerUsd: 0,
+    surveyOwnerUsd: 0,
+    surveyOwnerCoins: 0,
+    surveyUserCoins: 0,
+    surveyGrossUsd: 0,
+    surveyEventCount: 0,
     pkOwnerCoins: 0,
     pkOwnerUsd: 0,
     eventCount: 0,
@@ -317,7 +333,8 @@ export default function AdminEconomyHisaab({ adminUser, refreshKey = 0 }: Props)
             {e.pkOwnerUsdLabel ? ` · ${e.pkOwnerUsdLabel}` : ''}
           </p>
           <p className="text-[8px] text-gray-500 font-bold">
-            Gifts {e.giftOwnerCoins.toLocaleString()} 🪙 · Ads {formatUsd(e.adOwnerUsd)} · Events {e.eventCount}
+            Gifts {e.giftOwnerCoins.toLocaleString()} 🪙 · Ads {formatUsd(e.adOwnerUsd)} · Surveys{' '}
+            {formatUsd(e.surveyOwnerUsd || 0)} · Events {e.eventCount}
           </p>
           <p className="text-[9px] text-gray-400 font-bold">
             After paid withdraws, remaining ≈{' '}
@@ -343,6 +360,45 @@ export default function AdminEconomyHisaab({ adminUser, refreshKey = 0 }: Props)
               <p className="text-gray-500 text-[8px]">Adsterra = real $</p>
             </div>
           </div>
+        </div>
+
+        <div className="rounded-2xl border border-fuchsia-500/30 bg-fuchsia-500/10 p-3 space-y-2">
+          <p className="text-[9px] text-fuchsia-300 font-black uppercase tracking-widest">
+            TheoremReach · Surveys
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="bg-black/25 rounded-xl p-2">
+              <p className="text-[8px] text-gray-500 font-black uppercase">Partner · 100%</p>
+              <p className="text-white text-[11px] font-black">
+                {e.surveyGrossUsdLabel || formatUsd(e.surveyGrossUsd || 0)}
+              </p>
+              <p className="text-[8px] text-gray-500 font-bold">
+                {(e.surveyEventCount || 0).toLocaleString()} completions
+              </p>
+            </div>
+            <div className="bg-black/25 rounded-xl p-2">
+              <p className="text-[8px] text-emerald-400/80 font-black uppercase">You · 70%</p>
+              <p className="text-emerald-300 text-[11px] font-black">
+                {e.surveyOwnerUsdLabel || formatUsd(e.surveyOwnerUsd || 0)}
+              </p>
+              <p className="text-[8px] text-gray-500 font-bold">
+                {(e.surveyOwnerCoins || 0).toLocaleString()} 🪙 ledger
+              </p>
+            </div>
+            <div className="bg-black/25 rounded-xl p-2">
+              <p className="text-[8px] text-amber-300/80 font-black uppercase">Users · 30%</p>
+              <p className="text-amber-300 text-[11px] font-black">
+                {(e.surveyUserCoins || 0).toLocaleString()} 🪙
+              </p>
+              <p className="text-[8px] text-gray-500 font-bold">
+                {e.surveyUserUsdLabel || formatUsd(e.surveyUserUsd || 0)} · shown as full reward
+              </p>
+            </div>
+          </div>
+          <p className="text-[8px] text-fuchsia-200/70 font-bold leading-relaxed">
+            Postback credits users only their 30% as a normal wallet reward (no % label in app). Your
+            70% lands on Hub wallet + this ledger. Real $ settles in TheoremReach publisher dashboard.
+          </p>
         </div>
       </div>
     </div>

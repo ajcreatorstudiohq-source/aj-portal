@@ -79,6 +79,11 @@ type UserEconomyStat = {
   lifetimeEarnedCoins: number;
   lifetimeEarnedUsd: number;
   lifetimeEarnedUsdLabel?: string;
+  surveyEarnedCoins?: number;
+  surveyEarnedUsd?: number;
+  surveyEarnedUsdLabel?: string;
+  surveyAdminUsd?: number;
+  surveyAdminUsdLabel?: string;
   withdrawRequestedCoins: number;
   withdrawPaidCoins: number;
   withdrawPendingCoins: number;
@@ -971,6 +976,28 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
                     </p>
                   </div>
                 </div>
+                {(eco?.surveyEarnedCoins || 0) > 0 || (eco?.surveyAdminUsd || 0) > 0 ? (
+                  <div className="mt-2 rounded-xl border border-fuchsia-500/25 bg-fuchsia-500/5 px-2.5 py-2 flex items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[8px] font-black uppercase tracking-widest text-fuchsia-300/90">
+                        Surveys · TheoremReach
+                      </p>
+                      <p className="text-[10px] font-black text-amber-200 tabular-nums mt-0.5">
+                        User reward {(eco?.surveyEarnedCoins || 0).toLocaleString()} 🪙
+                        <span className="text-zinc-500 font-bold">
+                          {' '}
+                          · {eco?.surveyEarnedUsdLabel || formatUsd(coinsToUsd(eco?.surveyEarnedCoins || 0))}
+                        </span>
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-[8px] font-black uppercase text-emerald-400/80">Your 70%</p>
+                      <p className="text-[10px] font-black text-emerald-300 tabular-nums">
+                        {eco?.surveyAdminUsdLabel || formatUsd(eco?.surveyAdminUsd || 0)}
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             );
           })}

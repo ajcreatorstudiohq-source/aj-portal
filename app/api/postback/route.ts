@@ -161,13 +161,25 @@ function isSuccessStatus(status: string): boolean {
   return /^(lead|success|completed|complete|approved|ok|1|true)$/i.test(status.trim());
 }
 
-function computeUserReward(payout: number, legacyPoints: number): number {
-  // Primary: 30% of partner payout USD at withdraw rate
+/**
+ * User wallet credit = 30% of partner revenue (displayed as their full standard reward).
+ * Prefer USD `currency`/`payout`. For TheoremReach reward-only callbacks, apply 30% to the
+ * incoming virtual-currency amount so admin keeps 70%.
+ */
+function computeUserReward(
+  payout: number,
+  legacyPoints: number,
+  opts?: { applyShareToPoints?: boolean }
+): number {
   if (Number.isFinite(payout) && payout > 0) {
     return userCoinsFromPayoutUsd(payout);
   }
-  // Legacy fallback if network only sends pre-scaled user points
-  if (legacyPoints > 0) return Math.floor(legacyPoints);
+  if (legacyPoints > 0) {
+    if (opts?.applyShareToPoints) {
+      return Math.floor(legacyPoints * USER_EARN_SHARE);
+    }
+    return Math.floor(legacyPoints);
+  }
   return 0;
 }
 
@@ -216,13 +228,21 @@ async function handle(request: Request) {
       );
     }
 
-    const userReward = computeUserReward(params.payout, params.points);
+    const looksLikeTheorem =
+      params.provider.includes('theorem') ||
+      !!params.rewardRaw ||
+      url.searchParams.has('currency') ||
+      url.searchParams.has('reward');
+
+    const userReward = computeUserReward(params.payout, params.points, {
+      applyShareToPoints: looksLikeTheorem,
+    });
     if (userReward <= 0) {
       return NextResponse.json(
         {
           ok: false,
           error: 'invalid_payout',
-          message: 'payout must be > 0 (userReward = floor(payout * 200))',
+          message: 'payout must be > 0 (userReward = floor(payout * 0.3 * 1000))',
         },
         { status: 400 }
       );
@@ -233,11 +253,15 @@ async function handle(request: Request) {
       `${params.uid}_${params.status}_${userReward}_${url.searchParams.get('offer_id') || Date.now()}`;
     const txId = `offer_${txRaw}`.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 180);
 
-    const looksLikeTheorem =
-      params.provider.includes('theorem') ||
-      !!params.rewardRaw ||
-      url.searchParams.has('currency') ||
-      url.searchParams.has('reward');
+    // User sees `userReward` as their full standard reward; admin ledger gets 70%.
+    const userUsd = Number(((userReward / CASH_RATE)).toFixed(6));
+    const providerPayoutUsd =
+      params.payout > 0
+        ? params.payout
+        : USER_EARN_SHARE > 0
+          ? Number((userUsd / USER_EARN_SHARE).toFixed(6))
+          : userUsd;
+    const adminUsd = Number((providerPayoutUsd - userUsd).toFixed(6));
 
     const result = await applyFlatCoins({
       uid: params.uid,
@@ -245,11 +269,19 @@ async function handle(request: Request) {
       source: 'offerwall',
       coins: userReward,
       meta: {
-        providerPayout: params.payout,
+        provider: looksLikeTheorem ? 'theoremreach' : params.provider || 'offerwall',
+        providerPayout: providerPayoutUsd,
+        providerPayoutUsd,
+        providerRewardRaw: params.points || undefined,
         userSharePct: USER_EARN_SHARE,
         platformSharePct: PLATFORM_EARN_SHARE,
         cashRate: CASH_RATE,
         userReward,
+        userUsd,
+        adminUsd,
+        /** Wallet UI shows this amount as 100% of the user's reward (no % copy). */
+        displayLabel: looksLikeTheorem ? 'Survey Reward' : 'Offer Task Reward',
+        userVisibleReward: userReward,
         status: params.status,
         via: looksLikeTheorem ? 'theoremreach_postback' : 'offerwall_postback',
         fromPostback: true,

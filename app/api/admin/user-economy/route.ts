@@ -11,6 +11,11 @@ export type UserEconomyStat = {
   /** Lifetime AJ Coins credited to this user (ledgers). */
   lifetimeEarnedCoins: number;
   lifetimeEarnedUsd: number;
+  /** Survey (TheoremReach) coins credited — shown as full user reward. */
+  surveyEarnedCoins: number;
+  surveyEarnedUsd: number;
+  /** Admin 70% from this user's surveys. */
+  surveyAdminUsd: number;
   /** All withdrawal requests (pending + paid + other). */
   withdrawRequestedCoins: number;
   withdrawPaidCoins: number;
@@ -42,6 +47,9 @@ function emptyStat(uid: string): UserEconomyStat {
     uid,
     lifetimeEarnedCoins: 0,
     lifetimeEarnedUsd: 0,
+    surveyEarnedCoins: 0,
+    surveyEarnedUsd: 0,
+    surveyAdminUsd: 0,
     withdrawRequestedCoins: 0,
     withdrawPaidCoins: 0,
     withdrawPendingCoins: 0,
@@ -112,17 +120,35 @@ export async function GET(request: Request) {
       console.warn('[admin/user-economy] reward_ledger', e);
     }
 
-    // offerwall_ledger — Watch Ads / offerwall
+    // offerwall_ledger — Watch Ads / TheoremReach surveys
     try {
       const snap = await adminDb.collection('offerwall_ledger').limit(4000).get();
       snap.forEach((docSnap) => {
         const d = docSnap.data() as Record<string, unknown>;
         const uid = String(d.uid || '');
+        const meta = (d.meta && typeof d.meta === 'object'
+          ? (d.meta as Record<string, unknown>)
+          : {}) as Record<string, unknown>;
         const coins = Math.max(
           0,
           Math.floor(Number(d.coins ?? d.flatCoins ?? d.userCoins ?? 0) || 0)
         );
         addEarned(uid, coins);
+        const via = String(meta.via || '').toLowerCase();
+        const provider = String(meta.provider || '').toLowerCase();
+        const source = String(d.source || '');
+        const isSurvey =
+          via.includes('theorem') ||
+          provider.includes('theorem') ||
+          (source === 'offerwall' && !provider.includes('adsterra'));
+        if (isSurvey && uid && coins > 0) {
+          const row = touch(uid);
+          row.surveyEarnedCoins += coins;
+          row.surveyAdminUsd +=
+            Number(d.adminUsd ?? meta.adminUsd ?? 0) ||
+            Number(meta.providerPayoutUsd ?? meta.providerPayout ?? 0) * 0.7 ||
+            0;
+        }
       });
     } catch (e) {
       console.warn('[admin/user-economy] offerwall_ledger', e);
@@ -189,6 +215,8 @@ export async function GET(request: Request) {
 
     const users: Record<string, UserEconomyStat & {
       lifetimeEarnedUsdLabel: string;
+      surveyEarnedUsdLabel: string;
+      surveyAdminUsdLabel: string;
       withdrawRequestedUsdLabel: string;
       adminProfitUsdLabel: string;
     }> = {};
@@ -201,10 +229,14 @@ export async function GET(request: Request) {
         row.lifetimeEarnedCoins = lifetimeFromRevenue.get(uid) || 0;
       }
       row.lifetimeEarnedUsd = coinsToUsd(row.lifetimeEarnedCoins);
+      row.surveyEarnedUsd = coinsToUsd(row.surveyEarnedCoins);
+      row.surveyAdminUsd = Number(row.surveyAdminUsd.toFixed(6));
       row.adminProfitUsd = Number(row.adminProfitUsd.toFixed(6));
       users[uid] = {
         ...row,
         lifetimeEarnedUsdLabel: formatUsd(row.lifetimeEarnedUsd),
+        surveyEarnedUsdLabel: formatUsd(row.surveyEarnedUsd),
+        surveyAdminUsdLabel: formatUsd(row.surveyAdminUsd),
         withdrawRequestedUsdLabel: formatUsd(coinsToUsd(row.withdrawRequestedCoins)),
         adminProfitUsdLabel: formatUsd(row.adminProfitUsd),
       };
