@@ -33,12 +33,35 @@ function dayKeyUtc() {
   return new Date().toISOString().slice(0, 10);
 }
 
+/**
+ * Firestore rejects `undefined` field values — omit them before any write.
+ * Shallow only so FieldValue / Timestamp sentinels are preserved.
+ */
+function stripUndefined<T extends Record<string, unknown>>(obj: T): T {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v === undefined) continue;
+    if (
+      v !== null &&
+      typeof v === 'object' &&
+      !Array.isArray(v) &&
+      !(v instanceof Date) &&
+      Object.getPrototypeOf(v) === Object.prototype
+    ) {
+      out[k] = stripUndefined(v as Record<string, unknown>);
+    } else {
+      out[k] = v;
+    }
+  }
+  return out as T;
+}
+
 function adminRevenueFields(
   split: RewardSplit,
   extra: Record<string, unknown> = {},
   shares?: { platformSharePct?: number; userSharePct?: number }
 ) {
-  return {
+  return stripUndefined({
     currency: 'USD',
     platformSharePct: shares?.platformSharePct ?? PLATFORM_EARN_SHARE,
     userSharePct: shares?.userSharePct ?? USER_EARN_SHARE,
@@ -50,7 +73,7 @@ function adminRevenueFields(
     adminShareCoins: split.adminCoins,
     userNetCoins: split.userCoins,
     ...extra,
-  };
+  });
 }
 
 function requireDb() {
@@ -128,15 +151,18 @@ export async function applySplitReward(opts: {
       }
 
       const bal = Math.max(0, Math.floor(Number(data.balance) || 0));
-      tx.set(ledgerRef, {
-        uid,
-        source,
-        txId,
-        ...split,
-        meta,
-        dayKey: typeof meta.dayKey === 'string' ? meta.dayKey : dayKey,
-        createdAt: FieldValue.serverTimestamp(),
-      });
+      tx.set(
+        ledgerRef,
+        stripUndefined({
+          uid,
+          source,
+          txId,
+          ...split,
+          meta: stripUndefined({ ...meta }),
+          dayKey: typeof meta.dayKey === 'string' ? meta.dayKey : dayKey,
+          createdAt: FieldValue.serverTimestamp(),
+        })
+      );
 
       const userUpdate: Record<string, unknown> = {
         balance: bal + split.userCoins,
@@ -148,7 +174,7 @@ export async function applySplitReward(opts: {
         userUpdate[`dailyRewards.${source}.dayKey`] = dayKey;
         userUpdate[`dailyRewards.${source}.count`] = nextDailyCount;
       }
-      tx.update(userRef, userUpdate);
+      tx.update(userRef, stripUndefined(userUpdate));
 
       return { duplicate: false as const, split, dailyCapHit: false };
     });
@@ -301,12 +327,13 @@ export async function applyFlatCoins(opts: {
     adminCoins: Math.floor(adminUsd * CASH_RATE),
   };
   const settled = hasSettled && bookAdminEarnings;
-  const ledgerMeta = {
+  // Never put `undefined` into Firestore (rejects the whole credit write).
+  const ledgerMeta = stripUndefined({
     ...meta,
     settled,
     estimated: !settled,
-    settledPayoutUsd: hasSettled ? settledPayoutUsd : undefined,
-  };
+    ...(hasSettled ? { settledPayoutUsd } : {}),
+  });
 
   try {
     const result = await db.runTransaction(async (tx) => {
@@ -343,18 +370,21 @@ export async function applyFlatCoins(opts: {
 
       const bal = Math.max(0, Math.floor(Number(data.balance) || 0));
       const nextBal = bal + credit;
-      tx.set(ledgerRef, {
-        uid,
-        source,
-        txId,
-        ...split,
-        flatCoins: credit,
-        meta: ledgerMeta,
-        settled,
-        estimated: !settled,
-        dayKey,
-        createdAt: FieldValue.serverTimestamp(),
-      });
+      tx.set(
+        ledgerRef,
+        stripUndefined({
+          uid,
+          source,
+          txId,
+          ...split,
+          flatCoins: credit,
+          meta: ledgerMeta,
+          settled,
+          estimated: !settled,
+          dayKey,
+          createdAt: FieldValue.serverTimestamp(),
+        })
+      );
 
       const userUpdate: Record<string, unknown> = {
         balance: nextBal,
@@ -367,7 +397,7 @@ export async function applyFlatCoins(opts: {
         userUpdate[`dailyRewards.${source}.dayKey`] = dayKey;
         userUpdate[`dailyRewards.${source}.count`] = nextDailyCount;
       }
-      tx.update(userRef, userUpdate);
+      tx.update(userRef, stripUndefined(userUpdate));
 
       return { duplicate: false as const, split, dailyCapHit: false, balance: nextBal };
     });
@@ -423,6 +453,10 @@ export async function applyFlatCoins(opts: {
     };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'reward_failed';
+    console.error('[applyFlatCoins]', msg, { uid, txId, source });
+    if (/undefined/i.test(msg) && /unsupported field|firestore/i.test(msg)) {
+      return { ok: false, error: 'invalid_firestore_payload' };
+    }
     return { ok: false, error: msg };
   }
 }
