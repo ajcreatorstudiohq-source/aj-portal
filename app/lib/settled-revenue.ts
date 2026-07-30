@@ -1,33 +1,36 @@
 /**
  * Settled vs estimated owner revenue.
  *
- * Settled = real partner USD (TheoremReach / Adsterra postback payout, gifts, PK fees).
- * Estimated = invented from ADSTERRA_CLICK_USD / eCPM / reverse coin math —
- * NOT Adsterra dashboard cash. Never treat estimates as withdrawable profit.
+ * Settled / Hub-booked = 70% platform share that was credited to Admin Hub:
+ * - Real partner postbacks (Adsterra / TheoremReach)
+ * - Platform 70/30 reverse-split on user earn coins (math, captcha, games, …)
+ * - Gifts / PK fees
  *
- * All Adsterra formats (direct_link · banner · video · native_banner · social_bar)
- * settle only when meta.via === adsterra_real_postback / settled === true.
+ * Estimated = invented CPC/eCPM from /api/ads/track or unsettled Adsterra
+ * watch rows — NOT counted in Hisaab.
  */
 
 export function isEstimatedRevenueRow(d: Record<string, unknown>): boolean {
+  if (d.bookedToHub === true && d.settled === true) return false;
   if (d.settled === false || d.estimated === true) return true;
   const type = String(d.type || d.source || '').toLowerCase();
   // /api/ads/track used to book full assumed CPC per click/impression
   if (type.startsWith('ad_impression') || type.startsWith('ad_click')) return true;
   if (type === 'ad_complete' || type === 'ad_skip' || type === 'ad_fail') return true;
-  // Watch Ads / any Adsterra format owner share — settled only via real postback
+  // Watch Ads / Adsterra format — only real postback rows count
   if (
     type === 'adsterra_watch' ||
     type === 'offerwall_video' ||
     type.startsWith('adsterra_')
   ) {
-    if (d.settled === true) return false;
+    if (d.settled === true || d.bookedToHub === true) return false;
     return true;
   }
   const meta =
     d.meta && typeof d.meta === 'object'
       ? (d.meta as Record<string, unknown>)
       : {};
+  if (meta.bookedToHub === true && meta.settled === true) return false;
   if (meta.estimated === true || meta.settled === false) return true;
   if (meta.via === 'adsterra_real_postback' && meta.settled === true) return false;
   return false;
