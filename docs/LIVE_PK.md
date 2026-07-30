@@ -1,16 +1,22 @@
-# Live + PK match
+# Live (TikReels · Agora)
 
-## Live
-- Host: Social Hub → Go Live → Start Live (Room ID copy)
-- Viewers: Join Live → tap room or paste **Live Room ID**
-- Real-time `liveViewers` on host + watcher headers
-- Video via RTDB `live_frames/{roomId}/current`; audio via `live_audio`
+ZegoCloud and standalone Go Live / Join Live screens are removed.
 
-## PK (TikTok-style)
-1. Host starts Live → **PK Battle** → enter rival **User ID**
-2. Rival gets accept modal **or** pastes **PK Match ID** on Join Live
-3. Split-screen + shared scores; gifts boost your side in real time
-4. Copy **PK Match ID** during battle to share
+## Host
+1. Social Hub → **AJ TikReels** → **Live** tab
+2. Tap **Go Live** (Agora publishes camera + mic)
+3. Room is listed for others in the Live reel feed
 
-## Firestore rules (publish required)
-`live_rooms`, `pk_sessions` (+ `gifts`), `notifications` — without these, catch-all deny blocks live/PK.
+## Viewer
+1. TikReels → **Live**
+2. Swipe vertical reels of active streams · tap to join (Agora audience)
+
+## Following
+TikReels → **Following** shows videos only from accounts you follow.
+
+## Config
+- `NEXT_PUBLIC_AGORA_APP_ID`
+- `AGORA_APP_CERTIFICATE` (server-only; used by `/api/agora/token`)
+
+## Firestore
+`live_rooms` — discovery, heartbeats, viewer counts (rules still required).
