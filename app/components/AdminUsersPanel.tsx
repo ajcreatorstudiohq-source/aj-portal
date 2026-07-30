@@ -935,7 +935,7 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
                   )}
                 </div>
 
-                {/* Lifetime / withdraw / admin hub profit */}
+                {/* Lifetime / withdraw / hub profit — surveys folded into Lifetime + Hub */}
                 <div className="mt-3 grid grid-cols-3 gap-2">
                   <div className="rounded-xl border border-amber-400/30 bg-amber-500/5 px-2 py-2">
                     <p className="text-[8px] font-black uppercase tracking-widest text-amber-300/90">
@@ -946,6 +946,12 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
                     </p>
                     <p className="text-[8px] text-amber-400/70 font-bold">
                       {eco?.lifetimeEarnedUsdLabel || formatUsd(coinsToUsd(earned))}
+                    </p>
+                    <p className="text-[8px] text-fuchsia-300/85 font-bold mt-1 tabular-nums">
+                      Surveys {(eco?.surveyEarnedCoins || 0).toLocaleString()} 🪙
+                      {(eco?.surveyEarnedCoins || 0) > 0
+                        ? ` · ${eco?.surveyEarnedUsdLabel || formatUsd(coinsToUsd(eco?.surveyEarnedCoins || 0))}`
+                        : ''}
                     </p>
                   </div>
                   <div className="rounded-xl border border-fuchsia-400/30 bg-fuchsia-500/5 px-2 py-2">
@@ -974,30 +980,12 @@ export default function AdminUsersPanel({ adminUser, onBack, onAlert }: Props) {
                       {adminCoins.toLocaleString()} 🪙 share
                       {eco?.adminEvents ? ` · ${eco.adminEvents} evt` : ''}
                     </p>
+                    <p className="text-[8px] text-emerald-300/90 font-bold mt-1 tabular-nums">
+                      Surveys 70%{' '}
+                      {eco?.surveyAdminUsdLabel || formatUsd(eco?.surveyAdminUsd || 0)}
+                    </p>
                   </div>
                 </div>
-                {(eco?.surveyEarnedCoins || 0) > 0 || (eco?.surveyAdminUsd || 0) > 0 ? (
-                  <div className="mt-2 rounded-xl border border-fuchsia-500/25 bg-fuchsia-500/5 px-2.5 py-2 flex items-center gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[8px] font-black uppercase tracking-widest text-fuchsia-300/90">
-                        Surveys · TheoremReach
-                      </p>
-                      <p className="text-[10px] font-black text-amber-200 tabular-nums mt-0.5">
-                        User reward {(eco?.surveyEarnedCoins || 0).toLocaleString()} 🪙
-                        <span className="text-zinc-500 font-bold">
-                          {' '}
-                          · {eco?.surveyEarnedUsdLabel || formatUsd(coinsToUsd(eco?.surveyEarnedCoins || 0))}
-                        </span>
-                      </p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-[8px] font-black uppercase text-emerald-400/80">Your 70%</p>
-                      <p className="text-[10px] font-black text-emerald-300 tabular-nums">
-                        {eco?.surveyAdminUsdLabel || formatUsd(eco?.surveyAdminUsd || 0)}
-                      </p>
-                    </div>
-                  </div>
-                ) : null}
               </div>
             );
           })}

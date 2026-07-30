@@ -218,6 +218,13 @@ export async function applyFlatCoins(opts: {
   enforceDailyCap?: boolean;
   userPatch?: Record<string, unknown>;
   allowZero?: boolean;
+  /**
+   * Real partner payout USD (TheoremReach `currency`). When set, admin/user split
+   * uses this settled gross instead of inventing gross from coins / 0.3.
+   */
+  settledPayoutUsd?: number;
+  /** When false, user coins still credit but AdminRevenue is marked estimated and Hisaab is not incremented. */
+  bookAdminEarnings?: boolean;
 }): Promise<ApplyRewardResult> {
   const {
     uid,
@@ -229,6 +236,8 @@ export async function applyFlatCoins(opts: {
     enforceDailyCap = true,
     userPatch,
     allowZero = false,
+    settledPayoutUsd,
+    bookAdminEarnings = true,
   } = opts;
 
   if (!uid || !txId) return { ok: false, error: 'missing_uid_or_tx' };
@@ -274,15 +283,29 @@ export async function applyFlatCoins(opts: {
   const cap = DAILY_CAPS[source] ?? 5;
 
   const userUsd = coinsToUsd(credit);
-  const totalUsd =
-    USER_EARN_SHARE > 0 ? Number((userUsd / USER_EARN_SHARE).toFixed(6)) : userUsd;
-  const adminUsd = Number((totalUsd - userUsd).toFixed(6));
+  const hasSettled =
+    typeof settledPayoutUsd === 'number' &&
+    Number.isFinite(settledPayoutUsd) &&
+    settledPayoutUsd > 0;
+  const totalUsd = hasSettled
+    ? Number(settledPayoutUsd!.toFixed(6))
+    : USER_EARN_SHARE > 0
+      ? Number((userUsd / USER_EARN_SHARE).toFixed(6))
+      : userUsd;
+  const adminUsd = Number((Math.max(0, totalUsd - userUsd)).toFixed(6));
   const split: RewardSplit = {
     totalUsd,
     userUsd,
     adminUsd,
     userCoins: credit,
     adminCoins: Math.floor(adminUsd * CASH_RATE),
+  };
+  const settled = hasSettled && bookAdminEarnings;
+  const ledgerMeta = {
+    ...meta,
+    settled,
+    estimated: !settled,
+    settledPayoutUsd: hasSettled ? settledPayoutUsd : undefined,
   };
 
   try {
@@ -326,7 +349,9 @@ export async function applyFlatCoins(opts: {
         txId,
         ...split,
         flatCoins: credit,
-        meta,
+        meta: ledgerMeta,
+        settled,
+        estimated: !settled,
         dayKey,
         createdAt: FieldValue.serverTimestamp(),
       });
@@ -365,23 +390,27 @@ export async function applyFlatCoins(opts: {
             type: source,
             uid,
             txId,
-            meta,
+            meta: ledgerMeta,
             flatCoins: credit,
+            settled,
+            estimated: !settled,
             date: FieldValue.serverTimestamp(),
           })
         );
       } catch {
         /* non-fatal */
       }
-      try {
-        await creditAdminEarnings({
-          ownerUsd: result.split.adminUsd,
-          ownerCoins: result.split.adminCoins,
-          source,
-          earnerUid: uid,
-        });
-      } catch {
-        /* non-fatal */
+      if (settled && bookAdminEarnings) {
+        try {
+          await creditAdminEarnings({
+            ownerUsd: result.split.adminUsd,
+            ownerCoins: result.split.adminCoins,
+            source,
+            earnerUid: uid,
+          });
+        } catch {
+          /* non-fatal */
+        }
       }
     }
 

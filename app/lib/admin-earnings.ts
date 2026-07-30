@@ -203,8 +203,6 @@ export async function creditAdminEarnings(opts: {
   if (isSurvey) {
     patch.surveyOwnerUsd = FieldValue.increment(ownerUsd);
     patch.surveyOwnerCoins = FieldValue.increment(ownerCoins);
-    // Keep adOwnerUsd growing for older Hisaab "ads" rollups that included offerwall
-    patch.adOwnerUsd = FieldValue.increment(ownerUsd);
   } else if (isAd) {
     patch.adOwnerUsd = FieldValue.increment(ownerUsd);
   }

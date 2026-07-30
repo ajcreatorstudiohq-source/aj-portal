@@ -48,7 +48,7 @@ export function earnDisplayTitle(
     return String(meta?.displayLabel || 'Offer Task Reward');
   }
   if (source === 'offerwall_video' || String(meta?.provider || '').includes('adsterra')) {
-    return 'Watch Ads Reward';
+    return String(meta?.displayLabel || 'Watch Ads Reward');
   }
   if (source === 'adsterra_watch') return 'Watch Ads Reward';
   if (source in SOURCE_LABELS) {

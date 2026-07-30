@@ -13,13 +13,8 @@ import {
   MATH_CHALLENGE_COINS,
   ALPHA_CAPTCHA_COINS,
 } from '../lib/reward-sources';
-import {
-  ADSTERRA_REWARD_COINS,
-  ADSTERRA_REWARDED_LINK,
-  openAdsterraDirectLink,
-} from '../lib/ads-config';
+import { launchAdsterraUnit, trackAdEvent } from '../lib/ad-client';
 import { handleEarnAndPlayGame } from '../lib/direct-download';
-import { trackAdEvent } from '../lib/ad-client';
 import { guardClick, startIntrusiveAdGuard } from '../lib/ad-guards';
 import type { OnRefreshUser } from '../lib/wallet-refresh';
 import {
@@ -60,22 +55,22 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
   }, [user?.uid, surveyTxId]);
 
   const fireSurveyAdsterra = (phase: 'start' | 'end') => {
-    openAdsterraDirectLink();
-    if (!user) return;
-    trackAdEvent(
+    void launchAdsterraUnit(
       {
         event: 'click',
         placement: 'offerwall_rewarded_video',
-        zoneId: 0,
+        format: 'direct_link',
+        sessionId: surveyTxId || undefined,
         meta: {
           action: phase === 'start' ? 'survey_start_adsterra' : 'survey_end_adsterra',
           provider: 'adsterra',
-          link: ADSTERRA_REWARDED_LINK,
           surveyProvider: 'theoremreach',
+          phase,
+          format: 'direct_link',
         },
       },
       user
-    ).catch(() => {});
+    );
   };
 
   const openSurveys = (e: MouseEvent) => {
@@ -323,7 +318,7 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
             <div className="min-w-0">
               <p className="text-[12px] font-black text-white leading-tight">Watch Ads</p>
               <p className="text-[9px] font-black uppercase tracking-wider text-rose-300 mt-1">
-                30s in-ad · +{ADSTERRA_REWARD_COINS} 🪙
+                30s verify · real payout 70/30
               </p>
             </div>
           </div>

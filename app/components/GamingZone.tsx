@@ -10,7 +10,7 @@ import { openCpaGripOfferWall } from '../lib/cpagrip';
 import { openTheoremReach } from '../lib/offer-hub';
 import BannerAdSlot from './ads/BannerAdSlot';
 import RewardedVideoOffer from './ads/RewardedVideoOffer';
-import { trackAdEvent } from '../lib/ad-client';
+import { launchAdsterraUnit, trackAdEvent } from '../lib/ad-client';
 import { MONETAG_INTERSTITIAL_ZONE, openAdsterraDirectLink } from '../lib/ads-config';
 import type { OnRefreshUser } from '../lib/wallet-refresh';
 import { claimRefreshPatch } from '../lib/wallet-refresh';
@@ -165,15 +165,21 @@ export default function GamingZone({
       if (!e.data || typeof e.data !== 'object') return;
       const type = e.data.type;
       if (type === 'GAME_SHOW_AD') {
-        try {
-          window.open(
-            'https://www.effectivecpmnetwork.com/b8jtkn6i4?key=77409a0e0aa4602b6d03798ff53516b3',
-            '_blank',
-            'noopener,noreferrer'
-          );
-        } catch {
-          /* ignore */
-        }
+        void launchAdsterraUnit(
+          {
+            event: 'click',
+            placement: 'games_interstitial',
+            format: 'video',
+            sessionId: selectedGameId || 'game',
+            meta: {
+              format: 'video',
+              network: 'adsterra',
+              surface: 'in_game',
+              gameId: selectedGameId,
+            },
+          },
+          user
+        );
         return;
       }
       if (
@@ -225,7 +231,7 @@ export default function GamingZone({
         },
         user
       ).catch(() => {});
-      openAdsterraDirectLink();
+      openAdsterraDirectLink({ uid: user?.uid, format: 'direct_link', placement: 'offerwall_rewarded_video' });
       const result = openTheoremReach(user.uid);
       if (result.ok) {
         onAlert(

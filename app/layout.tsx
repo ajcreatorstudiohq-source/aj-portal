@@ -254,7 +254,7 @@ export default function RootLayout({
           strategy="afterInteractive"
           data-adsterra="native-banner"
         />
-        {/* Adsterra Social Bar — end of body */}
+        {/* Adsterra Social Bar — end of body · impressions tracked in-app via AdsterraSocialBarBeacon */}
         <Script
           src={ADSTERRA_SOCIAL_BAR_SRC}
           strategy="afterInteractive"

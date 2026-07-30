@@ -1,12 +1,20 @@
 /**
  * Client helpers for ad impression/click tracking and offerwall rewarded video.
+ * All Adsterra formats share trackAdEvent → /api/ads/track and settle via
+ * /api/ads/adsterra-postback (70% admin · 30% user).
  */
-import type { AdEventType, AdPlacement } from './ads-config';
+import type { AdEventType, AdPlacement, AdsterraFormat } from './ads-config';
+import {
+  adsterraFormatFromPlacement,
+  normalizeAdsterraFormat,
+  openAdsterraDirectLink,
+} from './ads-config';
 
 export type AdTrackResult = {
   ok: boolean;
   error?: string;
   eventId?: string;
+  format?: string;
 };
 
 export type RewardedVideoResult = {
@@ -65,10 +73,17 @@ export async function trackAdEvent(
     placement: AdPlacement | string;
     zoneId?: number;
     meta?: Record<string, unknown>;
+    format?: AdsterraFormat | string;
   },
   user?: { getIdToken: () => Promise<string> } | null
 ): Promise<AdTrackResult> {
   try {
+    const format = normalizeAdsterraFormat(
+      opts.format ||
+        opts.meta?.format ||
+        opts.meta?.adsterraFormat ||
+        adsterraFormatFromPlacement(String(opts.placement || ''))
+    );
     const headers = await authHeaders(user);
     const res = await fetchWithTimeout('/api/ads/track', {
       method: 'POST',
@@ -77,15 +92,60 @@ export async function trackAdEvent(
         event: opts.event,
         placement: opts.placement,
         zoneId: opts.zoneId,
-        meta: opts.meta || {},
+        meta: {
+          ...(opts.meta || {}),
+          network: 'adsterra',
+          provider: 'adsterra',
+          format,
+          adsterraFormat: format,
+          unifiedTracking: true,
+        },
       }),
     });
     const data = (await res.json().catch(() => ({}))) as AdTrackResult;
     if (!res.ok) return { ok: false, error: data.error || `http_${res.status}` };
-    return data;
+    return { ...data, format };
   } catch (e: unknown) {
     return { ok: false, error: e instanceof Error ? e.message : 'track_failed' };
   }
+}
+
+/**
+ * Unified launcher for every Adsterra unit that opens a Direct Link /
+ * click-out (banners, videos, in-feed, PK, games, hub).
+ * Tracks first, then opens an attributed link — payout only via postback 70/30.
+ */
+export async function launchAdsterraUnit(
+  opts: {
+    event?: AdEventType;
+    placement: AdPlacement | string;
+    format?: AdsterraFormat | string;
+    sessionId?: string | null;
+    zoneId?: number;
+    meta?: Record<string, unknown>;
+  },
+  user?: { uid?: string; getIdToken: () => Promise<string> } | null
+): Promise<{ ok: boolean; opened: boolean; format: AdsterraFormat }> {
+  const format = normalizeAdsterraFormat(
+    opts.format || adsterraFormatFromPlacement(String(opts.placement || ''))
+  ) as AdsterraFormat;
+  await trackAdEvent(
+    {
+      event: opts.event || 'click',
+      placement: opts.placement,
+      zoneId: opts.zoneId,
+      format,
+      meta: opts.meta,
+    },
+    user
+  ).catch(() => {});
+  const opened = openAdsterraDirectLink({
+    uid: user?.uid,
+    sessionId: opts.sessionId,
+    format,
+    placement: String(opts.placement || ''),
+  });
+  return { ok: true, opened, format };
 }
 
 export async function prepareRewardedVideo(

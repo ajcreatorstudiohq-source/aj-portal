@@ -2,13 +2,26 @@
  * Adsterra ad configuration for AJ Super Portal.
  * Monetag / gozen / sunny-sprout / alwingulla are permanently removed.
  *
- * Rewarded Watch Ads credit a fixed coin amount (ADSTERRA_REWARD_COINS).
- * Owner still earns real $ from Adsterra dashboard on every Direct Link open.
+ * REAL PAYOUT ONLY — ALL formats (Direct Link · Banner · Video ·
+ * Native Banner · Social Bar) settle via the unified
+ * /api/ads/adsterra-postback handler: 30% user coins · 70% Admin Hub.
+ * Opening a unit never invents CPC or fixed coin rewards.
  */
 
-import { ADSTERRA_CLICK_USD, splitAdClickUsd } from './economy';
+import { buildAdsterraDirectLink } from './adsterra-link';
+import {
+  type AdsterraFormat,
+  adsterraFormatFromPlacement,
+  normalizeAdsterraFormat,
+} from './adsterra-formats';
 
-export { ADSTERRA_CLICK_USD };
+export type { AdsterraFormat };
+export {
+  ADSTERRA_FORMATS,
+  ADSTERRA_SETTLED_POSTBACK,
+  adsterraFormatFromPlacement,
+  normalizeAdsterraFormat,
+} from './adsterra-formats';
 
 /** Social Bar (layout body) */
 export const ADSTERRA_SOCIAL_BAR_SRC =
@@ -24,16 +37,31 @@ export const ADSTERRA_REWARDED_LINK =
   'https://www.effectivecpmnetwork.com/b8jtkn6i4?key=77409a0e0aa4602b6d03798ff53516b3';
 
 /**
- * Open Adsterra Direct Link in a new tab (owner revenue).
- * Used at survey start + survey close, Watch Ads, Earn & Play, etc.
+ * Open Adsterra Direct Link in a new tab (owner revenue in Adsterra dashboard).
+ * Pass uid/sessionId/format so every format attributes to the unified 70/30 postback.
  */
-export function openAdsterraDirectLink(): boolean {
+export function openAdsterraDirectLink(opts?: {
+  uid?: string | null;
+  sessionId?: string | null;
+  format?: AdsterraFormat | string | null;
+  placement?: string | null;
+}): boolean {
   if (typeof window === 'undefined') return false;
-  if (!ADSTERRA_REWARDED_LINK) return false;
+  const placement = opts?.placement || undefined;
+  const format = normalizeAdsterraFormat(
+    opts?.format ||
+      (placement ? adsterraFormatFromPlacement(placement) : 'direct_link')
+  );
+  const href = buildAdsterraDirectLink({
+    uid: opts?.uid,
+    sessionId: opts?.sessionId,
+    format,
+    placement,
+  });
+  if (!href) return false;
   try {
-    const win = window.open(ADSTERRA_REWARDED_LINK, '_blank', 'noopener,noreferrer');
+    const win = window.open(href, '_blank', 'noopener,noreferrer');
     if (win) return true;
-    // Soft fallback — do not force navigation away from survey iframe
     console.warn('[AJ] Adsterra popup blocked');
     return false;
   } catch (e) {
@@ -42,18 +70,18 @@ export function openAdsterraDirectLink(): boolean {
   }
 }
 
-/** Alias — impression/click track estimates use the same click $ base */
-export const AD_CLICK_VALUE_USD = ADSTERRA_CLICK_USD;
+/**
+ * @deprecated Estimates removed — real Adsterra $ only via postback.
+ * Kept at 0 so any leftover estimate math cannot inflate Hisaab.
+ */
+export const ADSTERRA_CLICK_USD = 0;
+/** @deprecated */
+export const AD_CLICK_VALUE_USD = 0;
 
-/** Full 70/30 split of one Adsterra click (ledger / hisaab) */
-export function getAdsterraClickSplit() {
-  return splitAdClickUsd(ADSTERRA_CLICK_USD);
-}
+/** @deprecated Fixed invent-coins removed — display hint only until real payout posts */
+export const ADSTERRA_REWARD_COINS = 0;
 
-/** User AJ Coins per Watch Ads / rewarded Direct Link claim */
-export const ADSTERRA_REWARD_COINS = 5;
-
-/** Watch-ad verification timer before Claim unlocks (high-quality visit) */
+/** Watch-ad verification timer (quality signal) before session marked verified */
 export const ADSTERRA_VERIFY_SECONDS = 30;
 
 /** Insert TikTok-style Adsterra in-feed slide after every N posts */
@@ -72,8 +100,8 @@ export const OFFERWALL_VIDEO_MAX_DAILY = Number(
     8
 );
 
-/** Estimated admin eCPM used when logging impression revenue (no user credit). */
-export const AD_IMPRESSION_ECPM_USD = 2.5;
+/** @deprecated Impression eCPM estimates removed from profit ledger */
+export const AD_IMPRESSION_ECPM_USD = 0;
 
 export const AD_PLACEMENTS = [
   'hub_nav_interstitial',

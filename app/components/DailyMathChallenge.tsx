@@ -3,7 +3,8 @@
 import { useCallback, useState } from 'react';
 import { Calculator, ExternalLink, Gift, Loader2 } from 'lucide-react';
 import { MATH_CHALLENGE_COINS } from '../lib/reward-sources';
-import { ADSTERRA_REWARDED_LINK } from '../lib/ads-config';
+import { buildAdsterraDirectLink } from '../lib/adsterra-link';
+import { launchAdsterraUnit } from '../lib/ad-client';
 import { guardClick, startIntrusiveAdGuard } from '../lib/ad-guards';
 import type { OnRefreshUser } from '../lib/wallet-refresh';
 import { claimRefreshPatch } from '../lib/wallet-refresh';
@@ -24,12 +25,16 @@ export default function DailyMathChallenge({ user, onAlert, onRefreshUser }: Pro
 
   const openAdsterra = () => {
     startIntrusiveAdGuard();
-    try {
-      const win = window.open(ADSTERRA_REWARDED_LINK, '_blank', 'noopener,noreferrer');
-      if (!win) window.location.assign(ADSTERRA_REWARDED_LINK);
-    } catch {
-      /* ignore */
-    }
+    void launchAdsterraUnit(
+      {
+        event: 'click',
+        placement: 'offerwall_rewarded_video',
+        format: 'direct_link',
+        sessionId,
+        meta: { surface: 'math_challenge', format: 'direct_link' },
+      },
+      user
+    );
   };
 
   const authFetch = useCallback(
@@ -124,7 +129,10 @@ export default function DailyMathChallenge({ user, onAlert, onRefreshUser }: Pro
         sessionId,
         answer: n,
         adViewed: true,
-        meta: { provider: 'adsterra', link: ADSTERRA_REWARDED_LINK },
+        meta: {
+          provider: 'adsterra',
+          link: buildAdsterraDirectLink({ uid: user.uid, sessionId }),
+        },
       });
       if (typeof data.remainingToday === 'number') setRemaining(data.remainingToday);
       const credited = Number(data.creditedCoins || 0);

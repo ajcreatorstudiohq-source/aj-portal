@@ -15,6 +15,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { CASH_RATE, coinsToUsd, formatUsd } from './economy';
+import { isEstimatedRevenueRow } from './settled-revenue';
 
 export type ClientUserEconomyStat = {
   uid: string;
@@ -101,15 +102,6 @@ export async function loadClientUserEconomy(): Promise<
       const uid = String(d.uid || d.earnerUid || '');
       if (!uid || uid === 'anonymous') return;
       const row = touch(byUid, uid);
-      const usd = Number(d.ownerUsd ?? d.adminShare ?? 0) || 0;
-      const coins =
-        Number(d.adminShareCoins ?? d.entryCoins ?? 0) ||
-        Math.floor(usd * CASH_RATE);
-      if (usd > 0 || coins > 0) {
-        row.adminProfitUsd += usd;
-        row.adminProfitCoins += coins;
-        row.adminEvents += 1;
-      }
       const userCoins = Math.max(
         0,
         Math.floor(
@@ -127,6 +119,16 @@ export async function loadClientUserEconomy(): Promise<
           uid,
           (lifetimeFromRevenue.get(uid) || 0) + userCoins
         );
+      }
+      if (isEstimatedRevenueRow(d)) return;
+      const usd = Number(d.ownerUsd ?? d.adminShare ?? 0) || 0;
+      const coins =
+        Number(d.adminShareCoins ?? d.entryCoins ?? 0) ||
+        Math.floor(usd * CASH_RATE);
+      if (usd > 0 || coins > 0) {
+        row.adminProfitUsd += usd;
+        row.adminProfitCoins += coins;
+        row.adminEvents += 1;
       }
     });
   } catch (e) {
@@ -185,10 +187,13 @@ export async function loadClientUserEconomy(): Promise<
       if (isSurvey && coins > 0) {
         const row = touch(byUid, uid);
         row.surveyEarnedCoins += coins;
-        row.surveyAdminUsd +=
-          Number(d.adminUsd ?? meta.adminUsd ?? 0) ||
-          Number(meta.providerPayoutUsd ?? meta.providerPayout ?? 0) * 0.7 ||
-          0;
+        if (!(d.settled === false || meta.settled === false || meta.estimated === true)) {
+          const payout = Number(meta.providerPayoutUsd ?? meta.providerPayout ?? 0);
+          row.surveyAdminUsd +=
+            Number(d.adminUsd ?? meta.adminUsd ?? 0) ||
+            (payout > 0 ? payout * 0.7 : 0) ||
+            0;
+        }
       }
     });
   } catch (e) {

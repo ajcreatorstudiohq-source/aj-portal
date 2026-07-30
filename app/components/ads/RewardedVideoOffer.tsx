@@ -5,12 +5,11 @@ import { ExternalLink, Gift, Loader2, Play, X } from 'lucide-react';
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import {
-  ADSTERRA_REWARD_COINS,
-  ADSTERRA_REWARDED_LINK,
   ADSTERRA_VERIFY_SECONDS,
   OFFERWALL_VIDEO_MAX_DAILY,
   REWARDED_VIDEO_COOLDOWN_MS,
 } from '../../lib/ads-config';
+import { buildAdsterraDirectLink } from '../../lib/adsterra-link';
 import { guardClick, startIntrusiveAdGuard } from '../../lib/ad-guards';
 import { prepareRewardedVideo } from '../../lib/ad-client';
 import type { OnRefreshUser } from '../../lib/wallet-refresh';
@@ -320,7 +319,7 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
         verifiedPopupShownRef.current = true;
         showOkPopup(
           'Ad Verified',
-          `You completed ${ADSTERRA_VERIFY_SECONDS} seconds on the ad.\n\nTap Claim to receive +${ADSTERRA_REWARD_COINS} AJ Coins 🪙.`
+          `You completed ${ADSTERRA_VERIFY_SECONDS} seconds on the ad.\n\nTap Confirm — coins credit only from real Adsterra payout (your 30% as a normal reward).`
         );
       }
     },
@@ -371,7 +370,7 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
         verifiedPopupShownRef.current = true;
         showOkPopup(
           'Ad Verified',
-          `You completed ${ADSTERRA_VERIFY_SECONDS} seconds on the ad.\n\nTap Claim to receive +${ADSTERRA_REWARD_COINS} AJ Coins 🪙.`
+          `You completed ${ADSTERRA_VERIFY_SECONDS} seconds on the ad.\n\nTap Confirm — coins credit only from real Adsterra payout (your 30% as a normal reward).`
         );
       }
       return;
@@ -555,12 +554,18 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
   );
 
   const openAdLink = useCallback(() => {
-    if (!ADSTERRA_REWARDED_LINK) {
+    const href = buildAdsterraDirectLink({
+      uid: user?.uid,
+      sessionId: sessionIdRef.current || sessionId || undefined,
+      format: 'video',
+      placement: 'offerwall_rewarded_video',
+    });
+    if (!href) {
       throw new Error('Ad link not configured');
     }
     let opened = false;
     try {
-      const win = window.open(ADSTERRA_REWARDED_LINK, '_blank', 'noopener,noreferrer');
+      const win = window.open(href, '_blank', 'noopener,noreferrer');
       if (win) {
         opened = true;
         try {
@@ -575,14 +580,14 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
     }
     if (!opened) {
       onAlert(
-        'Popup blocked. Opening ad in this tab — stay 30s, then press Back to claim.',
+        'Popup blocked. Opening ad in this tab — stay 30s, then press Back.',
         'ℹ️'
       );
-      window.location.assign(ADSTERRA_REWARDED_LINK);
+      window.location.assign(href);
       return 'same_tab' as const;
     }
     return 'new_tab' as const;
-  }, [onAlert]);
+  }, [onAlert, user?.uid, sessionId]);
 
   const beginVerifiedWatch = useCallback(
     (sid: string, preparedAt: number) => {
@@ -821,6 +826,8 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
           balance?: number;
           remainingToday?: number;
           duplicate?: boolean;
+          awaitingSettlement?: boolean;
+          settled?: boolean;
           diag?: { lastError?: string | null; configured?: boolean };
         } = {};
         let serverUnreachable = false;
@@ -839,8 +846,16 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
               sessionId: sid,
               meta: {
                 provider: 'adsterra',
-                link: ADSTERRA_REWARDED_LINK,
+                link: buildAdsterraDirectLink({
+                  uid: user.uid,
+                  sessionId: sid,
+                  format: 'video',
+                  placement: 'offerwall_rewarded_video',
+                }),
                 verifySeconds: ADSTERRA_VERIFY_SECONDS,
+                format: 'video',
+                adsterraFormat: 'video',
+                unifiedTracking: true,
                 preparedAt: preparedAtRef.current || undefined,
                 enteredAdAt: enteredAdAtRef.current,
                 leftAdAt: leftAdAtRef.current,
@@ -882,6 +897,7 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
           setSessionId(null);
           sessionIdRef.current = null;
           const credited = Number(data.creditedCoins || 0);
+          const awaiting = data.awaitingSettlement === true || data.settled === false;
           // Refresh Hub balance FIRST (before popup) so UI updates on first claim.
           // Absolute balance only when present — avoids double-count with creditedCoins.
           await onRefreshUser?.(
@@ -895,13 +911,19 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
             showWarnPopup(
               'Already Claimed',
               data.message ||
-                'This ad session was already claimed. Start Watch Ads again for more coins.'
+                'This ad session was already processed. Start Watch Ads again.'
+            );
+          } else if (awaiting && credited <= 0) {
+            showOkPopup(
+              'Verified · Awaiting Payout',
+              data.message ||
+                'Ad verified. AJ Coins credit when Adsterra registers the real payout (30% to you).'
             );
           } else if (credited <= 0) {
             showWarnPopup(
-              'Claim Incomplete',
+              'No Coins Yet',
               data.message ||
-                'No coins were credited. Start Watch Ads again and wait the full timer.'
+                'No real Adsterra payout credited yet.'
             );
           } else {
             showOkPopup(
@@ -996,9 +1018,9 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
         <div className="min-w-0 flex-1">
           <p className="text-sm font-black text-white">Watch Ads</p>
           <p className="text-[11px] text-gray-300 leading-relaxed mt-0.5">
-            Open Adsterra and stay on that tab for {ADSTERRA_VERIFY_SECONDS}s. Come back after
-            the timer finishes to claim{' '}
-            <span className="text-sky-300 font-bold">+{ADSTERRA_REWARD_COINS} AJ Coins 🪙</span>.
+            Open Adsterra and stay {ADSTERRA_VERIFY_SECONDS}s. Coins credit only from the{' '}
+            <span className="text-sky-300 font-bold">real Adsterra payout</span> — you get 30% as
+            your standard reward; Hub keeps 70%.
           </p>
           <p className="text-[9px] text-gray-500 mt-1">
             Adsterra · up to {OFFERWALL_VIDEO_MAX_DAILY}/day
@@ -1061,7 +1083,7 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
             </>
           ) : (
             <>
-              <Gift size={14} /> Claim {ADSTERRA_REWARD_COINS} Coins 🪙
+              <Gift size={14} /> Confirm · await real payout
             </>
           )}
         </button>

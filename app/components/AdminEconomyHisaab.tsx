@@ -35,6 +35,9 @@ export type EconomySummary = {
   giftOwnerUsdLabel?: string;
   adOwnerUsd: number;
   adOwnerUsdLabel?: string;
+  /** Assumed CPC leftovers — not Adsterra dashboard cash */
+  estimatedAdOwnerUsd?: number;
+  estimatedAdOwnerUsdLabel?: string;
   /** TheoremReach surveys — admin 70% */
   surveyOwnerUsd?: number;
   surveyOwnerUsdLabel?: string;
@@ -81,6 +84,7 @@ function emptySummary(): EconomySummary {
     giftOwnerUsd: 0,
     giftOwnerCoins: 0,
     adOwnerUsd: 0,
+    estimatedAdOwnerUsd: 0,
     surveyOwnerUsd: 0,
     surveyOwnerCoins: 0,
     surveyUserCoins: 0,
@@ -325,8 +329,8 @@ export default function AdminEconomyHisaab({ adminUser, refreshKey = 0 }: Props)
             {e.adminOwnerUsdLabel || formatUsd(e.adminOwnerUsd)}
           </p>
           <p className="text-[8px] text-emerald-200/70 font-bold">
-            New earns credit this amount to your admin ID Hub wallet (70% ads / 40% gifts / 100% PK).
-            User withdraws only pay their 30% — your share stays profit.
+            Settled partner USD only (TheoremReach postbacks, gifts, PK). Assumed Adsterra CPC is
+            excluded so Hisaab cannot exceed real network dashboards.
           </p>
           <p className="text-[9px] text-orange-300/90 font-bold">
             PK entries saved: {(e.pkOwnerCoins || 0).toLocaleString()} 🪙
@@ -353,11 +357,18 @@ export default function AdminEconomyHisaab({ adminUser, refreshKey = 0 }: Props)
               </p>
             </div>
             <div className="bg-black/20 rounded-xl p-2">
-              <p className="text-[8px] text-gray-500 font-black uppercase">Ads estimate</p>
+              <p className="text-[8px] text-gray-500 font-black uppercase">Ads (settled)</p>
               <p className="text-emerald-400 text-[10px] font-bold">
                 {e.adOwnerUsdLabel || formatUsd(e.adOwnerUsd)}
               </p>
-              <p className="text-gray-500 text-[8px]">Adsterra = real $</p>
+              <p className="text-gray-500 text-[8px]">
+                Real Adsterra $ is in Adsterra dashboard
+              </p>
+              {(e.estimatedAdOwnerUsd || 0) > 0 ? (
+                <p className="text-amber-400/80 text-[8px] font-bold mt-0.5">
+                  Est. ignored {e.estimatedAdOwnerUsdLabel || formatUsd(e.estimatedAdOwnerUsd || 0)}
+                </p>
+              ) : null}
             </div>
           </div>
         </div>

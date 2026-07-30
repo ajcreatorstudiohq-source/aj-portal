@@ -5,10 +5,10 @@ import { Eye, Gift, Heart, MessageSquare, Share2 } from 'lucide-react';
 import {
   ADSTERRA_NATIVE_BANNER_ID,
   ADSTERRA_NATIVE_BANNER_SRC,
-  ADSTERRA_REWARDED_LINK,
   AD_FALLBACK_POSTERS,
   AD_FALLBACK_VIDEOS,
 } from '../../lib/ads-config';
+import { launchAdsterraUnit } from '../../lib/ad-client';
 import { guardClick, startIntrusiveAdGuard } from '../../lib/ad-guards';
 
 let nativeScriptLoading = false;
@@ -50,15 +50,22 @@ type Props = {
   slotKey?: string;
   /** When false, pause background video */
   active?: boolean;
+  user?: { uid?: string; getIdToken: () => Promise<string> } | null;
+  placement?: string;
 };
 
 /**
  * TikTok-style in-feed ad slide:
  * - Looks like a normal reel (video + right actions + caption)
  * - Real Adsterra Native Banner mounts full-bleed (paid impressions)
- * - Tap / Open Offer → Adsterra Direct Link (paid clicks)
+ * - Tap / Open Offer → attributed Direct Link (unified 70/30 postback)
  */
-export default function InFeedVideoAd({ slotKey = 'feed', active = true }: Props) {
+export default function InFeedVideoAd({
+  slotKey = 'feed',
+  active = true,
+  user = null,
+  placement = 'tikreel_infeed',
+}: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const reactId = useId().replace(/:/g, '');
@@ -161,12 +168,21 @@ export default function InFeedVideoAd({ slotKey = 'feed', active = true }: Props
   const openOffer = (e?: { preventDefault?: () => void; stopPropagation?: () => void }) => {
     guardClick(e);
     startIntrusiveAdGuard();
-    try {
-      const win = window.open(ADSTERRA_REWARDED_LINK, '_blank');
-      if (!win) window.location.assign(ADSTERRA_REWARDED_LINK);
-    } catch {
-      window.location.assign(ADSTERRA_REWARDED_LINK);
-    }
+    void launchAdsterraUnit(
+      {
+        event: 'click',
+        placement,
+        format: 'native_banner',
+        sessionId: slotKey,
+        meta: {
+          format: 'native_banner',
+          network: 'adsterra',
+          surface: 'infeed_video',
+          slotKey,
+        },
+      },
+      user
+    );
   };
 
   return (
