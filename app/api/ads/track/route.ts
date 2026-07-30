@@ -6,8 +6,6 @@ import {
   MONETAG_INTERSTITIAL_ZONE,
   type AdEventType,
 } from '../../../lib/ads-config';
-import { PLATFORM_EARN_SHARE, USER_EARN_SHARE, CASH_RATE } from '../../../lib/economy';
-import { creditAdminEarnings } from '../../../lib/admin-earnings';
 import {
   bearerFromRequest,
   verifyFirebaseIdToken,
@@ -22,8 +20,11 @@ const EVENTS: AdEventType[] = ['impression', 'click', 'complete', 'skip', 'fail'
 
 /**
  * POST /api/ads/track
- * Auth optional (Bearer). Logs impression/click/complete to `ad_events`
- * via Admin SDK (client SDK has no auth on the server → permission denied).
+ * Auth optional (Bearer). Logs impression/click/complete to `ad_events` only.
+ *
+ * IMPORTANT: Does NOT credit AdminRevenue / admin_stats with assumed CPC.
+ * Those estimates inflated Hisaab far above real Adsterra dashboard $.
+ * Real Adsterra cash stays in the Adsterra publisher dashboard.
  */
 export async function POST(request: Request) {
   try {
@@ -49,7 +50,6 @@ export async function POST(request: Request) {
 
     const adminDb = getAdminDb();
     if (!adminDb) {
-      // Tracking must never crash the claim UX — soft-fail
       return NextResponse.json({
         ok: true,
         skipped: true,
@@ -67,51 +67,22 @@ export async function POST(request: Request) {
       meta,
       createdAt: FieldValue.serverTimestamp(),
       dayKey: new Date().toISOString().slice(0, 10),
+      // Reference only — never booked as settled profit
+      estimatedClickUsd: event === 'click' ? AD_CLICK_VALUE_USD : 0,
+      estimatedImpressionUsd:
+        event === 'impression' ? Number((AD_IMPRESSION_ECPM_USD / 1000).toFixed(6)) : 0,
     });
 
-    let adminUsd = 0;
-    if (event === 'impression') {
-      adminUsd = Number((AD_IMPRESSION_ECPM_USD / 1000).toFixed(6));
-    } else if (event === 'click') {
-      adminUsd = AD_CLICK_VALUE_USD;
-    }
-
-    if (adminUsd > 0) {
-      try {
-        await adminDb.collection('AdminRevenue').add({
-          type: `ad_${event}`,
-          source: 'ad_network',
-          currency: 'USD',
-          platformSharePct: PLATFORM_EARN_SHARE,
-          userSharePct: USER_EARN_SHARE,
-          placement,
-          zoneId,
-          uid,
-          adminShare: adminUsd,
-          ownerUsd: adminUsd,
-          adminShareCoins: Math.floor(adminUsd * CASH_RATE),
-          userNet: 0,
-          totalPool: adminUsd,
-          eventId: eventRef.id,
-          createdAt: FieldValue.serverTimestamp(),
-        });
-        await creditAdminEarnings({
-          ownerUsd: adminUsd,
-          ownerCoins: Math.floor(adminUsd * CASH_RATE),
-          source: `ad_${event}`,
-          earnerUid: uid !== 'anonymous' ? uid : undefined,
-          forceWalletCredit: true,
-        });
-      } catch {
-        /* non-fatal */
-      }
-    }
-
-    return NextResponse.json({ ok: true, eventId: eventRef.id, adminUsd });
+    return NextResponse.json({
+      ok: true,
+      eventId: eventRef.id,
+      adminUsd: 0,
+      bookedToHisaab: false,
+      note: 'Events logged only — Adsterra real $ is in the publisher dashboard, not invented here.',
+    });
   } catch (e: unknown) {
     console.error('[ads/track]', e);
     const norm = normalizeServerClaimFailure(e);
-    // Soft-fail tracking — never break Hub claim UX
     return NextResponse.json(
       { ok: true, skipped: true, error: norm.error, message: norm.message },
       { status: 200 }
@@ -125,5 +96,6 @@ export async function GET() {
     events: EVENTS,
     impressionEcpmUsd: AD_IMPRESSION_ECPM_USD,
     clickValueUsd: AD_CLICK_VALUE_USD,
+    booksToHisaab: false,
   });
 }

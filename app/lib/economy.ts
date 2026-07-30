@@ -101,9 +101,10 @@ export const PREMIUM_DIRECT_GAMES = [
 export const PREMIUM_CPA_GAMES = PREMIUM_DIRECT_GAMES;
 
 /**
- * Estimated USD YOU earn per successful Adsterra Direct Link / Watch Ads click.
- * Override with NEXT_PUBLIC_ADSTERRA_CLICK_USD from your real dashboard CPC.
- * Keep ≤ real average CPC or user 30% withdraw liability can exceed income.
+ * Estimated USD for economics guards / reference only — NOT booked as Hisaab profit.
+ * Set ADSTERRA_REAL_CPC_USD from your real Adsterra dashboard average CPC
+ * (e.g. if dashboard shows $0.03 across clicks, use that CPC — never invent $0.05).
+ * Override with NEXT_PUBLIC_ADSTERRA_CLICK_USD / ADSTERRA_CLICK_USD.
  */
 export const ADSTERRA_CLICK_USD = Math.max(
   0,

@@ -268,6 +268,8 @@ async function handle(request: Request) {
       txId,
       source: 'offerwall',
       coins: userReward,
+      settledPayoutUsd: params.payout > 0 ? providerPayoutUsd : undefined,
+      bookAdminEarnings: params.payout > 0,
       meta: {
         provider: looksLikeTheorem ? 'theoremreach' : params.provider || 'offerwall',
         providerPayout: providerPayoutUsd,
@@ -279,12 +281,13 @@ async function handle(request: Request) {
         userReward,
         userUsd,
         adminUsd,
-        /** Wallet UI shows this amount as 100% of the user's reward (no % copy). */
         displayLabel: looksLikeTheorem ? 'Survey Reward' : 'Offer Task Reward',
         userVisibleReward: userReward,
         status: params.status,
         via: looksLikeTheorem ? 'theoremreach_postback' : 'offerwall_postback',
         fromPostback: true,
+        settled: params.payout > 0,
+        estimated: !(params.payout > 0),
       },
       ledgerCollection: 'offerwall_ledger',
       enforceDailyCap: false,
@@ -309,10 +312,14 @@ async function handle(request: Request) {
       ok: true,
       duplicate: !!result.duplicate,
       userId: params.uid,
-      providerPayout: params.payout,
+      provider: looksLikeTheorem ? 'theoremreach' : 'offerwall',
+      providerPayout: providerPayoutUsd,
       userSharePct: USER_EARN_SHARE,
+      platformSharePct: PLATFORM_EARN_SHARE,
+      /** Coins credited — shown to user as their full standard reward */
       creditedCoins: result.balanceCredited ?? 0,
-      adminUsd: result.split?.adminUsd,
+      userVisibleReward: result.balanceCredited ?? 0,
+      adminUsd: result.split?.adminUsd ?? adminUsd,
       message: result.duplicate
         ? 'Already credited'
         : `+${result.balanceCredited} AJ Coins 🪙`,

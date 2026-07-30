@@ -15,8 +15,7 @@ import {
   bearerFromRequest,
   verifyFirebaseIdToken,
 } from '../../../lib/verify-id-token';
-import { validateWatchAdsEconomics, revenueSplitLabel } from '../../../lib/ad-revenue-guard';
-import { creditAdminEarnings } from '../../../lib/admin-earnings';
+import { validateWatchAdsEconomics, revenueSplitLabel, getEffectiveAdCpcUsd } from '../../../lib/ad-revenue-guard';
 import { normalizeServerClaimFailure, publicClaimErrorMessage } from '../../../lib/claim-errors';
 
 export const runtime = 'nodejs';
@@ -28,10 +27,14 @@ function dayKeyUtc() {
   return new Date().toISOString().slice(0, 10);
 }
 
-/** Fixed Watch Ads coins + admin keeps rest of click USD (no-loss margin). */
+/**
+ * Watch Ads user coins + reference CPC split for audit only.
+ * Owner USD here is ESTIMATED from configured CPC — NOT Adsterra dashboard cash.
+ * Do not creditAdminEarnings with this amount (prevents Hisaab inflation).
+ */
 function rewardedClaimSplit(coins: number) {
   const userUsd = coinsToUsd(coins);
-  const clickUsd = Math.max(ADSTERRA_CLICK_USD, userUsd);
+  const clickUsd = Math.max(getEffectiveAdCpcUsd(), userUsd);
   const adminUsd = Number((clickUsd - userUsd).toFixed(6));
   return {
     totalUsd: clickUsd,
@@ -446,8 +449,10 @@ export async function POST(request: Request) {
         return { duplicate: false as const, credited: coins, balance: nextBal, nextCount };
       });
 
-      if (!result.duplicate && split.adminUsd > 0) {
+      if (!result.duplicate) {
         try {
+          // Audit-only estimate — real Adsterra $ stays in publisher dashboard.
+          // Never creditAdminEarnings here (was inflating Hisaab vs ~$0.03 reality).
           await adminDb.collection('AdminRevenue').add({
             type: 'adsterra_watch',
             source: 'adsterra',
@@ -462,15 +467,12 @@ export async function POST(request: Request) {
             adminShareCoins: split.adminCoins,
             userNet: split.userUsd,
             userNetCoins: result.credited,
-            clickUsd: ADSTERRA_CLICK_USD,
+            clickUsd: getEffectiveAdCpcUsd(),
+            assumedClickUsd: ADSTERRA_CLICK_USD,
+            estimated: true,
+            settled: false,
             txId,
             createdAt: FieldValue.serverTimestamp(),
-          });
-          await creditAdminEarnings({
-            ownerUsd: split.adminUsd,
-            ownerCoins: split.adminCoins,
-            source: 'adsterra_watch',
-            earnerUid: user.uid,
           });
         } catch {
           /* non-fatal — user already credited */
@@ -484,7 +486,9 @@ export async function POST(request: Request) {
         balance: result.balance,
         clickUsd: split.totalUsd,
         userUsd: split.userUsd,
-        adminUsd: split.adminUsd,
+        adminUsd: 0,
+        estimatedAdminUsd: split.adminUsd,
+        bookedToHisaab: false,
         remainingToday: Math.max(0, OFFERWALL_VIDEO_MAX_DAILY - result.nextCount),
         message: result.duplicate
           ? 'Already claimed for this ad session. Start Watch Ads again.'
@@ -619,7 +623,7 @@ export async function POST(request: Request) {
       return { duplicate: false as const, credited: coins, balance: nextBal, nextCount };
     });
 
-    if (!creditResult.duplicate && split.adminUsd > 0) {
+    if (!creditResult.duplicate) {
       try {
         await adminDb.collection('AdminRevenue').add({
           type: 'adsterra_watch',
@@ -635,15 +639,12 @@ export async function POST(request: Request) {
           adminShareCoins: split.adminCoins,
           userNet: split.userUsd,
           userNetCoins: creditResult.credited,
-          clickUsd: ADSTERRA_CLICK_USD,
+          clickUsd: getEffectiveAdCpcUsd(),
+          assumedClickUsd: ADSTERRA_CLICK_USD,
+          estimated: true,
+          settled: false,
           txId,
           createdAt: FieldValue.serverTimestamp(),
-        });
-        await creditAdminEarnings({
-          ownerUsd: split.adminUsd,
-          ownerCoins: split.adminCoins,
-          source: 'adsterra_watch',
-          earnerUid: user.uid,
         });
       } catch {
         /* non-fatal */
@@ -657,7 +658,9 @@ export async function POST(request: Request) {
       balance: creditResult.balance,
       clickUsd: split.totalUsd,
       userUsd: split.userUsd,
-      adminUsd: split.adminUsd,
+      adminUsd: 0,
+      estimatedAdminUsd: split.adminUsd,
+      bookedToHisaab: false,
       remainingToday: Math.max(0, OFFERWALL_VIDEO_MAX_DAILY - creditResult.nextCount),
       status: 'completed',
       message: creditResult.duplicate

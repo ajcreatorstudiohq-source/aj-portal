@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { verifyAdminFromRequest } from '../../../lib/admin-auth';
 import { getAdminDb } from '../../../lib/firebase-admin';
 import { CASH_RATE, coinsToUsd, formatUsd } from '../../../lib/economy';
+import { isEstimatedRevenueRow } from '../../../lib/settled-revenue';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -144,10 +145,14 @@ export async function GET(request: Request) {
         if (isSurvey && uid && coins > 0) {
           const row = touch(uid);
           row.surveyEarnedCoins += coins;
-          row.surveyAdminUsd +=
-            Number(d.adminUsd ?? meta.adminUsd ?? 0) ||
-            Number(meta.providerPayoutUsd ?? meta.providerPayout ?? 0) * 0.7 ||
-            0;
+          // Only count settled partner USD toward survey hub share
+          if (!(d.settled === false || meta.settled === false || meta.estimated === true)) {
+            const payout = Number(meta.providerPayoutUsd ?? meta.providerPayout ?? 0);
+            row.surveyAdminUsd +=
+              Number(d.adminUsd ?? meta.adminUsd ?? 0) ||
+              (payout > 0 ? payout * 0.7 : 0) ||
+              0;
+          }
         }
       });
     } catch (e) {
@@ -172,7 +177,7 @@ export async function GET(request: Request) {
       console.warn('[admin/user-economy] withdrawals', e);
     }
 
-    // AdminRevenue — hub profit + lifetime fallback (userNetCoins)
+    // AdminRevenue — hub profit (settled only) + lifetime fallback
     const lifetimeFromRevenue = new Map<string, number>();
     try {
       const snap = await adminDb.collection('AdminRevenue').limit(4000).get();
@@ -180,16 +185,6 @@ export async function GET(request: Request) {
         const d = docSnap.data() as Record<string, unknown>;
         const uid = String(d.uid || d.earnerUid || '');
         if (!uid || uid === 'anonymous') return;
-        const usd = Number(d.ownerUsd ?? d.adminShare ?? 0) || 0;
-        const coins =
-          Number(d.adminShareCoins ?? d.entryCoins ?? 0) ||
-          Math.floor(usd * CASH_RATE);
-        if (usd > 0 || coins > 0) {
-          const row = touch(uid);
-          row.adminProfitUsd += usd;
-          row.adminProfitCoins += coins;
-          row.adminEvents += 1;
-        }
         const userCoins = Math.max(
           0,
           Math.floor(
@@ -207,6 +202,18 @@ export async function GET(request: Request) {
             uid,
             (lifetimeFromRevenue.get(uid) || 0) + userCoins
           );
+        }
+        // Skip inflated Adsterra CPC / track estimates
+        if (isEstimatedRevenueRow(d)) return;
+        const usd = Number(d.ownerUsd ?? d.adminShare ?? 0) || 0;
+        const coins =
+          Number(d.adminShareCoins ?? d.entryCoins ?? 0) ||
+          Math.floor(usd * CASH_RATE);
+        if (usd > 0 || coins > 0) {
+          const row = touch(uid);
+          row.adminProfitUsd += usd;
+          row.adminProfitCoins += coins;
+          row.adminEvents += 1;
         }
       });
     } catch (e) {
