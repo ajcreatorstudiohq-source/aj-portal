@@ -13,11 +13,8 @@ import {
   MATH_CHALLENGE_COINS,
   ALPHA_CAPTCHA_COINS,
 } from '../lib/reward-sources';
-import {
-  openAdsterraDirectLink,
-} from '../lib/ads-config';
+import { launchAdsterraUnit, trackAdEvent } from '../lib/ad-client';
 import { handleEarnAndPlayGame } from '../lib/direct-download';
-import { trackAdEvent } from '../lib/ad-client';
 import { guardClick, startIntrusiveAdGuard } from '../lib/ad-guards';
 import type { OnRefreshUser } from '../lib/wallet-refresh';
 import {
@@ -58,25 +55,22 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
   }, [user?.uid, surveyTxId]);
 
   const fireSurveyAdsterra = (phase: 'start' | 'end') => {
-    openAdsterraDirectLink({
-      uid: user?.uid,
-      sessionId: surveyTxId || undefined,
-    });
-    if (!user) return;
-    trackAdEvent(
+    void launchAdsterraUnit(
       {
         event: 'click',
         placement: 'offerwall_rewarded_video',
-        zoneId: 0,
+        format: 'direct_link',
+        sessionId: surveyTxId || undefined,
         meta: {
           action: phase === 'start' ? 'survey_start_adsterra' : 'survey_end_adsterra',
           provider: 'adsterra',
           surveyProvider: 'theoremreach',
           phase,
+          format: 'direct_link',
         },
       },
       user
-    ).catch(() => {});
+    );
   };
 
   const openSurveys = (e: MouseEvent) => {

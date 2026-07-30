@@ -557,6 +557,8 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
     const href = buildAdsterraDirectLink({
       uid: user?.uid,
       sessionId: sessionIdRef.current || sessionId || undefined,
+      format: 'video',
+      placement: 'offerwall_rewarded_video',
     });
     if (!href) {
       throw new Error('Ad link not configured');
@@ -844,8 +846,16 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
               sessionId: sid,
               meta: {
                 provider: 'adsterra',
-                link: buildAdsterraDirectLink({ uid: user.uid, sessionId: sid }),
+                link: buildAdsterraDirectLink({
+                  uid: user.uid,
+                  sessionId: sid,
+                  format: 'video',
+                  placement: 'offerwall_rewarded_video',
+                }),
                 verifySeconds: ADSTERRA_VERIFY_SECONDS,
+                format: 'video',
+                adsterraFormat: 'video',
+                unifiedTracking: true,
                 preparedAt: preparedAtRef.current || undefined,
                 enteredAdAt: enteredAdAtRef.current,
                 leftAdAt: leftAdAtRef.current,

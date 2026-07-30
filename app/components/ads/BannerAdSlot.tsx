@@ -2,11 +2,12 @@
 
 import { useEffect, useRef } from 'react';
 import { type AdPlacement } from '../../lib/ads-config';
-import { trackAdEvent } from '../../lib/ad-client';
+import { launchAdsterraUnit, trackAdEvent } from '../../lib/ad-client';
+import { guardClick, startIntrusiveAdGuard } from '../../lib/ad-guards';
 
 type Props = {
   placement: AdPlacement;
-  user?: { getIdToken: () => Promise<string> } | null;
+  user?: { uid?: string; getIdToken: () => Promise<string> } | null;
   label?: string;
   className?: string;
 };
@@ -17,7 +18,8 @@ const BANNER_POSTERS = [
 ];
 
 /**
- * Non-intrusive banner strip — impression tracking only (no Monetag).
+ * Banner strip — impression + click go through unified Adsterra tracking.
+ * Click opens attributed Direct Link; real $ → same 70/30 postback as video.
  */
 export default function BannerAdSlot({
   placement,
@@ -36,7 +38,8 @@ export default function BannerAdSlot({
         event: 'impression',
         placement,
         zoneId: 0,
-        meta: { format: 'banner', network: 'adsterra' },
+        format: 'banner',
+        meta: { format: 'banner', network: 'adsterra', surface: 'banner_slot' },
       },
       user
     ).catch(() => {});
@@ -45,16 +48,18 @@ export default function BannerAdSlot({
   return (
     <button
       type="button"
-      onClick={() => {
-        trackAdEvent(
+      onClick={(e) => {
+        guardClick(e);
+        startIntrusiveAdGuard();
+        void launchAdsterraUnit(
           {
             event: 'click',
             placement,
-            zoneId: 0,
-            meta: { format: 'banner', network: 'adsterra' },
+            format: 'banner',
+            meta: { format: 'banner', network: 'adsterra', surface: 'banner_slot' },
           },
           user
-        ).catch(() => {});
+        );
       }}
       className={`w-full overflow-hidden rounded-2xl border border-white/10 bg-black/40 text-left active:scale-[0.99] ${className}`}
     >

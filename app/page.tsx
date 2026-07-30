@@ -51,8 +51,9 @@ import {
 } from './lib/user-notifications';
 import { ensureUserReferralId, resolveReferrerUid } from './lib/referral';
 import { ensureClientUserProfile } from './lib/ensure-user-profile';
-import { trackAdEvent } from './lib/ad-client';
+import { launchAdsterraUnit, trackAdEvent } from './lib/ad-client';
 import { INFEED_AD_EVERY_N, openAdsterraDirectLink } from './lib/ads-config';
+import AdsterraSocialBarBeacon from './components/ads/AdsterraSocialBarBeacon';
 import { POST_REWARD_COINS, ACTIVITY_REWARD_COINS, GAME_REWARD_COINS } from './lib/reward-sources';
 import {
   normalizeTikReelPost,
@@ -1455,7 +1456,7 @@ function InterstitialAdOverlay({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (closed) return;
     try {
-      openAdsterraDirectLink();
+      openAdsterraDirectLink({ format: 'direct_link', placement: 'hub_nav_interstitial' });
     } catch {}
     const interval = setInterval(() => {
       setCountdown((c) => {
@@ -3907,15 +3908,19 @@ export function AJSuperPortal() {
   //   - Rival jab accept karega toh woh bhi same session join karega
   //   - Dono ki awaz + video chale, split-screen mein dikhe
   // ==========================================================
-  /** Open Adsterra Direct Link on PK start/end — real payout via postback only */
+  /** Open Adsterra Direct Link on PK start/end — unified 70/30 postback */
   const openPkAdsterra = (placement: 'pk_match_start' | 'pk_match_end') => {
     try {
-      openAdsterraDirectLink({ uid: user?.uid, sessionId: placement });
-      void trackAdEvent({
-        event: 'click',
-        placement,
-        meta: { network: 'adsterra', surface: 'pk_battle' },
-      });
+      void launchAdsterraUnit(
+        {
+          event: 'click',
+          placement,
+          format: 'direct_link',
+          sessionId: placement,
+          meta: { network: 'adsterra', surface: 'pk_battle', format: 'direct_link' },
+        },
+        user
+      );
     } catch (e) {
       console.warn('openPkAdsterra', e);
     }
@@ -7069,6 +7074,7 @@ Tip: Social Hub se copy karo 📤`,
   // ==========================================================
   return (
     <div className="relative min-h-screen bg-[#050505] text-white font-sans overflow-x-hidden">
+      <AdsterraSocialBarBeacon user={user} />
 
       {/* Hidden file inputs */}
       <input ref={fileInputRef}   type="file" accept="image/*,video/*" className="hidden" onChange={handleFileChange}/>
@@ -7913,7 +7919,11 @@ Tip: Social Hub se copy karo 📤`,
                         return [contentEl, (
                           <div key={`ad_user_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden" style={{ scrollSnapAlign:'start', background: 'radial-gradient(ellipse at 50% 30%, #1c1a28 0%, #0a0a10 100%)' }}>
                             <InFeedAdShell placement="tikreel_infeed" user={user}>
-                              <InFeedVideoAd slotKey={`tik_user_${idx}`} />
+                              <InFeedVideoAd
+                                slotKey={`tik_user_${idx}`}
+                                user={user}
+                                placement="tikreel_infeed"
+                              />
                             </InFeedAdShell>
                           </div>
                         )];
@@ -8008,7 +8018,11 @@ Tip: Social Hub se copy karo 📤`,
                         return [contentEl, (
                           <div key={`ad_pixa_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden" style={{ scrollSnapAlign:'start', background: 'radial-gradient(ellipse at 50% 30%, #1c1a28 0%, #0a0a10 100%)' }}>
                             <InFeedAdShell placement="tikreel_infeed" user={user}>
-                              <InFeedVideoAd slotKey={`tik_pixa_${idx}`} />
+                              <InFeedVideoAd
+                                slotKey={`tik_pixa_${idx}`}
+                                user={user}
+                                placement="tikreel_infeed"
+                              />
                             </InFeedAdShell>
                           </div>
                         )];
@@ -8423,7 +8437,11 @@ Tip: Social Hub se copy karo 📤`,
                         return [contentEl, (
                           <div key={`ad_pulse_${idx}`} className="relative w-full min-h-screen flex-shrink-0 snap-start overflow-hidden" style={{ scrollSnapAlign:'start', background: 'radial-gradient(ellipse at 50% 30%, #1c1a28 0%, #0a0a10 100%)' }}>
                             <InFeedAdShell placement="pulse_infeed" user={user}>
-                              <InFeedVideoAd slotKey={`pulse_${idx}`} />
+                              <InFeedVideoAd
+                                slotKey={`pulse_${idx}`}
+                                user={user}
+                                placement="pulse_infeed"
+                              />
                             </InFeedAdShell>
                           </div>
                         )];

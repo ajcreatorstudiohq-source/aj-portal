@@ -1,13 +1,12 @@
 import { NextResponse } from 'next/server';
-import { applyFlatCoins } from '../../../lib/reward-engine';
-import {
-  CASH_RATE,
-  PLATFORM_EARN_SHARE,
-  USER_EARN_SHARE,
-  coinsToUsd,
-} from '../../../lib/economy';
+import { PLATFORM_EARN_SHARE, USER_EARN_SHARE } from '../../../lib/economy';
 import { uidFromAdsterraPsid } from '../../../lib/adsterra-link';
-import { FieldValue, getAdminDb } from '../../../lib/firebase-admin';
+import {
+  ADSTERRA_FORMATS,
+  adsterraFormatFromPlacement,
+  normalizeAdsterraFormat,
+} from '../../../lib/adsterra-formats';
+import { applyAdsterraSettledPayout } from '../../../lib/adsterra-payout';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,14 +21,15 @@ const POSTBACK_SECRET =
 /**
  * GET|POST /api/ads/adsterra-postback
  *
- * Real Adsterra payout only — NO estimated CPC.
- * Splits exact payout USD: 30% → user AJ Coins (shown as full standard reward),
+ * UNIFIED payout handler for EVERY Adsterra format:
+ * Direct Link · Banner · Video · Native Banner · Social Bar.
+ *
+ * Real payout USD only — NO estimated CPC.
+ * Exact split: 30% → user AJ Coins (standard wallet reward),
  * 70% → Admin Hub wallet + settled Hisaab.
  *
- * Configure in your tracker / Adsterra-compatible postback:
- *   https://YOUR_DOMAIN/api/ads/adsterra-postback?user_id={uid}&payout={payout}&txid={clickid}&secret=YOUR_SECRET
- *
- * Also accepts: atpay, revenue, amount, psid, subid, subid_short
+ * Configure (same URL for all formats — pass format=…):
+ *   https://YOUR_DOMAIN/api/ads/adsterra-postback?user_id={uid}&payout={payout}&txid={clickid}&format={direct_link|banner|video|native_banner|social_bar}&secret=YOUR_SECRET
  */
 function readParams(url: URL, body: Record<string, unknown>) {
   const g = (k: string) => String(url.searchParams.get(k) || body[k] || '');
@@ -42,9 +42,20 @@ function readParams(url: URL, body: Record<string, unknown>) {
     subid ||
     uidFromAdsterraPsid(psid) ||
     '';
+  const placement =
+    g('placement') || g('aj_place') || g('zone') || g('ad_unit') || '';
+  const formatRaw =
+    g('format') ||
+    g('aj_fmt') ||
+    g('ad_format') ||
+    g('adtype') ||
+    g('type') ||
+    (placement ? adsterraFormatFromPlacement(placement) : '');
   return {
     uid: String(uidRaw || '').trim(),
     psid,
+    placement,
+    format: normalizeAdsterraFormat(formatRaw || 'direct_link'),
     txId:
       g('txid') ||
       g('transaction_id') ||
@@ -52,6 +63,7 @@ function readParams(url: URL, body: Record<string, unknown>) {
       g('clickid') ||
       g('subid_short') ||
       g('lead_id') ||
+      g('impression_id') ||
       psid ||
       '',
     payout:
@@ -67,10 +79,6 @@ function readParams(url: URL, body: Record<string, unknown>) {
     secret: g('secret') || g('key') || g('token') || g('password'),
     status: (g('status') || g('event') || g('state') || 'completed').toLowerCase(),
   };
-}
-
-function userCoinsFromPayoutUsd(payoutUsd: number): number {
-  return Math.floor(Math.max(0, payoutUsd) * USER_EARN_SHARE * CASH_RATE);
 }
 
 async function handle(request: Request) {
@@ -93,12 +101,25 @@ async function handle(request: Request) {
 
     const params = readParams(url, body);
 
+    // Plain-text "format=text" response for some trackers — do not confuse with ad format
+    const responseAsText =
+      (request.headers.get('accept') || '').includes('text/plain') ||
+      url.searchParams.get('response') === 'text' ||
+      (url.searchParams.get('format') === 'text' &&
+        !url.searchParams.get('aj_fmt') &&
+        !body.format &&
+        !body.aj_fmt);
+
     if (!params.secret || params.secret !== POSTBACK_SECRET) {
       return NextResponse.json({ ok: false, error: 'invalid_secret' }, { status: 403 });
     }
     if (!params.uid) {
       return NextResponse.json(
-        { ok: false, error: 'missing_userId', message: 'Pass user_id or psid/subid with Firebase uid' },
+        {
+          ok: false,
+          error: 'missing_userId',
+          message: 'Pass user_id or psid/subid with Firebase uid',
+        },
         { status: 400 }
       );
     }
@@ -107,7 +128,8 @@ async function handle(request: Request) {
         {
           ok: false,
           error: 'missing_payout',
-          message: 'Real Adsterra payout USD required (payout / atpay / revenue). Estimates rejected.',
+          message:
+            'Real Adsterra payout USD required (payout / atpay / revenue). Estimates rejected.',
         },
         { status: 400 }
       );
@@ -116,92 +138,37 @@ async function handle(request: Request) {
       return NextResponse.json({ ok: false, error: 'rejected_status' }, { status: 400 });
     }
 
-    const userReward = userCoinsFromPayoutUsd(params.payout);
-    if (userReward <= 0) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: 'payout_too_small',
-          message: `payout $${params.payout} yields 0 user coins at 30% × ${CASH_RATE}`,
-        },
-        { status: 400 }
-      );
-    }
-
-    const txRaw = params.txId || `adsterra_${params.uid}_${params.payout}_${Date.now()}`;
-    const txId = `adsterra_${txRaw}`.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 180);
-    const userUsd = coinsToUsd(userReward);
-    const adminUsd = Number((params.payout - userUsd).toFixed(6));
-
-    const result = await applyFlatCoins({
+    const result = await applyAdsterraSettledPayout({
       uid: params.uid,
-      txId,
-      source: 'offerwall_video',
-      coins: userReward,
-      settledPayoutUsd: params.payout,
-      bookAdminEarnings: true,
-      meta: {
-        provider: 'adsterra',
-        providerPayoutUsd: params.payout,
-        providerPayout: params.payout,
-        userSharePct: USER_EARN_SHARE,
-        platformSharePct: PLATFORM_EARN_SHARE,
-        cashRate: CASH_RATE,
-        userReward,
-        userUsd,
-        adminUsd,
-        displayLabel: 'Watch Ads Reward',
-        userVisibleReward: userReward,
-        via: 'adsterra_real_postback',
-        fromPostback: true,
-        settled: true,
-        estimated: false,
-        psid: params.psid || undefined,
-      },
-      ledgerCollection: 'offerwall_ledger',
-      enforceDailyCap: false,
+      payoutUsd: params.payout,
+      txId: params.txId,
+      format: params.format,
+      placement: params.placement,
+      psid: params.psid,
     });
 
     if (!result.ok) {
+      const status =
+        result.error === 'user_not_found'
+          ? 404
+          : result.error === 'payout_too_small'
+            ? 400
+            : 500;
       return NextResponse.json(
-        { ok: false, error: result.error || 'credit_failed' },
-        { status: result.error === 'user_not_found' ? 404 : 500 }
+        {
+          ok: false,
+          error: result.error || 'credit_failed',
+          format: result.format,
+          message:
+            result.error === 'payout_too_small'
+              ? `payout $${params.payout} yields 0 user coins at 30% share`
+              : undefined,
+        },
+        { status }
       );
     }
 
-    // Mark matching verified sessions consumed (optional UX)
-    try {
-      const db = getAdminDb();
-      if (db && !result.duplicate) {
-        const snap = await db
-          .collection('ad_reward_sessions')
-          .where('uid', '==', params.uid)
-          .where('verified', '==', true)
-          .where('consumed', '==', false)
-          .limit(5)
-          .get();
-        const batch = db.batch();
-        snap.docs.forEach((d) => {
-          batch.set(
-            d.ref,
-            {
-              consumed: true,
-              settledTxId: txId,
-              settledPayoutUsd: params.payout,
-              creditedCoins: result.balanceCredited,
-              settledAt: FieldValue.serverTimestamp(),
-            },
-            { merge: true }
-          );
-        });
-        if (!snap.empty) await batch.commit();
-      }
-    } catch {
-      /* non-fatal */
-    }
-
-    const accept = request.headers.get('accept') || '';
-    if (accept.includes('text/plain') || url.searchParams.get('format') === 'text') {
+    if (responseAsText) {
       return new NextResponse(result.duplicate ? 'DUPLICATE' : 'OK', {
         status: 200,
         headers: { 'Content-Type': 'text/plain' },
@@ -212,17 +179,22 @@ async function handle(request: Request) {
       ok: true,
       duplicate: !!result.duplicate,
       provider: 'adsterra',
+      format: result.format,
+      formatsCovered: ADSTERRA_FORMATS,
+      placement: params.placement || null,
       providerPayout: params.payout,
       userSharePct: USER_EARN_SHARE,
       platformSharePct: PLATFORM_EARN_SHARE,
       creditedCoins: result.balanceCredited ?? 0,
-      userVisibleReward: result.balanceCredited ?? 0,
-      adminUsd: result.split?.adminUsd ?? adminUsd,
+      userVisibleReward: result.userVisibleReward,
+      displayLabel: result.displayLabel,
+      adminUsd: result.adminUsd,
       bookedToHisaab: true,
       settled: true,
+      unifiedHandler: true,
       message: result.duplicate
         ? 'Already credited'
-        : `+${result.balanceCredited} AJ Coins 🪙`,
+        : `+${result.balanceCredited} AJ Coins 🪙 · ${result.displayLabel}`,
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'adsterra_postback_failed';

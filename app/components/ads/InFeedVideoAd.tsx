@@ -7,8 +7,8 @@ import {
   ADSTERRA_NATIVE_BANNER_SRC,
   AD_FALLBACK_POSTERS,
   AD_FALLBACK_VIDEOS,
-  openAdsterraDirectLink,
 } from '../../lib/ads-config';
+import { launchAdsterraUnit } from '../../lib/ad-client';
 import { guardClick, startIntrusiveAdGuard } from '../../lib/ad-guards';
 
 let nativeScriptLoading = false;
@@ -50,15 +50,22 @@ type Props = {
   slotKey?: string;
   /** When false, pause background video */
   active?: boolean;
+  user?: { uid?: string; getIdToken: () => Promise<string> } | null;
+  placement?: string;
 };
 
 /**
  * TikTok-style in-feed ad slide:
  * - Looks like a normal reel (video + right actions + caption)
  * - Real Adsterra Native Banner mounts full-bleed (paid impressions)
- * - Tap / Open Offer → Adsterra Direct Link (paid clicks)
+ * - Tap / Open Offer → attributed Direct Link (unified 70/30 postback)
  */
-export default function InFeedVideoAd({ slotKey = 'feed', active = true }: Props) {
+export default function InFeedVideoAd({
+  slotKey = 'feed',
+  active = true,
+  user = null,
+  placement = 'tikreel_infeed',
+}: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const reactId = useId().replace(/:/g, '');
@@ -161,9 +168,21 @@ export default function InFeedVideoAd({ slotKey = 'feed', active = true }: Props
   const openOffer = (e?: { preventDefault?: () => void; stopPropagation?: () => void }) => {
     guardClick(e);
     startIntrusiveAdGuard();
-    if (!openAdsterraDirectLink()) {
-      /* popup blocked — openAdsterraDirectLink already logs */
-    }
+    void launchAdsterraUnit(
+      {
+        event: 'click',
+        placement,
+        format: 'native_banner',
+        sessionId: slotKey,
+        meta: {
+          format: 'native_banner',
+          network: 'adsterra',
+          surface: 'infeed_video',
+          slotKey,
+        },
+      },
+      user
+    );
   };
 
   return (

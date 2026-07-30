@@ -3,8 +3,8 @@
 import { useCallback, useState } from 'react';
 import { ExternalLink, Gift, KeyRound, Loader2 } from 'lucide-react';
 import { ALPHA_CAPTCHA_COINS } from '../lib/reward-sources';
-import { openAdsterraDirectLink } from '../lib/ads-config';
 import { buildAdsterraDirectLink } from '../lib/adsterra-link';
+import { launchAdsterraUnit } from '../lib/ad-client';
 import { guardClick, startIntrusiveAdGuard } from '../lib/ad-guards';
 import type { OnRefreshUser } from '../lib/wallet-refresh';
 import { claimRefreshPatch } from '../lib/wallet-refresh';
@@ -25,7 +25,16 @@ export default function AlphaCaptchaChallenge({ user, onAlert, onRefreshUser }: 
 
   const openAdsterra = () => {
     startIntrusiveAdGuard();
-    openAdsterraDirectLink({ uid: user?.uid, sessionId });
+    void launchAdsterraUnit(
+      {
+        event: 'click',
+        placement: 'offerwall_rewarded_video',
+        format: 'direct_link',
+        sessionId,
+        meta: { surface: 'alpha_captcha', format: 'direct_link' },
+      },
+      user
+    );
   };
 
   const authFetch = useCallback(

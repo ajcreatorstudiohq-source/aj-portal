@@ -6,12 +6,13 @@ import { trackAdEvent } from '../../lib/ad-client';
 
 type Props = {
   placement: AdPlacement;
-  user?: { getIdToken: () => Promise<string> } | null;
+  user?: { uid?: string; getIdToken: () => Promise<string> } | null;
   children: ReactNode;
 };
 
 /**
- * Wraps TikReel / Pulse in-feed Adsterra Native Banner slots and records impressions.
+ * Wraps TikReel / Pulse in-feed Adsterra Native Banner slots.
+ * Impressions use the unified tracker (format=native_banner → same 70/30 postback).
  */
 export default function InFeedAdShell({ placement, user, children }: Props) {
   const tracked = useRef(false);
@@ -24,7 +25,12 @@ export default function InFeedAdShell({ placement, user, children }: Props) {
         event: 'impression',
         placement,
         zoneId: 0,
-        meta: { format: 'adsterra_native_banner', network: 'adsterra' },
+        format: 'native_banner',
+        meta: {
+          format: 'native_banner',
+          network: 'adsterra',
+          surface: 'infeed',
+        },
       },
       user
     ).catch(() => {});

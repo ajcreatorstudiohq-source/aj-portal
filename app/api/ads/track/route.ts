@@ -5,6 +5,12 @@ import {
   type AdEventType,
 } from '../../../lib/ads-config';
 import {
+  ADSTERRA_FORMATS,
+  ADSTERRA_SETTLED_POSTBACK,
+  adsterraFormatFromPlacement,
+  normalizeAdsterraFormat,
+} from '../../../lib/adsterra-formats';
+import {
   bearerFromRequest,
   verifyFirebaseIdToken,
 } from '../../../lib/verify-id-token';
@@ -18,7 +24,9 @@ const EVENTS: AdEventType[] = ['impression', 'click', 'complete', 'skip', 'fail'
 
 /**
  * POST /api/ads/track
- * Logs ad events only. Never books estimated CPC into Hisaab / Hub wallet.
+ * Unified Adsterra event log for ALL formats (Direct Link · Banner · Video ·
+ * Native Banner · Social Bar). Never books estimated CPC into Hisaab.
+ * Settled $ → /api/ads/adsterra-postback (same 70/30 for every format).
  */
 export async function POST(request: Request) {
   try {
@@ -42,6 +50,13 @@ export async function POST(request: Request) {
     const meta =
       body.meta && typeof body.meta === 'object' ? (body.meta as Record<string, unknown>) : {};
 
+    const format = normalizeAdsterraFormat(
+      meta.format ||
+        meta.adsterraFormat ||
+        meta.ad_format ||
+        adsterraFormatFromPlacement(placement)
+    );
+
     const adminDb = getAdminDb();
     if (!adminDb) {
       return NextResponse.json({
@@ -49,6 +64,7 @@ export async function POST(request: Request) {
         skipped: true,
         error: 'admin_sdk_missing',
         message: 'Ad event not stored (Admin SDK missing).',
+        format,
       });
     }
 
@@ -58,19 +74,34 @@ export async function POST(request: Request) {
       placement,
       knownPlacement: isAdPlacement(placement),
       zoneId,
-      meta,
+      provider: 'adsterra',
+      format,
+      adsterraFormat: format,
+      meta: {
+        ...meta,
+        network: 'adsterra',
+        provider: 'adsterra',
+        format,
+        adsterraFormat: format,
+        unifiedTracking: true,
+      },
       createdAt: FieldValue.serverTimestamp(),
       dayKey: new Date().toISOString().slice(0, 10),
       estimatedClickUsd: 0,
       estimatedImpressionUsd: 0,
+      booksToHisaab: false,
+      settledPostback: ADSTERRA_SETTLED_POSTBACK,
     });
 
     return NextResponse.json({
       ok: true,
       eventId: eventRef.id,
+      format,
       adminUsd: 0,
       bookedToHisaab: false,
-      note: 'Event logged only. Real Adsterra $ via /api/ads/adsterra-postback.',
+      unifiedTracking: true,
+      settledPostback: ADSTERRA_SETTLED_POSTBACK,
+      note: 'Event logged only. Real Adsterra $ via unified postback (all formats · 70/30).',
     });
   } catch (e: unknown) {
     console.error('[ads/track]', e);
@@ -86,7 +117,10 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     events: EVENTS,
+    formats: ADSTERRA_FORMATS,
     booksToHisaab: false,
-    settledPostback: '/api/ads/adsterra-postback',
+    unifiedTracking: true,
+    split: { admin: 0.7, user: 0.3 },
+    settledPostback: ADSTERRA_SETTLED_POSTBACK,
   });
 }

@@ -5,6 +5,7 @@ import {
   ADSTERRA_NATIVE_BANNER_ID,
   ADSTERRA_NATIVE_BANNER_SRC,
 } from '../../lib/ads-config';
+import { trackAdEvent } from '../../lib/ad-client';
 
 let nativeScriptLoading = false;
 
@@ -45,11 +46,33 @@ function reinvokeNativeBanner() {
  * TikReel / Pulse in-feed Adsterra Native Banner (card variant).
  * For TikTok-seamless full-bleed ads use `InFeedVideoAd` instead —
  * that mounts the same Native Banner id inside a reel-look slide.
+ * Impressions/clicks share the unified Adsterra tracker + 70/30 postback.
  */
-export default function AdsterraNativeBanner({ slotKey = 'feed' }: { slotKey?: string }) {
+export default function AdsterraNativeBanner({
+  slotKey = 'feed',
+  user = null,
+}: {
+  slotKey?: string;
+  user?: { uid?: string; getIdToken: () => Promise<string> } | null;
+}) {
   const hostRef = useRef<HTMLDivElement>(null);
   const reactId = useId().replace(/:/g, '');
   const slotId = `aj-native-slot-${slotKey}-${reactId}`;
+  const tracked = useRef(false);
+
+  useEffect(() => {
+    if (tracked.current) return;
+    tracked.current = true;
+    trackAdEvent(
+      {
+        event: 'impression',
+        placement: 'tikreel_infeed',
+        format: 'native_banner',
+        meta: { format: 'native_banner', network: 'adsterra', slotKey },
+      },
+      user
+    ).catch(() => {});
+  }, [slotKey, user]);
 
   useEffect(() => {
     const host = hostRef.current;

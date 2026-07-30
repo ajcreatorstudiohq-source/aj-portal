@@ -2,12 +2,26 @@
  * Adsterra ad configuration for AJ Super Portal.
  * Monetag / gozen / sunny-sprout / alwingulla are permanently removed.
  *
- * REAL PAYOUT ONLY: user 30% + admin 70% credit solely from
- * /api/ads/adsterra-postback with exact Adsterra payout USD.
- * Opening a Direct Link never invents CPC or fixed coin rewards.
+ * REAL PAYOUT ONLY — ALL formats (Direct Link · Banner · Video ·
+ * Native Banner · Social Bar) settle via the unified
+ * /api/ads/adsterra-postback handler: 30% user coins · 70% Admin Hub.
+ * Opening a unit never invents CPC or fixed coin rewards.
  */
 
 import { buildAdsterraDirectLink } from './adsterra-link';
+import {
+  type AdsterraFormat,
+  adsterraFormatFromPlacement,
+  normalizeAdsterraFormat,
+} from './adsterra-formats';
+
+export type { AdsterraFormat };
+export {
+  ADSTERRA_FORMATS,
+  ADSTERRA_SETTLED_POSTBACK,
+  adsterraFormatFromPlacement,
+  normalizeAdsterraFormat,
+} from './adsterra-formats';
 
 /** Social Bar (layout body) */
 export const ADSTERRA_SOCIAL_BAR_SRC =
@@ -24,14 +38,26 @@ export const ADSTERRA_REWARDED_LINK =
 
 /**
  * Open Adsterra Direct Link in a new tab (owner revenue in Adsterra dashboard).
- * Pass uid/sessionId so psid attributes the open for real-payout postbacks.
+ * Pass uid/sessionId/format so every format attributes to the unified 70/30 postback.
  */
 export function openAdsterraDirectLink(opts?: {
   uid?: string | null;
   sessionId?: string | null;
+  format?: AdsterraFormat | string | null;
+  placement?: string | null;
 }): boolean {
   if (typeof window === 'undefined') return false;
-  const href = buildAdsterraDirectLink(opts);
+  const placement = opts?.placement || undefined;
+  const format = normalizeAdsterraFormat(
+    opts?.format ||
+      (placement ? adsterraFormatFromPlacement(placement) : 'direct_link')
+  );
+  const href = buildAdsterraDirectLink({
+    uid: opts?.uid,
+    sessionId: opts?.sessionId,
+    format,
+    placement,
+  });
   if (!href) return false;
   try {
     const win = window.open(href, '_blank', 'noopener,noreferrer');
