@@ -1,0 +1,45 @@
+{
+  "name": "aj-portal",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "reset-economy": "npx tsx scripts/reset-economy-zero.ts"
+  },
+  "dependencies": {
+    "@emailjs/browser": "^4.4.1",
+    "@tanstack/react-query": "^5.101.3",
+    "agora-rtc-sdk-ng": "^4.24.6",
+    "agora-token": "^2.0.5",
+    "axios": "^1.18.1",
+    "clsx": "^2.1.1",
+    "emailjs-com": "^3.2.0",
+    "firebase": "^12.16.0",
+    "firebase-admin": "^14.2.0",
+    "framer-motion": "^12.42.2",
+    "lucide-react": "^1.25.0",
+    "next": "16.2.10",
+    "next-cloudinary": "^6.17.5",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "server-only": "^0.0.1",
+    "tailwind-merge": "^3.6.0",
+    "wouter": "^3.10.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.10",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  },
+  "overrides": {
+    "jose": "4.15.9"
+  }
+}

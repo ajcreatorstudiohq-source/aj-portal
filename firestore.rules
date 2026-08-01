@@ -1,0 +1,358 @@
+rules_version = '2';
+
+/**
+ * AJ Super Portal — Firestore rules (social + ads subset)
+ * Deploy: Firebase Console → Firestore → Rules → paste/merge → Publish
+ *
+ * TikReel feed reads `user_posts` + `videos` for ALL creators.
+ * Owner-only read on these collections is the #1 reason other users'
+ * clips appear as stills / fail to open on profiles.
+ */
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function postOwner() {
+      return request.resource.data.uid == request.auth.uid
+          || request.resource.data.userId == request.auth.uid;
+    }
+
+    function existingPostOwner() {
+      return resource.data.uid == request.auth.uid
+          || resource.data.userId == request.auth.uid;
+    }
+
+    // Portal CEO — email must match admin Google account
+    function isCeoAdmin() {
+      return signedIn()
+        && request.auth.token.email is string
+        && request.auth.token.email.lower() == 'ajcreatorstudio.hq@gmail.com';
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn();
+
+      // Profile create — balance / invested / purchasedCoins must start at 0
+      allow create: if isOwner(userId)
+        && (!('balance' in request.resource.data)
+            || request.resource.data.balance == 0)
+        && (!('invested' in request.resource.data)
+            || request.resource.data.invested == 0)
+        && (!('purchasedCoins' in request.resource.data)
+            || request.resource.data.purchasedCoins == 0);
+
+      // Owner may update profile fields ONLY — economy fields are Admin SDK only
+      allow update: if (isOwner(userId)
+            && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+              'balance',
+              'invested',
+              'purchasedCoins',
+              'botTier',
+              'offerwallVideoDayCount',
+              'offerwallVideoDayKey',
+              'offerwallDayCount',
+              'offerwallDayKey',
+              'dailyRewards',
+              'lastBotClaimAt',
+              'lastAdsterraClaimAt',
+              'lastRewardAt',
+              'lastRewardSource',
+              'lastOfferwallVideoAt',
+              'lastSync',
+              'lastWalletWriteAt',
+              'economyResetAt'
+            ]))
+        || (isCeoAdmin()
+            && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['referralId', 'referralIdCreatedAt']))
+        || (isCeoAdmin()
+            && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly([
+                  'balance',
+                  'invested',
+                  'purchasedCoins',
+                  'offerwallVideoDayCount',
+                  'offerwallDayCount',
+                  'dailyRewards',
+                  'economyResetAt'
+                ])
+            && request.resource.data.balance == 0);
+
+      // No blanket owner write — use create/update above
+      allow write: if false;
+      match /videos/{videoId} {
+        allow read: if signedIn();
+        allow write: if isOwner(userId);
+      }
+      match /followers/{fid} {
+        allow read: if signedIn();
+        allow write: if signedIn();
+      }
+      match /following/{fid} {
+        allow read: if signedIn();
+        allow write: if isOwner(userId);
+      }
+      // TikTok-style DM inbox / friend ids (both parties may upsert the other's row)
+      match /chat_partners/{partnerId} {
+        allow read: if isOwner(userId);
+        allow create, update: if signedIn()
+          && (isOwner(userId) || request.auth.uid == partnerId);
+        allow delete: if isOwner(userId);
+      }
+      match /wechat_contacts/{contactId} {
+        allow read, write: if isOwner(userId);
+      }
+      // In-app notifications — owner read/delete; any signed-in user may create for target
+      match /notifications/{notifId} {
+        allow read, delete: if isOwner(userId);
+        allow create: if signedIn();
+        allow update: if isOwner(userId);
+      }
+    }
+
+    // 1:1 DMs — only the two participants can read/write
+    match /chats/{chatId} {
+      function chatParticipant() {
+        return signedIn() && request.auth.uid in resource.data.participants;
+      }
+      allow read: if chatParticipant();
+      allow create: if signedIn()
+        && request.auth.uid in request.resource.data.participants
+        && request.resource.data.participants is list
+        && request.resource.data.participants.size() == 2;
+      allow update: if chatParticipant();
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if signedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+        allow create: if signedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.text is string;
+        allow update, delete: if signedIn()
+          && resource.data.uid == request.auth.uid;
+      }
+    }
+
+    // Community TikReels — must be readable by every signed-in user
+    match /user_posts/{postId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && postOwner();
+      allow delete: if signedIn() && existingPostOwner();
+      allow update: if signedIn() && existingPostOwner()
+        || (signedIn()
+            && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['likes', 'commentCount', 'views']));
+      match /likes/{likerId} {
+        allow read: if signedIn();
+        allow write: if signedIn() && request.auth.uid == likerId;
+      }
+      match /comments/{commentId} {
+        allow read: if signedIn();
+        allow create: if signedIn();
+        allow update, delete: if signedIn()
+          && resource.data.uid == request.auth.uid;
+      }
+    }
+
+    match /videos/{videoId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && postOwner();
+      allow delete: if signedIn() && existingPostOwner();
+      allow update: if signedIn() && existingPostOwner()
+        || (signedIn()
+            && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['likes', 'commentCount', 'views']));
+      match /likes/{likerId} {
+        allow read: if signedIn();
+        allow write: if signedIn() && request.auth.uid == likerId;
+      }
+      match /comments/{commentId} {
+        allow read: if signedIn();
+        allow create: if signedIn();
+        allow update, delete: if signedIn()
+          && resource.data.uid == request.auth.uid;
+      }
+    }
+
+    match /pulse_posts/{postId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && postOwner();
+      allow delete: if signedIn() && existingPostOwner();
+      allow update: if signedIn() && existingPostOwner()
+        || (signedIn()
+            && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['likes', 'commentCount', 'views']));
+      match /likes/{likerId} {
+        allow read: if signedIn();
+        allow write: if signedIn() && request.auth.uid == likerId;
+      }
+      match /comments/{commentId} {
+        allow read: if signedIn();
+        allow create: if signedIn();
+        allow update, delete: if signedIn()
+          && resource.data.uid == request.auth.uid;
+      }
+    }
+
+    // TikTok-style permanent comments (top-level — all signed-in users read/write)
+    match /reel_comments/{commentId} {
+      // Public read so every viewer sees the same thread (TikTok-style)
+      allow read: if true;
+      // Keep create rules minimal so writes are not rejected after local optimistic commit
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.postId is string
+        && request.resource.data.text is string;
+      allow update, delete: if signedIn()
+        && resource.data.uid == request.auth.uid;
+    }
+
+    // YouTube / pixa comment parents (optional)
+    match /yt_posts/{postId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn();
+      match /comments/{commentId} {
+        allow read: if signedIn();
+        allow create: if signedIn();
+        allow update, delete: if signedIn()
+          && resource.data.uid == request.auth.uid;
+      }
+    }
+
+    match /ad_reward_sessions/{sessionId} {
+      allow read: if signedIn() && resource.data.uid == request.auth.uid;
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.consumed == false
+        && !('creditedCoins' in request.resource.data);
+      // Clients may refresh tracking fields on an open session only.
+      // Do NOT use `!('creditedCoins' in request.resource.data)` — that blocks
+      // legitimate merges after Admin already stored credit metadata.
+      allow update: if signedIn()
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == resource.data.uid
+        && resource.data.consumed == false
+        && request.resource.data.consumed == false
+        && !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(['consumed', 'creditedCoins', 'txId', 'balanceAfter', 'previouslyCredited']);
+    }
+
+    match /math_challenge_sessions/{sessionId} {
+      allow read, write: if false; // Admin SDK only — credits via /api/rewards/math-challenge
+    }
+
+    match /alpha_captcha_sessions/{sessionId} {
+      allow read, write: if false; // Admin SDK only — credits via /api/rewards/alpha-captcha
+    }
+
+    // Live streaming rooms + chat (TikTok-style)
+    match /live_rooms/{roomId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid;
+      allow update: if signedIn();
+      allow delete: if signedIn()
+        && resource.data.uid == request.auth.uid;
+      match /messages/{messageId} {
+        allow read: if signedIn();
+        allow create: if signedIn()
+          && request.resource.data.uid == request.auth.uid;
+        allow update, delete: if signedIn()
+          && resource.data.uid == request.auth.uid;
+      }
+    }
+
+    // PK battles (challenge by user ID / join by pk room ID)
+    match /pk_sessions/{sessionId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && (request.resource.data.hostUid == request.auth.uid
+            || request.resource.data.hostId == request.auth.uid);
+      allow update: if signedIn();
+      allow delete: if signedIn()
+        && (resource.data.hostUid == request.auth.uid
+            || resource.data.hostId == request.auth.uid);
+      match /gifts/{giftId} {
+        allow read: if signedIn();
+        allow create: if signedIn()
+          && request.resource.data.senderUid == request.auth.uid;
+        allow update, delete: if false;
+      }
+    }
+
+    match /notifications/{notifId} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update, delete: if signedIn();
+    }
+
+    // Unique referral codes (AJ########) → uid map
+    match /referral_ids/{code} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.uid is string
+        && (request.resource.data.uid == request.auth.uid || isCeoAdmin());
+      allow update, delete: if false;
+    }
+
+    // Owner platform share ledger — CEO read/delete (fresh reset); signed-in may append
+    match /AdminRevenue/{revId} {
+      allow read: if isCeoAdmin();
+      allow create: if signedIn();
+      allow update: if false;
+      allow delete: if isCeoAdmin();
+    }
+
+    // Running owner totals (coins + USD) on the portal admin panel
+    match /admin_stats/{docId} {
+      allow read: if isCeoAdmin();
+      allow create, update: if signedIn() || isCeoAdmin();
+      allow delete: if isCeoAdmin();
+    }
+
+    // Earn ledgers — owner read own rows; CEO may list all for Admin Users hisaab
+    match /reward_ledger/{txId} {
+      allow read: if (signedIn() && resource.data.uid == request.auth.uid)
+        || isCeoAdmin();
+      allow create: if false;
+      allow update: if false;
+      allow delete: if isCeoAdmin();
+    }
+
+    match /offerwall_ledger/{txId} {
+      allow read: if (signedIn() && resource.data.uid == request.auth.uid)
+        || isCeoAdmin();
+      allow create, update: if false;
+      allow delete: if isCeoAdmin();
+    }
+
+    match /ad_events/{eventId} {
+      allow read: if isCeoAdmin();
+      allow create: if signedIn();
+      allow update: if false;
+      allow delete: if isCeoAdmin();
+    }
+
+    // Withdrawals — CEO full hisaab on admin portal
+    match /manual_withdrawals/{id} {
+      allow read: if isCeoAdmin();
+      allow create: if signedIn();
+      allow update: if isCeoAdmin();
+      allow delete: if false;
+    }
+
+    // Default deny — merge carefully with your existing rules for wallet, admin, etc.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
