@@ -1038,10 +1038,6 @@ const requestNotificationPermission = async (): Promise<boolean> => {
 
 const registerFcmToken = async (uid: string) => {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('Notification' in window)) return;
-  // Skip service worker registration on iOS/Safari due to flaky SW support and permission issues
-  const ua = navigator.userAgent || '';
-  const isIos = /iP(hone|od|ad)/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  if (isIos) return;
   try {
     const granted = await requestNotificationPermission();
     if (!granted) return;
@@ -1606,7 +1602,6 @@ function AJFooter() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isStandaloneMode, setIsStandaloneMode] = useState(false);
   const [installClicked, setInstallClicked] = useState(false);
-  const [isIos, setIsIos] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1615,9 +1610,7 @@ function AJFooter() {
       setDeferredPrompt(e);
     };
     window.addEventListener('beforeinstallprompt', handler);
-    const ua = navigator.userAgent || navigator.vendor || '';
-    setIsIos(/iPad|iPhone|iPod/.test(ua) && !window.MSStream);
-
+    // Check if already in standalone mode (installed as APK/PWA)
     const standalone = window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true;
     setIsStandaloneMode(standalone);
     return () => window.removeEventListener('beforeinstallprompt', handler);
@@ -1631,11 +1624,10 @@ function AJFooter() {
         await deferredPrompt.userChoice;
       } catch {}
       setDeferredPrompt(null);
-      return;
-    }
-
-    if (isIos) {
-      return;
+    } else {
+      // No beforeinstallprompt — app already has manifest + meta tags.
+      // On Android Chrome, the browser will offer install from the menu.
+      // We just show a brief message.
     }
   };
 
@@ -1683,9 +1675,7 @@ function AJFooter() {
               <p className="text-gray-500 text-[9px] text-center">Install AJ Super Portal on your home screen for the best experience</p>
               {installClicked && !deferredPrompt && (
                 <p className="text-gray-400 text-[10px] text-center max-w-sm">
-                  {isIos
-                    ? 'On iPhone/iPad, tap Share then Add to Home Screen to install AJ Super Portal.'
-                    : 'Tap your browser menu and select Install app or Add to Home screen to install.'}
+                  Tap your browser menu and select "Install app" or "Add to Home screen" to install.
                 </p>
               )}
             </div>
@@ -1802,25 +1792,12 @@ function AJFooter() {
           {/* Divider */}
           <div className="h-[1px] w-full bg-gradient-to-r from-transparent via-white/10 to-transparent"/>
 
-          {/* Copyright + Policies */}
-          <div className="flex flex-col items-center gap-3">
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              <a
-                href="/terms"
-                className="rounded-full border border-white/15 px-4 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-white transition-all hover:border-cyan-400/50 hover:text-cyan-300"
-              >
-                Terms of Service
-              </a>
-              <a
-                href="/privacy"
-                className="rounded-full border border-white/15 px-4 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-white transition-all hover:border-purple-400/50 hover:text-purple-300"
-              >
-                Privacy Policy
-              </a>
-            </div>
+          {/* Copyright Notice */}
+          <div className="text-center space-y-1">
             <p className="text-[9px] text-gray-400 font-black uppercase tracking-[0.15em] leading-relaxed">
               © 2026 AJ CREATOR STUDIO. ALL RIGHTS RESERVED.
             </p>
+
           </div>
         </div>
 
@@ -7638,35 +7615,6 @@ Tip: Social Hub se copy karo 📤`,
           </div>
 
           {/* Offer Hub — TheoremReach Surveys, Earn & Play, Math/Captcha */}
-          <div className="px-4 mt-4">
-            <div className="rounded-3xl border border-cyan-500/15 bg-[#06080f] p-4 space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-[10px] uppercase tracking-[0.22em] text-cyan-300 font-black">Join Live & PK Match</p>
-                  <p className="text-[11px] text-gray-400 mt-1">
-                    Paste a short Live ID or PK Match ID to connect instantly to a creator stream or battle room.
-                  </p>
-                </div>
-                <span className="text-[10px] text-white/80 font-black uppercase tracking-[0.14em]">TikTok-style</span>
-              </div>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <input
-                  value={joinRoomInput}
-                  onChange={(e) => setJoinRoomInput(e.target.value)}
-                  placeholder="Enter Live ID or Match ID"
-                  className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white text-sm outline-none focus:border-cyan-500/40 focus:ring-2 focus:ring-cyan-500/10"
-                />
-                <button
-                  onClick={() => joinLiveByRoomId()}
-                  className="rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-3 text-sm font-black uppercase tracking-[0.18em] text-white active:scale-95 transition-all"
-                >
-                  Join Now
-                </button>
-              </div>
-              <p className="text-[10px] text-gray-500">Tip: Start a Live stream to generate a shareable 6-digit Live ID automatically.</p>
-            </div>
-          </div>
-
           <HubEarnPanel
             user={user}
             onAlert={(msg, icon) => setVvipAlert({ msg, icon: icon || '💰' })}

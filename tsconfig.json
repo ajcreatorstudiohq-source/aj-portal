@@ -12,7 +12,10 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
+<<<<<<< HEAD
     "types": ["node"],
+=======
+>>>>>>> 411abd33f046e3201e9fa295cdd97806f47885a9
     "incremental": true,
     "plugins": [
       {
