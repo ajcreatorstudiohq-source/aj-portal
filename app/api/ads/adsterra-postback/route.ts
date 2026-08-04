@@ -59,6 +59,12 @@ function readParams(url: URL, body: Record<string, unknown>) {
     '';
   const placement =
     g('placement') || g('aj_place') || g('zone') || g('ad_unit') || '';
+  const sessionId =
+    g('subid2') ||
+    g('subid3') ||
+    g('session_id') ||
+    g('sessionId') ||
+    '';
   const formatRaw =
     g('format') ||
     g('aj_fmt') ||
@@ -69,6 +75,7 @@ function readParams(url: URL, body: Record<string, unknown>) {
   return {
     uid: String(uidRaw || '').trim(),
     psid,
+    sessionId: String(sessionId || '').trim(),
     placement,
     format: normalizeAdsterraFormat(formatRaw || 'direct_link'),
     txId:
@@ -160,6 +167,7 @@ async function handle(request: Request) {
       format: params.format,
       placement: params.placement,
       psid: params.psid,
+      sessionId: params.sessionId,
     });
 
     if (!result.ok) {

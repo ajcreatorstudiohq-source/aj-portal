@@ -27,6 +27,7 @@ export type ApplyAdsterraPayoutInput = {
   format?: string | null;
   placement?: string | null;
   psid?: string | null;
+  sessionId?: string | null;
   extraMeta?: Record<string, unknown>;
 };
 
@@ -136,6 +137,7 @@ export async function applyAdsterraSettledPayout(
       settled: true,
       estimated: false,
       ...(input.psid ? { psid: input.psid } : {}),
+      ...(input.sessionId ? { sessionId: input.sessionId } : {}),
       ...(input.extraMeta || {}),
     },
     ledgerCollection: 'offerwall_ledger',
