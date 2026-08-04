@@ -92,6 +92,95 @@ import {
   buildDmChatId,
   normalizePartnerProfile,
 } from './lib/dm-chat';
+import { initializeApp, getApps } from 'firebase/app';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  onAuthStateChanged,
+  signOut,
+} from 'firebase/auth';
+import {
+  getFirestore,
+  doc,
+  setDoc,
+  onSnapshot,
+  updateDoc,
+  increment,
+  collection,
+  addDoc,
+  getDoc,
+  serverTimestamp,
+  query,
+  orderBy,
+  limit,
+  deleteDoc,
+  getDocs,
+  where,
+  runTransaction,
+  waitForPendingWrites,
+  getDocFromServer,
+} from 'firebase/firestore';
+import {
+  getDatabase,
+  ref,
+  onDisconnect,
+  set,
+  onValue,
+  remove,
+  push,
+  onChildAdded,
+  off,
+} from 'firebase/database';
+import {
+  getMessaging,
+  getToken,
+  onMessage,
+} from 'firebase/messaging';
+import {
+  MessageCircle,
+  Trophy,
+  Zap,
+  Bot,
+  LogOut,
+  ChevronRight,
+  Send,
+  X,
+  Download,
+  Video,
+  Users,
+  Heart,
+  MessageSquare,
+  Camera,
+  Settings,
+  Edit3,
+  Mail,
+  DollarSign,
+  Share2,
+  Music,
+  PlusSquare,
+  MoreVertical,
+  Search,
+  Phone,
+  Video as VideoIcon,
+  ArrowLeft,
+  Trash2,
+  Gift,
+  Radio,
+  UserPlus,
+  UserCheck,
+  Grid,
+  Film,
+  Volume2,
+  VolumeX,
+  Swords,
+  Clock,
+  Plus,
+  Eye,
+  Bookmark,
+  Shield,
+  Ban,
+} from 'lucide-react';
 
 // ============================================================
 // GLOBAL ERROR SHIELD (FIX: "Page couldn't load" error)
@@ -285,50 +374,6 @@ class AJErrorBoundary extends Component<
 // AGORA LIVE (TikReels) — ZegoCloud removed from runtime.
 // Token + certificate: /api/agora/token · App ID in app/lib/agora-config.ts
 // ============================================================
-
-// ── Firebase inline config ──────────────────────────────────
-import { initializeApp, getApps } from 'firebase/app';
-import {
-  getAuth, GoogleAuthProvider,
-  signInWithPopup, onAuthStateChanged, signOut
-} from 'firebase/auth';
-import {
-  getFirestore,
-  doc, setDoc, onSnapshot, updateDoc, increment, collection,
-  addDoc, getDoc, serverTimestamp, query, orderBy, limit, deleteDoc, getDocs, where,
-  runTransaction, waitForPendingWrites, getDocFromServer
-} from 'firebase/firestore';
-import {
-  getDatabase, ref, onDisconnect, set, onValue, remove, push, onChildAdded, off
-} from 'firebase/database';
-import {
-  getMessaging, getToken, onMessage
-} from 'firebase/messaging';
-import {
-  MessageCircle, Trophy, Zap, Bot, LogOut, ChevronRight,
-  Send, X, Download, Video, Users, Heart, MessageSquare, Camera,
-  Settings, Edit3, Mail, DollarSign, Share2, Music, PlusSquare,
-  MoreVertical, Search, Phone, Video as VideoIcon, ArrowLeft, Trash2,
-  Gift, Radio, UserPlus, UserCheck, Grid, Film, Volume2, VolumeX, Swords, Clock,
-  Plus, Eye, Bookmark, Shield, Ban
-} from 'lucide-react';
-
-// ── Firebase config ──────────────────────────────────────────
-const firebaseConfig = {
-  apiKey:            "AIzaSyDp2od-lrfAhEHV5oAIqBW5rWjaRbnAdFM",
-  authDomain:        "aj-super-portal.firebaseapp.com",
-  databaseURL:       "https://aj-super-portal-default-rtdb.firebaseio.com",
-  projectId:         "aj-super-portal",
-  storageBucket:     "aj-super-portal.appspot.com",
-  messagingSenderId: "288191292906",
-  appId:             "1:288191292906:web:bc31cb072948533f88fe93",
-  measurementId:     "G-8WYD1ZB96D"
-};
-
-const app            = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
-const auth           = getAuth(app);
-const db             = getFirestore(app);
-const googleProvider = new GoogleAuthProvider();
 
 // ============================================================
 // API KEYS & CONFIG

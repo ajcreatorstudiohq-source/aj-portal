@@ -270,11 +270,7 @@ async function handle(request: Request) {
       source: 'offerwall',
       coins: userReward,
       settledPayoutUsd: params.payout > 0 ? providerPayoutUsd : undefined,
-<<<<<<< HEAD
       bookAdminEarnings: true,
-=======
-      bookAdminEarnings: params.payout > 0,
->>>>>>> 411abd33f046e3201e9fa295cdd97806f47885a9
       meta: {
         provider: looksLikeTheorem ? 'theoremreach' : params.provider || 'offerwall',
         providerPayout: providerPayoutUsd,

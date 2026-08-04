@@ -35,6 +35,9 @@ export function buildAdsterraDirectLink(opts?: {
       const psid = sid ? `aj_${uid}__${sid}` : `aj_${uid}`;
       url.searchParams.set('psid', psid);
       url.searchParams.set('subid', uid);
+      url.searchParams.set('subid1', uid);
+      url.searchParams.set('user_id', uid);
+      if (sid) url.searchParams.set('subid2', sid);
     }
     // Tracker macros — same postback credits every format 70/30
     url.searchParams.set('aj_fmt', format);
@@ -45,15 +48,19 @@ export function buildAdsterraDirectLink(opts?: {
   }
 }
 
+export function parseAdsterraPsid(raw: string): { uid: string; sessionId: string } {
+  const s = String(raw || '').trim();
+  if (!s) return { uid: '', sessionId: '' };
+  if (!s.startsWith('aj_')) return { uid: s, sessionId: '' };
+  const rest = s.slice(3);
+  const sep = rest.indexOf('__');
+  if (sep >= 0) {
+    return { uid: rest.slice(0, sep).trim(), sessionId: rest.slice(sep + 2).trim() };
+  }
+  return { uid: rest.trim(), sessionId: '' };
+}
+
 /** Parse Firebase uid from Adsterra psid / subid macros. */
 export function uidFromAdsterraPsid(raw: string): string {
-  const s = String(raw || '').trim();
-  if (!s) return '';
-  if (s.startsWith('aj_')) {
-    const rest = s.slice(3);
-    // aj_{uid} or aj_{uid}__{session}
-    const sep = rest.indexOf('__');
-    return (sep >= 0 ? rest.slice(0, sep) : rest).trim();
-  }
-  return s;
+  return parseAdsterraPsid(raw).uid;
 }

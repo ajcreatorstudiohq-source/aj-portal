@@ -111,7 +111,6 @@ export default function RootLayout({
         <meta property="og:image:height" content="630" />
         <meta property="og:image:alt" content={SITE_TITLE} />
         <meta name="twitter:card" content="summary_large_image" />
-<<<<<<< HEAD
         {/* iOS / Safari compatibility & PWA fallbacks */}
         <meta name="viewport" content="width=device-width,initial-scale=1" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -120,8 +119,6 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/logo.png" />
         <meta name="theme-color" content="#000000" />
         <meta name="format-detection" content="telephone=no" />
-=======
->>>>>>> 411abd33f046e3201e9fa295cdd97806f47885a9
         <meta name="twitter:title" content={SITE_TITLE} />
         <meta name="twitter:description" content={SITE_DESCRIPTION} />
         <meta name="twitter:image" content={OG_IMAGE} />

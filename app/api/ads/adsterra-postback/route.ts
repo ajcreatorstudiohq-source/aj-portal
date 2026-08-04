@@ -33,12 +33,27 @@ const POSTBACK_SECRET =
  */
 function readParams(url: URL, body: Record<string, unknown>) {
   const g = (k: string) => String(url.searchParams.get(k) || body[k] || '');
-  const psid = g('psid') || g('placement_sub_id') || g('subid_short') || '';
-  const subid = g('subid') || g('sub_id') || '';
+  const psid =
+    g('psid') ||
+    g('placement_sub_id') ||
+    g('placement_subid') ||
+    g('subid_short') ||
+    '';
+  const subid =
+    g('subid') ||
+    g('subid1') ||
+    g('subid2') ||
+    g('subid3') ||
+    g('sub_id') ||
+    g('user_id') ||
+    '';
   const uidRaw =
     g('userId') ||
     g('user_id') ||
     g('uid') ||
+    g('external_id') ||
+    g('player_id') ||
+    g('playerid') ||
     subid ||
     uidFromAdsterraPsid(psid) ||
     '';
