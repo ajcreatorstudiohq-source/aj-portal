@@ -2,7 +2,7 @@
  * Canonical multi-source earning channels for AJ Super Portal.
  *
  * Coin amounts (ad-backed social + games):
- * - Watch Ads (rewarded) → 5
+ * - Watch Ads (rewarded) → 2
  * - Math / Captcha → 2 each (open Adsterra)
  * - TikReel / Pulse post → 2 each (in-feed ads)
  * - Referral → 5

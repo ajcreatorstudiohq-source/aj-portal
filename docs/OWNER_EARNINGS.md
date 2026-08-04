@@ -14,7 +14,7 @@ Modest coins on posts / games / referral are OK because those surfaces also run 
 PK takes **100 coins from each player** (200 total) and opens ads on **start + end**.
 AI Trading Bot keeps daily % on invested coins so the feature stays useful.
 
-Watch Ads = **5** · Math/Captcha = **2** each · Posts = **2** · Referral = **5** · Games = **5**.
+Watch Ads = **2** · Math/Captcha = **2** each · Posts = **2** · Referral = **5** · Games = **5**.
 
 ## Adsterra Direct Link / Watch Ads (no-loss)
 
@@ -29,7 +29,7 @@ Adsterra aapko click ka **100%** deta hai (dashboard). App usi `$` se split kart
 
 | Action | Coins | Notes |
 |---|---|---|
-| Watch Ads (rewarded) | **5** | Adsterra Direct Link |
+| Watch Ads (rewarded) | **2** | Adsterra Direct Link |
 | Math Challenge | **2** | Opens Adsterra |
 | Alpha Captcha | **2** | Opens Adsterra |
 | TikReel / Pulse post | **2** | In-feed ads |

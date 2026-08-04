@@ -318,7 +318,7 @@ export default function HubEarnPanel({ user, onAlert, onRefreshUser }: Props) {
             <div className="min-w-0">
               <p className="text-[12px] font-black text-white leading-tight">Watch Ads</p>
               <p className="text-[9px] font-black uppercase tracking-wider text-rose-300 mt-1">
-                30s verify · real payout coins
+                30s verify · real payout coins · +2 AJ Coins expected
               </p>
             </div>
           </div>

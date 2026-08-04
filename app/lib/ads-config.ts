@@ -79,7 +79,7 @@ export const ADSTERRA_CLICK_USD = 0;
 export const AD_CLICK_VALUE_USD = 0;
 
 /** @deprecated Fixed invent-coins removed — display hint only until real payout posts */
-export const ADSTERRA_REWARD_COINS = 0;
+export const ADSTERRA_REWARD_COINS = 2;
 
 /** Watch-ad verification timer (quality signal) before session marked verified */
 export const ADSTERRA_VERIFY_SECONDS = 30;

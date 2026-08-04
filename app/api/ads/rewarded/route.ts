@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { FieldValue, getAdminDb, getFirebaseAdminDiag } from '../../../lib/firebase-admin';
-import { OFFERWALL_VIDEO_MAX_DAILY } from '../../../lib/ads-config';
+import { ADSTERRA_REWARD_COINS, OFFERWALL_VIDEO_MAX_DAILY } from '../../../lib/ads-config';
 import { PLATFORM_EARN_SHARE, USER_EARN_SHARE } from '../../../lib/economy';
 import {
   bearerFromRequest,
@@ -105,7 +105,7 @@ export async function POST(request: Request) {
             expiresAt,
             createdAtMs,
             remainingToday: Math.max(0, OFFERWALL_VIDEO_MAX_DAILY - dailyCount),
-            rewardCoins: 0,
+            rewardCoins: ADSTERRA_REWARD_COINS,
             inventsCoins: false,
             persistClient: false,
           });
@@ -121,7 +121,7 @@ export async function POST(request: Request) {
         expiresAt,
         createdAtMs,
         remainingToday: Math.max(0, OFFERWALL_VIDEO_MAX_DAILY - dailyCount),
-        rewardCoins: 0,
+        rewardCoins: ADSTERRA_REWARD_COINS,
         inventsCoins: false,
         persistClient: true,
         sessionPayload,
@@ -459,7 +459,7 @@ export async function GET() {
     return NextResponse.json({
       ok: true,
       maxDaily: OFFERWALL_VIDEO_MAX_DAILY,
-      rewardCoins: 0,
+      rewardCoins: ADSTERRA_REWARD_COINS,
       inventsCoins: false,
       settledPostback: '/api/ads/adsterra-postback',
       split: { user: USER_EARN_SHARE, admin: PLATFORM_EARN_SHARE },

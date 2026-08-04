@@ -5,6 +5,7 @@ import { ExternalLink, Gift, Loader2, Play, X } from 'lucide-react';
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import {
+  ADSTERRA_REWARD_COINS,
   ADSTERRA_VERIFY_SECONDS,
   OFFERWALL_VIDEO_MAX_DAILY,
   REWARDED_VIDEO_COOLDOWN_MS,
@@ -1018,7 +1019,7 @@ export default function RewardedVideoOffer({ user, onAlert, onRefreshUser }: Pro
         <div className="min-w-0 flex-1">
           <p className="text-sm font-black text-white">Watch Ads</p>
           <p className="text-[11px] text-gray-300 leading-relaxed mt-0.5">
-            Open Adsterra and stay {ADSTERRA_VERIFY_SECONDS}s. Coins credit only from the{' '}
+            Open Adsterra and stay {ADSTERRA_VERIFY_SECONDS}s. Expected reward: +{ADSTERRA_REWARD_COINS} AJ Coins (~$0.002). Coins credit only from the{' '}
             <span className="text-sky-300 font-bold">real Adsterra payout</span> as your
             standard reward.
           </p>
